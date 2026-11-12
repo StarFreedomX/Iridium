@@ -84,3 +84,11 @@ type ChannelSetup struct {
 type People struct {
 	People []string `json:"people"`
 }
+
+// AgentChoices is what a new agent of a kind may be started with at a machine, as the latest
+// session of that kind there said it: its models (each with its own efforts) and efforts. None
+// known (no session of the kind ran there yet): empty, and the agent's own defaults go.
+type AgentChoices struct {
+	Models  []Model  `json:"models"`
+	Efforts []string `json:"efforts"`
+}

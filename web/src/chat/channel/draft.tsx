@@ -17,7 +17,7 @@ export type Extra = { text?: string; members?: ChannelSetup };
 
 /** first: the agent picked above. kinds: those the folder's machine offers. armed: the popup was
  *  opened (arm says so): the message's line shows, and start makes the session. */
-export default function DraftFoot({ first, kinds, armed, arm, busy, start }: { first: Agent; kinds: Agent[]; armed: boolean; arm: () => void; busy: boolean; start: (x: Extra) => void }) {
+export default function DraftFoot({ first, kinds, machine, armed, arm, busy, start }: { first: Agent; kinds: Agent[]; machine?: string; armed: boolean; arm: () => void; busy: boolean; start: (x: Extra) => void }) {
   useLang();
   const me = useMe().data;
   const [d, setD] = useState<Omit<Draft, "first"> & { nick: string; recv: string }>({ more: [], people: [EVERYONE], nick: "", recv: "all" });
@@ -37,6 +37,7 @@ export default function DraftFoot({ first, kinds, armed, arm, busy, start }: { f
     confirm: false,
     kinds,
     hint: (l) => nicks[lines.findIndex((x) => x.key === l.key)] ?? "",
+    at: { machine: machine ?? "" },
     options: () => ({ models: [], levels: [] }),
     add: (m) => setD((x) => ({ ...x, more: [...x.more, m] })),
     remove: (l) => setD((x) => ({ ...x, more: x.more.filter((_, i) => i !== at(l)) })),

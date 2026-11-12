@@ -57,7 +57,7 @@ import type {
 } from "./types.gen";
 import type { ShellOutput, ShellRun, ShellStarted } from "./types.gen";
 import type { SecretInfo, Secrets, SetSecret, Usage } from "./types.gen";
-import type { ChannelMembers, Injection, MemberPatch, NewMember } from "./types.gen";
+import type { AgentChoices, ChannelMembers, Injection, MemberPatch, NewMember } from "./types.gen";
 
 /** A message of a channel's log (Satori's message.list): id its number there. */
 export type ChannelMessage = { id: string; content: string; created_at?: number; user?: { id: string; name?: string; nick?: string; is_bot?: boolean }; _data?: { kind?: string; event?: unknown } };
@@ -251,6 +251,9 @@ export const api = {
   setPeople: (id: string, people: string[]) => write<ChannelMembers>("PUT", `/v1/internal/channels/${enc(id)}/people`, { people }),
   /** What the channel gave session id's agent, the newest first. */
   injections: (id: string) => get<Injection[]>(`${S(id)}/injections`),
+  /** What a new agent of a kind may start with, where a channel runs or at a machine. */
+  agentChoices: (agent: string, at: { channel?: string; machine?: string }) =>
+    get<AgentChoices>(`/v1/internal/agents/${encodeURIComponent(agent)}/choices?${new URLSearchParams(Object.entries(at).filter(([, v]) => v) as [string, string][])}`),
   /** A block's whole text: internal/block.get, untruncated. */
   block: async (id: string, at: string): Promise<{ text: string }> => ({ text: blockOf(await sat<SatoriMessage>("internal/block.get", { channel_id: id, message_id: at })).text ?? "" }),
   /** A session started: Satori's channel.create, its group guild_id, its launcher data.parent_id. */

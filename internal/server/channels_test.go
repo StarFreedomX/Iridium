@@ -85,6 +85,19 @@ func TestChannelOfSeveral(t *testing.T) {
 		t.Errorf("members by a member's id: %+v", again)
 	}
 
+	// What a new agent of the kind may start with here: as the latest session of it said.
+	var choices api.AgentChoices
+	l.want(200, "web", "GET", "/v1/internal/agents/claude/choices?channel="+ch, nil, &choices)
+	var first api.SessionState
+	l.do("web", "GET", "/v1/internal/sessions/"+ch, nil, &first)
+	if len(choices.Models) != len(first.Models) || choices.Models == nil || choices.Efforts == nil {
+		t.Errorf("choices: %+v, the session's %+v", choices, first.Models)
+	}
+	l.want(200, "web", "GET", "/v1/internal/agents/pi/choices", nil, &choices)
+	if len(choices.Models) != 0 {
+		t.Errorf("choices of a kind that never ran: %+v", choices)
+	}
+
 	// Nobody named: the first agent alone answers; the second is given nothing.
 	code, r := l.send("web", ch, api.Send{Text: "plain words"})
 	if code != 200 || r.Seq == 0 {

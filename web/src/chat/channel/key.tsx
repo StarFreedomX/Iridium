@@ -33,6 +33,9 @@ export type Ctl = {
   me?: string;
   readOnly: boolean;
   kinds?: Agent[];
+  /** Where a new agent would run: the channel, or (a draft) the folder's machine; its choices
+   *  are asked there when options knows none. */
+  at?: { channel?: string; machine?: string };
   options: (kind: Agent) => Options;
   add: (m: NewMember) => Promise<void> | void;
   remove: (l: Line) => Promise<void> | void;
@@ -71,6 +74,7 @@ export function useChannelCtl(channel: string, members: ChannelMembers | undefin
     me: members?.me,
     readOnly: !mayAct(members) || !members,
     confirm: true,
+    at: { channel },
     options: (kind) => {
       const peer = agents.find((m) => m.agent === kind);
       const st = peer && getCarried<SessionState>(`session:${peer.session}`);

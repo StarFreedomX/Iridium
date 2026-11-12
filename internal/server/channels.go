@@ -84,6 +84,7 @@ func (s *Server) channelRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PATCH /v1/internal/channels/{id}/members/{member}", s.memberPatch)
 	mux.HandleFunc("DELETE /v1/internal/channels/{id}/members/{member}", s.memberRemove)
 	mux.HandleFunc("PUT /v1/internal/channels/{id}/people", s.peoplePut)
+	mux.HandleFunc("GET /v1/internal/agents/{agent}/choices", s.agentChoices)
 	mux.HandleFunc("GET /v1/internal/sessions/{id}/injections", s.use(s.injections))
 }
 
@@ -396,6 +397,45 @@ func (s *Server) setUp(ctx context.Context, c caller, id string, setup api.Chann
 		}
 	}
 	return failed
+}
+
+// choicesTried is how many sessions of a kind are asked for their models, the latest first.
+const choicesTried = 30
+
+// agentChoices is what a new agent of kind {agent} may be started with: at ?machine= (none:
+// here), or where ?channel= runs. No harness lists its models before it runs, so they are those
+// the latest hosted session of the kind there has.
+func (s *Server) agentChoices(w http.ResponseWriter, r *http.Request) {
+	c := callerOf(r)
+	kind, machine := api.Agent(r.PathValue("agent")), r.URL.Query().Get("machine")
+	if ch := r.URL.Query().Get("channel"); ch != "" {
+		_, st, err := s.seeingChannel(c, ch)
+		if err != nil {
+			s.error(w, err)
+			return
+		}
+		machine = st.Machine
+	}
+	out := api.AgentChoices{Models: []api.Model{}, Efforts: []string{}}
+	list, err := s.m.List(r.Context())
+	if err != nil {
+		s.fault(w, err)
+		return
+	}
+	tried := 0
+	for _, ss := range list {
+		if ss.Agent != kind || !ss.Hosted || ss.Machine != machine || (!c.Host() && !s.sees(s.permsFor(c), ss)) {
+			continue
+		}
+		if tried++; tried > choicesTried {
+			break
+		}
+		if st, err := s.m.State(ss.ID); err == nil && len(st.Models) > 0 {
+			out.Models, out.Efforts = st.Models, append(out.Efforts, st.Efforts...)
+			break
+		}
+	}
+	reply(w, http.StatusOK, out)
 }
 
 // memberRow is member of channel ch as written.

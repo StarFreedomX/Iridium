@@ -61,6 +61,7 @@ guild.get {guild_id} -> Guild  one folder group
 upload.create {channel_id} -> {field: url}  multipart: files for a session, each an internal: url for <img>/<file>
 
 # sessions
+GET internal/agents/{agent}/choices?machine&channel - -> AgentChoices  the models and efforts a new agent of that kind may start with (at a machine, or where a channel runs), as its latest session there said them; none known: empty
 GET internal/agents - -> AgentInfo[]  agents that can start here, their modes  view=agent,modes,defaultMode,missing
 GET internal/sessions/{id}/image?at&n - -> image  the n-th image a tool result gave the model
 POST internal/sessions/{id}/release {toolUseId, dismiss?} -> {ok}  run a step auto mode denied under manual; person only

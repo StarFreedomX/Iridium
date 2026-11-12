@@ -375,7 +375,7 @@ export function NewSession({ ws, folder, onFolder, onPick, busy, onMake }: { ws:
       )}
       {chosen && (
         <Suspense fallback={<div className="h-7 pointer-coarse:h-9" />}>
-          <DraftFoot first={chosen} kinds={kinds} armed={armed} arm={() => setArmed(true)} busy={busy !== null} start={begin} />
+          <DraftFoot first={chosen} kinds={kinds} machine={there?.m.id} armed={armed} arm={() => setArmed(true)} busy={busy !== null} start={begin} />
         </Suspense>
       )}
     </div>
