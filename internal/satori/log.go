@@ -78,6 +78,9 @@ func (s *Service) authorOf(m channel.Message, agentsSeen map[string]*User) *User
 		}
 		return u
 	}
+	if m.Author == NoteUser {
+		return &User{ID: NoteUser, Name: "Iridium", IsBot: true}
+	}
 	return &User{ID: m.Author, Name: m.Name}
 }
 
@@ -117,6 +120,9 @@ func (s *Service) tell(m channel.Message, kind, origin string, denied int) {
 		msg.Content = Escape(s.b.Mask(strings.TrimSpace(m.Text + fmt.Sprintf("\n\n（auto 拦了 %d 步）", denied))))
 	}
 	s.emitOf(st.Session, m.D.Session, Event{Type: "message-created", Message: &msg, User: msg.User}, m.D.Files, kind, origin)
+	if s.onSaid != nil && m.Kind == channel.KindSaid {
+		s.onSaid(m)
+	}
 }
 
 // hear: session's agent said text. What its record has that the channel has not is told (a

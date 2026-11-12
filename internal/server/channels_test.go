@@ -1,0 +1,151 @@
+package server
+
+import (
+	"fmt"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/kumoSleeping/iridium/internal/api"
+	"github.com/kumoSleeping/iridium/internal/satori"
+)
+
+// said are channel id's messages as as sees them: "<n> <who> <words>" each.
+func (l *live) said(as, id string) []string {
+	l.t.Helper()
+	var page satori.BidiList[satori.Message]
+	l.wantSat(200, as, "message.list", map[string]any{"channel_id": id, "limit": 200}, &page)
+	var out []string
+	for _, m := range page.Data {
+		who := m.User.ID
+		if m.User.Nick != "" {
+			who = "@" + m.User.Nick
+		}
+		out = append(out, fmt.Sprintf("%s %s %s", m.ID, who, m.Content))
+	}
+	return out
+}
+
+// waitSaid waits until one of channel id's messages has every one of parts.
+func (l *live) waitSaid(as, id string, parts ...string) []string {
+	l.t.Helper()
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(30 * time.Millisecond) {
+		all := l.said(as, id)
+		for _, m := range all {
+			ok := true
+			for _, p := range parts {
+				ok = ok && strings.Contains(m, p)
+			}
+			if ok {
+				return all
+			}
+		}
+		if time.Now().After(deadline) {
+			l.t.Fatalf("no message with %q in %s:\n%s", parts, id, strings.Join(all, "\n"))
+		}
+	}
+}
+
+// A channel of two agents: the first keeps receiving what people say, the one added only what
+// names it; each is given the words under their number and what it has not seen of the channel,
+// never the other's record; an agent naming another passes the chain on, four times at most.
+func TestChannelOfSeveral(t *testing.T) {
+	t.Parallel()
+	l := start(t)
+	ch := l.create(200, "web", api.NewSession{Agent: api.AgentClaude, Cwd: l.work, Text: "first"})
+	l.waitReply("web", ch, "ok: first")
+
+	// One agent: the default members, nothing written.
+	var ms api.ChannelMembers
+	l.want(200, "web", "GET", "/v1/internal/channels/"+ch+"/members", nil, &ms)
+	if ms.Multi || len(ms.Members) != 2 || ms.Members[0].Member != "ir_web/*" || ms.Members[1].Session != ch || ms.Members[1].Recv != "all" {
+		t.Fatalf("default members: %+v", ms)
+	}
+
+	// A second agent joins: a nick of its own, only what names it.
+	l.want(400, "web", "POST", "/v1/internal/channels/"+ch+"/members", api.NewMember{Agent: api.AgentClaude, Nick: "a b"}, nil)
+	l.want(200, "web", "POST", "/v1/internal/channels/"+ch+"/members", api.NewMember{Agent: api.AgentClaude}, &ms)
+	if !ms.Multi || len(ms.Members) != 3 || ms.Members[1].Nick != "claude" || ms.Members[2].Nick != "claude2" || ms.Members[2].Recv != "at" || ms.Members[2].Name == "" {
+		t.Fatalf("members: %+v", ms)
+	}
+	second := ms.Members[2].Session
+	if second == "" || second == ch {
+		t.Fatalf("the second agent's session: %+v", ms.Members[2])
+	}
+	// The same from either's id.
+	var again api.ChannelMembers
+	if l.want(200, "web", "GET", "/v1/internal/channels/"+second+"/members", nil, &again); again.Channel != ch {
+		t.Errorf("members by a member's id: %+v", again)
+	}
+
+	// Nobody named: the first agent alone answers; the second is given nothing.
+	code, r := l.send("web", ch, api.Send{Text: "plain words"})
+	if code != 200 || r.Seq == 0 {
+		t.Fatalf("send: %d %+v", code, r)
+	}
+	l.waitSaid("web", ch, "@claude ", fmt.Sprintf("ok: #%d: plain words", r.Seq))
+	if p := l.page("web", second); len(p.Blocks) != 0 {
+		t.Errorf("the second agent was given: %+v", p.Blocks)
+	}
+
+	// Named: it gets the words under their number and what it has not seen, each message once.
+	code, r = l.send("web", ch, api.Send{Text: "now @claude2 look"})
+	if code != 200 {
+		t.Fatalf("send naming: %d %+v", code, r)
+	}
+	all := l.waitSaid("web", ch, "@claude2 ", fmt.Sprintf("ok: #%d: now @claude2 look", r.Seq))
+	p := l.page("web", second)
+	if len(p.Blocks) == 0 || p.Blocks[0].Kind != api.BlockKindUser {
+		t.Fatalf("the second agent's record: %+v", p.Blocks)
+	}
+	got := p.Blocks[0].Text
+	for _, want := range []string{fmt.Sprintf("#%d: now @claude2 look", r.Seq), "<channel-context>", "You are claude2", "claude (", "]: first\n", "]: ok: first\n", "]: plain words\n", "</channel-context>"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("given without %q:\n%s", want, got)
+		}
+	}
+	if strings.Count(got, "plain words") != 2 { // the words, and the first agent's echo of them
+		t.Errorf("given twice:\n%s", got)
+	}
+
+	// What it was given is kept: where each part came from.
+	var ins []api.Injection
+	l.want(200, "web", "GET", "/v1/internal/sessions/"+second+"/injections", nil, &ins)
+	if n := len(ins); n == 0 || ins[n-1].Seq != r.Seq || !strings.Contains(string(ins[n-1].Record), `"prompts:channel.context.members"`) || strings.Contains(string(ins[n-1].Record), "plain words") {
+		t.Errorf("injections: %+v", ins)
+	}
+
+	// The fake agents echo what they get: with both named, each echo calls the other, until four
+	// agents in a row have passed it on; then the channel says it stops, and it does.
+	if code, _ := l.send("web", ch, api.Send{Text: "@claude and @claude2: ping"}); code != 200 {
+		t.Fatalf("send to both: %d", code)
+	}
+	all = l.waitSaid("web", ch, "iridium", "未转交")
+	time.Sleep(500 * time.Millisecond)
+	if after := l.said("web", ch); len(after) > len(all)+4 {
+		t.Errorf("it goes on: %d then %d messages", len(all), len(after))
+	}
+	_ = all
+
+	// A member's record is its own: the other agent's ir does not read it; a person does.
+	if code := l.sat("agent-in:"+ch, "internal/block.list", map[string]any{"channel_id": second}, nil); code != 403 {
+		t.Errorf("an agent reading the other's record: %d", code)
+	}
+	if code := l.sat("agent-in:"+ch, "internal/block.list", map[string]any{"channel_id": ch}, nil); code != 200 {
+		t.Errorf("an agent reading its own record: %d", code)
+	}
+	if code := l.sat("agent-in:"+ch, "message.list", map[string]any{"channel_id": "self"}, nil); code != 200 {
+		t.Errorf("an agent reading its channel: %d", code)
+	}
+	// An agent leaves: its session archived, the channel one agent's again.
+	l.want(200, "web", "DELETE", "/v1/internal/channels/"+ch+"/members/agent:"+second, nil, &ms)
+	if ms.Multi || len(ms.Members) != 2 {
+		t.Fatalf("after it left: %+v", ms)
+	}
+	l.want(422, "web", "DELETE", "/v1/internal/channels/"+ch+"/members/agent:"+ch, nil, nil)
+	code, r = l.send("web", ch, api.Send{Text: "alone again"})
+	if code != 200 {
+		t.Fatalf("send alone: %d", code)
+	}
+	l.waitSaid("web", ch, "ok: alone again")
+}

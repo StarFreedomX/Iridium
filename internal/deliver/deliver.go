@@ -1,0 +1,123 @@
+// Package deliver decides who a message said in a channel wakes (docs/channels.md "投递"): pure
+// rules over the message's words, who said it and the channel's agents. It sends nothing.
+package deliver
+
+import (
+	"strings"
+	"unicode"
+)
+
+// MaxHops is how many agents in a row may pass a chain on since a person last spoke.
+const MaxHops = 4
+
+// Agent is an agent of the channel: the session it is, the nick it is called by, and whether
+// it receives everything people say (All) or only what names it.
+type Agent struct {
+	Session string
+	Nick    string
+	All     bool
+}
+
+// Decision is what a message does. Wake: the sessions it is delivered to, in the channel's
+// order; Named: the nicks it names (itself aside); TooFar: an agent's message that names
+// someone but comes after MaxHops agents in a row, so it wakes nobody.
+type Decision struct {
+	Wake   []string
+	Named  []string
+	TooFar bool
+}
+
+// Route decides for a message with words text. from: the session of the agent that said it,
+// "" for a person; hop: how many agents passed the chain on before it. A person's message wakes
+// the agents it names and those that receive everything; an agent's, only those it names:
+// agents do not wake each other by merely speaking.
+func Route(text, from string, hop int, agents []Agent) Decision {
+	var nicks []string
+	for _, a := range agents {
+		if a.Session != from {
+			nicks = append(nicks, a.Nick)
+		}
+	}
+	var d Decision
+	d.Named = Mentions(text, nicks)
+	named := map[string]bool{}
+	for _, n := range d.Named {
+		named[strings.ToLower(n)] = true
+	}
+	if from != "" && len(d.Named) > 0 && hop >= MaxHops {
+		d.TooFar = true
+		return d
+	}
+	for _, a := range agents {
+		if a.Session == from {
+			continue
+		}
+		if named[strings.ToLower(a.Nick)] || (from == "" && a.All) {
+			d.Wake = append(d.Wake, a.Session)
+		}
+	}
+	return d
+}
+
+// ValidNick: a nick is letters, digits, "_" and "-", at most 32 of them, so that "@nick"
+// stands out of any words.
+func ValidNick(n string) bool {
+	if n == "" || len([]rune(n)) > 32 {
+		return false
+	}
+	for _, r := range n {
+		if !nickRune(r) {
+			return false
+		}
+	}
+	return true
+}
+
+func nickRune(r rune) bool {
+	return r == '_' || r == '-' || unicode.IsLetter(r) || unicode.IsDigit(r)
+}
+
+// Mentions are the nicks (of those given, as given, each once, in the order named) that text
+// calls: "@nick" standing by itself (not inside a word, an address or a longer name), outside
+// code (a fenced block, an inline span) and outside quoted lines ("> "). Case does not matter.
+func Mentions(text string, nicks []string) []string {
+	if len(nicks) == 0 || !strings.Contains(text, "@") {
+		return nil
+	}
+	by := map[string]string{}
+	for _, n := range nicks {
+		by[strings.ToLower(n)] = n
+	}
+	var out []string
+	seen := map[string]bool{}
+	fenced := false
+	for _, line := range strings.Split(text, "\n") {
+		t := strings.TrimSpace(line)
+		if strings.HasPrefix(t, "```") || strings.HasPrefix(t, "~~~") {
+			fenced = !fenced
+			continue
+		}
+		if fenced || strings.HasPrefix(t, ">") {
+			continue
+		}
+		rs := []rune(line)
+		code := false
+		for i := 0; i < len(rs); i++ {
+			switch {
+			case rs[i] == '`':
+				code = !code
+			case rs[i] == '@' && !code && (i == 0 || !nickRune(rs[i-1]) && rs[i-1] != '@' && rs[i-1] != '/' && rs[i-1] != '.'):
+				j := i + 1
+				for j < len(rs) && nickRune(rs[j]) {
+					j++
+				}
+				if n, ok := by[strings.ToLower(string(rs[i+1:j]))]; ok && !seen[n] {
+					seen[n] = true
+					out = append(out, n)
+				}
+				i = j - 1
+			}
+		}
+	}
+	return out
+}

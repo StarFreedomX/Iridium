@@ -1,0 +1,1 @@
+ […{{left}} more characters: ir api message.get channel_id=self message_id={{seq}}]

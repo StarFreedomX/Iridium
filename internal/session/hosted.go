@@ -271,7 +271,7 @@ func (h *Hosted) launch(ctx context.Context, proc int) error {
 		return err
 	}
 	prompt := filepath.Join(h.dir, filePrompt)
-	where := assemble.Where{Lang: m.tuned().Lang}
+	where := assemble.Where{Lang: m.tuned().Lang, Channel: m.inChannel(h.id)}
 	if mc := h.machine(); mc != nil {
 		hi, _ := mc.Hello()
 		where.Remote, where.IR = true, hi != nil && hi.IRClient

@@ -56,6 +56,17 @@ func (h *Hosted) updateTail(f *transcript.File, old, size int64) {
 // Annotate fills in blocks' Files (files.Service.AnnotateBlocks): what they name that exists.
 type Annotate func(session, cwd string, blocks []api.Block)
 
+// SetInChannel has f say whether a session is one agent of several in a channel
+// (docs/channels.md): its system prompt says so, in place of the line about titling.
+func (m *Manager) SetInChannel(f func(id string) bool) { m.inChan.Store(&f) }
+
+func (m *Manager) inChannel(id string) bool {
+	if f := m.inChan.Load(); f != nil {
+		return (*f)(id)
+	}
+	return false
+}
+
 // SetAnnotate makes the tails of the sessions' states carry the files their blocks name, as a
 // page of messages does. The server sets it; it comes after the manager.
 func (m *Manager) SetAnnotate(a Annotate) { m.annotate.Store(&a) }

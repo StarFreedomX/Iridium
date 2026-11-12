@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -82,6 +83,7 @@ type Server struct {
 	files *files.Service   // routes_files.go
 	sat   *satori.Service  // /v1/: Satori with ir (satori.go)
 	ch    *channel.Service // what is said in the channels (docs/channels.md)
+	chain chains           // the chain each agent's turn is in (channels.go)
 	// stopList stops giving Satori the session list (its channel events).
 	stopList func()
 }
@@ -103,6 +105,8 @@ func New(cfg config.Config, m *session.Manager, h *hub.Hub, logf func(string, ..
 	s.ch = channel.New(s.st, m, logf)
 	s.sat = satori.New(satoriBackend{s}, logf)
 	s.sat.Channels(s.ch)
+	s.sat.OnSaid(s.routeSaid)
+	m.SetInChannel(s.inMulti)
 	s.sat.Keep(satoriKeeper{s.st})
 	m.Watch(s.sat.Notice)
 	lctx, lstop := context.WithCancel(context.Background())
@@ -169,7 +173,8 @@ func (s *Server) Handler(local bool) http.Handler {
 	s.updateRoutes(mux)
 	s.settingsRoutes(mux)
 	s.sessionRoutes(mux)
-	s.publicRoutes(mux) // publiclink.go
+	s.publicRoutes(mux)  // publiclink.go
+	s.channelRoutes(mux) // channels.go
 	s.pushRoutes(mux)
 	mux.HandleFunc("GET /v1/internal/exec", s.execConnect)
 	s.pairRoutes(mux)
@@ -304,6 +309,12 @@ func (e fileErr) Is(target error) bool { return target == errFiles }
 
 // sendAs sends req into session id as c, from (the source tag): what Satori's message.create does. /clear starts the session anew.
 func (s *Server) sendAs(ctx context.Context, c caller, from, id string, req api.Send) (api.SendReply, error) {
+	// A channel of several agents: said there, given to those it wakes (channels.go). A command
+	// is the agent's own that it is sent to, as ever.
+	command := strings.HasPrefix(strings.TrimSpace(req.Text), "/")
+	if ch := s.ch.Of(id); !command && s.multi(ch) {
+		return s.sendChannel(ctx, c, from, ch, id, req)
+	}
 	if err := s.checkSend(c, id); err != nil {
 		return api.SendReply{}, err
 	}
@@ -332,7 +343,7 @@ func (s *Server) sendAs(ctx context.Context, c caller, from, id string, req api.
 		req.ID = session.NewInputID()
 	}
 	var seq int64
-	if st, err := s.m.State(id); err == nil {
+	if st, err := s.m.State(id); err == nil && !command {
 		u := s.satoriUser(c)
 		if tag := s.m.SourceTag(from); tag != "" {
 			u.Name = tag // the name the agent sees it under

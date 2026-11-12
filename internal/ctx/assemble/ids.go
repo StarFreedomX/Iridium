@@ -17,4 +17,20 @@ const (
 	idRecoverCrash     = "recover.crash"      // Iridium's own line after a crash mid-turn
 	idRecoverQuota     = "recover.quota"      // and when the quota is back with nothing waiting
 	idAskDenied        = "ask.denied"         // a no without words
+
+	// A channel of several agents (channel.go).
+	idChannelSystem   = "channel.system"           // in place of title: one agent of several
+	idChannelMessage  = "channel.message"          // before the words: the message's number
+	idChannelOpen     = "channel.context.open"     // the block of what the channel said
+	idChannelMembers  = "channel.context.members"  // who the agent is there, who else, how to call
+	idChannelSkipped  = "channel.context.skipped"  // the earliest messages, not shown
+	idChannelListed   = "channel.context.listed"   // heads the turns listed
+	idChannelTurn     = "channel.context.turn"     // a turn in one line
+	idChannelAnswered = "channel.context.answered" // who answered in it
+	idChannelFull     = "channel.context.full"     // heads the messages in full
+	idChannelLine     = "channel.context.line"     // before a message in full: its number, who, when
+	idChannelCut      = "channel.context.cut"      // after one cut short: how to get the rest
+	idChannelPull     = "channel.context.pull"     // how to read more of the channel
+	idChannelClose    = "channel.context.close"
+	idNL              = "nl" // a line's end
 )

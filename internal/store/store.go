@@ -229,6 +229,18 @@ var schema = []string{
 	// 32: channels (channels.go): who is in one, what was said in it, and how far each agent's
 	// record has been read into it.
 	channelsSchema,
+	// 33: what each agent of a channel was given, turn by turn (channels.go "injections"): where
+	// every part of it came from, not the text.
+	`CREATE TABLE IF NOT EXISTS injections (
+		id      INTEGER PRIMARY KEY AUTOINCREMENT,
+		session TEXT NOT NULL,
+		channel TEXT NOT NULL DEFAULT '',
+		input   TEXT NOT NULL DEFAULT '',
+		seq     INTEGER NOT NULL DEFAULT 0,
+		at      INTEGER NOT NULL,
+		record  TEXT NOT NULL
+	);
+	CREATE INDEX IF NOT EXISTS injections_session ON injections (session, id);`,
 }
 
 // steps run in Go after the migration of their version, in the same transaction.

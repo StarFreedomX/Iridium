@@ -317,3 +317,55 @@ func AgentMember(session string) string { return "agent:" + session }
 func SessionOfMember(member string) (string, bool) {
 	return strings.CutPrefix(member, "agent:")
 }
+
+// ---- what an agent was given ----
+
+// Injection is what session's agent was given once (assemble.Record as JSON): for message Seq
+// of Channel, written to it as Input.
+type Injection struct {
+	ID      int64
+	Session string
+	Channel string
+	Input   string
+	Seq     int64
+	At      int64
+	Record  string
+}
+
+// InjectionsKept is how many a session keeps: the latest.
+const InjectionsKept = 200
+
+// AddInjection keeps in; the session's oldest beyond InjectionsKept go.
+func (s *Store) AddInjection(in Injection) error {
+	if in.At == 0 {
+		in.At = now()
+	}
+	if _, err := s.db.Exec(`INSERT INTO injections (session, channel, input, seq, at, record) VALUES (?, ?, ?, ?, ?, ?)`,
+		in.Session, in.Channel, in.Input, in.Seq, in.At, in.Record); err != nil {
+		return err
+	}
+	_, err := s.db.Exec(`DELETE FROM injections WHERE session = ? AND id <= (SELECT id FROM injections WHERE session = ? ORDER BY id DESC LIMIT 1 OFFSET ?)`,
+		in.Session, in.Session, InjectionsKept)
+	return err
+}
+
+// Injections are session's latest limit injections, newest first.
+func (s *Store) Injections(session string, limit int) ([]Injection, error) {
+	if limit <= 0 || limit > InjectionsKept {
+		limit = InjectionsKept
+	}
+	rows, err := s.db.Query(`SELECT id, session, channel, input, seq, at, record FROM injections WHERE session = ? ORDER BY id DESC LIMIT ?`, session, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Injection{}
+	for rows.Next() {
+		var in Injection
+		if err := rows.Scan(&in.ID, &in.Session, &in.Channel, &in.Input, &in.Seq, &in.At, &in.Record); err != nil {
+			return nil, err
+		}
+		out = append(out, in)
+	}
+	return out, rows.Err()
+}

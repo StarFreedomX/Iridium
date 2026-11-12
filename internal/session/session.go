@@ -98,6 +98,7 @@ type Manager struct {
 
 	tune     atomic.Pointer[Tunables] // tune.go
 	annotate atomic.Pointer[Annotate] // carry.go
+	inChan   atomic.Pointer[func(string) bool]
 }
 
 func New(o Options) (*Manager, error) {

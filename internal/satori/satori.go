@@ -142,6 +142,12 @@ var (
 	KeepMax = 10000
 )
 
+// RecordGuard is a Backend that keeps some records from some callers: an agent's ir does not
+// read the record of another agent it shares a channel with (docs/channels.md "隔离").
+type RecordGuard interface {
+	MayReadRecord(c Caller, session string) bool
+}
+
 // Service serves /v1/ and turns the sessions' notices into events.
 type Service struct {
 	b    Backend
@@ -157,6 +163,8 @@ type Service struct {
 
 	ch  channels
 	log *channel.Service // what was said in the channels (Channels)
+	// onSaid is told each message an agent said, as it is sent out (OnSaid).
+	onSaid func(channel.Message)
 
 	mu      sync.Mutex
 	held    map[string]channel.Message  // session: the agent's last message this turn, not sent yet
@@ -166,6 +174,23 @@ type Service struct {
 	picks   map[string]map[int][]string // an ask's card: the options pressed so far, by group
 	words   map[string]map[int]string   // an ask's card: own words so far, by group
 }
+
+// OnSaid has f told each thing an agent says in a channel, after the event of it is kept; f
+// must not wait.
+func (s *Service) OnSaid(f func(channel.Message)) { s.onSaid = f }
+
+// Note writes a line of Iridium's own into channel ch and tells those who see it (_data.kind
+// "note").
+func (s *Service) Note(ch, text, origin string) {
+	m, isNew, err := s.log.Say(channel.Message{ChannelMessage: store.ChannelMessage{Channel: ch, Author: NoteUser, Kind: channel.KindNote, Text: text, Origin: origin}})
+	if err != nil || !isNew {
+		return
+	}
+	s.tell(m, "note", origin, 0)
+}
+
+// NoteUser is the author of Iridium's own lines in a channel.
+const NoteUser = "iridium"
 
 // Channels gives the service the channels' log: what message.list reads and the events are of.
 func (s *Service) Channels(l *channel.Service) { s.log = l }

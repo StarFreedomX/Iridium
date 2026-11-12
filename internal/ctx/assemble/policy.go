@@ -10,6 +10,9 @@ type Where struct {
 	// Remote: at another machine than Iridium's own (an executor's). IR: that machine has ir
 	// (wire.Hello.IRClient); here there always is one.
 	Remote, IR bool
+	// Channel: the session is one agent of several in a channel (docs/channels.md): its title
+	// is the channel's, set by people.
+	Channel bool
 	// Lang is the user's language as the web settings set it ("zh", "en"); "": not known.
 	Lang string
 }
@@ -31,7 +34,12 @@ func systemPieces(w Where) []piece {
 	default:
 		ps = append(ps, text(idRemoteIntroBare))
 	}
-	ps = append(ps, text(idNames), text(idTitle))
+	ps = append(ps, text(idNames))
+	if w.Channel {
+		ps = append(ps, text(idChannelSystem))
+	} else {
+		ps = append(ps, text(idTitle))
+	}
 	if name := langs[w.Lang]; name != "" {
 		ps = append(ps, text(idLang).filled("language", name))
 	}

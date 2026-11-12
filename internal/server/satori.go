@@ -403,6 +403,16 @@ func (b satoriBackend) ServeFile(w http.ResponseWriter, r *http.Request, path st
 	b.s.files.ServeFile(w, r, path)
 }
 
+// MayReadRecord: an agent reads its own record, and those of sessions it shares no channel of
+// several with; a person, any they see.
+func (b satoriBackend) MayReadRecord(c satori.Caller, id string) bool {
+	cl := callerAs(c)
+	if !cl.agent || cl.session == "" || cl.session == id {
+		return true
+	}
+	return !b.s.inMulti(id)
+}
+
 func (b satoriBackend) Mask(text string) string { return b.s.MaskText(text) }
 
 // Fault: decision 28, what is not there is 422 with its code; 404 is the routes'.

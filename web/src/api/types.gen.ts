@@ -1113,6 +1113,70 @@ export interface PublicState {
 }
 
 //////////
+// source: channels.go
+
+/**
+ * ChannelMember is a member of a channel (docs/channels.md). Member: "agent:<session>", an
+ * app's login "<app>/<login>", or all of an app's "<app>/*". An agent's: Session, the session
+ * it is; Agent, its harness; Name, what it runs as now ("Claude Opus 5.5 High"); Nick, what it is
+ * called by in the channel (@nick); Status, its lamp. Recv: an agent's "all" (what people say)
+ * or "at" (only what names it); a person's "all" or "mine". Seen: the number of the last
+ * message the agent was given.
+ */
+export interface ChannelMember {
+  member: string;
+  session?: string;
+  agent?: Agent;
+  name?: string;
+  nick?: string;
+  recv: string;
+  seen?: number /* int64 */;
+  status?: Status;
+}
+/**
+ * ChannelMembers are a channel's members: Channel, its id; Multi, it has more than one agent
+ * (people call them by @nick; an agent then gets only what it is given).
+ */
+export interface ChannelMembers {
+  channel: string;
+  multi: boolean;
+  members: ChannelMember[];
+}
+/**
+ * NewMember adds an agent to a channel: a new session of Agent started in the channel's folder
+ * (Model, Mode, Effort, Preset as NewSession's), under Nick ("": one made), receiving Recv
+ * ("": "at").
+ */
+export interface NewMember {
+  agent: Agent;
+  model?: string;
+  mode?: string;
+  effort?: string;
+  preset?: string;
+  nick?: string;
+  recv?: string;
+}
+/**
+ * MemberPatch changes a member: its nick, what it receives.
+ */
+export interface MemberPatch {
+  nick?: string;
+  recv?: string;
+}
+/**
+ * Injection is what an agent was given once (docs/channels.md "可追溯"): for message Seq of
+ * its channel, as input Input, at At (ms); Record says where each part of it came from
+ * (assemble.Record: the fragment and its hash, the values its slots took, the messages cited).
+ */
+export interface Injection {
+  id: number /* int64 */;
+  seq?: number /* int64 */;
+  input?: string;
+  at: number /* int64 */;
+  record: any /* json.RawMessage */;
+}
+
+//////////
 // source: control.go
 
 /**

@@ -23,6 +23,11 @@ channel.delete {channel_id} -> {}  archive: its agent stops, the transcript stay
 guild.list {next?} -> List<Guild>  folder groups, then loose  view=id,name,_data.path
 message.list {channel_id, next?, direction?, limit?, order?} -> BidiList<Message>  what was said in the channel, each message under its number (its id); direction before|after|around, next a number  view=id,user.name,content
 message.get {channel_id, message_id} -> Message  one message, whole
+GET internal/channels/{id}/members - -> ChannelMembers  who is in the channel (id: it, or a member session): its agents (nick, recv all|at, name, status), the people; multi: more than one agent  view=members.member,members.nick,members.recv,members.name
+POST internal/channels/{id}/members {agent, model?, mode?, effort?, preset?, nick?, recv?} -> ChannelMembers  start a new agent in the channel's folder as a member (id=self: your own channel); it gets only what names it (@nick) unless recv=all
+PATCH internal/channels/{id}/members/{member} {nick?, recv?} -> ChannelMembers  rename a member (agent:<session>), change what it receives; person only
+DELETE internal/channels/{id}/members/{member} - -> ChannelMembers  take a member out, its session archived; person only
+GET internal/sessions/{id}/injections - -> Injection[]  what the agent was given by the channel, newest first: where each part came from  view=id,seq,at
 POST internal/block.list {channel_id, next?, direction?, limit?, order?, _data.blocks?} -> BidiList<Message>  a session's own record, a message a block (thinking, tool calls too)  view=id,content
   _data.blocks:=true: the page's blocks as Iridium keeps them too, in _data.blocks (kind, text, from, tool calls).
 POST internal/block.get {channel_id, message_id} -> Message  one block, untruncated

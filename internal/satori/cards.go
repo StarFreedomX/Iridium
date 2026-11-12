@@ -269,6 +269,15 @@ func (s *Service) serveInternal(w http.ResponseWriter, r *http.Request, name str
 			s.fail(w, bad("the body: "+err.Error()))
 			return
 		}
+		var which struct {
+			ChannelID string `json:"channel_id"`
+		}
+		if g, ok := s.b.(RecordGuard); ok && decode(body, &which) == nil && which.ChannelID != "" {
+			if id, err := s.sessionOf(c, which.ChannelID); err == nil && !g.MayReadRecord(c, id) {
+				s.fail(w, refuse(http.StatusForbidden, "not_yours", "another agent's record is its own: read the channel (message.list)"))
+				return
+			}
+		}
 		out, err := blocks(s, r.Context(), c, body)
 		if err != nil {
 			s.fail(w, err)
