@@ -180,3 +180,13 @@ describe("the list", () => {
     expect(givenParts({ parts: "x" })).toEqual([]);
   });
 });
+
+import { didOf } from "../src/chat/channel/lib";
+
+describe("didOf", () => {
+  test("reads what the agent did from the element after the words", () => {
+    const d = didOf('done<iridium:activity bash="3" failed="1" cmds="go 2, git 1" read="4" search="1" fetch="2" files="2" add="12" del="3" ms="900"><iridium:file path="/w/a &amp; b.go" add="10" del="3"/><iridium:file path="/w/c.go" add="2"/></iridium:activity>');
+    expect(d).toEqual({ bash: 3, failed: 1, cmds: "go 2, git 1", read: 4, web: 3, agents: 0, other: 0, files: 2, add: 12, del: 3, paths: [{ path: "/w/a & b.go", add: 10, del: 3 }, { path: "/w/c.go", add: 2, del: 0 }] });
+    expect(didOf("just words")).toBeUndefined();
+  });
+});

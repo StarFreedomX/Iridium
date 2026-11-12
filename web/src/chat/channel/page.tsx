@@ -28,7 +28,7 @@ import { Queue } from "../queue";
 import { PLACE_DRAG, SESSION_DRAG, sourceOf, yours } from "../refs";
 import { Assistant, Attached, Line, Pending, YouBubble } from "../said";
 import { Stick, toEnd } from "../stick";
-import { groupMessages, linkNicks, quotaKinds, stillWaiting, watchExtra, type AgentRow, type Group, type Msg } from "./lib";
+import { groupMessages, linkNicks, quotaKinds, stillWaiting, watchExtra, type AgentRow, type Did, type Group, type Msg } from "./lib";
 import { channelLog } from "./log";
 import { MemberBar } from "./members";
 import { Nicks, NickWords } from "./nick";
@@ -359,11 +359,31 @@ function GroupView({ g, channel, agents, who }: { g: Group; channel: string; age
       </div>
       {g.msgs.map((m) => (
         <div key={m.n} className={cn(m.kind === "error" && "text-err")}>
+          {m.did && <DidLine did={m.did} />}
           <Copyable copy={m.text}>
             <Assistant b={blockFor(m, nicks)} session={a.session} />
           </Copyable>
         </div>
       ))}
+    </div>
+  );
+}
+
+/** What the agent did before the words under it, in one quiet line; the files it changed on hover. */
+function DidLine({ did }: { did: Did }) {
+  useLang();
+  const parts: string[] = [];
+  if (did.bash) parts.push(`bash ${did.bash}${did.cmds ? `（${did.cmds}）` : ""}${did.failed ? t("channel.did.failed", { n: did.failed }) : ""}`);
+  if (did.files) parts.push(`${t("channel.did.files", { n: did.files })} +${did.add} −${did.del}`);
+  if (did.read) parts.push(t("channel.did.read", { n: did.read }));
+  if (did.web) parts.push(t("channel.did.web", { n: did.web }));
+  if (did.agents) parts.push(t("channel.did.agents", { n: did.agents }));
+  if (did.other) parts.push(t("channel.did.other", { n: did.other }));
+  if (!parts.length) return null;
+  const title = did.paths.map((f) => `${f.path}  +${f.add} −${f.del}`).join("\n");
+  return (
+    <div className="mb-1 truncate text-xs text-ink-3 tabular-nums" title={title || undefined}>
+      {parts.join(" · ")}
     </div>
   );
 }

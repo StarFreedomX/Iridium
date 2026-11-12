@@ -13,7 +13,31 @@ export type Author = { kind: "agent"; session: string; nick: string; name: strin
 
 /** A message of a channel: n, its number there. kind: as its event said it (user, progress, reply,
  *  ask, error, note); the log itself does not say. */
-export type Msg = { n: number; text: string; files: FileRef[]; time?: number; author: Author; kind?: string };
+export type Msg = { n: number; text: string; files: FileRef[]; time?: number; author: Author; kind?: string; did?: Did };
+
+/** What an agent did before it said a message (docs/channels.md "活动"): its tool calls counted,
+ *  the programs its commands began with (cmds, "go 4, git 2"), the files it changed. */
+export type Did = { bash: number; failed: number; cmds: string; read: number; web: number; agents: number; other: number; files: number; add: number; del: number; paths: { path: string; add: number; del: number }[] };
+
+const ATTR = /([a-z]+)="([^"]*)"/g;
+const unesc = (s: string) => s.replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+
+/** The <iridium:activity> of a message's content, if it has one. */
+export function didOf(content: string): Did | undefined {
+  const at = content.lastIndexOf("<iridium:activity");
+  if (at < 0) return undefined;
+  const rest = content.slice(at);
+  const head = rest.slice(0, rest.indexOf(">") + 1);
+  const a: Record<string, string> = {};
+  for (const m of head.matchAll(ATTR)) a[m[1]!] = unesc(m[2]!);
+  const num = (k: string) => Number(a[k] ?? 0) || 0;
+  const paths = [...rest.matchAll(/<iridium:file ([^>]*)\/>/g)].map((f) => {
+    const fa: Record<string, string> = {};
+    for (const m of f[1]!.matchAll(ATTR)) fa[m[1]!] = unesc(m[2]!);
+    return { path: fa.path ?? "", add: Number(fa.add ?? 0) || 0, del: Number(fa.del ?? 0) || 0 };
+  });
+  return { bash: num("bash"), failed: num("failed"), cmds: a.cmds ?? "", read: num("read"), web: num("search") + num("fetch"), agents: num("agents"), other: num("other"), files: num("files"), add: num("add"), del: num("del"), paths };
+}
 
 const AGENT = "agent:";
 
@@ -24,7 +48,7 @@ export function msgOf(m: ChannelMessage): Msg | undefined {
   const b = blockOf({ id: m.id, content: m.content, created_at: m.created_at });
   const u = m.user;
   const author: Author = u?.id.startsWith(AGENT) ? { kind: "agent", session: u.id.slice(AGENT.length), nick: u.nick ?? "", name: u.name ?? "" } : !u || u.id === "iridium" ? { kind: "iridium" } : { kind: "person", id: u.id, name: u.name ?? "" };
-  return { n, text: b.text ?? "", files: b.files ?? [], author, ...(m.created_at ? { time: m.created_at } : {}), ...(m._data?.kind ? { kind: m._data.kind } : {}) };
+  return { n, text: b.text ?? "", files: b.files ?? [], author, ...(m.created_at ? { time: m.created_at } : {}), ...(m._data?.kind ? { kind: m._data.kind } : {}), ...(author.kind === "agent" && didOf(m.content) ? { did: didOf(m.content)! } : {}) };
 }
 
 /** have with more put in: each number once (the later one wins: a message read again, changed),
@@ -35,7 +59,7 @@ export function merge(have: Msg[], more: Msg[]): Msg[] {
   let changed = false;
   for (const m of more) {
     const was = by.get(m.n);
-    if (was && was.text === m.text && was.files.length === m.files.length && was.kind === (m.kind ?? was.kind)) continue;
+    if (was && was.text === m.text && was.files.length === m.files.length && was.kind === (m.kind ?? was.kind) && !was.did === !m.did) continue;
     by.set(m.n, was && !m.kind && was.kind ? { ...m, kind: was.kind } : m);
     changed = true;
   }
