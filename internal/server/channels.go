@@ -333,12 +333,13 @@ func (s *Server) peoplePut(w http.ResponseWriter, r *http.Request) {
 	after := s.ch.People(ch)
 	ev := channel.Event{Type: "people", Everyone: slices.Contains(after, channel.Everyone)}
 	for _, p := range after {
-		if !slices.Contains(before, p) && p != channel.Everyone {
+		// The host is one always: its own entry (it chose the people) is not news.
+		if !slices.Contains(before, p) && p != channel.Everyone && !strings.HasPrefix(p, gate.HostID+"/") {
 			ev.Added = append(ev.Added, p)
 		}
 	}
 	for _, p := range before {
-		if !slices.Contains(after, p) && p != channel.Everyone {
+		if !slices.Contains(after, p) && p != channel.Everyone && !strings.HasPrefix(p, gate.HostID+"/") {
 			ev.Removed = append(ev.Removed, p)
 		}
 	}
@@ -427,8 +428,6 @@ func (s *Server) tellMembers(c caller, ch, text string, ev channel.Event) {
 
 // setPeople makes people channel ch's, c with them (the host is one always).
 func (s *Server) setPeople(c caller, ch string, people []string) error {
-	// The host is one always: not written among them.
-	people = slices.DeleteFunc(slices.Clone(people), func(p string) bool { return strings.HasPrefix(p, gate.HostID+"/") })
 	if len(people) > 0 && !slices.Contains(people, channel.Everyone) && !c.Host() {
 		if me := memberOf(c); !slices.Contains(people, me) && !slices.Contains(people, channel.AppMember(c.App)) {
 			people = append(people, me)
