@@ -93,7 +93,7 @@ func (s *Service) logContent(m channel.Message) string {
 // logMessage is m as c reads it: its files as c's login may fetch them.
 func (s *Service) logMessage(c Caller, m channel.Message, ch *Channel, guild *Guild, seen map[string]*User) Message {
 	out := Message{ID: strconv.FormatInt(m.Seq, 10), Content: s.logContent(m), Channel: ch, Guild: guild,
-		User: s.authorOf(m, seen), CreatedAt: m.At, UpdatedAt: m.Edited}
+		User: s.authorOf(m, seen), CreatedAt: m.At, UpdatedAt: m.Edited, Data: logData(m)}
 	if m.D.Session != "" {
 		out.Content += fileElements(c.App, c.Login, m.D.Session, m.D.Files)
 	}
@@ -144,6 +144,32 @@ func activityElement(a *activity.Activity, paths bool) string {
 		}
 	}
 	return String([]Element{Tag(Adapter+":activity", kv, kids...)})
+}
+
+// LogData is a listed message's own (_data): Kind as the events have it (user, progress, reply,
+// ask, error, note); Input, the id of the input a person's message was sent as; Session, the
+// agent's session it is from; Card, an ask's card.
+type LogData struct {
+	Kind    string `json:"kind"`
+	Input   string `json:"input,omitempty"`
+	Session string `json:"session,omitempty"`
+	Card    string `json:"card,omitempty"`
+}
+
+func logData(m channel.Message) LogData {
+	d := LogData{Kind: m.Kind, Session: m.D.Session, Card: m.D.Card}
+	switch m.Kind {
+	case channel.KindUser:
+		if !strings.HasPrefix(m.Ref, "b:") {
+			d.Input = m.Ref
+		}
+	case channel.KindSaid:
+		d.Kind = "progress"
+		if m.D.Final {
+			d.Kind = "reply"
+		}
+	}
+	return d
 }
 
 // logged is the message of channel ch that id names: its number, or what it is from (an

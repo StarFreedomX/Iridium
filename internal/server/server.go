@@ -416,11 +416,15 @@ func (s *Server) stateKeys(c caller, keys []string) (carried []string, ignored [
 	return carried, ignored
 }
 
-// watchStates sends c the states keys name (at most 16) and the drafts,
+// MaxWatch is how many states one stream carries: the page's own, and a channel's agents'
+// (their sessions and contexts, MaxAgents of them).
+const MaxWatch = 32
+
+// watchStates sends c the states keys name (at most MaxWatch) and the drafts,
 // through emit ("state" or "draft", the JSON), till ctx ends: Satori's /v1/events for ir_web.
 func (s *Server) watchStates(ctx context.Context, c caller, keys []string, emit func(kind string, data []byte) error) error {
-	if len(keys) > 16 {
-		keys = keys[:16]
+	if len(keys) > MaxWatch {
+		keys = keys[:MaxWatch]
 	}
 	carried, ignored := s.stateKeys(c, keys)
 	for _, e := range ignored {

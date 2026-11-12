@@ -35,7 +35,7 @@ Iridium 自己的接口都在 `/v1/internal/` 下：Satori 规范的 internal �
 
 ## 携带状态
 
-网页（和主机自己的页面）在 Satori 的 `/v1/events` 上要：IDENTIFY 带 `_watch`，或之后发 op 6 WATCH `{keys}`，每次取代上一次，最多 16 个键；服务端用 op 7 STATE `{type, data}` 推，`type` 是下面的 `state` 或 `draft`。换了打开的会话就重发 WATCH。只给网页的登录和主机的连接，应用的连接发 WATCH 不理。
+网页（和主机自己的页面）在 Satori 的 `/v1/events` 上要：IDENTIFY 带 `_watch`，或之后发 op 6 WATCH `{keys}`，每次取代上一次，最多 32 个键；服务端用 op 7 STATE `{type, data}` 推，`type` 是下面的 `state` 或 `draft`。换了打开的会话就重发 WATCH。只给网页的登录和主机的连接，应用的连接发 WATCH 不理。
 
 | 键 | 值 |
 |---|---|
