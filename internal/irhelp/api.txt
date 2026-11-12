@@ -21,7 +21,8 @@ channel.update {channel_id, data.name?, data.parent_id?, _data.archived?, _data.
 channel.delete {channel_id} -> {}  archive: its agent stops, the transcript stays
   The sessions hung under it are archived with it; channel.update _data.archived:=false brings them back.
 guild.list {next?} -> List<Guild>  folder groups, then loose  view=id,name,_data.path
-message.list {channel_id, next?, direction?, limit?, order?} -> BidiList<Message>  what was said in the channel, each message under its number (its id); direction before|after|around, next a number  view=id,user.name,content
+message.list {channel_id, next?, direction?, limit?, order?, _data.q?} -> BidiList<Message>  what was said in the channel, each message under its number (its id); direction before|after|around, next a number  view=id,user.name,content
+  _data.q="words": only the messages that have all these words (their text, the files their agent changed, the programs it ran), the latest limit of them.
 message.get {channel_id, message_id} -> Message  one message, whole
 GET internal/channels/{id}/members - -> ChannelMembers  who is in the channel (id: it, or a member session): its agents (nick, recv all|at, name, status), the people; multi: more than one agent  view=members.member,members.nick,members.recv,members.name
 POST internal/channels/{id}/members {agent, model?, mode?, effort?, preset?, nick?, recv?} -> ChannelMembers  start a new agent in the channel's folder as a member (id=self: your own channel); it gets only what names it (@nick) unless recv=all

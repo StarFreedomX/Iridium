@@ -243,10 +243,13 @@ var schema = []string{
 	CREATE INDEX IF NOT EXISTS injections_session ON injections (session, id);`,
 	// 34: what an agent did since it last spoke, while its record is read in (channel_sync).
 	`ALTER TABLE channel_sync ADD COLUMN pending TEXT NOT NULL DEFAULT '';`,
+	// 35: the channels' messages by their words (channels.go "search"): a row a message, under
+	// the message's rowid; what is there already is indexed by the step below.
+	`CREATE VIRTUAL TABLE IF NOT EXISTS channel_fts USING fts5(terms, tokenize = 'unicode61');`,
 }
 
 // steps run in Go after the migration of their version, in the same transaction.
-var steps = map[int]func(*sql.Tx) error{5: claudeForFirstPanel}
+var steps = map[int]func(*sql.Tx) error{5: claudeForFirstPanel, 35: indexChannelMessages}
 
 type Store struct {
 	db *sql.DB

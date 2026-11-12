@@ -303,6 +303,9 @@ func (s *Service) messageList(_ context.Context, c Caller, body []byte) (any, er
 		Direction string `json:"direction"`
 		Limit     int    `json:"limit"`
 		Order     string `json:"order"`
+		Data      struct {
+			Q string `json:"q"`
+		} `json:"_data"`
 	}
 	if err := decode(body, &req); err != nil {
 		return nil, err
@@ -310,6 +313,23 @@ func (s *Service) messageList(_ context.Context, c Caller, body []byte) (any, er
 	st, err := s.channelFor(c, req.ChannelID)
 	if err != nil {
 		return nil, err
+	}
+	if q := strings.TrimSpace(req.Data.Q); q != "" {
+		// Iridium's own: the messages that have these words, the latest of them; not paged.
+		found, err := s.log.Search(st.ID, q, min(max(req.Limit, 0), ListMax))
+		if err != nil {
+			return nil, err
+		}
+		out := BidiList[Message]{Data: []Message{}, XData: &PageData{}}
+		ch, guild := s.channelMasked(st.Session), s.guildOf(st.Session)
+		seen := map[string]*User{}
+		for _, m := range found {
+			out.Data = append(out.Data, s.logMessage(c, m, ch, guild, seen))
+		}
+		if req.Order == "desc" {
+			slices.Reverse(out.Data)
+		}
+		return out, nil
 	}
 	dir := cmp.Or(req.Direction, "before")
 	if !slices.Contains([]string{"before", "after", "around"}, dir) {

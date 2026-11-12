@@ -30,7 +30,7 @@ In full, what was said since you last read the channel:
 #10 [kumo · 01-01 01:01]: long […7 more characters: ir api message.get channel_id=self message_id=10]
 Work since you last read the channel (tool calls counted; files as changed by editing tools, not by shell commands):
 claude: bash 7 (go 4, git 3), 1 failed · 2 files +123 −14 · read 2 · web 1 — /w/a.go, /w/b.go
-More of the channel: ir api message.list channel_id=self [next=<number> limit=<n>]; one message whole: ir api message.get channel_id=self message_id=<number>.
+More of the channel: ir api message.list channel_id=self [next=<number> limit=<n>]; by words: ir api message.list channel_id=self _data.q="<words>"; one message whole: ir api message.get channel_id=self message_id=<number>.
 </channel-context>`
 	if got := in.String(); got != want {
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)

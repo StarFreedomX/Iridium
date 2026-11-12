@@ -168,3 +168,35 @@ func TestActivity(t *testing.T) {
 		t.Errorf("after speaking: %+v, doing %+v", a, s.Doing("s1"))
 	}
 }
+
+// Messages are found by their words: Chinese by any two characters in a row, paths by their
+// parts, and by the files their agent changed.
+func TestSearch(t *testing.T) {
+	s, r, _ := rig(t)
+	r.add("s1", api.Block{Kind: api.BlockKindUser, Text: "看一下上下文压缩的权限问题", ID: "in1", From: "web", FromTerminal: "t1"})
+	r.add("s1", api.Block{Kind: api.BlockKindTool, Name: "Edit", Input: `{"file_path":"/w/internal/store/store.go","old_string":"a","new_string":"b"}`})
+	r.add("s1", api.Block{Kind: api.BlockKindAssistant, Text: "Fixed the Passkey gate."})
+	r.add("s1", api.Block{Kind: api.BlockKindAssistant, Text: "无关的一句"})
+	for words, want := range map[string]string{
+		"权限":         "1:user:看一下上下文压缩的权限问题 ",
+		"上下文压缩":      "1:user:看一下上下文压缩的权限问题 ",
+		"压缩 权限":      "1:user:看一下上下文压缩的权限问题 ",
+		"文上":         "",
+		"passkey":    "2:said:Fixed the Passkey gate. ",
+		"pass":       "2:said:Fixed the Passkey gate. ",
+		"store.go":   "2:said:Fixed the Passkey gate. ",
+		"gate 权限":    "",
+		"句":          "3:said:无关的一句 ",
+		`"; DROP --`: "",
+	} {
+		ms, err := s.Search("s1", words, 0)
+		if err != nil || texts(ms) != want {
+			t.Errorf("%q: %v %q, want %q", words, err, texts(ms), want)
+		}
+	}
+	// Taken back: not found.
+	s.Unsay("s1", 1)
+	if ms, _ := s.Search("s1", "权限", 0); len(ms) != 0 {
+		t.Errorf("found what was taken back: %s", texts(ms))
+	}
+}

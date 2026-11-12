@@ -485,6 +485,20 @@ func (s *Service) List(channel string, before, after int64, limit int) ([]Messag
 	return out, nil
 }
 
+// Search are channel's messages that have all of words, the latest limit of them, in order.
+func (s *Service) Search(channel, words string, limit int) ([]Message, error) {
+	s.Touch(channel)
+	rows, err := s.st.SearchChannelMessages(channel, words, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Message, len(rows))
+	for i, r := range rows {
+		out[i] = read(r)
+	}
+	return out, nil
+}
+
 // Get is message seq of channel.
 func (s *Service) Get(channel string, seq int64) (Message, bool) {
 	m, ok, err := s.st.ChannelMessage(channel, seq)

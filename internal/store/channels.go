@@ -2,8 +2,11 @@ package store
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"strings"
+
+	"github.com/kumoSleeping/iridium/internal/search"
 )
 
 // Channels (docs/channels.md): a channel is where people and agents talk; its id is the id of the
@@ -108,11 +111,119 @@ func (s *Store) AddChannelMessage(m ChannelMessage) (seq int64, added bool, err 
 	if err := tx.QueryRow(`SELECT COALESCE(MAX(seq), 0) + 1 FROM channel_messages WHERE channel = ?`, m.Channel).Scan(&seq); err != nil {
 		return 0, false, err
 	}
-	if _, err := tx.Exec(`INSERT INTO channel_messages (`+messageCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)`,
-		m.Channel, seq, m.Author, m.Name, m.Kind, m.Text, m.Data, m.Ref, m.Origin, m.Hop, m.At); err != nil {
+	res, err := tx.Exec(`INSERT INTO channel_messages (`+messageCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)`,
+		m.Channel, seq, m.Author, m.Name, m.Kind, m.Text, m.Data, m.Ref, m.Origin, m.Hop, m.At)
+	if err != nil {
 		return 0, false, err
 	}
+	if id, err := res.LastInsertId(); err == nil {
+		if _, err := tx.Exec(`INSERT INTO channel_fts (rowid, terms) VALUES (?, ?)`, id, search.Terms(indexed(m.Text, m.Data))); err != nil {
+			return 0, false, err
+		}
+	}
 	return seq, true, tx.Commit()
+}
+
+// indexed is what a message is found by: its words, and the files and programs its data names
+// (the paths its agent changed, what it ran).
+func indexed(text, data string) string {
+	if data == "" || !strings.Contains(data, `"activity"`) {
+		return text
+	}
+	var d struct {
+		Activity struct {
+			Cmds  map[string]int `json:"cmds"`
+			Files []struct {
+				Path string `json:"path"`
+			} `json:"files"`
+		} `json:"activity"`
+	}
+	if json.Unmarshal([]byte(data), &d) != nil {
+		return text
+	}
+	var b strings.Builder
+	b.WriteString(text)
+	for _, f := range d.Activity.Files {
+		b.WriteString("\n" + f.Path)
+	}
+	for c := range d.Activity.Cmds {
+		b.WriteString("\n" + c)
+	}
+	return b.String()
+}
+
+// reindex writes message seq of channel into the index again, as it is now.
+func (s *Store) reindex(channel string, seq int64) error {
+	var id int64
+	var text, data string
+	var gone bool
+	if err := s.db.QueryRow(`SELECT rowid, text, data, gone FROM channel_messages WHERE channel = ? AND seq = ?`, channel, seq).Scan(&id, &text, &data, &gone); err != nil {
+		return err
+	}
+	if _, err := s.db.Exec(`DELETE FROM channel_fts WHERE rowid = ?`, id); err != nil || gone {
+		return err
+	}
+	_, err := s.db.Exec(`INSERT INTO channel_fts (rowid, terms) VALUES (?, ?)`, id, search.Terms(indexed(text, data)))
+	return err
+}
+
+// indexChannelMessages indexes every message there is (the migration that made the index).
+func indexChannelMessages(tx *sql.Tx) error {
+	rows, err := tx.Query(`SELECT rowid, text, data FROM channel_messages WHERE gone = 0`)
+	if err != nil {
+		return err
+	}
+	type row struct {
+		id         int64
+		text, data string
+	}
+	var all []row
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.id, &r.text, &r.data); err != nil {
+			rows.Close()
+			return err
+		}
+		all = append(all, r)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, r := range all {
+		if _, err := tx.Exec(`INSERT OR REPLACE INTO channel_fts (rowid, terms) VALUES (?, ?)`, r.id, search.Terms(indexed(r.text, r.data))); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// SearchChannelMessages are the messages of channel that have all of words (search.Query), the
+// latest limit of them, in order; none for words with no term.
+func (s *Store) SearchChannelMessages(channel, words string, limit int) ([]ChannelMessage, error) {
+	q := search.Query(words)
+	out := []ChannelMessage{}
+	if q == "" {
+		return out, nil
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := s.db.Query(`SELECT * FROM (SELECT m.channel, m.seq, m.author, m.name, m.kind, m.text, m.data, m.ref, m.origin, m.hop, m.at, m.edited_at, m.gone
+		FROM channel_fts f JOIN channel_messages m ON m.rowid = f.rowid
+		WHERE f.terms MATCH ? AND m.channel = ? AND m.gone = 0 ORDER BY m.seq DESC LIMIT ?) ORDER BY seq`, q, channel, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		m, err := scanMessage(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
 }
 
 // ChannelMessage is message seq of channel; false if there is none.
@@ -201,13 +312,18 @@ func (s *Store) AnchorMessage(channel string, seq int64, ref, data string) (bool
 		return false, err
 	}
 	n, _ := res.RowsAffected()
-	return n > 0, nil
+	if n > 0 && data != "" {
+		err = s.reindex(channel, seq)
+	}
+	return n > 0, err
 }
 
 // EditChannelMessage changes message seq's text.
 func (s *Store) EditChannelMessage(channel string, seq int64, text string) error {
-	_, err := s.db.Exec(`UPDATE channel_messages SET text = ?, edited_at = ? WHERE channel = ? AND seq = ?`, text, now(), channel, seq)
-	return err
+	if _, err := s.db.Exec(`UPDATE channel_messages SET text = ?, edited_at = ? WHERE channel = ? AND seq = ?`, text, now(), channel, seq); err != nil {
+		return err
+	}
+	return s.reindex(channel, seq)
 }
 
 // SetChannelMessageData changes message seq's data.
@@ -218,15 +334,19 @@ func (s *Store) SetChannelMessageData(channel string, seq int64, data string) er
 
 // DropChannelMessage takes message seq back: its number stays, its words go.
 func (s *Store) DropChannelMessage(channel string, seq int64) error {
-	_, err := s.db.Exec(`UPDATE channel_messages SET gone = 1, text = '', data = '', edited_at = ? WHERE channel = ? AND seq = ?`, now(), channel, seq)
-	return err
+	if _, err := s.db.Exec(`UPDATE channel_messages SET gone = 1, text = '', data = '', edited_at = ? WHERE channel = ? AND seq = ?`, now(), channel, seq); err != nil {
+		return err
+	}
+	return s.reindex(channel, seq)
 }
 
 // ForgetChannelMessage is DropChannelMessage for one that was never sent: what it was from may
 // be said again, as a new message.
 func (s *Store) ForgetChannelMessage(channel string, seq int64) error {
-	_, err := s.db.Exec(`UPDATE channel_messages SET gone = 1, text = '', data = '', ref = '', edited_at = ? WHERE channel = ? AND seq = ?`, now(), channel, seq)
-	return err
+	if _, err := s.db.Exec(`UPDATE channel_messages SET gone = 1, text = '', data = '', ref = '', edited_at = ? WHERE channel = ? AND seq = ?`, now(), channel, seq); err != nil {
+		return err
+	}
+	return s.reindex(channel, seq)
 }
 
 // ---- members ----
