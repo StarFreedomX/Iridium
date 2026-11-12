@@ -266,7 +266,8 @@ export function App() {
       tree={tree}
       expanded={expanded}
       toggle={toggle}
-      selected={open ?? ""}
+      // An agent of a channel open by itself (its record): its channel's row is the one it is in.
+      selected={(open && list?.find((x) => x.id === open)?.channel) || (open ?? "")}
       onSelect={onSelect}
       noFoot={phone}
       phone={phone}

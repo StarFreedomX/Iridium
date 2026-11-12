@@ -138,7 +138,8 @@ function SendState({ state }: { state: Going }) {
   );
 }
 
-export const YouBubble = forwardRef<HTMLDivElement, { text: string; who: You; failed?: boolean; children?: ReactNode; time?: number; going?: Going }>(function YouBubble({ text, who, failed, children, time, going }, ref) {
+/** words: the text drawn another way than Worded's (a channel's, its nicks too: chat/channel). */
+export const YouBubble = forwardRef<HTMLDivElement, { text: string; who: You; failed?: boolean; children?: ReactNode; time?: number; going?: Going; words?: ReactNode }>(function YouBubble({ text, who, failed, children, time, going, words }, ref) {
   // What the words name, where they name it (Worded); the files in a row under them.
   const row = Children.count(children) > 0;
   return (
@@ -148,7 +149,7 @@ export const YouBubble = forwardRef<HTMLDivElement, { text: string; who: You; fa
         <span data-bubble-bg className={cn("absolute inset-0 rounded-xl rounded-tr-sm bg-fill", failed && "shadow-[inset_0_0_0_1px_var(--err)]")} aria-hidden />
         {text && (
           <span className="relative block text-md whitespace-pre-wrap [overflow-wrap:anywhere]">
-            <Worded text={text} />
+            {words ?? <Worded text={text} />}
           </span>
         )}
         {/* Not for no files: a message sent and the same one landed are as high (an empty list was
@@ -165,7 +166,7 @@ export const YouBubble = forwardRef<HTMLDivElement, { text: string; who: You; fa
 
 /** A file in your words, as it was in the composer: a picture small, opening the original; any
  *  other its card. */
-function Attached({ session, f }: { session: string; f: FileRef }) {
+export function Attached({ session, f }: { session: string; f: FileRef }) {
   const url = api.fileURL(session, f.ref, false, f.mtime);
   if (f.kind === "image") return <Picture src={f.thumb ? api.thumbURL(session, f.ref, 256, f.mtime) : url} full={url} name={f.name} small under={previews.get(f.path)} w={f.w} h={f.h} />;
   return <SentFile name={f.name} bytes={f.size} href={api.fileURL(session, f.ref, true, f.mtime)} view={url} mime={f.mime} />;
@@ -173,11 +174,11 @@ function Attached({ session, f }: { session: string; f: FileRef }) {
 
 /** A message sent from here the transcript has yet to bring: its mark says where it is; not taken,
  *  red with a retry. */
-export function Pending({ s, who, retry, drop, bubbleRef }: { s: Sent; who: You; retry: () => Promise<void>; drop: () => void; bubbleRef?: (el: HTMLDivElement | null) => void }) {
+export function Pending({ s, who, retry, drop, bubbleRef, words }: { s: Sent; who: You; retry: () => Promise<void>; drop: () => void; bubbleRef?: (el: HTMLDivElement | null) => void; words?: ReactNode }) {
   const [busy, setBusy] = useState(false);
   return (
     <div className="flex flex-col items-end gap-0.5">
-      <YouBubble ref={bubbleRef} text={s.text} who={who} failed={s.failed !== undefined} going={s.failed !== undefined ? undefined : s.queued ? "queued" : s.steer ? "steering" : "sending"}>
+      <YouBubble ref={bubbleRef} text={s.text} who={who} words={words} failed={s.failed !== undefined} going={s.failed !== undefined ? undefined : s.queued ? "queued" : s.steer ? "steering" : "sending"}>
         {s.files.map((f) =>
           f.url ? <Picture key={f.ref} src={f.url} full={f.url} name={f.name} small /> : <SentFile key={f.ref} name={f.name} bytes={f.size} />,
         )}
@@ -221,7 +222,7 @@ function Letter({ src, text, time, onJump, children }: { src: From; text: string
 }
 
 /** A quiet line across the chat: Iridium's own words, a compaction, an interrupted turn. */
-function Line({ icon, children, error, title }: { icon?: ReactNode; children: ReactNode; error?: boolean; title?: string }) {
+export function Line({ icon, children, error, title }: { icon?: ReactNode; children: ReactNode; error?: boolean; title?: string }) {
   return (
     <div className={cn("flex items-center justify-center gap-1.5 py-1 text-xs", error ? "text-err" : "text-ink-3")} title={title}>
       {icon}
@@ -271,7 +272,7 @@ const SYSTEM: Record<string, Parameters<typeof t>[0]> = { compact: "sys.compact"
 
 /** What the agent said: Markdown, its file links (ir:<id>) in place, then the files its file lines
  *  give ([文件] `path`). */
-const Assistant = memo(function Assistant({ b, session }: { b: Block; session: string }) {
+export const Assistant = memo(function Assistant({ b, session }: { b: Block; session: string }) {
   const home = useHome().data;
   const text = withoutFiles(withoutNameLines(fromSatori(b.text ?? "")), new Set(b.files?.map((f) => f.path)), home);
   // A file link's file shows where the words put it; the rest (file lines) under them.

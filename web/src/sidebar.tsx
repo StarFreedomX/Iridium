@@ -25,12 +25,13 @@ import { createAt, onOpenPlace, type Place } from "./places";
 import { LinkDot } from "./link";
 import { errText, toast } from "./toast";
 import { manages, useMachines, useMe, useUpdate } from "./data";
-import { agentName, ago, cn, fine, IconKey, IrMark, keep, kept, Lamp, lampOf, Logo, own, sessionStatusText, statusText, tilde, Tip, titleOf, untitled, useLongPress, useMenuAt, useMinute } from "./ui";
+import { agentName, ago, cn, fine, IconKey, IrMark, keep, kept, Lamp, lampOf, Logo, LogoStack, own, sessionStatusText, statusText, tilde, Tip, titleOf, untitled, useLongPress, useMenuAt, useMinute } from "./ui";
 import { PLACE_DRAG, SESSION_DRAG } from "./chat/refs";
 import { NoteMark, NotesAt, useNotes } from "./notekey";
 import { useUnread } from "./unread";
 import { CloudBadge, MachineFace, shownPath, useLate, useMachine, type Machine } from "./machines";
-import { getCarried, setCarried } from "./store";
+import { getCarried, setCarried, useCarried } from "./store";
+import { channelLamp, isMulti } from "./chat/channel/lib";
 import { dropMark, dropTarget, endDrag, listDrop, pinFolder, placeFolder, placeGroup as placeGroupKey, placeSession, sortList, startDrag, useDragged, useOver, type Dragged, type Edge, type Over } from "./reorder";
 
 const STEP = 18;
@@ -897,9 +898,14 @@ const SessionRow = memo(function SessionRow({ s, where, depth, flip, selected, o
   const title = titleOf(s);
   // A subagent shown is at work, whatever discovery says of its process.
   // A confirmation its agent asked for waits on you too, while it is not at work.
-  const base = working ? "running" : lampOf(s);
+  // A channel of several agents (chat/channel): their logos one over the next, their nicks on a
+  // second line, its lamp theirs: lit while any of them works.
+  const all = useCarried<Session[]>(s.agents?.length ? "list" : null);
+  const multi = isMulti(s) ? s.agents! : undefined;
+  const members = multi?.map((a) => all?.find((x) => x.id === a.session));
+  const base = working ? "running" : members ? channelLamp(lampOf(s), members.flatMap((m) => (m && m.id !== s.id ? [lampOf(m)] : []))) : lampOf(s);
   const status = asked && !BUSY.has(base) ? "waiting" : base;
-  const told = working ? statusText("running") : status !== base ? statusText("waiting") : sessionStatusText(s);
+  const told = working ? statusText("running") : status !== base ? statusText("waiting") : base !== lampOf(s) ? statusText(base) : sessionStatusText(s);
   // How long ago it was last active (its turn ended, it was last written to), but in a turn. Unread,
   // it is in ink: no grey dot for it (the user, 2026-11-06).
   const fresh = unread && status === "idle";
@@ -1020,9 +1026,9 @@ const SessionRow = memo(function SessionRow({ s, where, depth, flip, selected, o
         chevron={hungN ? (hungOpen ? "open" : "closed") : undefined}
         onChevron={hungN && toggle ? () => toggle(`hung:${s.id}`) : undefined}
         icon={
-          <Tip label={[agentName(s.agent), machine?.name, s.subagent && t("row.subagent"), away ? t("status.offline") : status !== "idle" && told].filter(Boolean).join(" · ")} side="bottom">
+          <Tip label={[multi ? multi.map((a, i) => `${agentName(members?.[i]?.agent ?? a.agent ?? s.agent)} ${a.nick ?? ""}`.trim()).join(", ") : agentName(s.agent), machine?.name, s.subagent && t("row.subagent"), away ? t("status.offline") : status !== "idle" && told].filter(Boolean).join(" · ")} side="bottom">
             <span className="relative grid">
-              <Logo agent={s.agent} />
+              {multi ? <LogoStack agents={multi.map((a, i) => members?.[i]?.agent ?? a.agent ?? s.agent)} /> : <Logo agent={s.agent} />}
               {remote && <CloudBadge label={machine?.name ?? t("nav.remoteFolder")} />}
               {/* A subagent: no word for it, a small agent badge on the logo's corner (the user, 2026-11-06). */}
               {s.subagent && (
@@ -1050,6 +1056,7 @@ const SessionRow = memo(function SessionRow({ s, where, depth, flip, selected, o
           )
         }
         end={end}
+        sub={multi ? multi.map((a) => a.nick).filter(Boolean).join(" · ") : undefined}
         dim={dim}
         // data-session: a note may be dropped on it (notes.tsx).
         extra={{ ...lp, ...hover, ...drag, onClickCapture: lp.onClickCapture, "data-session": s.id, ...(under ? { "data-under": under } : {}) }}

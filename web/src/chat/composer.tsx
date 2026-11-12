@@ -31,6 +31,8 @@ import { useGlide } from "../motion";
 import { CODE, previews, size, Zoom } from "./files";
 import { upload } from "./upload";
 import { findSecretish } from "./secretish";
+import { insertNick, matchAgents, type AgentRow } from "./channel/lib";
+import { NickList } from "./channel/nicklist";
 import { SaveSecret } from "./savesecret";
 
 const hasDsh = (m: Machine) => m.online && m.agents.some((a) => a.agent === "dsh");
@@ -104,9 +106,13 @@ type Props = {
   end?: ReactNode;
   /** A session just made here: its keys fade in, not taken over at once from the chat before. */
   fresh?: boolean;
+  /** A channel of several agents (chat/channel): these, which an @ lists and calls by nick; no /
+   *  commands, no command lines, nothing of one agent's own. */
+  nicks?: AgentRow[];
 };
 
-export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s, turn, onSent, onSentDone, cycleMode, openModel, openMode, openUsage, openContext, cleared, tools, end, fresh }, ref) {
+export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s, turn, onSent, onSentDone, cycleMode, openModel, openMode, openUsage, openContext, cleared, tools, end, fresh, nicks }, ref) {
+  const multi = !!nicks;
   const [text, setText] = useState(() => kept(draftKey(s.id)) ?? "");
   const [atts, setAtts] = useState<Att[]>([]);
   const [busy, setBusy] = useState(false);
@@ -214,12 +220,24 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
 
   const commands = commandsOf(s);
   // Nothing typed after the /: the common ones first, then the agent's own, under their heads.
-  const list = /^\/\S*$/.test(text) && text !== shut ? (text === "/" ? [...commands.filter(isCommon), ...commands.filter((c) => !isCommon(c))] : matching(commands, text.slice(1))) : [];
+  const list = !multi && /^\/\S*$/.test(text) && text !== shut ? (text === "/" ? [...commands.filter(isCommon), ...commands.filter((c) => !isCommon(c))] : matching(commands, text.slice(1))) : [];
   const sessions = useList();
   const machines = useMachines();
   const workspaces = useWorkspaces().data ?? [];
   const home = useHome().data; // ~ typed after the @ is this; named, a whole path
-  const word = caret !== null && text !== shut && !list.length ? atWord(text, caret) : null;
+  const typedAt = caret !== null && text !== shut && !list.length ? atWord(text, caret) : null;
+  const word = multi ? null : typedAt;
+  // In a channel of several an @ calls one of its agents, by nick.
+  const nickWord = multi ? typedAt : null;
+  const nickOpts = nickWord ? matchAgents(nicks!, nickWord.q) : [];
+  const nickSel = nickOpts.length ? Math.min(at ?? 0, nickOpts.length - 1) : 0;
+  const call = (r: AgentRow) => {
+    if (!nickWord) return;
+    const next = insertNick(text, nickWord.from, caret ?? nickWord.from, r.nick);
+    type(next.text);
+    setCaret(next.caret);
+    caretAt(next.text, next.caret);
+  };
   // A path typed after the @: its folder and those in it, asked for as the picker does (~ the
   // daemon's to resolve, the folder named by the path it gives); else each
   // machine's DSH workspaces, while the list is open (online ones with dsh).
@@ -260,7 +278,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
   /** Whether → goes into row r's folder (arrowInto), the box as it is. */
   const into = (r: AtRow | undefined, el: HTMLTextAreaElement, held: boolean) => !!word && r?.kind === "place" && arrowInto(text, word.from, wordsAt(shownBox, el.selectionStart), wordsAt(shownBox, el.selectionEnd), `@${typedPath(r.p, machines)}`, held);
   const atOpen = sections.length > 0;
-  const shown = list.length || opts.length;
+  const shown = list.length || opts.length || nickOpts.length;
   // What looks like a key: store it as a credential and say {{NAME}} instead (savesecret.tsx).
   const [notSecret, setNotSecret] = useState<ReadonlySet<string>>(new Set());
   const secretish = shown || atOpen ? null : findSecretish(text, notSecret);
@@ -313,14 +331,14 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
     if (mode === "stop") return stop();
     if (atts.some((a) => a.error)) return toast(t("err.upload"), { error: true });
     // $ and a command line: run at the session's machine, not sent to the agent (shell.tsx).
-    const line = shellable && !atts.length ? shellLine(text) : null;
+    const line = shellable && !multi && !atts.length ? shellLine(text) : null;
     if (line) {
       type("");
       setBusy(true);
       return void runShell(s, line).finally(() => setBusy(false));
     }
     const typed = text.trim().replace(/^[!！]\s*/, "");
-    if (!atts.length && own(typed)) return;
+    if (!multi && !atts.length && own(typed)) return;
     // The words as they are, the links in them what the agent reads.
     const words = typed;
     // A picture's copy here stays: the bubble shows it while sending, and once landed till the
@@ -349,6 +367,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
       // A turn began meanwhile: it waits in the queue, which shows it. A command the agent runs
       // itself (Codex's /compact) never comes in the transcript: the turn's lamp says it.
       sent.queued = r.queued || r.command;
+      sent.seq = r.seq;
     } catch (e) {
       sent.failed = errText(e);
     }
@@ -368,6 +387,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
     <div className="relative">
       {list.length > 0 && <Palette list={list} at={Math.min(at ?? 0, list.length - 1)} agent={s.agent} grouped={text === "/"} point={setAt} pick={(c) => (own(`/${c.name}`) ? undefined : (type(`/${c.name} `), box.current?.focus()))} />}
       {atOpen && <AtList sections={sections} at={sel} point={setAt} pick={name} />}
+      {nickOpts.length > 0 && <NickList rows={nickOpts} at={nickSel} point={setAt} pick={call} />}
       {secretish && (
         <SaveSecret
           key={secretish.value}
@@ -484,12 +504,13 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
           onKeyDown={(e) => {
             if (composing || e.nativeEvent.isComposing || e.keyCode === 229) return;
             const move = shown ? { ArrowDown: 1, ArrowUp: -1 }[e.key] : undefined;
-            const now = list.length ? Math.min(at ?? 0, list.length - 1) : sel;
+            const now = list.length ? Math.min(at ?? 0, list.length - 1) : nickOpts.length ? nickSel : sel;
             if (move) setAt((now + move + shown) % shown);
             else if (list.length && (e.key === "Enter" || e.key === "Tab") && !e.shiftKey) {
               const c = list[now]!;
               if (!own(`/${c.name}`)) type(`/${c.name} `);
             } else if (opts.length && (e.key === "Enter" || e.key === "Tab") && !e.shiftKey) name(opts[sel]!);
+            else if (nickOpts.length && (e.key === "Enter" || e.key === "Tab") && !e.shiftKey) call(nickOpts[nickSel]!);
             // → goes into the folder pointed at, only while the list is open on one.
             else if (e.key === "ArrowRight" && word && into(opts[sel], e.currentTarget, e.shiftKey || e.ctrlKey || e.metaKey || e.altKey)) enter(opts[sel]!);
             else if ((shown || atOpen) && e.key === "Escape") setShut(text);

@@ -1,0 +1,182 @@
+// A channel of several agents, what the page reads of it (src/chat/channel/lib.ts, log.ts).
+import { describe, expect, test } from "vitest";
+import type { ChannelMessage, ChannelPage } from "../src/api/client";
+import type { Session } from "../src/api/types.gen";
+import { channelLamp, givenParts, groupMessages, insertNick, isMember, isMulti, linkNicks, matchAgents, merge, msgOf, nickOfURL, nickParts, nickSpans, quotaKinds, stillWaiting, validNick, watchExtra, withoutMembers } from "../src/chat/channel/lib";
+import { ChannelLog } from "../src/chat/channel/log";
+import { buildTree, standing } from "../src/tree";
+
+const agent = (n: number, session: string, text = "hi"): ChannelMessage => ({ id: String(n), content: text, user: { id: `agent:${session}`, name: "pi Low", nick: session, is_bot: true }, created_at: n });
+const person = (n: number, text = "hi"): ChannelMessage => ({ id: String(n), content: text, user: { id: "local", name: "主机" }, created_at: n });
+const note = (n: number, text = "x"): ChannelMessage => ({ id: String(n), content: text, user: { id: "iridium", name: "Iridium", is_bot: true } });
+const msgs = (...ms: ChannelMessage[]) => ms.map((m) => msgOf(m)!);
+
+describe("a channel's messages", () => {
+  test("read: the number, the words unescaped, who said it, the files", () => {
+    const m = msgOf({ id: "12", content: 'a &lt;b&gt; <img src="internal:x/y/ref1" title="p.png" path="/tmp/p.png"/>', user: { id: "agent:s1", name: "Claude Opus", nick: "cc", is_bot: true }, created_at: 5, _data: { kind: "reply" } })!;
+    expect(m).toMatchObject({ n: 12, text: "a <b> ", time: 5, kind: "reply", author: { kind: "agent", session: "s1", nick: "cc", name: "Claude Opus" } });
+    expect(m.files.map((f) => f.ref)).toEqual(["ref1"]);
+    expect(msgOf(person(1))!.author).toEqual({ kind: "person", id: "local", name: "主机" });
+    expect(msgOf(note(2))!.author).toEqual({ kind: "iridium" });
+    expect(msgOf({ id: "ask:s1:r", content: "" })).toBeUndefined();
+  });
+  test("grouped: an agent's in a row share a head; a person's and Iridium's stand alone", () => {
+    const g = groupMessages(msgs(person(1), person(2), agent(3, "a"), agent(4, "a"), agent(5, "b"), note(6), agent(7, "b"), agent(8, "b")));
+    expect(g.map((x) => x.msgs.map((m) => m.n))).toEqual([[1], [2], [3, 4], [5], [6], [7, 8]]);
+    expect(g.map((x) => x.key)).toEqual(["m1", "m2", "m3", "m5", "m6", "m7"]);
+  });
+  test("merged: each number once, in order, the later reading kept; nothing new, the same array", () => {
+    const have = msgs(person(1), agent(3, "a"));
+    expect(merge(have, [])).toBe(have);
+    expect(merge(have, msgs(agent(3, "a")))).toBe(have);
+    const next = merge(have, msgs(agent(2, "b"), agent(3, "a", "changed"), agent(3, "a", "changed")));
+    expect(next.map((m) => [m.n, m.text])).toEqual([[1, "hi"], [2, "hi"], [3, "changed"]]);
+    // The kind an event said stays when the log, which says none, reads the message again.
+    const said = merge([{ ...msgs(agent(4, "a"))[0]!, kind: "reply" }], msgs(agent(4, "a", "more")));
+    expect(said[0]).toMatchObject({ text: "more", kind: "reply" });
+  });
+  test("sent from here: gone once the log has its number, or before that the same words said since", () => {
+    const log = msgs(person(1, "one"), agent(2, "a"), person(3, "two"));
+    expect(stillWaiting({ text: "two", seq: 3, from: 2 }, log)).toBe(false);
+    expect(stillWaiting({ text: "two", seq: 4, from: 2 }, log)).toBe(true);
+    expect(stillWaiting({ text: " two ", from: 2 }, log)).toBe(false);
+    expect(stillWaiting({ text: "one", from: 2 }, log)).toBe(true); // said before it was sent
+    expect(stillWaiting({ text: "hi", from: 0 }, msgs(agent(1, "a")))).toBe(true); // an agent's, not yours
+    expect(stillWaiting({ text: "two", seq: 3, from: 2, failed: "no" }, log)).toBe(true);
+  });
+});
+
+describe("the log held", () => {
+  const pages = (all: ChannelMessage[]) => {
+    const asked: { before?: number; after?: number }[] = [];
+    const get = async (_: string, q: { before?: number; after?: number }): Promise<ChannelPage> => {
+      asked.push(q);
+      const n = (m: ChannelMessage) => Number(m.id);
+      const data = q.after !== undefined ? all.filter((m) => n(m) > q.after!) : all.filter((m) => q.before === undefined || n(m) < q.before).slice(-2);
+      return { data, start: n(data[0] ?? { id: "0", content: "" }), end: n(data.at(-1) ?? { id: "0", content: "" }), more: !!data.length && n(data[0]!) > Number(all[0]!.id) };
+    };
+    return { asked, get };
+  };
+  test("the newest page, the pages before, what came after; an event's message once", async () => {
+    const all = [person(1), agent(2, "a"), person(3), agent(4, "a")];
+    const { asked, get } = pages(all);
+    const log = new ChannelLog("c", get);
+    await log.newer();
+    expect(log.msgs.map((m) => m.n)).toEqual([3, 4]);
+    expect(log.more).toBe(true);
+    expect(await log.older()).toBe(true);
+    expect(log.msgs.map((m) => m.n)).toEqual([1, 2, 3, 4]);
+    expect(await log.older()).toBe(false);
+    // The next one by its event: put in, nothing fetched; the same again changes nothing.
+    all.push(agent(5, "b"));
+    const n = asked.length;
+    log.heard(all[4]!);
+    const v = log.version;
+    log.heard(all[4]!);
+    expect(log.msgs.map((m) => m.n)).toEqual([1, 2, 3, 4, 5]);
+    expect(log.version).toBe(v);
+    expect(asked).toHaveLength(n);
+    // One further on: those between were missed, and are fetched.
+    all.push(person(6), agent(7, "a"));
+    log.heard(all[6]!);
+    await log.newer();
+    expect(log.msgs.map((m) => m.n)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+  });
+});
+
+describe("@nick", () => {
+  const nicks = ["pi", "pi2", "cc"];
+  test("found as the server finds it: by itself, outside code and quotes, any case", () => {
+    const at = (t: string) => nickSpans(t, nicks).map((s) => s.nick);
+    expect(at("@pi2 hello @PI, and @cc.")).toEqual(["pi2", "pi", "cc"]);
+    expect(at("mail a@pi.dev, x/@pi, @@pi, @pi3, @pi-x")).toEqual([]);
+    expect(at("`@pi` then @cc")).toEqual(["cc"]);
+    expect(at("```\n@pi\n```\n> @pi2\n@cc")).toEqual(["cc"]);
+    expect(at("（@pi）你好@cc")).toEqual(["pi"]);
+    expect(nickSpans("a\n@pi b", nicks)).toEqual([{ from: 2, to: 5, nick: "pi" }]);
+  });
+  test("cut into parts, and linked in Markdown", () => {
+    expect(nickParts("@pi2 回一个字，@nobody", nicks)).toEqual([{ nick: "pi2" }, " 回一个字，@nobody"]);
+    expect(nickParts("no one", nicks)).toEqual(["no one"]);
+    expect(linkNicks("ask @PI2 and `@pi`", nicks)).toBe("ask [@pi2](ir:member/pi2) and `@pi`");
+    expect(nickOfURL("ir:member/pi2")).toBe("pi2");
+    expect(nickOfURL("ir:member/%E5%B0%8F%E7%8C%AB")).toBe("小猫");
+    expect(nickOfURL("ir:session/abcd1234")).toBeUndefined();
+  });
+  test("put into the composer: over the @word typed, a space before it where one is needed", () => {
+    expect(insertNick("hello @p", 6, 8, "pi2")).toEqual({ text: "hello @pi2 ", caret: 11 });
+    expect(insertNick("", 0, 0, "pi")).toEqual({ text: "@pi ", caret: 4 });
+    expect(insertNick("ab", 2, 2, "pi")).toEqual({ text: "ab @pi ", caret: 7 });
+    expect(insertNick("a\n@ rest", 2, 3, "pi")).toEqual({ text: "a\n@pi rest", caret: 6 });
+  });
+  test("a nick: letters, digits, _ and -, 32 at most", () => {
+    expect(["pi", "小猫-2", "a_b", "x".repeat(32)].every(validNick)).toBe(true);
+    expect(["", "a b", "a.b", "@a", "x".repeat(33)].some(validNick)).toBe(false);
+  });
+  test("the agents an @ lists: nicks that start with it, then nicks and names that have it", () => {
+    const rows = [
+      { nick: "pi", name: "pi Flash" },
+      { nick: "cc", name: "Claude Opus" },
+      { nick: "opi", name: "Codex" },
+    ];
+    expect(matchAgents(rows, "").map((r) => r.nick)).toEqual(["pi", "cc", "opi"]);
+    expect(matchAgents(rows, "p").map((r) => r.nick)).toEqual(["pi", "opi", "cc"]);
+    expect(matchAgents(rows, "zz")).toEqual([]);
+  });
+});
+
+describe("the list", () => {
+  const s = (id: string, more: Partial<Session> = {}): Session => ({ id, agent: "pi", cwd: "/w", status: "idle", hosted: true, live: false, updatedAt: 1, ...more }) as Session;
+  const list = [s("c", { agents: [{ session: "c", nick: "pi" }, { session: "m", nick: "pi2" }], own: true }), s("m", { channel: "c", launcher: "c" }), s("o", { channel: "o", own: true })];
+  test("an agent of another's channel is no row of its own, nor hung under the channel", () => {
+    expect(isMember(list[1]!)).toBe(true);
+    expect(isMember(list[2]!)).toBe(false);
+    expect(isMulti(list[0])).toBe(true);
+    expect(isMulti(list[2])).toBe(false);
+    expect(withoutMembers(list).map((x) => x.id)).toEqual(["c", "o"]);
+    const plain = [list[2]!];
+    expect(withoutMembers(plain)).toBe(plain);
+    const st = standing(list);
+    expect([...st.rows].sort()).toEqual(["c", "o"]);
+    expect(st.hung.size).toBe(0);
+    const tree = buildTree([...list, s("sub", { subagent: true, parent: "m", updatedAt: 100 }), s("m", { channel: "c", live: true })].filter((x, i, a) => a.findLastIndex((y) => y.id === x.id) === i), [], "未归类", 100);
+    expect(tree.workspaces.flatMap((w) => w.rows).map((r) => (r.kind === "session" ? r.s.id : r.f.sessions.map((x) => x.id).join())).join()).toBe("c,o");
+    // What a member started shows under its channel's row.
+    expect(tree.kids.get("c")?.map((x) => x.id)).toEqual(["sub"]);
+    expect(tree.unlisted.has("m")).toBe(false);
+  });
+  test("a channel's lamp: amber while one waits, else lit while any works", () => {
+    expect(channelLamp("idle", ["idle", "running"])).toBe("running");
+    expect(channelLamp("idle", ["compacting"])).toBe("running");
+    expect(channelLamp("running", ["waiting"])).toBe("waiting");
+    expect(channelLamp("starting", ["idle"])).toBe("starting");
+    expect(channelLamp("error", ["idle"])).toBe("error");
+    expect(channelLamp("idle", [])).toBe("idle");
+  });
+  test("the quotas: one per kind of agent and machine, with every model in use", () => {
+    expect(
+      quotaKinds([
+        { agent: "claude", using: ["opus", undefined], live: false },
+        { agent: "pi", using: ["flash"] },
+        { agent: "claude", using: ["opus", "haiku"], live: true },
+        { agent: "claude", machine: "mac", using: [] },
+      ]),
+    ).toEqual([
+      { agent: "claude", using: ["opus", "haiku"], live: true },
+      { agent: "pi", using: ["flash"], live: false },
+      { agent: "claude", machine: "mac", using: [], live: false },
+    ]);
+  });
+  test("the states asked of the stream: the other agents' sessions, then their contexts", () => {
+    expect(watchExtra("c", ["c", "m", "n"])).toEqual(["session:m", "session:n", "context:m", "context:n"]);
+  });
+  test("what an agent was given: each part's source, values and the messages it cites", () => {
+    const rec = { kind: "turn-prefix", parts: [{ source: "prompts:channel.message", hash: "c1", values: { seq: "6" } }, { source: "input", hash: "65", refs: [{ kind: "input", id: "8afe" }, { kind: "message", id: "6" }] }] };
+    expect(givenParts(rec)).toEqual([
+      { source: "prompts:channel.message", values: [["seq", "6"]], refs: [] },
+      { source: "input", values: [], refs: ["#6"] },
+    ]);
+    expect(givenParts(null)).toEqual([]);
+    expect(givenParts({ parts: "x" })).toEqual([]);
+  });
+});

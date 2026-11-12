@@ -9,6 +9,10 @@ import { getCarried, setCarried, type Link } from "./store";
 
 /** Told each draft event. */
 export const drafts = new Set<(d: DraftEvent) => void>();
+/** A Satori event (op EVENT) as far as the page reads one: a message said in a channel. */
+export type SatoriEvent = { type: string; channel?: { id: string }; message?: { id: string; content: string; created_at?: number; user?: { id: string; name?: string; nick?: string; is_bot?: boolean } }; _data?: { kind?: string } };
+/** Told each Satori event: what was said in the channels this login sees (chat/channel). */
+export const events = new Set<(e: SatoriEvent) => void>();
 /** Told each time the stream opens, which it may have been down: drafts go, new blocks are fetched. */
 export const opened = new Set<() => void>();
 
@@ -27,7 +31,11 @@ const link = (l: Partial<Link>) => setCarried("link", { ...(getCarried<Link>("li
 
 // The states every page carries. A key the daemon does not carry for this terminal (confirms and
 // colors, but for panels) is said to be ignored as the stream opens; the rest goes on.
-const ALWAYS = ["list", "guilds", "quota", "update", "needs", "pairing", "terminals", "notes"];
+const ALWAYS = ["list", "guilds", "quota", "update", "needs", "pairing", "terminals", "notes", "channels"];
+/** How many states a stream carries at most (internal/server watchStates). */
+export const MAX_KEYS = 16;
+/** More states the open chat asks for, in the order it wants them: a channel's other agents. */
+let extra: string[] = [];
 /** What the stream last brought of each state every page carries, as it came: a stream opened
  *  again (each chat opened opens one) brings them all whole again, and one unchanged is not set
  *  again, the sidebar and the rest drawn again for nothing. Not the open session's: chats.ts
@@ -35,7 +43,9 @@ const ALWAYS = ["list", "guilds", "quota", "update", "needs", "pairing", "termin
 const lastRaw = new Map<string, string>();
 /** The keys the daemon said it does not carry, and why ("unknown", "forbidden"). */
 export const ignored = new Map<string, string>();
-export const keysFor = (s: string | null) => [...ALWAYS, ...(s ? [`session:${s}`, `context:${s}`] : [])];
+export const keysFor = (s: string | null, more: string[] = []) => [...new Set([...ALWAYS, ...(s ? [`session:${s}`, `context:${s}`] : []), ...more])].slice(0, MAX_KEYS);
+/** Whether the stream carries key now. */
+export const carries = (key: string) => keysFor(session, extra).includes(key);
 /** Satori's event stream, at this page's own address. */
 export const streamURL = () => `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/v1/events`;
 /** Satori's signals (protocol/events.md), and Iridium's own WATCH and STATE. */
@@ -84,12 +94,13 @@ function connect() {
   since = performance.now();
   sock.onopen = () => {
     if (ws !== sock) return;
-    sock.send(JSON.stringify({ op: OP.identify, body: { _watch: keysFor(session) } }));
+    sock.send(JSON.stringify({ op: OP.identify, body: { _watch: keysFor(session, extra) } }));
   };
   sock.onmessage = (m) => {
     if (ws !== sock) return;
     const sig = JSON.parse(m.data as string) as { op: number; body?: { type?: string; data?: unknown } };
-    if (sig.op === OP.pong && pingAt !== null) {
+    if (sig.op === OP.event && sig.body) events.forEach((f) => f(sig.body as SatoriEvent));
+    else if (sig.op === OP.pong && pingAt !== null) {
       link({ rtt: Math.round(performance.now() - pingAt) });
       pingAt = null;
       clearTimeout(late);
@@ -117,7 +128,7 @@ function connect() {
 
 /** Says on the open stream what it carries now; opens one if there is none. */
 function watch() {
-  if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ op: OP.watch, body: { keys: keysFor(session) } }));
+  if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ op: OP.watch, body: { keys: keysFor(session, extra) } }));
   else if (!ws || ws.readyState === WebSocket.CLOSED) connect();
 }
 
@@ -132,6 +143,16 @@ export function follow(s: string | null) {
     connect();
     return;
   }
+  soon = setTimeout(watch, 60);
+}
+
+/** The open chat's other states (a channel's agents: their sessions, then their contexts), as far
+ *  as the stream has room; [] once the chat is left. */
+export function also(keys: string[]) {
+  if (keys.join(" ") === extra.join(" ")) return;
+  extra = keys;
+  if (!started) return;
+  clearTimeout(soon);
   soon = setTimeout(watch, 60);
 }
 
