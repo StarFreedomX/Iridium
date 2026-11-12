@@ -134,8 +134,8 @@ function Add({ ctl, busy, run }: { ctl: Ctl; busy: boolean; run: (f: () => Promi
   // What the kind may start with: as a peer of it in the channel says, else as its latest
   // session where this one would run did (GET …/choices).
   const known = agent ? ctl.options(agent) : { models: [], levels: [] };
-  const asked = useQuery({ queryKey: ["agent-choices", agent, ctl.at?.channel ?? "", ctl.at?.machine ?? ""], queryFn: () => api.agentChoices(agent!, ctl.at ?? {}), enabled: !!agent && !!ctl.at && !known.models.length, staleTime: 60_000 }).data;
-  const opts = known.models.length || !asked ? known : { models: asked.models.filter((m) => m.value !== "default").map((m) => ({ value: m.value, name: m.name })), levels: asked.efforts };
+  const asked = useQuery({ queryKey: ["agent-choices", agent, ctl.at?.channel ?? "", ctl.at?.machine ?? ""], queryFn: () => api.agentChoices(agent!, ctl.at ?? {}), enabled: !!agent && !!ctl.at && !known.models.length && !known.levels.length, staleTime: 60_000 }).data;
+  const opts = known.models.length || known.levels.length || !asked ? known : { models: asked.models.filter((m) => m.value !== "default").map((m) => ({ value: m.value, name: m.name })), levels: asked.efforts };
   const taken = nick !== "" && ctl.lines.some((x) => x.nick.toLowerCase() === nick.toLowerCase());
   const bad = (nick !== "" && !validNick(nick)) || taken;
   const shut = () => (setOpen(false), setAgent(null), setModel(DEFAULT), setEffort(DEFAULT), setNick(""));

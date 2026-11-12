@@ -431,15 +431,15 @@ func (s *Server) agentChoices(w http.ResponseWriter, r *http.Request) {
 		if tried++; tried > choicesTried {
 			break
 		}
-		if st, err := s.m.State(ss.ID); err == nil && len(st.Models) > 0 {
-			out.Models, out.Efforts = st.Models, append(out.Efforts, st.Efforts...)
+		if st, err := s.m.State(ss.ID); err == nil && len(st.Models)+len(st.Efforts) > 0 {
+			out.Models, out.Efforts = append(out.Models, st.Models...), append(out.Efforts, st.Efforts...)
 			s.keepChoices(st)
 			break
 		}
 	}
 	// Some harnesses say their models only while they run: what one said last is kept
 	// (keepChoices), for when none of the kind runs.
-	if len(out.Models) == 0 {
+	if len(out.Models)+len(out.Efforts) == 0 {
 		if kept := s.st.Kept(choicesKey(kind, machine)); kept != "" {
 			_ = json.Unmarshal([]byte(kept), &out)
 		}
@@ -454,10 +454,10 @@ func choicesKey(kind api.Agent, machine string) string {
 // keepChoices keeps the models and efforts session st says its kind has where it runs, if it
 // says any and they are not those kept.
 func (s *Server) keepChoices(st *api.SessionState) {
-	if len(st.Models) == 0 {
+	if len(st.Models)+len(st.Efforts) == 0 {
 		return
 	}
-	b, err := json.Marshal(api.AgentChoices{Models: st.Models, Efforts: append([]string{}, st.Efforts...)})
+	b, err := json.Marshal(api.AgentChoices{Models: append([]api.Model{}, st.Models...), Efforts: append([]string{}, st.Efforts...)})
 	if key := choicesKey(st.Agent, st.Machine); err == nil && s.st.Kept(key) != string(b) {
 		if err := s.st.Keep(key, string(b)); err != nil {
 			s.logf("server: keeping the choices of %s: %v", st.Agent, err)
