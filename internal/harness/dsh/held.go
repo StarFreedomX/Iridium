@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/kumoSleeping/iridium/internal/api"
+	"github.com/kumoSleeping/iridium/internal/ctx/assemble"
 	"github.com/kumoSleeping/iridium/internal/harness"
 	"github.com/kumoSleeping/iridium/internal/remote"
 	"github.com/kumoSleeping/iridium/internal/remote/wire"
@@ -306,11 +307,11 @@ func (c *Channel) Send(ctx context.Context, r harness.Ref, text string, from har
 	if mc == nil || !mc.Has(wire.CapHeld) {
 		return "", false, nil
 	}
-	line := strings.TrimSpace(text)
-	if !strings.HasPrefix(line, "/") {
-		line = "[" + cmpOr(from.Tag, from.Terminal) + "] " + line
+	line, err := assemble.Message(from.Tag, from.Terminal, strings.TrimSpace(text), "")
+	if err != nil {
+		return "", true, err
 	}
-	err := desktopSend(ctx, mc, r.As, line, steer)
+	err = desktopSend(ctx, mc, r.As, line, steer)
 	if wire.IsCode(err, wire.CodeUnsupported) || wire.IsCode(err, wire.CodeNotFound) {
 		return "", false, nil // a plugin without it, or Desktop holds no agent of it: the usual way says why not
 	}
@@ -320,11 +321,4 @@ func (c *Channel) Send(ctx context.Context, r harness.Ref, text string, from har
 	c.o.Logf("session %s: given to DSH Desktop's agent at %s", r.ID, r.Machine)
 	go h.Fetch(context.Background(), r.As) // its mirror follows sooner
 	return "DSH Desktop", true, nil
-}
-
-func cmpOr(a, b string) string {
-	if a != "" {
-		return a
-	}
-	return b
 }

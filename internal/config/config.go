@@ -39,7 +39,7 @@ type Config struct {
 	// EnterInTurn is what the page's Enter does while a turn runs: "steer" ("" too) or "queue".
 	EnterInTurn string `json:"enterInTurn,omitempty"`
 	// Lang is the user's language, as the web settings last set it: "zh", "en"; "" not yet known.
-	// Hosted agents are told it (session.SystemPrompt).
+	// Hosted agents are told it (assemble.System).
 	Lang string `json:"lang,omitempty"`
 	// Path is the PATH agents run with; "" is the daemon's own.
 	Path string `json:"path,omitempty"`

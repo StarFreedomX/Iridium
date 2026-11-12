@@ -22,6 +22,7 @@ import (
 
 	"github.com/kumoSleeping/iridium/internal/agent"
 	"github.com/kumoSleeping/iridium/internal/api"
+	"github.com/kumoSleeping/iridium/internal/ctx/assemble"
 	"github.com/kumoSleeping/iridium/internal/hold"
 )
 
@@ -188,7 +189,8 @@ func (d *Driver) State() agent.State {
 // goes idle, or takes it in between two tool calls, so a new turn and a steer are the same frame.
 // origin human: without it the CLI treats the message as of unknown origin.
 func (d *Driver) Send(ctx context.Context, m agent.Message) error {
-	if m.ID == "" || m.Text == "" {
+	text := m.Text.String()
+	if m.ID == "" || text == "" {
 		return errors.New("claude: a message needs an id and text") // the CLI exits on a user frame without content
 	}
 	d.mu.Lock()
@@ -199,13 +201,13 @@ func (d *Driver) Send(ctx context.Context, m agent.Message) error {
 	}
 	// Counted before it is written: the turn it starts may show before the write returns.
 	d.waiting = append(d.waiting, m.ID)
-	if t := strings.TrimSpace(m.Text); (t == "/compact" || strings.HasPrefix(t, "/compact ")) && d.sent != "other" {
+	if t := strings.TrimSpace(text); (t == "/compact" || strings.HasPrefix(t, "/compact ")) && d.sent != "other" {
 		d.sent = "compact"
 	} else {
 		d.sent = "other"
 	}
 	d.mu.Unlock()
-	content := []textBlock{{Type: "text", Text: m.Text}}
+	content := []textBlock{{Type: "text", Text: text}}
 	for _, img := range m.Images {
 		content = append(content, textBlock{Type: "image", Source: &imageSource{Type: "base64", MediaType: img.MediaType, Data: img.Data}})
 	}
@@ -237,6 +239,11 @@ func (d *Driver) Interrupt(ctx context.Context) error {
 // Answer answers an open ask. Allowing passes the input back as updatedInput; a question's answers
 // go in it by question text; denying gives the model a message.
 func (d *Driver) Answer(ctx context.Context, a api.Answer) error {
+	// What a no is answered with: the words that came with it, or Iridium's.
+	denied, err := assemble.Denied(a.Message, a.RequestID)
+	if err != nil {
+		return err
+	}
 	d.mu.Lock()
 	i := slices.IndexFunc(d.asks, func(x api.Ask) bool { return x.RequestID == a.RequestID })
 	if i < 0 {
@@ -271,11 +278,7 @@ func (d *Driver) Answer(ctx context.Context, a api.Answer) error {
 	case a.Allow:
 		resp = map[string]any{"behavior": "allow", "updatedInput": ask.Input, "decisionClassification": "user_temporary"}
 	default:
-		msg := a.Message
-		if msg == "" {
-			msg = "The user said no."
-		}
-		resp = map[string]any{"behavior": "deny", "message": msg, "decisionClassification": "user_reject"}
+		resp = map[string]any{"behavior": "deny", "message": denied.String(), "decisionClassification": "user_reject"}
 	}
 	line, _ := json.Marshal(controlResponse{Type: "control_response", Response: ctlResponse{Subtype: "success", RequestID: a.RequestID, Body: resp}})
 	if err := w(line); err != nil {

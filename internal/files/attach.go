@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/kumoSleeping/iridium/internal/agent"
+	"github.com/kumoSleeping/iridium/internal/ctx/assemble"
 )
 
 const (
@@ -34,7 +35,11 @@ func (s *Service) Message(session, text string, refs []string) (string, []agent.
 		if strings.ContainsAny(p, "`\n") {
 			return "", nil, fmt.Errorf("%w: attachment %s has a backquote or newline in its path", ErrBad, r)
 		}
-		lines = append(lines, "[附件] `"+p+"`")
+		line, err := assemble.Attachment(p)
+		if err != nil {
+			return "", nil, err
+		}
+		lines = append(lines, line.String())
 		info, err := s.Info(p)
 		if err != nil {
 			return "", nil, fmt.Errorf("attachment %s: %w", r, err)

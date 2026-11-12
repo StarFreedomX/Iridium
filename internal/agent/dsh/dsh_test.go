@@ -18,6 +18,7 @@ import (
 
 	"github.com/kumoSleeping/iridium/internal/agent"
 	"github.com/kumoSleeping/iridium/internal/api"
+	"github.com/kumoSleeping/iridium/internal/ctx/assemble"
 )
 
 // The recordings in testdata/<case> are dsh 0.2.2-rc.1 (`dsh --profile sdk --patch <standard
@@ -277,13 +278,13 @@ func (h *harness) act(ins []inLine, i int) {
 			h.op("mode "+mode, func() (any, error) { return nil, h.d.SetMode(ctx, mode) })
 		} else {
 			h.op("send "+input, func() (any, error) {
-				return nil, h.d.Send(ctx, agent.Message{ID: input, Text: text(probe), Human: true})
+				return nil, h.d.Send(ctx, agent.Message{ID: input, Text: assemble.Input(text(probe)), Human: true})
 			})
 		}
 		h.compare(h.next(), probe)
 	case "session/prompt":
 		h.op("send "+input, func() (any, error) {
-			return nil, h.d.Send(ctx, agent.Message{ID: input, Text: text(probe), Human: true})
+			return nil, h.d.Send(ctx, agent.Message{ID: input, Text: assemble.Input(text(probe)), Human: true})
 		})
 		h.compare(h.next(), probe)
 	case "shutdown":
@@ -517,7 +518,7 @@ func TestInterrupt(t *testing.T) {
 	if e := find[agent.TurnEnd](h); len(e) != 1 || h.d.State() != agent.Idle {
 		t.Errorf("events %v", h.kinds())
 	}
-	if err := h.d.Send(context.Background(), agent.Message{ID: "x", Text: "late"}); !errors.Is(err, ErrNotAttached) {
+	if err := h.d.Send(context.Background(), agent.Message{ID: "x", Text: assemble.Input("late")}); !errors.Is(err, ErrNotAttached) {
 		t.Errorf("send after: %v", err)
 	}
 }

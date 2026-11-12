@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/kumoSleeping/iridium/internal/agent"
+	"github.com/kumoSleeping/iridium/internal/ctx/assemble"
 )
 
 // A thread that does not open (here: held by another writer, Rhodium resume-locked) leaves the
@@ -55,7 +56,7 @@ func TestGiveUpWhenTheThreadDoesNotOpen(t *testing.T) {
 	if !strings.Contains(why, "another program has the thread open") {
 		t.Fatalf("gave up: %q", why)
 	}
-	if err := d.Send(context.Background(), agent.Message{ID: "m1", Text: "hi"}); err == nil || !strings.Contains(err.Error(), "active writer") {
+	if err := d.Send(context.Background(), agent.Message{ID: "m1", Text: assemble.Input("hi")}); err == nil || !strings.Contains(err.Error(), "active writer") {
 		t.Errorf("send: %v", err)
 	}
 }

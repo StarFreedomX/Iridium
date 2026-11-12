@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/kumoSleeping/iridium/internal/api"
+	"github.com/kumoSleeping/iridium/internal/ctx/assemble"
 	"github.com/kumoSleeping/iridium/internal/hold"
 )
 
@@ -29,9 +30,12 @@ const (
 // Message is one message for the agent. ID is what the agent's record names it by, where it
 // keeps one (Claude: the user frame's uuid), so the host can tell its own inputs in transcripts.
 // Human: from a person, not from another agent.
+//
+// Text is what the agent is given, made by the assembly layer (assemble.Message: who it is from
+// and the words), never a string of a caller's own.
 type Message struct {
 	ID    string
-	Text  string
+	Text  assemble.Injection
 	Human bool
 	// Images go with the text to an agent that takes them (Claude); the text names their paths.
 	Images []Image
@@ -55,6 +59,7 @@ type SpawnOptions struct {
 	Env          []string // the environment to start from; the driver drops what a parent session hands down
 	Program      string   // absolute, or a bare name looked up on Env's PATH
 	// SystemPromptFile is appended to the agent's system prompt, re-read at every resume.
+	// WriteSystemPrompt writes it.
 	SystemPromptFile string
 	Model            string
 	Mode             string // the approval mode; empty: the agent's default

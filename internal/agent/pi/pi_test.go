@@ -18,6 +18,7 @@ import (
 
 	"github.com/kumoSleeping/iridium/internal/agent"
 	"github.com/kumoSleeping/iridium/internal/api"
+	"github.com/kumoSleeping/iridium/internal/ctx/assemble"
 )
 
 // The recordings in testdata are Rhodium's (test/fixtures/pi, pi 1.3.0 with DeepSeek): in.log is
@@ -199,11 +200,13 @@ func (h *harness) act(probe map[string]any) {
 	switch probe["type"] {
 	case "prompt":
 		h.op("send", func() (any, error) {
-			return nil, h.d.Send(ctx, agent.Message{ID: id, Text: probe["message"].(string), Human: true})
+			return nil, h.d.Send(ctx, agent.Message{ID: id, Text: assemble.Input(probe["message"].(string)), Human: true})
 		})
 		h.compare(h.next(), probe)
 	case "compact":
-		h.op("compact", func() (any, error) { return nil, h.d.Send(ctx, agent.Message{ID: id, Text: "/compact"}) })
+		h.op("compact", func() (any, error) {
+			return nil, h.d.Send(ctx, agent.Message{ID: id, Text: assemble.Input("/compact")})
+		})
 		h.compare(h.next(), probe)
 	case "abort":
 		h.op("abort", func() (any, error) { return nil, h.d.Interrupt(ctx) })
