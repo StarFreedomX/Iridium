@@ -154,10 +154,12 @@ type LogData struct {
 	Input   string `json:"input,omitempty"`
 	Session string `json:"session,omitempty"`
 	Card    string `json:"card,omitempty"`
+	// Event: what a note tells of (channel.Event).
+	Event *channel.Event `json:"event,omitempty"`
 }
 
 func logData(m channel.Message) LogData {
-	d := LogData{Kind: m.Kind, Session: m.D.Session, Card: m.D.Card}
+	d := LogData{Kind: m.Kind, Session: m.D.Session, Card: m.D.Card, Event: m.D.Event}
 	switch m.Kind {
 	case channel.KindUser:
 		if !strings.HasPrefix(m.Ref, "b:") {
@@ -189,6 +191,9 @@ func (s *Service) tell(m channel.Message, kind, origin string, denied int) {
 		return
 	}
 	msg := Message{ID: strconv.FormatInt(m.Seq, 10), Content: s.logContent(m), User: s.authorOf(m, nil), CreatedAt: m.At}
+	if m.Kind == channel.KindNote {
+		msg.Data = logData(m)
+	}
 	if denied > 0 {
 		msg.Content = Escape(s.b.Mask(strings.TrimSpace(m.Text + fmt.Sprintf("\n\n（auto 拦了 %d 步）", denied))))
 	}

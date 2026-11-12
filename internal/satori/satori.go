@@ -180,9 +180,9 @@ type Service struct {
 func (s *Service) OnSaid(f func(channel.Message)) { s.onSaid = f }
 
 // Note writes a line of Iridium's own into channel ch and tells those who see it (_data.kind
-// "note").
-func (s *Service) Note(ch, text, origin string) {
-	m, isNew, err := s.log.Say(channel.Message{ChannelMessage: store.ChannelMessage{Channel: ch, Author: NoteUser, Kind: channel.KindNote, Text: text, Origin: origin}})
+// "note"). ev: what it tells of, for a page to say in its own words (the message's _data.event).
+func (s *Service) Note(ch, text, origin string, ev *channel.Event) {
+	m, isNew, err := s.log.Say(channel.Message{ChannelMessage: store.ChannelMessage{Channel: ch, Author: NoteUser, Kind: channel.KindNote, Text: text, Origin: origin}, D: channel.Data{Event: ev}})
 	if err != nil || !isNew {
 		return
 	}

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -69,6 +70,12 @@ func TestChannelOfSeveral(t *testing.T) {
 		t.Fatalf("members: %+v", ms)
 	}
 	second := ms.Members[2].Session
+	// The channel says who joined, and what happened with it.
+	var joined satori.BidiList[satori.Message]
+	l.wantSat(200, "web", "message.list", map[string]any{"channel_id": ch, "limit": 1}, &joined)
+	if raw, _ := json.Marshal(joined.Data[0].Data); joined.Data[0].Content != "@claude2 加入了频道" || !strings.Contains(string(raw), `"type":"join"`) || !strings.Contains(string(raw), `"nick":"claude2"`) {
+		t.Errorf("the line of the joining: %+v %s", joined.Data[0], raw)
+	}
 	if second == "" || second == ch {
 		t.Fatalf("the second agent's session: %+v", ms.Members[2])
 	}
