@@ -13,7 +13,78 @@ export type Author = { kind: "agent"; session: string; nick: string; name: strin
 
 /** A message of a channel: n, its number there. kind: as its event said it (user, progress, reply,
  *  ask, error, note); the log itself does not say. */
-export type Msg = { n: number; text: string; files: FileRef[]; time?: number; author: Author; kind?: string; did?: Did };
+export type Msg = { n: number; text: string; files: FileRef[]; time?: number; author: Author; kind?: string; did?: Did; event?: ChEvent };
+
+/** Something that happened to a channel, a line of Iridium's own in it (internal/channel Event):
+ *  join, leave (nick), rename (from, nick), recv (nick, recv), people (added, removed: member
+ *  strings; everyone), undelivered (seq, nick), stopped (seq). by: who did it, by name. */
+export type ChEvent = { type: string; member?: string; nick?: string; name?: string; from?: string; recv?: string; added?: string[]; removed?: string[]; everyone?: boolean; seq?: number; by?: string };
+
+/** A piece of an event's line: words, an agent by its nick, people by their member strings. */
+export type EventPart = string | { nick: string } | { people: string[] };
+
+/** The line's words by event (i18n: channel.event.*), their slots in braces: {nick} {from}
+ *  {recv} {people} {seq} {by}. */
+export type EventWords = Record<"join" | "leave" | "rename" | "recv" | "everyone" | "added" | "removed" | "undelivered" | "stopped" | "by" | "sep" | "all" | "at", string>;
+
+/** An event as the pieces of its line, in the page's words; none for one not known (its message's
+ *  own text is shown then). */
+export function eventParts(e: ChEvent, w: EventWords): EventPart[] | undefined {
+  const fill = (tpl: string): EventPart[] =>
+    tpl
+      .split(/(\{[a-z]+\})/)
+      .filter(Boolean)
+      .map((x): EventPart => {
+        switch (x) {
+          case "{nick}":
+            return { nick: e.nick ?? "" };
+          case "{from}":
+            return `@${e.from ?? ""}`;
+          case "{recv}":
+            return e.recv === "all" ? w.all : w.at;
+          case "{seq}":
+            return String(e.seq ?? "");
+          case "{by}":
+            return e.by ?? "";
+          case "{added}":
+            return { people: e.added ?? [] };
+          case "{removed}":
+            return { people: e.removed ?? [] };
+        }
+        return x;
+      });
+  let out: EventPart[];
+  switch (e.type) {
+    case "join":
+    case "leave":
+    case "rename":
+    case "recv":
+    case "undelivered":
+    case "stopped":
+      out = fill(w[e.type]);
+      break;
+    case "people": {
+      const bits = [e.everyone ? fill(w.everyone) : [], e.added?.length ? fill(w.added) : [], e.removed?.length ? fill(w.removed) : []].filter((b) => b.length);
+      if (!bits.length) return undefined;
+      out = bits.flatMap((b, i) => (i ? [w.sep, ...b] : b));
+      break;
+    }
+    default:
+      return undefined;
+  }
+  if (e.by) out.push(...fill(w.by));
+  // Words side by side are one piece.
+  return out.reduce<EventPart[]>((all, p) => (typeof p === "string" && typeof all.at(-1) === "string" ? [...all.slice(0, -1), (all.at(-1) as string) + p] : [...all, p]), []);
+}
+
+/** A person's entry by name: an app's all its name, a login its own; not known, as written. */
+export function personName(member: string, apps: { id: string; name: string }[], logins: { app: string; id: string; name: string }[]): string {
+  const i = member.indexOf("/");
+  const app = member.slice(0, i), login = member.slice(i + 1);
+  if (i < 0) return member;
+  if (login === "*") return apps.find((a) => a.id === app)?.name ?? member;
+  return logins.find((l) => l.app === app && l.id === login)?.name ?? member;
+}
 
 /** What an agent did before it said a message (docs/channels.md "活动"): its tool calls counted,
  *  the programs its commands began with (cmds, "go 4, git 2"), the files it changed. */
@@ -48,7 +119,7 @@ export function msgOf(m: ChannelMessage): Msg | undefined {
   const b = blockOf({ id: m.id, content: m.content, created_at: m.created_at });
   const u = m.user;
   const author: Author = u?.id.startsWith(AGENT) ? { kind: "agent", session: u.id.slice(AGENT.length), nick: u.nick ?? "", name: u.name ?? "" } : !u || u.id === "iridium" ? { kind: "iridium" } : { kind: "person", id: u.id, name: u.name ?? "" };
-  return { n, text: b.text ?? "", files: b.files ?? [], author, ...(m.created_at ? { time: m.created_at } : {}), ...(m._data?.kind ? { kind: m._data.kind } : {}), ...(author.kind === "agent" && didOf(m.content) ? { did: didOf(m.content)! } : {}) };
+  return { n, text: b.text ?? "", files: b.files ?? [], author, ...(m.created_at ? { time: m.created_at } : {}), ...(m._data?.kind ? { kind: m._data.kind } : {}), ...(author.kind === "agent" && didOf(m.content) ? { did: didOf(m.content)! } : {}), ...(m._data?.event && typeof m._data.event === "object" ? { event: m._data.event as ChEvent } : {}) };
 }
 
 /** have with more put in: each number once (the later one wins: a message read again, changed),
@@ -59,15 +130,15 @@ export function merge(have: Msg[], more: Msg[]): Msg[] {
   let changed = false;
   for (const m of more) {
     const was = by.get(m.n);
-    if (was && was.text === m.text && was.files.length === m.files.length && was.kind === (m.kind ?? was.kind) && !was.did === !m.did) continue;
+    if (was && was.text === m.text && was.files.length === m.files.length && was.kind === (m.kind ?? was.kind) && !was.did === !m.did && !was.event === !m.event) continue;
     by.set(m.n, was && !m.kind && was.kind ? { ...m, kind: was.kind } : m);
     changed = true;
   }
   return changed ? [...by.values()].sort((a, b) => a.n - b.n) : have;
 }
 
-/** Messages one after another under one head: an agent's, while the same agent speaks; a person's
- *  or Iridium's, each by itself. */
+/** Messages one after another under one head: an agent's, while the same agent speaks; Iridium's
+ *  lines in a row close together; a person's each by itself. */
 export type Group = { key: string; author: Author; msgs: Msg[] };
 
 export function groupMessages(msgs: Msg[]): Group[] {
@@ -75,6 +146,7 @@ export function groupMessages(msgs: Msg[]): Group[] {
   for (const m of msgs) {
     const last = out.at(-1);
     if (last && m.author.kind === "agent" && last.author.kind === "agent" && last.author.session === m.author.session) last.msgs.push(m);
+    else if (last && m.author.kind === "iridium" && last.author.kind === "iridium") last.msgs.push(m);
     else out.push({ key: `m${m.n}`, author: m.author, msgs: [m] });
   }
   return out;

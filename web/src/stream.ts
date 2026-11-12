@@ -10,7 +10,7 @@ import { getCarried, setCarried, type Link } from "./store";
 /** Told each draft event. */
 export const drafts = new Set<(d: DraftEvent) => void>();
 /** A Satori event (op EVENT) as far as the page reads one: a message said in a channel. */
-export type SatoriEvent = { type: string; channel?: { id: string }; message?: { id: string; content: string; created_at?: number; user?: { id: string; name?: string; nick?: string; is_bot?: boolean } }; _data?: { kind?: string } };
+export type SatoriEvent = { type: string; channel?: { id: string }; message?: { id: string; content: string; created_at?: number; user?: { id: string; name?: string; nick?: string; is_bot?: boolean }; _data?: { kind?: string; event?: unknown } }; _data?: { kind?: string } };
 /** Told each Satori event: what was said in the channels this login sees (chat/channel). */
 export const events = new Set<(e: SatoriEvent) => void>();
 /** Told each time the stream opens, which it may have been down: drafts go, new blocks are fetched. */

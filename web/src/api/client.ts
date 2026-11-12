@@ -60,7 +60,7 @@ import type { SecretInfo, Secrets, SetSecret, Usage } from "./types.gen";
 import type { ChannelMembers, Injection, MemberPatch, NewMember } from "./types.gen";
 
 /** A message of a channel's log (Satori's message.list): id its number there. */
-export type ChannelMessage = { id: string; content: string; created_at?: number; user?: { id: string; name?: string; nick?: string; is_bot?: boolean }; _data?: { kind?: string } };
+export type ChannelMessage = { id: string; content: string; created_at?: number; user?: { id: string; name?: string; nick?: string; is_bot?: boolean }; _data?: { kind?: string; event?: unknown } };
 /** A page of a channel's log: start and end, the numbers of its first and last; more, earlier ones. */
 export type ChannelPage = { data: ChannelMessage[]; start: number; end: number; more: boolean };
 

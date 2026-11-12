@@ -2,7 +2,7 @@
 import { describe, expect, test } from "vitest";
 import type { ChannelMessage, ChannelPage } from "../src/api/client";
 import type { Session } from "../src/api/types.gen";
-import { channelLamp, givenParts, groupMessages, insertNick, isMember, isMulti, linkNicks, matchAgents, merge, msgOf, nickOfURL, nickParts, nickSpans, quotaKinds, stillWaiting, validNick, watchExtra, withoutMembers } from "../src/chat/channel/lib";
+import { eventParts, personName, type EventWords, channelLamp, givenParts, groupMessages, insertNick, isMember, isMulti, linkNicks, matchAgents, merge, msgOf, nickOfURL, nickParts, nickSpans, quotaKinds, stillWaiting, validNick, watchExtra, withoutMembers } from "../src/chat/channel/lib";
 import { ChannelLog } from "../src/chat/channel/log";
 import { buildTree, standing } from "../src/tree";
 
@@ -188,5 +188,45 @@ describe("didOf", () => {
     const d = didOf('done<iridium:activity bash="3" failed="1" cmds="go 2, git 1" read="4" search="1" fetch="2" files="2" add="12" del="3" ms="900"><iridium:file path="/w/a &amp; b.go" add="10" del="3"/><iridium:file path="/w/c.go" add="2"/></iridium:activity>');
     expect(d).toEqual({ bash: 3, failed: 1, cmds: "go 2, git 1", read: 4, web: 3, agents: 0, other: 0, files: 2, add: 12, del: 3, paths: [{ path: "/w/a & b.go", add: 10, del: 3 }, { path: "/w/c.go", add: 2, del: 0 }] });
     expect(didOf("just words")).toBeUndefined();
+  });
+});
+
+describe("a channel's events", () => {
+  const w: EventWords = { join: "{nick} 已加入", leave: "{nick} 已移出", rename: "{from} 改名 {nick}", recv: "{nick} 接收{recv}", everyone: "人：全部", added: "已加入：{added}", removed: "已移出：{removed}", undelivered: "#{seq} 未送达 {nick}", stopped: "#{seq} 未转交", by: "（{by}）", sep: "，", all: "全部", at: "@我" };
+  test("join and leave: the agent, then who did it", () => {
+    expect(eventParts({ type: "join", member: "agent:s", nick: "pi2", name: "pi Low", by: "主机" }, w)).toEqual([{ nick: "pi2" }, " 已加入（主机）"]);
+    expect(eventParts({ type: "leave", nick: "pi2" }, w)).toEqual([{ nick: "pi2" }, " 已移出"]);
+  });
+  test("rename: the old nick as words, the new one the agent", () => {
+    expect(eventParts({ type: "rename", from: "pi2", nick: "bob", by: "主机" }, w)).toEqual(["@pi2 改名 ", { nick: "bob" }, "（主机）"]);
+  });
+  test("recv: what it receives now", () => {
+    expect(eventParts({ type: "recv", nick: "pi", recv: "all" }, w)).toEqual([{ nick: "pi" }, " 接收全部"]);
+    expect(eventParts({ type: "recv", nick: "pi", recv: "at" }, w)).toEqual([{ nick: "pi" }, " 接收@我"]);
+  });
+  test("people: everyone, or those added and removed", () => {
+    expect(eventParts({ type: "people", everyone: true, by: "主机" }, w)).toEqual(["人：全部（主机）"]);
+    expect(eventParts({ type: "people", added: ["ir_web/a"], removed: ["bot/*", "ir_web/b"] }, w)).toEqual(["已加入：", { people: ["ir_web/a"] }, "，已移出：", { people: ["bot/*", "ir_web/b"] }]);
+    expect(eventParts({ type: "people" }, w)).toBeUndefined();
+  });
+  test("undelivered and stopped: the message's number", () => {
+    expect(eventParts({ type: "undelivered", seq: 12, nick: "pi2" }, w)).toEqual(["#12 未送达 ", { nick: "pi2" }]);
+    expect(eventParts({ type: "stopped", seq: 9 }, w)).toEqual(["#9 未转交"]);
+  });
+  test("one not known: none, its own text is shown", () => {
+    expect(eventParts({ type: "later" }, w)).toBeUndefined();
+  });
+  test("read from a message, and Iridium's lines in a row grouped", () => {
+    const line = (n: number): ChannelMessage => ({ id: String(n), content: "x", user: { id: "iridium" }, _data: { kind: "note", event: { type: "join", nick: "pi2" } } });
+    expect(msgOf(line(3))!.event).toEqual({ type: "join", nick: "pi2" });
+    expect(groupMessages(msgs(person(1), line(2), line(3), agent(4, "a"), line(5))).map((g) => g.msgs.map((m) => m.n))).toEqual([[1], [2, 3], [4], [5]]);
+  });
+  test("people by name: an app's all its name, a login its own", () => {
+    const apps = [{ id: "ir_web", name: "面板" }, { id: "bot", name: "QQ" }];
+    const logins = [{ app: "ir_web", id: "a", name: "kumo" }];
+    expect(personName("ir_web/a", apps, logins)).toBe("kumo");
+    expect(personName("bot/*", apps, logins)).toBe("QQ");
+    expect(personName("ir_web/zz", apps, logins)).toBe("ir_web/zz");
+    expect(personName("*", apps, logins)).toBe("*");
   });
 });

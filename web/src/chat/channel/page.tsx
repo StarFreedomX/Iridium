@@ -8,7 +8,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, 
 import { api } from "../../api/client";
 import type { Block, SessionState as LiveSession, Session } from "../../api/types.gen";
 import { stateAhead, type Sent } from "../../chats";
-import { LOCAL_ME, useMe, useWhoList, useWorkspaces } from "../../data";
+import { LOCAL_ME, useApps, useMe, useWhoList, useWorkspaces } from "../../data";
 import { t, useLang } from "../../i18n";
 import { pushIn } from "../../motion";
 import { openChat } from "../../route";
@@ -27,12 +27,12 @@ import { Queue } from "../queue";
 import { PLACE_DRAG, SESSION_DRAG, sourceOf, yours } from "../refs";
 import { Assistant, Attached, Line, Pending, YouBubble } from "../said";
 import { Stick, toEnd } from "../stick";
-import { groupMessages, linkNicks, quotaKinds, stillWaiting, watchExtra, type AgentRow, type Did, type Group, type Msg } from "./lib";
+import { groupMessages, linkNicks, quotaKinds, stillWaiting, watchExtra, type AgentRow, type Did, type Group, type Msg, eventParts, personName, type EventWords } from "./lib";
 import { channelLog } from "./log";
 import { useMembers } from "./gate";
 import { MembersKey, NotJoined, useChannelCtl } from "./key";
 import { MemberBar } from "./members";
-import { Nicks, NickWords } from "./nick";
+import { NickLink, Nicks, NickWords } from "./nick";
 
 const WORKING = new Set(["running", "compacting", "starting"]);
 
@@ -113,7 +113,7 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
     more();
     const hear = (e: SatoriEvent) => {
       if (e.type !== "message-created" || e.channel?.id !== id || !e.message) return;
-      log.heard({ ...e.message, _data: e._data });
+      log.heard({ ...e.message, _data: { ...e._data, ...e.message._data } });
       changed();
     };
     events.add(hear);
@@ -324,10 +324,14 @@ function blockFor(m: Msg, nicks: string[]): Block {
 function GroupView({ g, channel, agents, who }: { g: Group; channel: string; agents: AgentRow[]; who: (a: Extract<Msg["author"], { kind: "person" }>) => ReturnType<typeof yours> }) {
   const list = useList();
   const a = g.author;
-  if (a.kind === "iridium") {
-    const m = g.msgs[0]!;
-    return <Line title={m.text}>{m.text}</Line>;
-  }
+  if (a.kind === "iridium")
+    return (
+      <div className="flex flex-col">
+        {g.msgs.map((m) => (
+          <EventLine key={m.n} m={m} />
+        ))}
+      </div>
+    );
   if (a.kind === "person") {
     const m = g.msgs[0]!;
     return (
@@ -358,6 +362,25 @@ function GroupView({ g, channel, agents, who }: { g: Group; channel: string; age
         </div>
       ))}
     </div>
+  );
+}
+
+const EVENT_KEYS = ["join", "leave", "rename", "recv", "everyone", "added", "removed", "undelivered", "stopped", "by", "sep"] as const;
+
+/** A line of Iridium's own: what happened to the channel (who joined, left, was renamed, what one
+ *  receives, its people), in the page's words, the agent in it as its nick is drawn elsewhere;
+ *  one with no event (an older line), its own text. */
+function EventLine({ m }: { m: Msg }) {
+  useLang();
+  const d = useApps().data;
+  const words = { ...Object.fromEntries(EVENT_KEYS.map((k) => [k, t(`channel.event.${k}`)])), all: t("channel.recvAll"), at: t("channel.recvAt") } as EventWords;
+  const parts = m.event && eventParts(m.event, words);
+  if (!parts) return <Line title={m.text}>{m.text}</Line>;
+  const apps = (d?.apps ?? []).map((a) => (a.web ? { ...a, name: t("term.panel") } : a));
+  return (
+    <Line title={m.text}>
+      {parts.map((p, i) => (typeof p === "string" ? p : "nick" in p ? <NickLink key={i} nick={p.nick} /> : p.people.map((x) => personName(x, apps, d?.logins ?? [])).join(t("channel.event.sep"))))}
+    </Line>
   );
 }
 

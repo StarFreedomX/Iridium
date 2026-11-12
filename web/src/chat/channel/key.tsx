@@ -96,7 +96,7 @@ export function ConfigPopover({ ctl, trigger, side = "bottom", open, onOpenChang
   return (
     <Popover.Root open={open} onOpenChange={onOpenChange}>
       <Popover.Trigger render={trigger} />
-      <PopSurface side={side} align="start" className="flex max-h-[min(560px,calc(var(--available-height)-8px))] w-[min(340px,calc(100vw-16px))] flex-col">
+      <PopSurface side={side} align="start" className="flex max-h-[min(560px,calc(var(--available-height)-8px))] w-[min(380px,calc(100vw-16px))] flex-col">
         <Suspense fallback={<div className="h-40" />}>
           <Config ctl={ctl} />
         </Suspense>
