@@ -54,7 +54,8 @@ function ChatMember({ l, ctl, off, run }: { l: Line; ctl: Ctl; off: boolean; run
   const [open, setOpen] = useState(false);
   const [nick, setNick] = useState<string | null>(null);
   const [sure, setSure] = useState(false);
-  const typed = nick ?? l.nick;
+  // One with no nick yet (a chat's own agent before any joined): the one it would get.
+  const typed = nick ?? (l.nick || freeNick(l.agent, ctl.lines.filter((x) => x.key !== l.key).map((x) => x.nick)));
   const taken = (n: string) => ctl.lines.some((x) => x.key !== l.key && x.nick.toLowerCase() === n.toLowerCase());
   const all = l.recv === "all";
   const sid = l.key.startsWith("agent:") ? l.key.slice(6) : "";
