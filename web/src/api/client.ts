@@ -57,6 +57,12 @@ import type {
 } from "./types.gen";
 import type { ShellOutput, ShellRun, ShellStarted } from "./types.gen";
 import type { SecretInfo, Secrets, SetSecret, Usage } from "./types.gen";
+import type { ChannelMembers, Injection, MemberPatch, NewMember } from "./types.gen";
+
+/** A message of a channel's log (Satori's message.list): id its number there. */
+export type ChannelMessage = { id: string; content: string; created_at?: number; user?: { id: string; name?: string; nick?: string; is_bot?: boolean }; _data?: { kind?: string } };
+/** A page of a channel's log: start and end, the numbers of its first and last; more, earlier ones. */
+export type ChannelPage = { data: ChannelMessage[]; start: number; end: number; more: boolean };
 
 /** The gate's GET /_ir/api/session (docs/gate.md). */
 export type GateSession = { authenticated: boolean; name?: string; local?: boolean; setup?: boolean };
@@ -221,6 +227,28 @@ export const api = {
     const p = (await r.json()) as { data: SatoriMessage[]; _data?: { start: number; end: number; more: boolean } };
     return { blocks: p.data.map(blockOf), start: p._data?.start ?? 0, end: p._data?.end ?? 0, more: p._data?.more ?? false };
   },
+  /** A page of channel id's log, what was said there (Satori's message.list): the newest, the one
+   *  before number before, or what came after number after. */
+  channelMessages: async (id: string, q: { before?: number; after?: number; limit?: number } = {}): Promise<ChannelPage> => {
+    await whoKnown();
+    const next = q.before ?? q.after;
+    const r = await request("/v1/message.list", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ channel_id: id, ...(q.limit ? { limit: q.limit } : {}), ...(next !== undefined && { next: String(next), direction: q.after !== undefined ? "after" : "before" }) }),
+    });
+    if (!r.ok) return fail(r);
+    const p = (await r.json()) as { data: ChannelMessage[]; _data?: { start: number; end: number; more: boolean } };
+    return { data: p.data, start: p._data?.start ?? 0, end: p._data?.end ?? 0, more: p._data?.more ?? false };
+  },
+  // --- a channel's members (docs/channels.md) ---
+  members: (id: string) => get<ChannelMembers>(`/v1/internal/channels/${enc(id)}/members`),
+  addMember: (id: string, m: NewMember) => write<ChannelMembers>("POST", `/v1/internal/channels/${enc(id)}/members`, m, { signal: AbortSignal.timeout(SEND_WAIT) }),
+  patchMember: (id: string, member: string, p: MemberPatch) => write<ChannelMembers>("PATCH", `/v1/internal/channels/${enc(id)}/members/${enc(member)}`, p),
+  removeMember: (id: string, member: string) => write<ChannelMembers>("DELETE", `/v1/internal/channels/${enc(id)}/members/${enc(member)}`),
+  /** What the channel gave session id's agent, the newest first. */
+  injections: (id: string) => get<Injection[]>(`${S(id)}/injections`),
   /** A block's whole text: internal/block.get, untruncated. */
   block: async (id: string, at: string): Promise<{ text: string }> => ({ text: blockOf(await sat<SatoriMessage>("internal/block.get", { channel_id: id, message_id: at })).text ?? "" }),
   /** A session started: Satori's channel.create, its group guild_id, its launcher data.parent_id. */

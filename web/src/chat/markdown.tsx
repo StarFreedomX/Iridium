@@ -14,6 +14,8 @@ import { cn } from "../ui";
 import { Linked, LinkFiles } from "./files";
 import { Code } from "./hl";
 import { NamedLink } from "./mention";
+import { nickOfURL } from "./channel/lib";
+import { NickLink } from "./channel/nick";
 import { draftWords, fromSatori, refOf } from "./refs";
 
 function CodeBlock({ className, children }: ComponentProps<"code"> & ExtraProps) {
@@ -51,6 +53,9 @@ export const MARKDOWN: Partial<StreamdownProps> = {
     img: (p) => (linkID(p.src) ? <Linked id={linkID(p.src)!} label={p.alt ?? ""} inline={false} /> : <defaultComponents.img {...p} />),
     a: (p) => {
       if (linkID(p.href)) return <Linked id={linkID(p.href)!} label={textOf(p.children)} inline />;
+      // An agent of the channel called by its nick (chat/channel: lib.ts linkNicks).
+      const nick = nickOfURL(p.href);
+      if (nick) return <NickLink nick={nick} />;
       const r = typeof p.href === "string" ? refOf(p.href, textOf(p.children)) : undefined;
       return r ? <NamedLink m={r} /> : <defaultComponents.a {...p} />;
     },
@@ -60,7 +65,7 @@ export const MARKDOWN: Partial<StreamdownProps> = {
   className: "prose-ir min-w-0",
   rehypePlugins: [],
   tableMaxHeight: 0,
-  urlTransform: (url, key, node) => (linkID(url) || refOf(url, "") ? url : defaultUrlTransform(url, key, node)),
+  urlTransform: (url, key, node) => (linkID(url) || refOf(url, "") || nickOfURL(url) ? url : defaultUrlTransform(url, key, node)),
   allowElement: (e) => e.tagName !== "a" || /^(https?|ir):/i.test(String(e.properties.href ?? "")),
   unwrapDisallowed: true,
 };

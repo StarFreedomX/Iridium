@@ -19,6 +19,7 @@
 import type { Workspace } from "./api/types.gen";
 import type { Places } from "./guilds";
 import type { Session } from "./api/types.gen";
+import { isMember } from "./chat/channel/lib";
 
 /** pinned: above the sessions at its group's root, or its parent's (reorder.ts). sessions: its
  *  own; children: the folders in it (pinned first), each named by its path under it. */
@@ -72,7 +73,8 @@ export type Standing = { rows: Set<string>; hung: Map<string, Session[]>; own: S
 /** Where each session stands (Standing). workspaces: the groups, by whose paths a group is at
  *  another machine (without them, by its sessions' machine); a session in none known is in 未归类. */
 export function standing(all: Session[], workspaces?: Workspace[]): Standing {
-  const live = all.filter((s) => !s.subagent && !s.archived);
+  // An agent of another session's channel is shown there (chat/channel): nowhere in the list.
+  const live = all.filter((s) => !s.subagent && !s.archived && !isMember(s));
   const byId = new Map(live.map((s) => [s.id, s]));
   const paths = workspaces && new Map(workspaces.map((w) => [w.id, w.path]));
   const wsOf = (s: Session) => {
@@ -181,22 +183,27 @@ function bySeen<T>(xs: T[], key: (x: T) => string, at: (x: T) => number, seen: M
 /** places: where the rows were put by hand (from the carried "guilds"): the groups' rows by key, the
  *  folders by path. */
 export function buildTree(all: Session[], workspaces: Workspace[], unsorted: string, now = Date.now(), seen = SEEN, places: Places = { groups: [], order: {}, pinned: [] }): Tree {
-  const list = all.filter((s) => !s.subagent);
+  // An agent of another session's channel is no row (chat/channel): what it started (its
+  // subagents, its runs) shows under the channel's.
+  const list = all.filter((s) => !s.subagent && !isMember(s));
   const byId = new Map(list.map((s) => [s.id, s]));
+  const starters = new Map(all.filter((s) => !s.subagent).map((s) => [s.id, s]));
   const kids = new Map<string, Session[]>();
   const runs = new Map<string, Run[]>();
   for (const s of all) {
-    if (!s.subagent || !s.parent || !byId.has(s.parent)) continue;
-    const at = working(s, byId.get(s.parent), now);
+    const starter = s.subagent && s.parent ? starters.get(s.parent) : undefined;
+    const parent = starter && (isMember(starter) ? starter.channel! : starter.id);
+    if (!starter || !parent || !byId.has(parent)) continue;
+    const at = working(s, starter, now);
     const w = s.workflow;
     if (!w) {
-      if (at) kids.set(s.parent, [...(kids.get(s.parent) ?? []), s]);
+      if (at) kids.set(parent, [...(kids.get(parent) ?? []), s]);
       continue;
     }
-    const list = runs.get(s.parent) ?? [];
+    const list = runs.get(parent) ?? [];
     let r = list.find((x) => x.id === w.run);
     if (!r) list.push((r = { id: w.run, name: w.name || w.run, phase: "", done: 0, total: 0, working: [] }));
-    runs.set(s.parent, list);
+    runs.set(parent, list);
     r.total++;
     if (s.done) r.done++;
     if (at) r.working.push(s);
@@ -290,7 +297,7 @@ export function buildTree(all: Session[], workspaces: Workspace[], unsorted: str
   }
   const hung = new Map([...st.hung].filter(([at]) => st.rows.has(at)));
   const listed = new Set([...live, ...[...hung.values()].flat(), ...archived].map((s) => s.id));
-  const unlisted = new Set(all.filter((s) => (s.subagent ? !!s.parent && byId.has(s.parent) && !listed.has(s.parent) : !listed.has(s.id))).map((s) => s.id));
+  const unlisted = new Set(all.filter((s) => (s.subagent ? !!s.parent && byId.has(s.parent) && !listed.has(s.parent) : !listed.has(s.id) && !isMember(s))).map((s) => s.id));
   return { workspaces: nodes, archived, where, kids, runs, hung, unlisted };
 }
 

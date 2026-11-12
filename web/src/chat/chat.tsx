@@ -4,9 +4,9 @@
 // from the transcript (GET messages, after= what the open session's state says was written); its
 // drafts from the stream. Loaded only once a chat opens or the page is idle.
 import { Menu } from "@base-ui/react/menu";
-import { BarChart3, Ellipsis, Globe, ListTree, Plus, Settings } from "lucide-react";
+import { ArrowLeft, BarChart3, Ellipsis, Globe, ListTree, Plus, Settings } from "lucide-react";
 import type { Status } from "../api/types.gen";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
 import type { SessionState as LiveSession } from "../api/types.gen";
 import { api } from "../api/client";
 import { LinkDot } from "../link";
@@ -23,7 +23,10 @@ import { useConfirms, useList, useSession } from "../store";
 import { drafts, opened } from "../stream";
 import { errText } from "../toast";
 import { groupPath } from "../tree";
-import { agentName, cn, Lamp, lampOf, LogoLamp, sessionStatusText, tilde, Tip, titleOf, untitled } from "../ui";
+import { agentName, cn, Lamp, lampOf, LogoLamp, LogoStack, sessionStatusText, tilde, Tip, titleOf, untitled } from "../ui";
+import { isMember, isMulti } from "./channel/lib";
+// A channel of several agents: its own code, fetched as one is first opened.
+const ChannelPage = lazy(() => import("./channel/page").then((m) => ({ default: m.ChannelPage })));
 import { MachineFace, shownPath } from "../machines";
 import { openPlace } from "../places";
 import { Asks, Denials } from "./asks";
@@ -61,6 +64,46 @@ const ghostOf = (row: Session): LiveSession => ({ ...row, asks: [], tasks: [], d
  *  under it; the conversation stays where it is, not pushed up with it (the user, 2026-11-06). onSheet: on a phone, brings it out,
  *  from the bar's ⋯ menu; onMe, there too, this terminal's own sheet (个人). */
 export function ChatPage({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: number; onSheet?: () => void; onMe?: () => void }) {
+  const list = useList();
+  const row = list?.find((x) => x.id === id);
+  // A channel of several agents (docs/channels.md) is its own view (chat/channel), taken as its
+  // members become several and left as they are one again. solo: its own session's record asked
+  // for from there, the one-agent chat in its place; a key in the bar goes back.
+  const multi = isMulti(row);
+  const [solo, setSolo] = useState(false);
+  if (solo && !multi) setSolo(false);
+  if (multi && !solo)
+    return (
+      <Suspense
+        fallback={
+          <div className="relative h-full">
+            <Bar s={row} onSheet={onSheet} onMe={onMe} />
+          </div>
+        }
+      >
+        <ChannelPage
+          key="channel"
+          id={id}
+          sheet={sheet}
+          record={(session) => (session === id ? setSolo(true) : openChat(session))}
+          bar={(s, under) => (
+            <Bar s={s} onSheet={onSheet} onMe={onMe}>
+              {under}
+            </Bar>
+          )}
+        />
+      </Suspense>
+    );
+  // An agent's own record: back to the channel it is in.
+  const of = row && isMember(row) ? list?.find((x) => x.id === row.channel) : undefined;
+  const back = multi && row ? { label: titleOf(row), run: () => setSolo(false) } : of ? { label: titleOf(of), run: () => openChat(of.id) } : undefined;
+  return <OneChat key="one" id={id} sheet={sheet} onSheet={onSheet} onMe={onMe} back={back} />;
+}
+
+type Back = { label: string; run: () => void };
+
+/** One agent's chat. back: it is an agent of a channel of several, shown by itself; its channel. */
+function OneChat({ id, sheet = 0, onSheet, onMe, back }: { id: string; sheet?: number; onSheet?: () => void; onMe?: () => void; back?: Back }) {
   useLang();
   const real = useSession(id);
   const list = useList();
@@ -203,7 +246,7 @@ export function ChatPage({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?:
   const spots = useMemo(() => (row ? spotsOf(row, list ?? [], named, workspaces ?? []) : []), [row, list, named, workspaces]);
   // The bar a row taller with them: the conversation padded as much, and kept where it was as the
   // row comes or goes (the bar's 48px and a gap; the row's 32px).
-  const padTop = spots.length ? 96 : 64;
+  const padTop = 64 + (spots.length ? 32 : 0) + (back ? 32 : 0);
   const padWas = useRef(padTop);
   useLayoutEffect(() => {
     const d = padTop - padWas.current;
@@ -258,7 +301,7 @@ export function ChatPage({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?:
     const gone = lost && list !== undefined && !row;
     return (
       <div className="relative h-full">
-        <Bar s={row} onSheet={onSheet} onMe={onMe} />
+        <Bar s={row} onSheet={onSheet} onMe={onMe} back={back} />
         {gone && <p className="g-fade m-0 pt-24 text-center text-sm text-ink-3">{t("chat.gone")}</p>}
       </div>
     );
@@ -308,7 +351,7 @@ export function ChatPage({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?:
           {s.status === "error" && s.error && <Crash error={s.error} />}
         </div>
       </Stick>
-      <Bar s={s} onSheet={onSheet} onMe={onMe} spots={spots} asked={confirms} />
+      <Bar s={s} onSheet={onSheet} onMe={onMe} spots={spots} asked={confirms} back={back} />
       {/* Under the phone's sheet the stack stays where it is, covered, and is hidden once the sheet is
           up (its glass not drawn again as the chat moves under it); only one taller than the sheet,
           which would show over it or at its round corners, sinks (the user, 2026-11-06). */}
@@ -401,7 +444,12 @@ function useWaited(ready: boolean, ms: number): boolean {
 /** The top bar: the logo with its lamp, the name (its folder only as its tooltip, the user,
  *  2026-11-08); more. The link's dot is the bar's own, left of ⋯ (link.tsx). Under them, while
  *  there are any, the places it works in (spots, Where). */
-function Bar({ s, onSheet, onMe, spots, asked }: { s?: Session; onSheet?: () => void; onMe?: () => void; spots?: Spot[]; asked?: { session?: string }[] }) {
+/** back: the channel this one is an agent of (shown by itself), a key under the title to go
+ *  there. children: a channel of several's row of members, under the title (chat/channel). */
+function Bar({ s, onSheet, onMe, spots, asked, back, children }: { s?: Session; onSheet?: () => void; onMe?: () => void; spots?: Spot[]; asked?: { session?: string }[]; back?: Back; children?: ReactNode }) {
+  const list = useList();
+  // A channel of several: its agents' logos, as its row in the list has them.
+  const stack = s && children && isMulti(s) ? s.agents!.map((a) => list?.find((x) => x.id === a.session)?.agent ?? a.agent ?? s.agent) : undefined;
   const ws = useWorkspaces().data ?? [];
   const machines = useMachines();
   const [renaming, setRenaming] = useState(false);
@@ -426,7 +474,7 @@ function Bar({ s, onSheet, onMe, spots, asked }: { s?: Session; onSheet?: () => 
         <div className="flex min-w-0 flex-1 items-center gap-2.5 pl-2">
           {s && (
             <>
-              <Tip label={`${agentName(s.agent)} · ${sessionStatusText(s)}`} side="bottom">
+              <Tip label={stack ? s.agents!.map((a) => a.nick).join(" · ") : `${agentName(s.agent)} · ${sessionStatusText(s)}`} side="bottom">
                 {/* On a phone the logo is a key too: the session list's sheet, as ⋯'s first item (the
                     user, 2026-11-06). Its tap area wider than it, the bar not moved. */}
                 {onSheet ? (
@@ -436,7 +484,7 @@ function Bar({ s, onSheet, onMe, spots, asked }: { s?: Session; onSheet?: () => 
                   </button>
                 ) : (
                   <span className={cn("grid", late)}>
-                    <LogoLamp agent={s.agent} status={lampOf(s)} size={18} />
+                    {stack ? <LogoStack agents={stack} size={18} /> : <LogoLamp agent={s.agent} status={lampOf(s)} size={18} />}
                   </span>
                 )}
               </Tip>
@@ -487,7 +535,18 @@ function Bar({ s, onSheet, onMe, spots, asked }: { s?: Session; onSheet?: () => 
           </span>
         )}
       </div>
+      {back && (
+        <div className="g-fade flex h-8 min-w-0 items-start pr-3 pl-9">
+          <Tip label={t("channel.back")} side="bottom">
+            <button type="button" onClick={back.run} className="g-press flex h-6 min-w-0 items-center gap-1 rounded-full bg-fill pr-2.5 pl-1.5 text-xs text-ink-2 hover:bg-fill-2 hover:text-ink">
+              <ArrowLeft size={13} className="shrink-0" />
+              <span className="max-w-64 truncate">{back.label}</span>
+            </button>
+          </Tip>
+        </div>
+      )}
       {!!spots?.length && <Where spots={spots} asked={asked ?? []} />}
+      {children}
     </header>
   );
 }

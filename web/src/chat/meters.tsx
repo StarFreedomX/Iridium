@@ -97,8 +97,6 @@ export function ContextRing({ session, summary, tokens, open, onOpenChange }: { 
   const r = 7;
   const circ = 2 * Math.PI * r;
   const label = `${t("ctx.title")} · ${t("ctx.used", { used: k(c.used), total: k(c.max) })}`;
-  const parts = ctxParts(c);
-  const hit = hitRate(tokens);
   return (
     <Popover.Root open={open} onOpenChange={onOpenChange}>
       <Tip label={label}>
@@ -115,25 +113,37 @@ export function ContextRing({ session, summary, tokens, open, onOpenChange }: { 
         />
       </Tip>
       <PopSurface side="top" align="end" className="w-[min(300px,calc(100vw-16px))] p-3.5">
-        <div className="flex items-baseline justify-between">
-          <span className="text-sm font-semibold">{t("ctx.title")}</span>
-          <span className="text-xs text-ink-3 tabular-nums">{t("ctx.used", { used: k(c.used), total: k(c.max) })}</span>
-        </div>
-        {parts.length > 1 && <Meter parts={parts} label={k} />}
-        {/* The cache: a section as the context's above it, its title and rate, a bar of what was
-            read from the cache, written to it, and neither, a line each (the user, 2026-11-12:
-            not a footnote under a rule). */}
-        {hit && tokens && (
-          <section className="mt-4" aria-label={t("ctx.cacheHit")}>
-            <div className="flex items-baseline justify-between">
-              <span className="text-sm font-semibold">{t("ctx.cacheHit")}</span>
-              <span className="text-xs text-ink-3 tabular-nums">{hit}</span>
-            </div>
-            <Meter parts={cacheParts(tokens)} label={tok} />
-          </section>
-        )}
+        <ContextDetail c={c} tokens={tokens} />
       </PopSurface>
     </Popover.Root>
+  );
+}
+
+/** The context's breakdown, as the ring's popover says it: how full, the parts, the cache. Also a
+ *  channel's agent's, under its face in the member bar (chat/channel). */
+export function ContextDetail({ c, tokens }: { c: Context; tokens?: InputTokens }) {
+  const parts = ctxParts(c);
+  const hit = hitRate(tokens);
+  return (
+    <>
+      <div className="flex items-baseline justify-between">
+        <span className="text-sm font-semibold">{t("ctx.title")}</span>
+        <span className="text-xs text-ink-3 tabular-nums">{t("ctx.used", { used: k(c.used), total: k(c.max ?? 0) })}</span>
+      </div>
+      {parts.length > 1 && <Meter parts={parts} label={k} />}
+      {/* The cache: a section as the context's above it, its title and rate, a bar of what was
+          read from the cache, written to it, and neither, a line each (the user, 2026-11-12:
+          not a footnote under a rule). */}
+      {hit && tokens && (
+        <section className="mt-4" aria-label={t("ctx.cacheHit")}>
+          <div className="flex items-baseline justify-between">
+            <span className="text-sm font-semibold">{t("ctx.cacheHit")}</span>
+            <span className="text-xs text-ink-3 tabular-nums">{hit}</span>
+          </div>
+          <Meter parts={cacheParts(tokens)} label={tok} />
+        </section>
+      )}
+    </>
   );
 }
 
