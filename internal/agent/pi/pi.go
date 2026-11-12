@@ -354,7 +354,8 @@ func (d *Driver) waitPrompted(ctx context.Context) error {
 // pi refuses a plain prompt then. "/compact" compacts instead, only between turns: pi's compact
 // aborts the run first.
 func (d *Driver) Send(ctx context.Context, m agent.Message) error {
-	if m.ID == "" || m.Text == "" {
+	text := m.Text.String()
+	if m.ID == "" || text == "" {
 		return errors.New("pi: a message needs an id and text")
 	}
 	if err := d.waitPrompted(ctx); err != nil {
@@ -365,8 +366,8 @@ func (d *Driver) Send(ctx context.Context, m agent.Message) error {
 		d.mu.Unlock()
 		return ErrNotAttached
 	}
-	cmd := map[string]any{"id": m.ID, "type": "prompt", "message": m.Text}
-	compact := d.RunsItself(m.Text)
+	cmd := map[string]any{"id": m.ID, "type": "prompt", "message": text}
+	compact := d.RunsItself(text)
 	steer := d.busy()
 	switch {
 	case compact && steer:

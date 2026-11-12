@@ -19,6 +19,7 @@ import (
 	"github.com/kumoSleeping/iridium/internal/agent"
 	"github.com/kumoSleeping/iridium/internal/agents"
 	"github.com/kumoSleeping/iridium/internal/api"
+	"github.com/kumoSleeping/iridium/internal/ctx/assemble"
 	"github.com/kumoSleeping/iridium/internal/harness"
 	"github.com/kumoSleeping/iridium/internal/hold"
 	"github.com/kumoSleeping/iridium/internal/platform"
@@ -270,12 +271,16 @@ func (h *Hosted) launch(ctx context.Context, proc int) error {
 		return err
 	}
 	prompt := filepath.Join(h.dir, filePrompt)
-	text := SystemPrompt(m.tuned().Lang)
+	where := assemble.Where{Lang: m.tuned().Lang}
 	if mc := h.machine(); mc != nil {
 		hi, _ := mc.Hello()
-		text = RemotePrompt(m.tuned().Lang, hi != nil && hi.IRClient)
+		where.Remote, where.IR = true, hi != nil && hi.IRClient
 	}
-	if err := os.WriteFile(prompt, []byte(text), 0o600); err != nil {
+	system, err := assemble.System(where)
+	if err != nil {
+		return err
+	}
+	if err := agent.WriteSystemPrompt(prompt, system); err != nil {
 		return err
 	}
 	h.mu.Lock()

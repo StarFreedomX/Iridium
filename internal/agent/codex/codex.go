@@ -512,13 +512,14 @@ func (d *Driver) waitReady(ctx context.Context) error {
 // (Rhodium start-mid-turn), so no steer comes too late. Its id and clientUserMessageId are the
 // input's: the user message it becomes carries it. "/compact" compacts the thread instead.
 func (d *Driver) Send(ctx context.Context, m agent.Message) error {
-	if m.ID == "" || m.Text == "" {
+	text := m.Text.String()
+	if m.ID == "" || text == "" {
 		return errors.New("codex: a message needs an id and text")
 	}
 	if err := d.waitReady(ctx); err != nil {
 		return err
 	}
-	if d.RunsItself(m.Text) {
+	if d.RunsItself(text) {
 		return d.startCompact(ctx, m.ID)
 	}
 	for {
@@ -546,7 +547,7 @@ func (d *Driver) Send(ctx context.Context, m agent.Message) error {
 	}
 	params := map[string]any{
 		"threadId":            d.thread,
-		"input":               []map[string]any{{"type": "text", "text": m.Text, "text_elements": []any{}}},
+		"input":               []map[string]any{{"type": "text", "text": text, "text_elements": []any{}}},
 		"clientUserMessageId": m.ID,
 		"approvalPolicy":      policy(d.mode),
 		"sandboxPolicy":       sandboxPolicy,

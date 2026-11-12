@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+
+	"github.com/kumoSleeping/iridium/internal/ctx/assemble"
 )
 
 // Launching an agent here or at an executor (docs/exec.md) alike: a driver asks SpawnOptions for
@@ -56,6 +58,15 @@ func (o SpawnOptions) LaunchFile(name string, data []byte) (string, error) {
 		return "", err
 	}
 	return path, os.Rename(tmp, path)
+}
+
+// WriteSystemPrompt writes SystemPromptFile path: what the assembly layer made for the agent's
+// system prompt (assemble.System), nothing else.
+func WriteSystemPrompt(path string, system assemble.Injection) error {
+	if k := system.Kind(); k != assemble.KindSystem {
+		return fmt.Errorf("the system prompt file takes a system injection, not %q", k)
+	}
+	return os.WriteFile(path, []byte(system.String()), 0o600)
 }
 
 // PromptFile is SystemPromptFile where the agent runs: itself here, a copy at an executor (made

@@ -1,0 +1,1 @@
+The last turn was interrupted. Check where things stand, then carry on.

@@ -6,7 +6,7 @@ import (
 	"unicode"
 )
 
-// A reply's title line (plan "会话标题"): told so (session.SystemPrompt), the agent ends a reply
+// A reply's title line (plan "会话标题"): told so (assemble.System), the agent ends a reply
 // with a line [标题] text when the session has no fitting title yet or its subject has changed.
 // The last such line, outside fenced code, in what the agent said, is the session's title.
 

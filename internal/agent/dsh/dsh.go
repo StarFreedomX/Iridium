@@ -543,7 +543,8 @@ func (d *Driver) waitPrompted(ctx context.Context) error {
 // Send writes a message: session/prompt, or session/query for the commands dsh runs itself
 // (RunsItself). One while a run goes waits in dsh's inbox and runs next in the same run.
 func (d *Driver) Send(ctx context.Context, m agent.Message) error {
-	if m.ID == "" || (m.Text == "" && len(m.Images) == 0) {
+	text := m.Text.String()
+	if m.ID == "" || (text == "" && len(m.Images) == 0) {
 		return errors.New("dsh: a message needs an id and text")
 	}
 	if err := d.waitReady(ctx); err != nil {
@@ -552,10 +553,10 @@ func (d *Driver) Send(ctx context.Context, m agent.Message) error {
 	if err := d.waitPrompted(ctx); err != nil {
 		return err
 	}
-	command := d.RunsItself(m.Text)
+	command := d.RunsItself(text)
 	blocks := []map[string]any{}
-	if m.Text != "" {
-		blocks = append(blocks, map[string]any{"type": "text", "text": m.Text})
+	if text != "" {
+		blocks = append(blocks, map[string]any{"type": "text", "text": text})
 	}
 	for _, im := range m.Images {
 		blocks = append(blocks, map[string]any{"type": "image", "data": base64.StdEncoding.EncodeToString(im.Data), "mimeType": im.MediaType})
@@ -570,7 +571,7 @@ func (d *Driver) Send(ctx context.Context, m agent.Message) error {
 		return errEnding
 	}
 	busy := d.busy()
-	if command && busy && isCompact(m.Text) {
+	if command && busy && isCompact(text) {
 		d.mu.Unlock()
 		return errors.New("dsh: a turn is running; stop it before /compact")
 	}

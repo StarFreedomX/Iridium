@@ -18,6 +18,7 @@ import (
 
 	"github.com/kumoSleeping/iridium/internal/agent"
 	"github.com/kumoSleeping/iridium/internal/api"
+	"github.com/kumoSleeping/iridium/internal/ctx/assemble"
 )
 
 // The recordings in testdata are Rhodium's (test/fixtures/claude, Claude 2.1.304-2.1.310 with
@@ -148,7 +149,7 @@ func (h *harness) act(line []byte) {
 	ctx := context.Background()
 	switch f.Type {
 	case "user":
-		if err := h.d.Send(ctx, agent.Message{ID: f.UUID, Text: f.Message.Content[0].Text, Human: f.Origin != nil}); err != nil {
+		if err := h.d.Send(ctx, agent.Message{ID: f.UUID, Text: assemble.Input(f.Message.Content[0].Text), Human: f.Origin != nil}); err != nil {
 			h.t.Fatal(err)
 		}
 	case "control_response":
@@ -672,7 +673,7 @@ func TestSendImages(t *testing.T) {
 	var lines [][]byte
 	d := New(Options{Logf: func(string, ...any) {}})
 	d.Attach(func(l []byte) error { lines = append(lines, l); return nil }, 1)
-	err := d.Send(context.Background(), agent.Message{ID: "u1", Text: "[本机] look\n\n[附件] `/w/a.png`", Human: true, Images: []agent.Image{{MediaType: "image/png", Data: []byte{0x89, 'P', 'N', 'G'}}}})
+	err := d.Send(context.Background(), agent.Message{ID: "u1", Text: assemble.Input("[本机] look\n\n[附件] `/w/a.png`"), Human: true, Images: []agent.Image{{MediaType: "image/png", Data: []byte{0x89, 'P', 'N', 'G'}}}})
 	if err != nil {
 		t.Fatal(err)
 	}

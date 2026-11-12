@@ -28,7 +28,6 @@ import (
 	"github.com/kumoSleeping/iridium/internal/config"
 	"github.com/kumoSleeping/iridium/internal/harness"
 	"github.com/kumoSleeping/iridium/internal/hub"
-	"github.com/kumoSleeping/iridium/internal/irhelp"
 	"github.com/kumoSleeping/iridium/internal/platform"
 	"github.com/kumoSleeping/iridium/internal/remote"
 	"github.com/kumoSleeping/iridium/internal/store"
@@ -36,54 +35,6 @@ import (
 
 // UnitPrefix names the holders' units; tests use iridium-test-.
 const UnitPrefix = "iridium-hold-"
-
-// SystemPrompt is appended to every hosted agent's system prompt (plan "ir"), written anew at each
-// start of its process: ir's agent commands (irhelp), how to ask for a secret, hand over a file
-// and title the session (transcript/named.go), and lang, the user's language as the web settings
-// set it ("zh", "en"; "" leaves that line out).
-func SystemPrompt(lang string) string {
-	var b strings.Builder
-	b.WriteString("This session is hosted by Iridium. Its ir command reaches Iridium: other agent sessions (start them, message them, wait for them), files and command lines at the user's other computers, secrets.\n")
-	b.WriteString(irhelp.Agent())
-	b.WriteString(irhelp.Layers())
-	b.WriteString(`Secrets: never ask for one in the chat: ir api help secrets.
-Files: to show or hand the user a file, put the Markdown that ir api POST internal/links path=<path> prints in your reply: ![caption](ir:id) shows a picture, a video or a sound in place, [text](ir:id) is a file to download. Any other path, file:// link or local image is plain text.
-`)
-	b.WriteString(namesLine)
-	b.WriteString(titleLine)
-	if name := langNames[lang]; name != "" {
-		b.WriteString("The user's language, as set in the web settings: " + name + ".\n")
-	}
-	return b.String()
-}
-
-// RemotePrompt is SystemPrompt for a session hosted at another machine: with ir (its executor
-// puts one there, wire.Hello.IRClient), the commands that ir has (irhelp.Remote); without, none.
-// No file links: its files are that machine's, which ir attach there does not reach.
-func RemotePrompt(lang string, ir bool) string {
-	var b strings.Builder
-	if ir {
-		b.WriteString("This session is hosted by Iridium and runs at another machine than Iridium's own. Use its ir command to start other agent sessions (here or at other machines), message them and wait for their results:\n\n")
-		b.WriteString(irhelp.Remote())
-		b.WriteString(irhelp.Layers())
-	} else {
-		b.WriteString("This session is hosted by Iridium and runs at another machine than Iridium's own.\n")
-	}
-	b.WriteString(namesLine)
-	b.WriteString(titleLine)
-	if name := langNames[lang]; name != "" {
-		b.WriteString("The user's language, as set in the web settings: " + name + ".\n")
-	}
-	return b.String()
-}
-
-// namesLine: how words name a session or a folder, as the page's composer writes them (docs/plan.md
-// "@") and draws them, in the user's words and in a reply.
-const namesLine = "Names: [title](ir:session/<id>) is a session, [name](ir:folder/<path>) a folder (<computer>:<path> at another), as the user's messages write them, shown as links to them. Satori's <img src=\"ir:id\"/>, <file src=\"ir:id\"/> and <sharp id name/> work too.\n"
-
-const titleLine = "Title: as your first action in a session, and again only when its subject changes, run ir api channel.update channel_id=self data.name=\"<title>\": a short name for the specific thing and task, in the user's language, without punctuation, quotes or emoji. If the user named it, leave it.\n"
-
-var langNames = map[string]string{"zh": "Chinese", "en": "English"}
 
 // Discovery finds the sessions on disk that agents started by themselves (agents' record
 // directories, ~/.claude/sessions/, /proc). Another package implements it.

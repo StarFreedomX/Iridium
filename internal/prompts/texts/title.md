@@ -1,0 +1,1 @@
+Title: as your first action in a session, and again only when its subject changes, run ir api channel.update channel_id=self data.name="<title>": a short name for the specific thing and task, in the user's language, without punctuation, quotes or emoji. If the user named it, leave it.

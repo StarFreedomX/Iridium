@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/kumoSleeping/iridium/internal/api"
+	"github.com/kumoSleeping/iridium/internal/ctx/assemble"
 	"github.com/kumoSleeping/iridium/internal/remote"
 	"github.com/kumoSleeping/iridium/internal/remote/wire"
 )
@@ -14,9 +15,9 @@ import (
 const eventHeldChanged = "held.changed"
 
 // desktopSend gives a message to the agent of a session the dsh the executor runs in holds (DSH
-// Desktop's): held.send.
-func desktopSend(ctx context.Context, mc *remote.Machine, session, text string, steer bool) error {
-	return mc.Call(ctx, "held.send", wire.HeldSendParams{Session: session, Text: text, Steer: steer}, nil)
+// Desktop's): held.send. line is the message as that agent is to see it (assemble.Message).
+func desktopSend(ctx context.Context, mc *remote.Machine, session string, line assemble.Injection, steer bool) error {
+	return mc.Call(ctx, "held.send", wire.HeldSendParams{Session: session, Text: line.String(), Steer: steer}, nil)
 }
 
 // desktopGet is session's live state in the dsh there (held.get).

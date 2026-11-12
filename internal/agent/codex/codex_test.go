@@ -18,6 +18,7 @@ import (
 
 	"github.com/kumoSleeping/iridium/internal/agent"
 	"github.com/kumoSleeping/iridium/internal/api"
+	"github.com/kumoSleeping/iridium/internal/ctx/assemble"
 )
 
 // The recordings in testdata are Rhodium's (test/fixtures/codex, codex-cli 0.162.1): in.log is
@@ -235,7 +236,7 @@ func (h *harness) act(probe map[string]any) {
 			id = fmt.Sprintf("input-%v", probe["id"])
 		}
 		h.op("send", func() (any, error) {
-			return nil, h.d.Send(ctx, agent.Message{ID: id, Text: input["text"].(string), Human: true})
+			return nil, h.d.Send(ctx, agent.Message{ID: id, Text: assemble.Input(input["text"].(string)), Human: true})
 		})
 		got := h.next("turn/start")
 		h.mapID(probe, got)
@@ -253,7 +254,9 @@ func (h *harness) act(probe map[string]any) {
 			h.t.Errorf("interrupt %v, probe %v", got, probe)
 		}
 	case "thread/compact/start":
-		h.op("compact", func() (any, error) { return nil, h.d.Send(ctx, agent.Message{ID: "compact-1", Text: "/compact"}) })
+		h.op("compact", func() (any, error) {
+			return nil, h.d.Send(ctx, agent.Message{ID: "compact-1", Text: assemble.Input("/compact")})
+		})
 		got := h.next("thread/compact/start")
 		h.mapID(probe, got)
 		if !reflect.DeepEqual(params(got), pp) {

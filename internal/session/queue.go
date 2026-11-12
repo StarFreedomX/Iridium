@@ -12,6 +12,7 @@ import (
 
 	"github.com/kumoSleeping/iridium/internal/agent"
 	"github.com/kumoSleeping/iridium/internal/api"
+	"github.com/kumoSleeping/iridium/internal/ctx/assemble"
 	"github.com/kumoSleeping/iridium/internal/harness"
 	"github.com/kumoSleeping/iridium/internal/store"
 )
@@ -143,22 +144,26 @@ func (h *Hosted) busy() bool {
 	return h.live && h.turn != agent.Idle
 }
 
-// write gives the agent an input already in the store, starting the agent if need be.
+// write gives the agent an input already in the store, starting the agent if need be: its
+// words after "[tag] " (assemble.Message).
 func (h *Hosted) write(ctx context.Context, in store.Input, images []agent.Image) error {
+	line, err := assemble.Message(in.Tag, in.Terminal, in.Text, in.ID)
+	if err != nil {
+		return err
+	}
+	return h.writeLine(ctx, in, line, images)
+}
+
+// writeLine gives the agent line, input in as the agent is to see it (assemble.Message, or
+// assemble.Own for a line of Iridium's own), starting the agent if need be.
+func (h *Hosted) writeLine(ctx context.Context, in store.Input, line assemble.Injection, images []agent.Image) error {
 	if err := h.start(ctx); err != nil {
 		return err
 	}
-	line := in.Text
-	if !strings.HasPrefix(line, "/") {
-		tag := in.Tag
-		if tag == "" {
-			tag = in.Terminal
-		}
-		line = "[" + tag + "] " + line
-	}
 	h.mu.Lock()
 	h.lastFrom, h.lastVia = in.Terminal, viaOf(in.Tag)
-	h.compact = line == "/compact" || line == "/压缩" || strings.HasPrefix(line, "/compact ")
+	text := line.String()
+	h.compact = text == "/compact" || text == "/压缩" || strings.HasPrefix(text, "/compact ")
 	ready := h.ready
 	h.mu.Unlock()
 	// The process says its use so far first, so this turn's share can be told from it.

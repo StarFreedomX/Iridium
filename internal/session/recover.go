@@ -6,18 +6,16 @@ import (
 	"time"
 
 	"github.com/kumoSleeping/iridium/internal/api"
+	"github.com/kumoSleeping/iridium/internal/ctx/assemble"
 	"github.com/kumoSleeping/iridium/internal/store"
 )
 
 // Crash auto-continue and quota auto-continue (Rhodium §4.8, product §4.5, §4.6), each behind its
-// config switch.
+// config switch. Iridium's own lines for them are assemble.Recovery (to an agent that cannot run
+// an interrupted turn again by itself) and assemble.QuotaBack (the quota is back and nothing
+// else waits); the agent sees them as Iridium's (api.SourceIridium).
 
 const (
-	// RecoveryPrompt is what Iridium tells an agent that cannot run an interrupted turn again by
-	// itself (the agent sees it as Iridium's own line).
-	RecoveryPrompt = "The last turn was interrupted. Check where things stand, then carry on."
-	// QuotaPrompt goes when the quota is back and nothing else waits.
-	QuotaPrompt = "Continue."
 	// The circuit breaker: this many crashes of a session within BreakerWindow, and it is not
 	// continued again.
 	BreakerCrashes = 3
@@ -66,11 +64,22 @@ func (h *Hosted) helloAfterResume(turnSeen bool) {
 	if turnSeen {
 		return // the agent runs the turn again by itself
 	}
-	h.say(RecoveryPrompt)
+	h.say(assemble.Recovery)
 }
 
 // say sends Iridium's own line now, joining a running turn if there is one.
-func (h *Hosted) say(text string) {
+func (h *Hosted) say(own func() (assemble.Injection, error)) {
+	words, err := own()
+	if err != nil {
+		h.logf("%v", err)
+		return
+	}
+	text := words.String()
+	line, err := assemble.Own(api.SourceIridium, words)
+	if err != nil {
+		h.logf("%v", err)
+		return
+	}
 	ctx, cancel := context.WithTimeout(h.m.ctx, time.Minute)
 	defer cancel()
 	h.qmu.Lock()
@@ -80,7 +89,7 @@ func (h *Hosted) say(text string) {
 		h.logf("%v", err)
 		return
 	}
-	if err := h.write(ctx, in, nil); err != nil {
+	if err := h.writeLine(ctx, in, line, nil); err != nil {
 		h.logf("writing %q: %v", text, err)
 	}
 }
@@ -134,6 +143,6 @@ func (h *Hosted) quotaBack() {
 		defer cancel()
 		h.release(ctx, false)
 	case !stop:
-		h.say(QuotaPrompt)
+		h.say(assemble.QuotaBack)
 	}
 }
