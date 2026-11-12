@@ -740,3 +740,12 @@ func writeJSON(path string, v any) error {
 	}
 	return os.Rename(f.Name(), path)
 }
+
+// NewInputID is an input id for a sender that chose none (SendAs).
+func NewInputID() string { return newUUID() }
+
+// SourceTag is the name the agent sees a message from `from` under (Send's "[name] ").
+func (m *Manager) SourceTag(from string) string {
+	_, tag, _ := m.source(from)
+	return tag
+}

@@ -224,7 +224,7 @@ func (l *live) page(as, id string) api.MessagePage {
 	var p struct {
 		Data satori.PageData `json:"_data"`
 	}
-	l.sat(as, "message.list", map[string]any{"channel_id": id, "_data": map[string]any{"blocks": true}}, &p)
+	l.sat(as, "internal/block.list", map[string]any{"channel_id": id, "_data": map[string]any{"blocks": true}}, &p)
 	return api.MessagePage{Blocks: p.Data.Blocks, Start: p.Data.Start, End: p.Data.End, More: p.Data.More}
 }
 
@@ -253,7 +253,7 @@ func pageAt(t *testing.T, c *http.Client, base, id string) api.MessagePage {
 	var p struct {
 		Data satori.PageData `json:"_data"`
 	}
-	satAt(t, c, base, "message.list", map[string]any{"channel_id": id, "_data": map[string]any{"blocks": true}}, &p)
+	satAt(t, c, base, "internal/block.list", map[string]any{"channel_id": id, "_data": map[string]any{"blocks": true}}, &p)
 	return api.MessagePage{Blocks: p.Data.Blocks, Start: p.Data.Start, End: p.Data.End, More: p.Data.More}
 }
 

@@ -21,9 +21,11 @@ channel.update {channel_id, data.name?, data.parent_id?, _data.archived?, _data.
 channel.delete {channel_id} -> {}  archive: its agent stops, the transcript stays
   The sessions hung under it are archived with it; channel.update _data.archived:=false brings them back.
 guild.list {next?} -> List<Guild>  folder groups, then loose  view=id,name,_data.path
-message.list {channel_id, next?, direction?, limit?, order?, _data.blocks?} -> BidiList<Message>  transcript; direction before|after|around  view=id,content
+message.list {channel_id, next?, direction?, limit?, order?} -> BidiList<Message>  what was said in the channel, each message under its number (its id); direction before|after|around, next a number  view=id,user.name,content
+message.get {channel_id, message_id} -> Message  one message, whole
+POST internal/block.list {channel_id, next?, direction?, limit?, order?, _data.blocks?} -> BidiList<Message>  a session's own record, a message a block (thinking, tool calls too)  view=id,content
   _data.blocks:=true: the page's blocks as Iridium keeps them too, in _data.blocks (kind, text, from, tool calls).
-message.get {channel_id, message_id} -> Message  one block, untruncated
+POST internal/block.get {channel_id, message_id} -> Message  one block, untruncated
 message.update {channel_id, message_id, content?, _data.text?} -> {}  change a message you sent while it waits in the queue (message_id: message.create's id)
 message.delete {channel_id, message_id} -> {}  take back a message waiting in the queue
 message.create {channel_id, content?, _data.text?, _data.paths?, _data.attachments?, _data.steer?} -> Message[]  send; joins a running turn (a person may queue: _data.steer=false)  view=id,_data.queued

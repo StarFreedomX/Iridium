@@ -125,7 +125,7 @@ func TestSecrets(t *testing.T) {
 		method string
 		body   map[string]any
 	}{
-		{"message.list", map[string]any{"channel_id": its, "_data": map[string]any{"blocks": true}}},
+		{"internal/block.list", map[string]any{"channel_id": its, "_data": map[string]any{"blocks": true}}},
 		{"channel.list", map[string]any{"_data": map[string]any{"all": true}}},
 	} {
 		l.wantSat(200, "web", call.method, call.body, &raw)
@@ -144,7 +144,7 @@ func TestSecrets(t *testing.T) {
 	l.want(403, "agent", "DELETE", "/v1/internal/secrets/GITHUB_TOKEN", nil, nil)
 	l.want(200, "socket", "DELETE", "/v1/internal/secrets/GITHUB_TOKEN", nil, nil)
 	l.want(422, "socket", "DELETE", "/v1/internal/secrets/GITHUB_TOKEN", nil, nil)
-	l.wantSat(200, "web", "message.list", map[string]any{"channel_id": its, "_data": map[string]any{"blocks": true}}, &raw)
+	l.wantSat(200, "web", "internal/block.list", map[string]any{"channel_id": its, "_data": map[string]any{"blocks": true}}, &raw)
 	if !strings.Contains(raw, val) {
 		t.Fatalf("still masked after delete: %.300s", raw)
 	}

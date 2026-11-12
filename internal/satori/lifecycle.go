@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/kumoSleeping/iridium/internal/api"
+	"github.com/kumoSleeping/iridium/internal/channel"
+	"github.com/kumoSleeping/iridium/internal/store"
 )
 
 // What else goes out as events beside what the agents say: a session added, renamed, moved or
@@ -31,6 +33,7 @@ type kept struct {
 	SN      int64         `json:"sn"`
 	At      int64         `json:"at"`
 	Session string        `json:"session,omitempty"`
+	Of      string        `json:"of,omitempty"`
 	Ev      Event         `json:"ev"`
 	Files   []api.FileRef `json:"files,omitempty"`
 	App     string        `json:"app,omitempty"`
@@ -56,7 +59,7 @@ func (s *Service) Keep(k Keeper) {
 		if json.Unmarshal(b, &x) != nil || x.SN == 0 {
 			continue
 		}
-		es = append(es, entry{sn: x.SN, at: time.UnixMilli(x.At), session: x.Session, ev: x.Ev, files: x.Files, app: x.App, login: x.Login})
+		es = append(es, entry{sn: x.SN, at: time.UnixMilli(x.At), session: x.Session, of: x.Of, ev: x.Ev, files: x.Files, app: x.App, login: x.Login})
 	}
 	slices.SortFunc(es, func(a, b entry) int { return int(a.sn - b.sn) })
 	if n := len(es); n > KeepMax {
@@ -74,7 +77,7 @@ func (o *outbox) store(e entry, logf func(string, ...any)) {
 	if o.keep == nil {
 		return
 	}
-	b, err := json.Marshal(kept{SN: e.sn, At: e.at.UnixMilli(), Session: e.session, Ev: e.ev, Files: e.files, App: e.app, Login: e.login})
+	b, err := json.Marshal(kept{SN: e.sn, At: e.at.UnixMilli(), Session: e.session, Of: e.of, Ev: e.ev, Files: e.files, App: e.app, Login: e.login})
 	if err == nil {
 		err = o.keep.Keep(e.session, e.ev.Type, b)
 	}
@@ -139,14 +142,23 @@ func (s *Service) Sessions(l []api.Session) {
 
 // ---- a person's message ----
 
-// Input sends what someone wrote to session ss (its input id, its text) as message-created,
-// _data.kind "user", to the logins that see it: the agent's words are not alone in the stream.
-func (s *Service) Input(ss api.Session, id, text string, from User, origin string) {
+// Input is what someone wrote to session ss (its input id, its text): said in the session's
+// channel, under the number it returns, and sent as message-created, _data.kind "user", to the
+// logins that see it: the agent's words are not alone in the stream.
+func (s *Service) Input(ss api.Session, id, text string, from User, origin string) int64 {
 	if id == "" {
-		return
+		return 0
 	}
-	m := Message{ID: id, Content: Escape(s.b.Mask(text)), CreatedAt: time.Now().UnixMilli(), User: &from}
-	s.emit(ss, Event{Type: "message-created", Message: &m, User: &from}, nil, "user", origin)
+	m, isNew, err := s.log.Say(channel.Message{ChannelMessage: store.ChannelMessage{Channel: s.log.Of(ss.ID), Author: from.ID, Name: from.Name,
+		Kind: channel.KindUser, Text: text, Ref: id, Origin: origin}})
+	if err != nil {
+		s.logf("satori: channel %s: %v", ss.ID, err)
+		return 0
+	}
+	if isNew {
+		s.tell(m, "user", origin, 0)
+	}
+	return m.Seq
 }
 
 // ---- logins ----

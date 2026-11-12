@@ -21,6 +21,7 @@ import (
 	"github.com/kumoSleeping/iridium/internal/access"
 	"github.com/kumoSleeping/iridium/internal/agents"
 	"github.com/kumoSleeping/iridium/internal/api"
+	"github.com/kumoSleeping/iridium/internal/channel"
 	"github.com/kumoSleeping/iridium/internal/config"
 	"github.com/kumoSleeping/iridium/internal/discover"
 	"github.com/kumoSleeping/iridium/internal/files"
@@ -78,8 +79,9 @@ type Server struct {
 	// Remote, if set, takes executors' connections at /v1/internal/exec (docs/exec.md).
 	Remote *remote.Hub
 
-	files *files.Service  // routes_files.go
-	sat   *satori.Service // /v1/: Satori with ir (satori.go)
+	files *files.Service   // routes_files.go
+	sat   *satori.Service  // /v1/: Satori with ir (satori.go)
+	ch    *channel.Service // what is said in the channels (docs/channels.md)
 	// stopList stops giving Satori the session list (its channel events).
 	stopList func()
 }
@@ -98,7 +100,9 @@ func New(cfg config.Config, m *session.Manager, h *hub.Hub, logf func(string, ..
 	s.vault = newVault()
 	s.reloadSecrets()
 	m.SetAnnotate(s.files.AnnotateBlocks) // a state's tail names files as a page of messages does
+	s.ch = channel.New(s.st, m, logf)
 	s.sat = satori.New(satoriBackend{s}, logf)
+	s.sat.Channels(s.ch)
 	s.sat.Keep(satoriKeeper{s.st})
 	m.Watch(s.sat.Notice)
 	lctx, lstop := context.WithCancel(context.Background())
@@ -322,18 +326,30 @@ func (s *Server) sendAs(ctx context.Context, c caller, from, id string, req api.
 	if err != nil {
 		return api.SendReply{}, fileErr{err}
 	}
+	// Said in the channel first, under the input's id, then given to the agent: the others who
+	// see it see what was said too (Satori's message-created), before what the agent answers.
+	if req.ID == "" {
+		req.ID = session.NewInputID()
+	}
+	var seq int64
+	if st, err := s.m.State(id); err == nil {
+		u := s.satoriUser(c)
+		if tag := s.m.SourceTag(from); tag != "" {
+			u.Name = tag // the name the agent sees it under
+		}
+		seq = s.sat.Input(st.Session, req.ID, req.Text, u, c.ID())
+	}
 	input, queued, err := s.m.SendAs(ctx, id, req.ID, text, from, req.Steer, images...)
 	if err != nil {
+		if seq != 0 {
+			s.ch.Unsay(s.ch.Of(id), seq) // not sent: not said
+		}
 		return api.SendReply{}, err
 	}
 	if input == session.HandedInput {
-		return api.SendReply{Desktop: true}, nil
+		return api.SendReply{Desktop: true, Seq: seq}, nil
 	}
-	if st, err := s.m.State(id); err == nil {
-		// The others who see it see what was said too (Satori's message-created).
-		s.sat.Input(st.Session, input, req.Text, s.satoriUser(c), c.ID())
-	}
-	return api.SendReply{Input: input, Queued: queued, Command: s.m.RunsItself(id, text)}, nil
+	return api.SendReply{Input: input, Queued: queued, Seq: seq, Command: s.m.RunsItself(id, text)}, nil
 }
 
 func (s *Server) interrupt(w http.ResponseWriter, r *http.Request) {

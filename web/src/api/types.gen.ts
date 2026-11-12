@@ -555,6 +555,10 @@ export interface SendReply {
   input: string; // the message's id (Claude: its uuid)
   queued?: boolean; // it waits in the queue
   /**
+   * Seq: the message's number in its channel.
+   */
+  seq?: number /* int64 */;
+  /**
    * Session: /clear went on in this session, the old one left as it was (no input then).
    */
   session?: string;

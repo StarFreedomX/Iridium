@@ -19,7 +19,8 @@ import (
 	"time"
 
 	"github.com/kumoSleeping/iridium/internal/api"
-	"github.com/kumoSleeping/iridium/internal/session"
+	"github.com/kumoSleeping/iridium/internal/channel"
+	"github.com/kumoSleeping/iridium/internal/store"
 )
 
 // Request headers naming the login a request speaks as.
@@ -148,27 +149,26 @@ type Service struct {
 	out  *outbox
 
 	qmu   sync.Mutex
-	queue []session.Notice
+	queue []noticed
 	qwake chan struct{}
 	stop  chan struct{}
 	done  chan struct{}
 	once  sync.Once
 
-	ch channels
+	ch  channels
+	log *channel.Service // what was said in the channels (Channels)
 
 	mu      sync.Mutex
-	held    map[string]said             // session: the agent's last message this turn, not sent yet
+	held    map[string]channel.Message  // session: the agent's last message this turn, not sent yet
+	heard   map[string]int64            // session: the number of the last message heard from it
 	origin  map[string]string           // session: who began its turn
 	started map[string]time.Time        // session: when its turn began
 	picks   map[string]map[int][]string // an ask's card: the options pressed so far, by group
 	words   map[string]map[int]string   // an ask's card: own words so far, by group
 }
 
-type said struct {
-	text  string
-	msg   *Message // its block's, if found
-	files []api.FileRef
-}
+// Channels gives the service the channels' log: what message.list reads and the events are of.
+func (s *Service) Channels(l *channel.Service) { s.log = l }
 
 // New starts the service; feed it the sessions' notices with Notice, Close it at the end.
 func New(b Backend, logf func(string, ...any)) *Service {
@@ -176,7 +176,7 @@ func New(b Backend, logf func(string, ...any)) *Service {
 		logf = log.Printf
 	}
 	s := &Service{b: b, logf: logf, out: newOutbox(logf), qwake: make(chan struct{}, 1), stop: make(chan struct{}), done: make(chan struct{}),
-		held: map[string]said{}, origin: map[string]string{}, started: map[string]time.Time{}, picks: map[string]map[int][]string{}, words: map[string]map[int]string{}}
+		held: map[string]channel.Message{}, heard: map[string]int64{}, origin: map[string]string{}, started: map[string]time.Time{}, picks: map[string]map[int][]string{}, words: map[string]map[int]string{}}
 	go s.work()
 	return s
 }
@@ -394,6 +394,13 @@ func (s *Service) userGet(_ context.Context, c Caller, body []byte) (any, error)
 	}
 	if u, ok := agentUser(api.Agent(req.UserID)); ok {
 		return u, nil
+	}
+	// An agent as a channel's member: its session, if c sees it.
+	if id, ok := store.SessionOfMember(req.UserID); ok {
+		if _, err := s.channel(c, id); err != nil {
+			return nil, refuse(http.StatusUnprocessableEntity, "no_such_user", "no user "+req.UserID)
+		}
+		return *s.agentOf(id), nil
 	}
 	for _, l := range s.b.Logins(c.App) {
 		if l.ID == req.UserID {

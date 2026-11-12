@@ -134,9 +134,9 @@ func (e *env) waitTaken(id, input string) int {
 	return exitDone
 }
 
-// latest is the latest page of session id's transcript, as blocks (message.list _data.blocks).
+// latest is the latest page of session id's transcript, as blocks (internal/block.list _data.blocks).
 func (e *env) latest(id string) (api.MessagePage, error) {
-	raw, err := e.satori("message.list", map[string]any{"channel_id": id, "_data": map[string]any{"blocks": true}})
+	raw, err := e.satori("internal/block.list", map[string]any{"channel_id": id, "_data": map[string]any{"blocks": true}})
 	if err != nil {
 		return api.MessagePage{}, err
 	}
@@ -144,7 +144,7 @@ func (e *env) latest(id string) (api.MessagePage, error) {
 		Data satori.PageData `json:"_data"`
 	}
 	if err := json.Unmarshal(raw, &l); err != nil {
-		return api.MessagePage{}, fmt.Errorf("message.list: %s", strings.TrimSpace(string(raw)))
+		return api.MessagePage{}, fmt.Errorf("block.list: %s", strings.TrimSpace(string(raw)))
 	}
 	return api.MessagePage{Blocks: l.Data.Blocks, Start: l.Data.Start, End: l.Data.End, More: l.Data.More}, nil
 }

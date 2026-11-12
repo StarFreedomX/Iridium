@@ -1,20 +1,21 @@
 package satori
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"slices"
-	"strings"
+	"strconv"
 	"sync"
 	"time"
 
 	"github.com/coder/websocket"
 
 	"github.com/kumoSleeping/iridium/internal/api"
+	"github.com/kumoSleeping/iridium/internal/channel"
 	"github.com/kumoSleeping/iridium/internal/session"
-	"github.com/kumoSleeping/iridium/internal/transcript"
 )
 
 // Events (decisions 26, 30): what the agents say goes out as message-created (_data.kind
@@ -38,6 +39,7 @@ type entry struct {
 	session string
 	ev      Event         // login left out; a message's content without its files
 	files   []api.FileRef // a message's files, written in for each login
+	of      string        // the session those files are of; "": session
 	// app, login: an event for that login alone, whoever sees what session; login "*":
 	// for the app, once a connection (a button it attached pressed); about: one about that login
 	// (login-*), for every connection of the app (a login's own: its own only).
@@ -115,7 +117,7 @@ func (s *Service) render(e entry, app, login string) Event {
 	ev := e.ev
 	if ev.Message != nil {
 		m := *ev.Message
-		m.Content += fileElements(app, login, e.session, e.files)
+		m.Content += fileElements(app, login, cmp.Or(e.of, e.session), e.files)
 		ev.Message = &m
 	}
 	return ev
@@ -124,7 +126,7 @@ func (s *Service) render(e entry, app, login string) Event {
 // Notice takes a session's notice (session.Manager.Watch). It does not wait.
 func (s *Service) Notice(n session.Notice) {
 	s.qmu.Lock()
-	s.queue = append(s.queue, n)
+	s.queue = append(s.queue, noticed{n, time.Now()})
 	s.qmu.Unlock()
 	select {
 	case s.qwake <- struct{}{}:
@@ -140,7 +142,7 @@ func (s *Service) work() {
 		s.queue = nil
 		s.qmu.Unlock()
 		for _, n := range q {
-			s.handle(n)
+			s.handle(n.Notice, n.at)
 		}
 		select {
 		case <-s.stop:
@@ -150,7 +152,13 @@ func (s *Service) work() {
 	}
 }
 
-func (s *Service) handle(n session.Notice) {
+// noticed is a notice and when it came.
+type noticed struct {
+	session.Notice
+	at time.Time
+}
+
+func (s *Service) handle(n session.Notice, at time.Time) {
 	s.mu.Lock()
 	held := s.held[n.Session]
 	origin := s.origin[n.Session]
@@ -160,41 +168,17 @@ func (s *Service) handle(n session.Notice) {
 		s.mu.Lock()
 		delete(s.held, n.Session)
 		s.origin[n.Session] = n.From
-		s.started[n.Session] = time.Now()
+		s.started[n.Session] = at
 		s.mu.Unlock()
 	case session.NoticeMessage:
-		if held.text != "" {
-			s.said(n.Session, held, "progress", origin)
-		}
-		h := said{text: n.Text}
-		h.msg, h.files = s.resolve(n.Session, n.Text)
-		s.mu.Lock()
-		s.held[n.Session] = h
-		s.mu.Unlock()
+		s.hear(n.Session, n.Text, origin)
 	case session.NoticeTool:
-		if held.text != "" {
-			s.said(n.Session, held, "progress", origin)
-		}
-		s.mu.Lock()
-		delete(s.held, n.Session)
-		s.mu.Unlock()
+		s.flush(n.Session, "progress", origin, 0)
 	case session.NoticeTurnEnd:
-		s.mu.Lock()
-		delete(s.held, n.Session)
-		s.mu.Unlock()
-		text := n.Text
-		if text == "" || same(text, held.text) {
-			text = held.text
-		} else {
-			held = said{text: text}
-			held.msg, held.files = s.resolve(n.Session, text)
+		if n.Text != "" && !channel.Same(n.Text, held.Text) {
+			s.hear(n.Session, n.Text, origin)
 		}
-		if n.Denied > 0 {
-			held.text = strings.TrimSpace(text + fmt.Sprintf("\n\n（auto 拦了 %d 步）", n.Denied))
-		}
-		if held.text != "" {
-			s.said(n.Session, held, "reply", origin)
-		}
+		s.flush(n.Session, "reply", origin, n.Denied)
 	case session.NoticeAsk:
 		st, err := s.b.Session(n.Session)
 		if err != nil || n.Ask == nil {
@@ -203,6 +187,7 @@ func (s *Service) handle(n session.Notice) {
 		m := s.askMessage(st.Session, *n.Ask)
 		m.Channel, m.Guild = nil, nil
 		m.CreatedAt = time.Now().UnixMilli()
+		s.note(n.Session, channel.KindAsk, Plain(Parse(m.Content), nil), m.ID, n.From)
 		s.emit(st.Session, Event{Type: "message-created", Message: &m, User: m.User}, nil, "ask", n.From)
 	case session.NoticeAskDone:
 		card := cardID(n.Session, n.RequestID)
@@ -225,39 +210,21 @@ func (s *Service) handle(n session.Notice) {
 			ss = st.Session
 		}
 		m := Message{ID: "error:" + n.Session + ":" + fmt.Sprint(time.Now().UnixNano()), Content: Escape(s.b.Mask(n.Text)), CreatedAt: time.Now().UnixMilli()}
-		if u, ok := agentUser(ss.Agent); ok {
-			m.User = &u
+		m.User = s.agentOf(n.Session)
+		if l, ok := s.note(n.Session, channel.KindError, n.Text, "", origin); ok {
+			m.ID = strconv.FormatInt(l.Seq, 10)
 		}
 		s.emit(ss, Event{Type: "message-created", Message: &m, User: m.User}, nil, "error", origin)
 	}
 }
 
-// said sends what the agent said: its block's message if found, else one by itself.
-func (s *Service) said(id string, h said, kind, origin string) {
-	st, err := s.b.Session(id)
-	if err != nil {
-		return
-	}
-	var m Message
-	var files []api.FileRef
-	if h.msg != nil {
-		m = *h.msg
-	} else {
-		m = Message{ID: fmt.Sprintf("live:%s:%d", id, time.Now().UnixNano()), CreatedAt: time.Now().UnixMilli()}
-		if u, ok := agentUser(st.Agent); ok {
-			m.User = &u
-		}
-	}
-	m.Content = Escape(s.b.Mask(h.text))
-	m.Channel, m.Guild = nil, nil
-	if h.msg != nil {
-		files = h.files
-	}
-	s.emit(st.Session, Event{Type: "message-created", Message: &m, User: m.User}, files, kind, origin)
-}
-
 // emit keeps an event of session ss in the outbox, for the connections to send.
 func (s *Service) emit(ss api.Session, ev Event, files []api.FileRef, kind string, origin ...string) {
+	s.emitOf(ss, "", ev, files, kind, origin...)
+}
+
+// emitOf is emit for a message whose files are session of's (the agent that said it; "": ss's).
+func (s *Service) emitOf(ss api.Session, of string, ev Event, files []api.FileRef, kind string, origin ...string) {
 	ev.Timestamp = time.Now().UnixMilli()
 	ev.Channel = s.channelMasked(ss)
 	ev.Guild = s.guildOf(ss)
@@ -270,55 +237,7 @@ func (s *Service) emit(ss api.Session, ev Event, files []api.FileRef, kind strin
 		ev.XData = nil
 		ev.XType = ""
 	}
-	s.out.add(entry{at: time.Now(), session: ss.ID, ev: ev, files: files})
-}
-
-// resolve is the transcript's message for what the agent just said, if it is there: the last
-// assistant block saying text, not from before the turn began; and its files.
-func (s *Service) resolve(id, text string) (*Message, []api.FileRef) {
-	s.mu.Lock()
-	since := s.started[id].Add(-2 * time.Second)
-	s.mu.Unlock()
-	for try := range 3 {
-		if try > 0 {
-			select {
-			case <-s.stop:
-				return nil, nil
-			case <-time.After(time.Duration(try) * 100 * time.Millisecond):
-			}
-		}
-		p, err := s.b.Messages(id, -1, -1)
-		if err != nil {
-			return nil, nil
-		}
-		for i := len(p.Blocks) - 1; i >= 0; i-- {
-			b := p.Blocks[i]
-			if b.Kind != api.BlockKindAssistant || (b.Time != 0 && b.Time < since.UnixMilli()) {
-				continue
-			}
-			if same(b.Text, text) {
-				st, err := s.b.Session(id)
-				if err != nil {
-					return nil, nil
-				}
-				m := s.messageOf(Caller{}, st.Session, b, nil)
-				return &m, b.Files
-			}
-		}
-	}
-	return nil, nil
-}
-
-// same: a block's (cut) text and what the agent said are the same message.
-func same(a, b string) bool {
-	norm := func(t string) string {
-		r := []rune(strings.TrimSpace(transcript.WithoutNameLines(t)))
-		if len(r) > 200 {
-			r = r[:200]
-		}
-		return string(r)
-	}
-	return a != "" && b != "" && norm(a) == norm(b)
+	s.out.add(entry{at: time.Now(), session: ss.ID, of: of, ev: ev, files: files})
 }
 
 // conn is one app's event stream.

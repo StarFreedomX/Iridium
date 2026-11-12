@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/kumoSleeping/iridium/internal/api"
+	channel_ "github.com/kumoSleeping/iridium/internal/channel"
 )
 
 // Messages: a session's transcript, a message per block (blocks.go); ids are the blocks' places
@@ -115,7 +116,8 @@ func lineOf(at string) int64 {
 	return n
 }
 
-func (s *Service) messageGet(_ context.Context, c Caller, body []byte) (any, error) {
+// blockGet is one block of a session's record (internal/block.get), whole.
+func (s *Service) blockGet(_ context.Context, c Caller, body []byte) (any, error) {
 	var req struct {
 		ChannelID string `json:"channel_id"`
 		MessageID string `json:"message_id"`
@@ -194,8 +196,9 @@ func (s *Service) inputMessage(c Caller, st *api.SessionState, id string, none e
 	return nil, none
 }
 
-// messageList pages a session's transcript: BidiList, tokens the offsets of lines.
-func (s *Service) messageList(_ context.Context, c Caller, body []byte) (any, error) {
+// blockList pages a session's record, a message a block (internal/block.list): BidiList, tokens
+// the offsets of lines.
+func (s *Service) blockList(_ context.Context, c Caller, body []byte) (any, error) {
 	var req struct {
 		ChannelID string `json:"channel_id"`
 		Next      string `json:"next"`
@@ -454,7 +457,11 @@ func (s *Service) sendOne(ctx context.Context, c Caller, st *api.SessionState, e
 			ss = nst.Session
 		}
 	}
-	return []Message{{ID: r.Input, Content: String(els), Channel: s.channelMasked(ss), Guild: s.guildOf(ss),
+	id := r.Input
+	if r.Seq != 0 {
+		id = strconv.FormatInt(r.Seq, 10)
+	}
+	return []Message{{ID: id, Content: String(els), Channel: s.channelMasked(ss), Guild: s.guildOf(ss),
 		User: &User{ID: c.Login, Name: c.LoginName}, Data: r}}, nil
 }
 
@@ -618,8 +625,27 @@ func (s *Service) queued(c Caller, channel, id string, text *string) (any, error
 	if err != nil {
 		return nil, err
 	}
+	// By its number: the input it is.
+	ch := s.log.Of(st.ID)
+	m, logged := s.logged(ch, id)
+	if logged && m.Kind == channel_.KindUser && m.Ref != "" {
+		id = m.Ref
+	}
 	if !slices.ContainsFunc(st.Queue, func(q api.Queued) bool { return q.ID == id }) {
 		return nil, refuse(http.StatusUnprocessableEntity, "no_such_message", "not waiting in the queue: "+id)
 	}
-	return struct{}{}, s.b.EditQueued(c, st.ID, id, text)
+	if err := s.b.EditQueued(c, st.ID, id, text); err != nil {
+		return nil, err
+	}
+	if logged {
+		if text != nil {
+			err = s.log.Edit(ch, m.Seq, *text)
+		} else {
+			err = s.log.Drop(ch, m.Seq)
+		}
+		if err != nil {
+			s.logf("satori: channel %s: message %d: %v", ch, m.Seq, err)
+		}
+	}
+	return struct{}{}, nil
 }

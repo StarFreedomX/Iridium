@@ -226,6 +226,9 @@ var schema = []string{
 		creator    TEXT NOT NULL DEFAULT '',
 		created_at INTEGER NOT NULL
 	);`,
+	// 32: channels (channels.go): who is in one, what was said in it, and how far each agent's
+	// record has been read into it.
+	channelsSchema,
 }
 
 // steps run in Go after the migration of their version, in the same transaction.

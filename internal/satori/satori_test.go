@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -18,7 +19,9 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/kumoSleeping/iridium/internal/api"
+	"github.com/kumoSleeping/iridium/internal/channel"
 	"github.com/kumoSleeping/iridium/internal/session"
+	"github.com/kumoSleeping/iridium/internal/store"
 )
 
 var errGone = errors.New("gone")
@@ -49,6 +52,14 @@ func newFake() *fake {
 		blocks:   map[string][]api.Block{},
 		hidden:   map[string]bool{},
 	}
+}
+
+// addBlock writes b at the end of session id's record.
+func (f *fake) addBlock(id string, b api.Block) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	b.At = fmt.Sprintf("%d.0", len(f.blocks[id])*10)
+	f.blocks[id] = append(f.blocks[id], b)
 }
 
 func (f *fake) addSession(id string, n int) {
@@ -275,6 +286,22 @@ func (f *fake) Fault(err error) (int, string) {
 	return 500, "internal"
 }
 
+// fakeSessions is the fake as the channels read the sessions.
+type fakeSessions struct{ *fake }
+
+func (f fakeSessions) State(id string) (*api.SessionState, error) { return f.Session(id) }
+
+// logFor gives s a channels' log of its own, over f's sessions.
+func logFor(t *testing.T, s *Service, f *fake) {
+	t.Helper()
+	st, err := store.Open(filepath.Join(t.TempDir(), "iridium.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	s.Channels(channel.New(st, fakeSessions{f}, t.Logf))
+}
+
 type rig struct {
 	t   *testing.T
 	f   *fake
@@ -285,6 +312,7 @@ type rig struct {
 func newRig(t *testing.T) *rig {
 	f := newFake()
 	s := New(f, t.Logf)
+	logFor(t, s, f)
 	srv := httptest.NewServer(s)
 	t.Cleanup(func() { srv.Close(); s.Close() })
 	return &rig{t: t, f: f, s: s, srv: srv}
@@ -399,34 +427,68 @@ func TestResources(t *testing.T) {
 		t.Errorf("a login: %+v", u)
 	}
 
-	// The transcript's messages, paged back from the latest; a block's place is its id.
+	// The agent's record, paged back from the latest; a block's place is its id.
 	var page BidiList[Message]
-	r.as("u1", "message.list", map[string]string{"channel_id": "s1"}, &page)
+	r.as("u1", "internal/block.list", map[string]string{"channel_id": "s1"}, &page)
 	if len(page.Data) != 3 || page.Data[0].ID != "40.0" || page.Prev != "40" || page.Next != "40" {
-		t.Fatalf("latest: %+v", page)
-	}
-	if page.Data[1].User == nil || page.Data[1].User.ID != "claude" || !page.Data[1].User.IsBot {
-		t.Errorf("the agent's: %+v", page.Data[1])
+		t.Fatalf("latest blocks: %+v", page)
 	}
 	prev := page.Prev
 	page = BidiList[Message]{}
-	r.as("u1", "message.list", map[string]any{"channel_id": "s1", "next": prev, "order": "desc"}, &page)
+	r.as("u1", "internal/block.list", map[string]any{"channel_id": "s1", "next": prev, "order": "desc"}, &page)
 	if len(page.Data) != 3 || page.Data[0].ID != "30.0" || page.Data[2].ID != "10.0" || page.Prev != "10" {
-		t.Errorf("before 40, desc: %+v", page)
+		t.Errorf("blocks before 40, desc: %+v", page)
 	}
 	page = BidiList[Message]{}
-	r.as("u1", "message.list", map[string]any{"channel_id": "s1", "next": "10", "direction": "after", "limit": 2}, &page)
+	r.as("u1", "internal/block.list", map[string]any{"channel_id": "s1", "next": "10", "direction": "after", "limit": 2}, &page)
 	if len(page.Data) != 2 || page.Data[0].ID != "10.0" || page.Next != "30" || page.Prev != "30" {
-		t.Errorf("after 10, 2: %+v", page)
+		t.Errorf("blocks after 10, 2: %+v", page)
 	}
 	page = BidiList[Message]{}
-	r.as("u1", "message.list", map[string]any{"channel_id": "s1", "next": "30", "direction": "around"}, &page)
+	r.as("u1", "internal/block.list", map[string]any{"channel_id": "s1", "next": "30", "direction": "around"}, &page)
 	if len(page.Data) != 6 || page.Prev != "" || page.Next != "60" {
-		t.Errorf("around 30: %+v", page)
+		t.Errorf("blocks around 30: %+v", page)
 	}
 	var m Message
-	if r.as("u1", "message.get", map[string]string{"channel_id": "s1", "message_id": "30.0"}, &m); m.Content != "m3" || m.Channel.ID != "s1" {
+	if r.as("u1", "internal/block.get", map[string]string{"channel_id": "s1", "message_id": "30.0"}, &m); m.Content != "m3" || m.Channel.ID != "s1" {
+		t.Errorf("block.get: %+v", m)
+	}
+
+	// The channel's messages: what was said, a message's number its id.
+	page = BidiList[Message]{}
+	r.as("u1", "message.list", map[string]string{"channel_id": "s1"}, &page)
+	if len(page.Data) != 7 || page.Data[0].ID != "1" || page.Data[6].ID != "7" || page.Prev != "" || page.XData.Start != 1 || page.XData.End != 7 {
+		t.Fatalf("latest: %+v", page)
+	}
+	if u := page.Data[1].User; u == nil || u.ID != "agent:s1" || !u.IsBot || u.Name == "" {
+		t.Errorf("the agent's: %+v", page.Data[1].User)
+	}
+	page = BidiList[Message]{}
+	r.as("u1", "message.list", map[string]any{"channel_id": "s1", "limit": 3}, &page)
+	if len(page.Data) != 3 || page.Data[0].ID != "5" || page.Prev != "5" || page.Next != "5" || !page.XData.More {
+		t.Fatalf("latest 3: %+v", page)
+	}
+	page = BidiList[Message]{}
+	r.as("u1", "message.list", map[string]any{"channel_id": "s1", "next": "5", "limit": 3, "order": "desc"}, &page)
+	if len(page.Data) != 3 || page.Data[0].ID != "4" || page.Data[2].ID != "2" || page.Prev != "2" {
+		t.Errorf("before 5, desc: %+v", page)
+	}
+	page = BidiList[Message]{}
+	r.as("u1", "message.list", map[string]any{"channel_id": "s1", "next": "1", "direction": "after", "limit": 2}, &page)
+	if len(page.Data) != 2 || page.Data[0].ID != "2" || page.Next != "3" || page.Prev != "3" {
+		t.Errorf("after 1, 2: %+v", page)
+	}
+	page = BidiList[Message]{}
+	r.as("u1", "message.list", map[string]any{"channel_id": "s1", "next": "3", "direction": "around", "limit": 2}, &page)
+	if len(page.Data) != 4 || page.Data[0].ID != "1" || page.Data[3].ID != "4" || page.Prev != "" || page.Next != "4" {
+		t.Errorf("around 3: %+v", page)
+	}
+	m = Message{}
+	if r.as("u1", "message.get", map[string]string{"channel_id": "s1", "message_id": "4"}, &m); m.Content != "m3" || m.Channel.ID != "s1" {
 		t.Errorf("message.get: %+v", m)
+	}
+	if r.as("u1", "user.get", map[string]string{"user_id": "agent:s1"}, &u); !u.IsBot || u.ID != "agent:s1" {
+		t.Errorf("an agent of a channel: %+v", u)
 	}
 
 	// Sent as the login; a file of this login's in this session is an attachment.
@@ -578,7 +640,9 @@ func TestEventsAndResume(t *testing.T) {
 	w.want(OpReady, nil)
 
 	r.s.Notice(session.Notice{Session: "s1", Kind: session.NoticeTurnStart, From: "app1"})
-	r.s.Notice(session.Notice{Session: "s1", Kind: session.NoticeMessage, Text: "m1"}) // the block 10.0
+	time.Sleep(100 * time.Millisecond)
+	r.f.addBlock("s1", api.Block{Kind: api.BlockKindAssistant, Text: "said"}) // the block 20.0, message 3
+	r.s.Notice(session.Notice{Session: "s1", Kind: session.NoticeMessage, Text: "said"})
 	r.s.Notice(session.Notice{Session: "s1", Kind: session.NoticeTool, Tool: "Bash"})
 	r.s.Notice(session.Notice{Session: "s1", Kind: session.NoticeTurnEnd, Text: "done SECRET"})
 	var evs []Event
@@ -588,11 +652,11 @@ func TestEventsAndResume(t *testing.T) {
 		evs = append(evs, ev)
 	}
 	p, rep := evs[0], evs[2]
-	if p.Type != "message-created" || p.XData.Kind != "progress" || p.Message.ID != "10.0" || p.Login.User.ID != "u1" || evs[1].Login.User.ID != "u2" ||
-		p.Channel.ID != "s1" || p.Guild.ID != Loose || p.User.ID != "claude" || p.XData.Origin != "app1" || evs[1].SN != p.SN+1 {
+	if p.Type != "message-created" || p.XData.Kind != "progress" || p.Message.ID != "3" || p.Login.User.ID != "u1" || evs[1].Login.User.ID != "u2" ||
+		p.Channel.ID != "s1" || p.Guild.ID != Loose || p.User.ID != "agent:s1" || p.XData.Origin != "app1" || evs[1].SN != p.SN+1 {
 		t.Fatalf("progress: %+v %+v %+v", p, p.Message, p.XData)
 	}
-	if rep.XData.Kind != "reply" || rep.Message.Content != "done ******" || !strings.HasPrefix(rep.Message.ID, "live:") || rep.SN <= p.SN {
+	if rep.XData.Kind != "reply" || rep.Message.Content != "done ******" || rep.Message.ID != "4" || rep.SN <= p.SN {
 		t.Fatalf("reply: %+v %+v", rep, rep.Message)
 	}
 
@@ -766,6 +830,7 @@ func TestChannelLoginEventsKept(t *testing.T) {
 		t.Fatalf("kept %d", len(k.kept))
 	}
 	s2nd := New(r.f, t.Logf)
+	logFor(t, s2nd, r.f)
 	defer s2nd.Close()
 	s2nd.Keep(k)
 	if es, _ := s2nd.out.after(0); len(es) != 4 || es[3].ev.Type != "login-added" || s2nd.out.last() < es[3].sn {

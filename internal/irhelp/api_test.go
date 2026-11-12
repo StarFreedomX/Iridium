@@ -40,6 +40,8 @@ func TestAPICoversRoutes(t *testing.T) {
 	}
 	want["POST meta"] = true
 	want["POST internal/button"] = true // the satori package's own
+	want["POST internal/block.list"] = true
+	want["POST internal/block.get"] = true
 	if len(want) < 100 {
 		t.Fatalf("only %d routes found in ../server", len(want))
 	}

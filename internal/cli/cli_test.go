@@ -277,12 +277,12 @@ func TestAgentCommands(t *testing.T) {
 		st.Show("claude", full)
 		st.Close()
 	}
-	// message.list: a block a line, a person's after "> " and who. ir runs in caller-session here,
+	// message.list: a message a line, its number, who said it and the words. ir runs in caller-session here,
 	// so what it sent is a letter from there; a prefix of the id will do.
-	if r := ir("api", "message.list", "channel_id="+sid[:6]); r.code != 0 || !strings.Contains(r.out, "\t> [ir:caller-session] hello\n") || !strings.Contains(r.out, "\tok: again\n") {
+	if r := ir("api", "message.list", "channel_id="+sid[:6]); r.code != 0 || !strings.Contains(r.out, "\tir:caller-session\thello\n") || !strings.Contains(r.out, "\tok: again\n") {
 		t.Errorf("message.list: %+v", r)
 	}
-	if r := ir("api", "message.list", "channel_id="+sid, "--grep", "AGAIN"); r.code != 0 || strings.Contains(r.out, "hello") || strings.Count(r.out, "> ") != 1 {
+	if r := ir("api", "message.list", "channel_id="+sid, "--grep", "AGAIN"); r.code != 0 || strings.Contains(r.out, "hello") || strings.Count(r.out, "again") != 2 {
 		t.Errorf("message.list --grep: %+v", r)
 	}
 	// --grep: by its words, case aside, in every field; nothing found, nothing shown.

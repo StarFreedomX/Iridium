@@ -210,10 +210,10 @@ func TestTurnOverHTTP(t *testing.T) {
 		t.Fatalf("page: %+v", page)
 	}
 	var full satori.Message
-	if code := satAt(t, c, base, "message.get", map[string]any{"channel_id": id, "message_id": page.Blocks[1].At}, &full); code != 200 || !strings.Contains(full.Content, "ok: hello") {
+	if code := satAt(t, c, base, "internal/block.get", map[string]any{"channel_id": id, "message_id": page.Blocks[1].At}, &full); code != 200 || !strings.Contains(full.Content, "ok: hello") {
 		t.Errorf("full: %d %+v", code, full)
 	}
-	if code := satAt(t, c, base, "message.get", map[string]any{"channel_id": id, "message_id": "1.0"}, nil); code != 422 {
+	if code := satAt(t, c, base, "internal/block.get", map[string]any{"channel_id": id, "message_id": "1.0"}, nil); code != 422 {
 		t.Errorf("full at nothing: %d", code)
 	}
 	// The same API on the unix socket, as the local terminal.
@@ -233,7 +233,7 @@ func TestTurnOverHTTP(t *testing.T) {
 			var l struct {
 				Data satori.PageData `json:"_data"`
 			}
-			satAt(t, uc, "http://ir", "message.list", map[string]any{"channel_id": id, "next": itoa(end), "direction": "after", "_data": map[string]any{"blocks": true}}, &l)
+			satAt(t, uc, "http://ir", "internal/block.list", map[string]any{"channel_id": id, "next": itoa(end), "direction": "after", "_data": map[string]any{"blocks": true}}, &l)
 			after := api.MessagePage{Blocks: l.Data.Blocks, Start: l.Data.Start, End: l.Data.End}
 			if len(after.Blocks) == 2 {
 				return after

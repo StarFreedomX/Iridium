@@ -248,7 +248,8 @@ func (s *Service) forget(card string) {
 // serveInternal serves /v1/internal/: button (an action button pressed: {id}, or a card answered
 // whole: {id: <card>, option, choices, words, message}).
 func (s *Service) serveInternal(w http.ResponseWriter, r *http.Request, name string) {
-	if name != "button" {
+	blocks := map[string]method{"block.list": (*Service).blockList, "block.get": (*Service).blockGet}[name]
+	if name != "button" && blocks == nil {
 		s.fail(w, refuse(http.StatusNotFound, "no_such_api", "no API internal/"+name))
 		return
 	}
@@ -259,6 +260,21 @@ func (s *Service) serveInternal(w http.ResponseWriter, r *http.Request, name str
 	c, err := s.speaker(r)
 	if err != nil {
 		s.fail(w, err)
+		return
+	}
+	if blocks != nil {
+		// An agent's record, a message a block (docs/satori.md "记录").
+		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
+		if err != nil {
+			s.fail(w, bad("the body: "+err.Error()))
+			return
+		}
+		out, err := blocks(s, r.Context(), c, body)
+		if err != nil {
+			s.fail(w, err)
+			return
+		}
+		reply(w, http.StatusOK, out)
 		return
 	}
 	var req struct {

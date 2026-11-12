@@ -451,6 +451,8 @@ type Send struct {
 type SendReply struct {
 	Input  string `json:"input"`            // the message's id (Claude: its uuid)
 	Queued bool   `json:"queued,omitempty"` // it waits in the queue
+	// Seq: the message's number in its channel.
+	Seq int64 `json:"seq,omitempty"`
 	// Session: /clear went on in this session, the old one left as it was (no input then).
 	Session string `json:"session,omitempty"`
 	// Command: the agent runs it as a command of its own (Codex's, pi's /compact): no words of

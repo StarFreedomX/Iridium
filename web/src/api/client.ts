@@ -205,12 +205,12 @@ export const api = {
   // --- served (docs/api.md) ---
   session: (id: string, init?: RequestInit) => get<SessionState>(S(id), init),
   /** A page of session id's transcript: the newest, the one before line before, or what came after
-   *  line after. Satori's message.list (docs/satori.md "记录"), a message per block; _data says
+   *  line after. internal/block.list (docs/satori.md "记录"), a message per block; _data says
    *  where the page is. */
   messages: async (id: string, q: { before?: number; after?: number } = {}, init?: RequestInit): Promise<MessagePage> => {
     await whoKnown();
     const next = q.before ?? q.after;
-    const r = await request("/v1/message.list", {
+    const r = await request("/v1/internal/block.list", {
       method: "POST",
       cache: "no-store",
       ...init,
@@ -221,8 +221,8 @@ export const api = {
     const p = (await r.json()) as { data: SatoriMessage[]; _data?: { start: number; end: number; more: boolean } };
     return { blocks: p.data.map(blockOf), start: p._data?.start ?? 0, end: p._data?.end ?? 0, more: p._data?.more ?? false };
   },
-  /** A block's whole text: Satori's message.get, untruncated. */
-  block: async (id: string, at: string): Promise<{ text: string }> => ({ text: blockOf(await sat<SatoriMessage>("message.get", { channel_id: id, message_id: at })).text ?? "" }),
+  /** A block's whole text: internal/block.get, untruncated. */
+  block: async (id: string, at: string): Promise<{ text: string }> => ({ text: blockOf(await sat<SatoriMessage>("internal/block.get", { channel_id: id, message_id: at })).text ?? "" }),
   /** A session started: Satori's channel.create, its group guild_id, its launcher data.parent_id. */
   create: async (s: NewSession): Promise<{ id: string }> => {
     const { workspace, caller, ...start } = s;
