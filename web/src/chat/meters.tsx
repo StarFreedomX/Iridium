@@ -576,7 +576,6 @@ export function ModelKey({ s, open, onOpenChange }: { s: LiveSession; open?: boo
   if (reached.length) setPressWant((m) => Object.fromEntries(Object.entries(m).filter(([p]) => !reached.includes(p))));
   const v = modelView(s, want);
   const { models, levels, level } = v;
-  const grouped = new Set(models.map((m) => m.group).filter(Boolean)).size > 1;
   if (!models.length && !v.name) return null;
   const label = v.name || t("composer.defaultModel");
   const pickModel = async (model: string) => {
@@ -665,47 +664,59 @@ export function ModelKey({ s, open, onOpenChange }: { s: LiveSession; open?: boo
       <Menu.Portal>
         <Menu.Positioner side="top" align="start" sideOffset={6} collisionPadding={8} className="z-50">
           <Menu.Popup finalFocus={false} className="g-unfold glass thick float flex max-h-[min(640px,calc(var(--available-height)-40px))] w-72 max-w-[calc(100vw-16px)] flex-col rounded-lg p-1.5 text-ink outline-none">
-            {/* The models scroll inside, the foot stays; as high as there is room above, short of the
-                top by 40px, at most 640px (the user, 2026-11-06). */}
-            <Scrolled className="-mr-1 min-h-0 pr-1">
-              <Menu.RadioGroup value={v.value} onValueChange={(x) => void pickModel(x as string)} className="g-stagger flex flex-col">
-                {models.map((m, i) => (
-                  <Fragment key={m.value}>
-                    {/* Each provider's models under its name (dsh), when there is more than one
-                        (the user, 2026-11-09). */}
-                    {grouped && m.group && m.group !== models[i - 1]?.group && (
-                      <div className="truncate px-2.5 pt-2 pb-0.5 text-xs text-ink-3 select-none first:pt-1">{m.group}</div>
-                    )}
-                    {/* A pick closes the menu (Base UI keeps a radio item's open by default). */}
-                    <Menu.RadioItem value={m.value} closeOnClick style={{ "--i": i } as CSSProperties} className="flex min-h-8 cursor-default items-center gap-2.5 rounded-md pr-2 pl-2.5 text-base outline-none select-none data-highlighted:bg-fill pointer-coarse:min-h-11">
-                      {/* The name alone: no model's blurb under it (the user, 2026-11-06). */}
-                      <span className="min-w-0 flex-1 truncate py-1">{m.name}</span>
-                      <Menu.RadioItemIndicator className="text-ink">
-                        <Check size={14} />
-                      </Menu.RadioItemIndicator>
-                    </Menu.RadioItem>
-                  </Fragment>
-                ))}
-              </Menu.RadioGroup>
-            </Scrolled>
-            {(levels.length > 1 || feat) && (
-              // The foot: tuned in place, never closing the menu; the model's own levels drawn anew.
-              // UltraCode a switch at the track's right, not a row of its own (the user, 2026-11-06).
-              <div className="mt-1 shrink-0 border-t border-(--edge) pt-0.5">
-                {levels.length > 1 ? (
-                  <EffortSlider key={levels.join(" ")} levels={levels} value={level || undefined} set={setEffort} aside={featKey} tag={featTag} />
-                ) : (
-                  <div className="flex h-10 items-center justify-between gap-3 px-2.5">
-                    <span className="text-xs text-ink-3">{name}</span>
-                    {featKey}
-                  </div>
-                )}
-              </div>
-            )}
+            <ModelList models={models} value={v.value} pickModel={(x) => void pickModel(x)} levels={levels} level={level} setEffort={setEffort} featKey={featKey} featTag={featTag} foot={!!feat} name={name} />
           </Menu.Popup>
         </Menu.Positioner>
       </Menu.Portal>
     </Menu.Root>
+  );
+}
+
+/** The model menu's inside (ModelKey's, and a new agent's in the "+", chat/channel/draft.tsx):
+ *  the models, a pick closing it; under them the effort track, tuned in place. foot: a key at the
+ *  track's right (featKey) even with no levels. */
+export function ModelList({ models, value, pickModel, levels, level, setEffort, featKey, featTag, foot, name }: { models: Model[]; value: string; pickModel: (v: string) => void; levels: string[]; level: string; setEffort: (e: string) => Promise<boolean>; featKey?: ReactNode; featTag?: ReactNode; foot?: boolean; name?: string }) {
+  const grouped = new Set(models.map((m) => m.group).filter(Boolean)).size > 1;
+  return (
+    <>
+      {/* The models scroll inside, the foot stays; as high as there is room above, short of the
+          top by 40px, at most 640px (the user, 2026-11-06). */}
+      <Scrolled className="-mr-1 min-h-0 pr-1">
+        <Menu.RadioGroup value={value} onValueChange={(x) => pickModel(x as string)} className="g-stagger flex flex-col">
+          {models.map((m, i) => (
+            <Fragment key={m.value}>
+              {/* Each provider's models under its name (dsh), when there is more than one
+                  (the user, 2026-11-09). */}
+              {grouped && m.group && m.group !== models[i - 1]?.group && (
+                <div className="truncate px-2.5 pt-2 pb-0.5 text-xs text-ink-3 select-none first:pt-1">{m.group}</div>
+              )}
+              {/* A pick closes the menu (Base UI keeps a radio item's open by default). */}
+              <Menu.RadioItem value={m.value} closeOnClick style={{ "--i": i } as CSSProperties} className="flex min-h-8 cursor-default items-center gap-2.5 rounded-md pr-2 pl-2.5 text-base outline-none select-none data-highlighted:bg-fill pointer-coarse:min-h-11">
+                {/* The name alone: no model's blurb under it (the user, 2026-11-06). */}
+                <span className="min-w-0 flex-1 truncate py-1">{m.name}</span>
+                <Menu.RadioItemIndicator className="text-ink">
+                  <Check size={14} />
+                </Menu.RadioItemIndicator>
+              </Menu.RadioItem>
+            </Fragment>
+          ))}
+        </Menu.RadioGroup>
+      </Scrolled>
+      {(levels.length > 1 || foot) && (
+        // The foot: tuned in place, never closing the menu; the model's own levels drawn anew.
+        // UltraCode a switch at the track's right, not a row of its own (the user, 2026-11-06).
+        <div className="mt-1 shrink-0 border-t border-(--edge) pt-0.5">
+          {levels.length > 1 ? (
+            <EffortSlider key={levels.join(" ")} levels={levels} value={level || undefined} set={setEffort} aside={featKey} tag={featTag} />
+          ) : (
+            <div className="flex h-10 items-center justify-between gap-3 px-2.5">
+              <span className="text-xs text-ink-3">{name}</span>
+              {featKey}
+            </div>
+          )}
+        </div>
+      )}
+    </>
   );
 }
 
