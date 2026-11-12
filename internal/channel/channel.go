@@ -60,8 +60,30 @@ type Data struct {
 	Quote int64    `json:"quote,omitempty"`
 	// Card: an ask's card id.
 	Card string `json:"card,omitempty"`
+	// Event: what a line of Iridium's own tells of (a member joined, left…), for a page to say
+	// in its own words; the message's text says it too.
+	Event *Event `json:"event,omitempty"`
 	// Activity: what the agent did between the last thing it said and this.
 	Activity *activity.Activity `json:"activity,omitempty"`
+}
+
+// Event is something that happened to a channel, kept as a line of it. Type: "join" (an agent
+// joined: Member, Nick, Name), "leave" (Member, Nick), "rename" (Member, Nick its new one, From
+// its old), "recv" (Member, Nick, Recv), "people" (Added, Removed: member strings; Everyone:
+// now everyone), "undelivered" (Seq not given to Nick), "stopped" (Seq not passed on: too many
+// agents in a row). By: who did it, by name.
+type Event struct {
+	Type     string   `json:"type"`
+	Member   string   `json:"member,omitempty"`
+	Nick     string   `json:"nick,omitempty"`
+	Name     string   `json:"name,omitempty"`
+	From     string   `json:"from,omitempty"`
+	Recv     string   `json:"recv,omitempty"`
+	Added    []string `json:"added,omitempty"`
+	Removed  []string `json:"removed,omitempty"`
+	Everyone bool     `json:"everyone,omitempty"`
+	Seq      int64    `json:"seq,omitempty"`
+	By       string   `json:"by,omitempty"`
 }
 
 // Message is a channel's message with its data read.
@@ -79,7 +101,7 @@ func read(m store.ChannelMessage) Message {
 }
 
 func (d Data) encode() string {
-	if d.Session == "" && d.Block == "" && len(d.Files) == 0 && !d.Final && len(d.At) == 0 && d.Quote == 0 && d.Card == "" && d.Activity == nil {
+	if d.Session == "" && d.Block == "" && len(d.Files) == 0 && !d.Final && len(d.At) == 0 && d.Quote == 0 && d.Card == "" && d.Activity == nil && d.Event == nil {
 		return ""
 	}
 	b, _ := json.Marshal(d)

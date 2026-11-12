@@ -36,7 +36,7 @@ type fake struct {
 	blocks   map[string][]api.Block
 	sent     []string
 	answers  []api.CardAnswer
-	presses  []string // a button attached to a session's page: "<session> <from> <id>"
+	presses  []string        // a button attached to a session's page: "<session> <from> <id>"
 	hidden   map[string]bool // sessions no login sees
 	created  []api.NewSession
 	patches  []api.SessionPatch
@@ -930,7 +930,7 @@ func TestFoldersPlacesAndQueue(t *testing.T) {
 		t.Errorf("the folder: %s", raw)
 	}
 	for body, code := range map[string]int{
-		`{"channel_id":"folder:/w/a","data":{"name":"x"}}`:          400,
+		`{"channel_id":"folder:/w/a","data":{"name":"x"}}`:         400,
 		`{"channel_id":"folder:/nowhere","_data":{"color":"red"}}`: 422,
 		`{"channel_id":"a","data":{"parent_id":null}}`:             422, // it hangs under none
 		`{"channel_id":"b","data":{"parent_id":"a"}}`:              200, // as it is

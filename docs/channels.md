@@ -21,6 +21,10 @@
 - 建会话时可以一次配好：`channel.create` 的 `_data.members {agents, people, nick, recv}`；第一句话在成员都到齐后才说，点到谁就给谁。
 - 接口见 `docs/api.md`“频道”。agent 自己也能加：`ir api POST internal/channels/self/members agent=codex`。
 
+## 频道里的事
+
+成员变了，频道里记一行 Iridium 自己的话（`kind` 是 `note`），文字给只认字的应用看，消息的 `_data.event` 给页面按自己的语言说：`join`（agent 加入：`member`、`nick`、`name`）、`leave`、`rename`（`from` 旧名、`nick` 新名）、`recv`、`people`（`added`、`removed`、`everyone`）、`undelivered`（`seq` 没送到 `nick`）、`stopped`（`seq` 没转交）；`by` 是谁做的。建会话时一并配好的成员不记。这些行不进给 agent 的上下文。
+
 ## 叫起谁（两个以上 agent 时）
 
 - 人的消息：点了名（`@nick`）就只叫起点到的 agent；没点名，叫起 `recv` 是 `all` 的。没被叫起的，下次被叫到时在上下文里读到。

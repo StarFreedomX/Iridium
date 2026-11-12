@@ -252,9 +252,13 @@ func (s *Server) memberAdd(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
-	if _, err := s.addAgent(ctx, c, ch, st, req); err != nil {
+	id, err := s.addAgent(ctx, c, ch, st, req)
+	if err != nil {
 		s.memberFault(w, err)
 		return
+	}
+	if m, ok := s.memberRow(ch, store.AgentMember(id)); ok {
+		s.tellMembers(c, ch, fmt.Sprintf("@%s 加入了频道", m.Nick), channel.Event{Type: "join", Member: m.Member, Nick: m.Nick, Name: s.agentName(id)})
 	}
 	out, err := s.membersOf(c, ch)
 	if err != nil {
@@ -321,9 +325,29 @@ func (s *Server) peoplePut(w http.ResponseWriter, r *http.Request) {
 	if !readJSON(w, r, &req) {
 		return
 	}
+	before := s.ch.People(ch)
 	if err := s.setPeople(c, ch, req.People); err != nil {
 		s.memberFault(w, err)
 		return
+	}
+	after := s.ch.People(ch)
+	ev := channel.Event{Type: "people", Everyone: slices.Contains(after, channel.Everyone)}
+	for _, p := range after {
+		if !slices.Contains(before, p) && p != channel.Everyone {
+			ev.Added = append(ev.Added, p)
+		}
+	}
+	for _, p := range before {
+		if !slices.Contains(after, p) && p != channel.Everyone {
+			ev.Removed = append(ev.Removed, p)
+		}
+	}
+	if ev.Everyone != slices.Contains(before, channel.Everyone) || len(ev.Added)+len(ev.Removed) > 0 {
+		text := "成员改为所有人"
+		if !ev.Everyone {
+			text = fmt.Sprintf("成员改为 %d 人", len(after))
+		}
+		s.tellMembers(c, ch, text, ev)
 	}
 	s.membersChanged()
 	out, err := s.membersOf(c, ch)
@@ -373,6 +397,34 @@ func (s *Server) setUp(ctx context.Context, c caller, id string, setup api.Chann
 	return failed
 }
 
+// memberRow is member of channel ch as written.
+func (s *Server) memberRow(ch, member string) (channel.Member, bool) {
+	ms, _ := s.ch.Members(ch)
+	for _, m := range ms {
+		if m.Member == member {
+			return m, true
+		}
+	}
+	return channel.Member{}, false
+}
+
+// agentName is what session id's agent runs as now.
+func (s *Server) agentName(id string) string {
+	st, err := s.m.State(id)
+	if err != nil {
+		return ""
+	}
+	info, _ := agents.Get(st.Agent)
+	return satori.AgentName(cmp.Or(info.Name, string(st.Agent)), *st)
+}
+
+// tellMembers says in channel ch that its members changed: a line of Iridium's own (text, for
+// those that only read words) with ev, which c did.
+func (s *Server) tellMembers(c caller, ch, text string, ev channel.Event) {
+	ev.By = s.satoriUser(c).Name
+	s.sat.Note(ch, text, c.ID(), &ev)
+}
+
 // setPeople makes people channel ch's, c with them (the host is one always).
 func (s *Server) setPeople(c caller, ch string, people []string) error {
 	if len(people) > 0 && !slices.Contains(people, channel.Everyone) && !c.Host() {
@@ -402,9 +454,18 @@ func (s *Server) memberPatch(w http.ResponseWriter, r *http.Request) {
 	if !readJSON(w, r, &p) {
 		return
 	}
-	if _, err := s.ch.Change(ch, r.PathValue("member"), p.Nick, p.Recv, s.harnessOf); err != nil {
+	was, _ := s.memberRow(ch, r.PathValue("member"))
+	now, err := s.ch.Change(ch, r.PathValue("member"), p.Nick, p.Recv, s.harnessOf)
+	if err != nil {
 		s.memberFault(w, err)
 		return
+	}
+	if was.Nick != "" && now.Nick != was.Nick {
+		s.tellMembers(c, ch, fmt.Sprintf("@%s 改名为 @%s", was.Nick, now.Nick), channel.Event{Type: "rename", Member: now.Member, Nick: now.Nick, From: was.Nick})
+	}
+	if now.Agent() && was.Recv != "" && now.Recv != was.Recv {
+		what := map[string]string{channel.RecvAll: "全部", channel.RecvAt: "@我"}[now.Recv]
+		s.tellMembers(c, ch, fmt.Sprintf("@%s 接收：%s", now.Nick, what), channel.Event{Type: "recv", Member: now.Member, Nick: now.Nick, Recv: now.Recv})
 	}
 	s.membersChanged()
 	out, err := s.membersOf(c, ch)
@@ -432,9 +493,13 @@ func (s *Server) memberRemove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	member := r.PathValue("member")
+	was, _ := s.memberRow(ch, member)
 	if err := s.ch.Leave(ch, member); err != nil {
 		s.memberFault(w, err)
 		return
+	}
+	if was.Agent() {
+		s.tellMembers(c, ch, fmt.Sprintf("@%s 离开了频道", was.Nick), channel.Event{Type: "leave", Member: member, Nick: was.Nick})
 	}
 	if id, ok := store.SessionOfMember(member); ok {
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
@@ -572,7 +637,7 @@ func (s *Server) sendChannel(ctx context.Context, c caller, from, ch, to string,
 	// Some got it, some not: said in the channel, where everyone sees whom it did not reach.
 	_, by := s.agentsOf(ch)
 	for _, t := range failed {
-		s.sat.Note(ch, fmt.Sprintf("未送达 #%d → @%s", seq, by[t].Nick), link.origin)
+		s.sat.Note(ch, fmt.Sprintf("未送达 #%d → @%s", seq, by[t].Nick), link.origin, &channel.Event{Type: "undelivered", Seq: seq, Nick: by[t].Nick})
 	}
 	return out, nil
 }
@@ -675,7 +740,7 @@ func (s *Server) routeSaid(m channel.Message) {
 	link := s.chain.get(sender)
 	d := deliver.Route(m.Text, sender, link.hop, list)
 	if d.TooFar {
-		s.sat.Note(m.Channel, fmt.Sprintf("未转交 #%d：Agent 已连续转交 %d 次", m.Seq, deliver.MaxHops), link.origin)
+		s.sat.Note(m.Channel, fmt.Sprintf("未转交 #%d：Agent 已连续转交 %d 次", m.Seq, deliver.MaxHops), link.origin, &channel.Event{Type: "stopped", Seq: m.Seq})
 		return
 	}
 	if len(d.Wake) == 0 {
@@ -689,7 +754,7 @@ func (s *Server) routeSaid(m channel.Message) {
 			cancel()
 			if err != nil {
 				s.logf("server: channel %s: message %d to %s: %v", m.Channel, m.Seq, t, err)
-				s.sat.Note(m.Channel, fmt.Sprintf("未送达 #%d → @%s：%s", m.Seq, by[t].Nick, strings.TrimSpace(err.Error())), link.origin)
+				s.sat.Note(m.Channel, fmt.Sprintf("未送达 #%d → @%s：%s", m.Seq, by[t].Nick, strings.TrimSpace(err.Error())), link.origin, &channel.Event{Type: "undelivered", Seq: m.Seq, Nick: by[t].Nick})
 			}
 		}
 	}()
