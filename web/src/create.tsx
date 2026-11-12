@@ -4,7 +4,7 @@
 import { Popover } from "@base-ui/react/popover";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronRight, Folder, FolderPlus, LoaderCircle } from "lucide-react";
-import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactElement, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 import type { Extra } from "./chat/channel/draft";
 import type { Workspace } from "./api/types.gen";
 import { api, missing } from "./api/client";
@@ -13,10 +13,10 @@ import { openChat } from "./route";
 import type { Agent } from "./api/types.gen";
 import { t } from "./i18n";
 import { agentsQ, useHome, useMachines } from "./data";
-import { agentsAt, atMachine, homeAt, MachineBadge, MachineFace, pageAt, type Machine } from "./machines";
+import { agentsAt, atMachine, homeAt, MachineFace, pageAt, type Machine } from "./machines";
 import { onCreateAt } from "./places";
 import { errText, toast } from "./toast";
-import { AGENTS, agentName, cn, homeOf, IconKey, Logo, PopSurface, tilde, Tip } from "./ui";
+import { AGENTS, cn, homeOf, IconKey, Logo, PopSurface, tilde } from "./ui";
 
 const join = (dir: string, name: string) => (dir.endsWith("/") ? dir + name : `${dir}/${name}`);
 /** One folder's listing; prefetched before it is shown (the popover opening, a row hovered), so the
@@ -262,8 +262,8 @@ export const subName = (v: string) => {
  *  gone) offers none. A pick of this machine's comes with no Target. onMake: a subfolder of the
  *  folder made (at its machine too), the folder then; its key beside the folder's line (the user,
  *  2026-11-10). */
-/** The members' key under the agents (chat/channel/draft.tsx): its code comes as the "+" opens. */
-const DraftFoot = lazy(() => import("./chat/channel/draft"));
+/** The agents and the people, and 完成 (chat/channel/draft.tsx): its code comes as the "+" opens. */
+const NewChannel = lazy(() => import("./chat/channel/draft"));
 
 export function NewSession({ ws, folder, onFolder, onPick, busy, onMake }: { ws: string; folder: string; onFolder: () => void; onPick: (a: Agent, to?: Target, extra?: Extra) => void; busy: string | null; onMake?: (name: string) => Promise<boolean> }) {
   // The agents the daemon can host (GET /v1/internal/agents); all four before it says. One not installed
@@ -271,11 +271,6 @@ export function NewSession({ ws, folder, onFolder, onPick, busy, onMake }: { ws:
   const info = useQuery({ ...agentsQ, refetchOnMount: "always" }).data; // installed since: the next open knows
   const agents = info?.map((a) => a.agent) ?? AGENTS;
   const missing = (a: Agent) => !!info?.find((x) => x.agent === a)?.missing;
-  // 群聊配置 opened (armed): the members are chosen before the session is made (docs/channels.md),
-  // an agent pressed is then the first of them, not a session at once; the message's line makes it.
-  const [armed, setArmed] = useState(false);
-  const [first, setFirst] = useState<Agent | null>(null);
-  const pick = (a: Agent) => (missing(a) ? toast(t("new.notInstalled", { name: agentName(a) }), { error: true }) : armed ? setFirst(a) : onPick(a));
   const machines = useMachines();
   const whose = agentsAt(folder, machines);
   const there = typeof whose === "object" ? whose : undefined;
@@ -299,16 +294,13 @@ export function NewSession({ ws, folder, onFolder, onPick, busy, onMake }: { ws:
     if (n) void onMake(n).then((ok) => ok && box.current?.querySelector<HTMLButtonElement>("[role=group] button:not(:disabled)")?.focus());
   };
   const path = there ? tilde(pageAt(folder, machines)?.path ?? there.cwd, homeAt(there.m)) : tilde(folder);
-  // The agents this folder's machine offers; the draft's first, till one is pressed, the first of them.
-  const kinds = there ? there.m.agents.map((x) => x.agent as Agent) : agents.filter((a) => !missing(a));
-  const chosen = first && kinds.includes(first) ? first : kinds[0];
-  const begin = (extra: Extra) => {
-    if (!chosen) return;
-    if (!there) return onPick(chosen, undefined, extra);
+  // The agents this folder's machine offers, or those the daemon hosts.
+  const kinds = there ? there.m.agents.map((x) => x.agent as Agent) : agents;
+  const begin = (first: Agent, extra: Extra) => {
+    if (!there) return onPick(first, undefined, extra);
     if (!there.m.online) return void toast(t("new.offline", { name: there.m.name }), { error: true });
-    onPick(chosen, { m: there.m, cwd: there.cwd }, extra);
+    onPick(first, { m: there.m, cwd: there.cwd }, extra);
   };
-  let i = 0;
   if (whose === "gone")
     return (
       <div className="flex w-[min(288px,calc(100vw-16px))] p-1.5">
@@ -320,7 +312,7 @@ export function NewSession({ ws, folder, onFolder, onPick, busy, onMake }: { ws:
       </div>
     );
   return (
-    <div ref={box} tabIndex={-1} className="flex w-[min(288px,calc(100vw-16px))] flex-col gap-1 p-1.5 outline-none">
+    <div ref={box} tabIndex={-1} className="flex w-[min(320px,calc(100vw-16px))] flex-col gap-1 p-1.5 outline-none">
       {naming !== null ? (
         <div className="g-fade flex h-9 items-center gap-2 rounded-md bg-fill px-2 pointer-coarse:h-11">
           <FolderPlus size={16} className="shrink-0 text-ink-3" />
@@ -360,59 +352,20 @@ export function NewSession({ ws, folder, onFolder, onPick, busy, onMake }: { ws:
           )}
         </div>
       )}
-      {!there ? (
-        <div role="group" aria-label={t("new.agent")} className="g-stagger grid grid-cols-4 gap-1">
-          {agents.map((a) => (
-            <Tip key={a} label={missing(a) ? t("new.notInstalled", { name: agentName(a) }) : agentName(a)}>
-              <button type="button" aria-label={agentName(a)} aria-pressed={armed ? chosen === a : undefined} disabled={busy !== null} onClick={() => pick(a)} style={{ "--i": i++ } as CSSProperties} className={cn("g-press grid h-14 place-items-center rounded-md hover:bg-fill disabled:opacity-50", armed && chosen === a && "bg-fill shadow-[inset_0_0_0_1px_var(--edge)]")}>
-                {busy === a ? <LoaderCircle size={20} className="animate-spin text-ink-3" /> : <Logo agent={a} size={24} className={cn(missing(a) && "opacity-30 grayscale")} />}
-              </button>
-            </Tip>
-          ))}
+      {there && (
+        <div className={cn("flex items-center gap-1.5 px-2 pt-1 text-xs", there.m.online ? "text-ink-2" : "text-ink-4")}>
+          <MachineFace m={there.m} size={14} className={cn(!there.m.online && "opacity-50")} />
+          <span className="truncate font-medium">{there.m.name}</span>
+          {!there.m.online && <span className="shrink-0">{t("status.offline")}</span>}
         </div>
-      ) : (
-        <MachineAgents m={there.m} busy={busy} chosen={armed ? chosen : undefined} onPick={(a) => (armed ? setFirst(a) : !there.m.online ? toast(t("new.offline", { name: there.m.name }), { error: true }) : onPick(a, { m: there.m, cwd: there.cwd }))} />
       )}
-      {chosen && (
-        <Suspense fallback={<div className="h-7 pointer-coarse:h-9" />}>
-          <DraftFoot first={chosen} kinds={kinds} machine={there?.m.id} armed={armed} arm={() => setArmed(true)} busy={busy !== null} start={begin} />
+      {there && !kinds.length ? (
+        <p className="m-0 flex h-9 items-center px-2 text-sm text-ink-3">{t("new.noAgents")}</p>
+      ) : (
+        <Suspense fallback={<div className="h-[6.5rem]" />}>
+          <NewChannel agents={kinds} missing={there ? () => false : missing} m={there?.m} busy={busy !== null} start={begin} />
         </Suspense>
       )}
-    </div>
-  );
-}
-
-/** Another machine's agents, under its face and name. */
-function MachineAgents({ m, busy, onPick, chosen }: { m: Machine; busy: string | null; onPick: (a: Agent) => void; chosen?: Agent }) {
-  return (
-    <div role="group" aria-label={m.name} className="flex flex-col gap-1">
-      <div className={cn("flex items-center gap-1.5 px-2 pt-1 text-xs", m.online ? "text-ink-2" : "text-ink-4")}>
-        <MachineFace m={m} size={14} className={cn(!m.online && "opacity-50")} />
-        <span className="truncate font-medium">{m.name}</span>
-        {!m.online && <span className="shrink-0">{t("status.offline")}</span>}
-      </div>
-      {!m.agents.length && <p className="m-0 flex h-9 items-center px-2 text-sm text-ink-3">{t("new.noAgents")}</p>}
-      <div className="g-stagger grid grid-cols-4 gap-1">
-        {m.agents.map(({ agent }, i) => {
-          const a = agent as Agent;
-          const key = `${m.id}/${a}`;
-          const label = m.online ? `${agentName(a)} · ${m.name}` : t("new.offline", { name: m.name });
-          return (
-            <Tip key={key} label={label}>
-              <button type="button" aria-label={label} aria-pressed={chosen ? chosen === a : undefined} disabled={busy !== null} onClick={() => onPick(a)} style={{ "--i": i } as CSSProperties} className={cn("g-press grid h-14 place-items-center rounded-md hover:bg-fill disabled:opacity-50", chosen === a && "bg-fill shadow-[inset_0_0_0_1px_var(--edge)]")}>
-                {busy === key ? (
-                  <LoaderCircle size={20} className="animate-spin text-ink-3" />
-                ) : (
-                  <span className={cn("relative grid", !m.online && "opacity-30 grayscale")}>
-                    <Logo agent={a} size={24} />
-                    <MachineBadge m={m} size={13} />
-                  </span>
-                )}
-              </button>
-            </Tip>
-          );
-        })}
-      </div>
     </div>
   );
 }

@@ -87,3 +87,25 @@ export function draftNicks(d: Draft): string[] {
     return nick;
   });
 }
+
+/** people with everyone spelled out: each listed app's all. */
+const spelled = (people: string[], apps: string[]) => (everyone(people) ? apps.map(appAll) : people);
+/** people as few as they say: an app whose logins are all named, its all; every listed app's
+ *  all, everyone. */
+function gathered(people: string[], apps: string[], loginsOf: (app: string) => string[]): string[] {
+  let out = people;
+  for (const a of apps) {
+    const ls = loginsOf(a);
+    if (ls.length && !out.includes(appAll(a)) && ls.every((l) => out.includes(loginOf(a, l)))) out = [...out.filter((p) => !p.startsWith(`${a}/`)), appAll(a)];
+  }
+  return apps.length && apps.every((a) => out.includes(appAll(a))) ? [EVERYONE] : out;
+}
+
+/** A login's chip pressed (the new session's people, lit or not): everyone is each app's all
+ *  first, and all lit is everyone again. apps: those listed; loginsOf: an app's logins, by id. */
+export const pressLogin = (people: string[], apps: string[], loginsOf: (app: string) => string[], app: string, login: string, me?: string) =>
+  gathered(setLogin(spelled(people, apps), app, login, !hasLogin(people, app, login), loginsOf(app), me), apps, loginsOf);
+
+/** An app's 全选 pressed: all its logins in, or (all in already) none but me. */
+export const pressApp = (people: string[], apps: string[], loginsOf: (app: string) => string[], app: string, me?: string) =>
+  gathered(setApp(spelled(people, apps), app, !hasApp(people, app), me), apps, loginsOf);

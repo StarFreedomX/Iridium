@@ -234,7 +234,7 @@ export const en: Dict = {
   "channel.everyone": "Everyone",
   "channel.peopleN": "{n} people",
   "channel.notJoined": "Not joined",
-  "channel.first": "First message",
+  "channel.allOf": "All",
   "channel.addKey": "Add",
   "channel.compact": "Compact",
   "channel.effort": "Effort",

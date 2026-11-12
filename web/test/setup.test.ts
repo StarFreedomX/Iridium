@@ -2,7 +2,7 @@
 // session's draft as the ChannelSetup it is made with, the key's count, who may act.
 import { describe, expect, test } from "vitest";
 import type { ChannelMembers } from "../src/api/types.gen";
-import { draftNicks, everyone, hasApp, hasLogin, keepMe, mayAct, newDraft, onlyMe, peopleCount, peopleOf, setApp, setLogin, setupOf } from "../src/chat/channel/setup";
+import { draftNicks, everyone, hasApp, hasLogin, keepMe, pressApp, pressLogin, mayAct, newDraft, onlyMe, peopleCount, peopleOf, setApp, setLogin, setupOf } from "../src/chat/channel/setup";
 
 const ME = "ir_web/me";
 
@@ -79,5 +79,30 @@ describe("a new session's draft", () => {
   test("the nicks not given, as the server makes them: the harness, then harness2…", () => {
     expect(draftNicks({ ...newDraft("pi"), more: [{ agent: "pi" }, { agent: "claude" }, { agent: "pi" }] })).toEqual(["pi", "pi2", "claude", "pi3"]);
     expect(draftNicks({ first: { agent: "pi", nick: "", recv: "all" }, more: [{ agent: "pi", nick: "pi" }], people: [] })).toEqual(["pi2", "pi"]);
+  });
+});
+
+describe("the new session's chips", () => {
+  const apps = ["ir_web", "koishi"];
+  const logins: Record<string, string[]> = { ir_web: ["me", "u2"], koishi: ["bot1", "u2"] };
+  const of = (a: string) => logins[a] ?? [];
+  const me = "ir_web/me";
+  test("one unlit from everyone leaves the rest lit", () => {
+    expect(pressLogin(["*"], apps, of, "koishi", "bot1", me).sort()).toEqual(["ir_web/*", "koishi/u2"]);
+  });
+  test("lit again, everyone again", () => {
+    expect(pressLogin(["ir_web/*", "koishi/u2"], apps, of, "koishi", "bot1", me)).toEqual(["*"]);
+  });
+  test("me stays lit", () => {
+    expect(pressLogin(["*"], apps, of, "ir_web", "me", me)).toEqual(["*"]);
+    expect(pressApp(["*"], apps, of, "ir_web", me).sort()).toEqual(["ir_web/me", "koishi/*"]);
+  });
+  test("an app's all, on and off", () => {
+    const one = pressApp(["*"], apps, of, "koishi", me);
+    expect(one.sort()).toEqual(["ir_web/*"]);
+    expect(pressApp(one, apps, of, "koishi", me)).toEqual(["*"]);
+  });
+  test("an app's logins all lit one by one are its all", () => {
+    expect(pressLogin(["ir_web/me", "koishi/*"], apps, of, "ir_web", "u2", me)).toEqual(["*"]);
   });
 });

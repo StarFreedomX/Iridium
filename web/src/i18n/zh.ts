@@ -234,7 +234,7 @@ export const zh = {
   "channel.everyone": "全部",
   "channel.peopleN": "{n} 人",
   "channel.notJoined": "未加入",
-  "channel.first": "首条消息",
+  "channel.allOf": "全选",
   "channel.addKey": "添加",
   "channel.compact": "压缩",
   "channel.effort": "强度",

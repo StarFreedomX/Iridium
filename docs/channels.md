@@ -19,6 +19,7 @@
 - 一个频道至多 8 个 agent。加进来的 agent 是一个新会话，开在频道的文件夹里，列表里不单独出现（`Session.channel`）；频道的 `Session.agents` 列出它的全部 agent。
 - 成员都开在频道的文件夹和机器上，不能在别的机器。
 - 建会话时可以一次配好：`channel.create` 的 `_data.members {agents, people, nick, recv}`；第一句话在成员都到齐后才说，点到谁就给谁。
+- 网页的“+”（用户，2026-11-12）：一页，不开第二层。agent 一排，点一个亮起并弹出小窗（模型、强度、称呼，都可不填），收起即存；先亮的那个是会话本身。下面每个应用一行，登录点一个亮一个，可全选，自己始终亮着；全亮即“全部”。按“完成”建会话，不带第一句话。
 - 接口见 `docs/api.md`“频道”。agent 自己也能加：`ir api POST internal/channels/self/members agent=codex`。
 
 ## 频道里的事
