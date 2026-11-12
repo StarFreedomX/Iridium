@@ -58,7 +58,7 @@ func TestChannelOfSeveral(t *testing.T) {
 	// One agent: the default members, nothing written.
 	var ms api.ChannelMembers
 	l.want(200, "web", "GET", "/v1/internal/channels/"+ch+"/members", nil, &ms)
-	if ms.Multi || len(ms.Members) != 2 || ms.Members[0].Member != "ir_web/*" || ms.Members[1].Session != ch || ms.Members[1].Recv != "all" {
+	if ms.Multi || len(ms.Members) != 2 || ms.Members[0].Member != "*" || !ms.Joined || ms.Members[1].Session != ch || ms.Members[1].Recv != "all" {
 		t.Fatalf("default members: %+v", ms)
 	}
 
@@ -148,4 +148,80 @@ func TestChannelOfSeveral(t *testing.T) {
 		t.Fatalf("send alone: %d", code)
 	}
 	l.waitSaid("web", ch, "ok: alone again")
+}
+
+// A channel's people: everyone unless chosen. One who is not among them still reads it, and
+// neither speaks in it nor changes it; anyone among them changes who is.
+func TestChannelPeople(t *testing.T) {
+	t.Parallel()
+	l := start(t)
+	ch := l.create(200, "web", api.NewSession{Agent: api.AgentClaude, Cwd: l.work, Text: "first"})
+	l.waitReply("web", ch, "ok: first")
+	bot := l.newApp("bot", true).Token
+	if code, _ := l.send(bot, ch, api.Send{Text: "from the bot"}); code != 200 {
+		t.Fatalf("everyone speaks: %d", code)
+	}
+	l.waitSaid("web", ch, "ok: from the bot")
+
+	// The page chooses the people: itself. The bot reads, and that is all.
+	var ms api.ChannelMembers
+	l.want(200, "web", "GET", "/v1/internal/channels/"+ch+"/members", nil, &ms)
+	me := ms.Me
+	if me == "" || !ms.Joined {
+		t.Fatalf("me: %+v", ms)
+	}
+	l.want(400, "web", "PUT", "/v1/internal/channels/"+ch+"/people", api.People{People: []string{"nonsense"}}, nil)
+	l.want(200, "web", "PUT", "/v1/internal/channels/"+ch+"/people", api.People{People: []string{me}}, &ms)
+	if !ms.Joined || len(ms.Members) != 2 || ms.Members[1].Member != me && ms.Members[0].Member != me {
+		t.Fatalf("people chosen: %+v", ms)
+	}
+	if code, _ := l.send(bot, ch, api.Send{Text: "again"}); code != 403 {
+		t.Errorf("one not among them speaks: %d", code)
+	}
+	if code := l.sat(bot, "message.list", map[string]any{"channel_id": ch}, nil); code != 200 {
+		t.Errorf("one not among them reads: %d", code)
+	}
+	var theirs api.ChannelMembers
+	if l.asLogin(bot, "main", "GET", "/v1/internal/channels/"+ch+"/members", nil, &theirs); theirs.Joined {
+		t.Errorf("joined: %+v", theirs)
+	}
+	if code := l.asLogin(bot, "main", "PUT", "/v1/internal/channels/"+ch+"/people", api.People{}, nil); code != 403 {
+		t.Errorf("one not among them changes them: %d", code)
+	}
+	if code := l.asLogin(bot, "main", "POST", "/v1/internal/sessions/"+ch+"/interrupt", nil, nil); code != 403 {
+		t.Errorf("one not among them stops the agent: %d", code)
+	}
+	if code, _ := l.send("web", ch, api.Send{Text: "mine"}); code != 200 {
+		t.Errorf("one of them speaks: %d", code)
+	}
+	l.waitSaid("web", ch, "ok: mine")
+	// The host is always one. None chosen: everyone again.
+	if code, _ := l.send("socket", ch, api.Send{Text: "host"}); code != 200 {
+		t.Errorf("the host speaks: %d", code)
+	}
+	l.want(200, "web", "PUT", "/v1/internal/channels/"+ch+"/people", api.People{}, &ms)
+	if code, _ := l.send(bot, ch, api.Send{Text: "back"}); code != 200 {
+		t.Errorf("everyone again: %d", code)
+	}
+}
+
+// A session made with its channel's members: the agents there from the start, its first words
+// said in the channel, reaching whom they name.
+func TestChannelCreatedWhole(t *testing.T) {
+	t.Parallel()
+	l := start(t)
+	ch := l.create(200, "web", api.NewSession{Agent: api.AgentClaude, Cwd: l.work, Text: "@helper begin",
+		Members: &api.ChannelSetup{Nick: "lead", Agents: []api.NewMember{{Agent: api.AgentClaude, Nick: "helper"}, {Agent: api.AgentClaude}}}})
+	var ms api.ChannelMembers
+	l.want(200, "web", "GET", "/v1/internal/channels/"+ch+"/members", nil, &ms)
+	if !ms.Multi || len(ms.Members) != 4 || ms.Members[1].Nick != "lead" || ms.Members[2].Nick != "helper" || ms.Members[3].Nick != "claude" {
+		t.Fatalf("members: %+v", ms)
+	}
+	all := l.waitSaid("web", ch, "@helper ", "ok: #1: @helper begin")
+	for _, m := range all {
+		if strings.Contains(m, "@lead ") || strings.Contains(m, "@claude ") {
+			t.Errorf("another answered: %s", m)
+		}
+	}
+	l.create(400, "web", api.NewSession{Agent: api.AgentClaude, Cwd: l.work, Members: &api.ChannelSetup{Agents: []api.NewMember{{Agent: api.AgentClaude, Nick: "a b"}}}})
 }

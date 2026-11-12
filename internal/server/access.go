@@ -274,6 +274,13 @@ func (s *Server) use(h http.HandlerFunc) http.HandlerFunc {
 			s.error(w, err)
 			return
 		}
+		// To change anything of it, one of its channel's people (docs/channels.md "人").
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			if err := s.inChannel(callerOf(r), r.PathValue("id")); err != nil {
+				s.error(w, err)
+				return
+			}
+		}
 		h(w, r)
 	}
 }

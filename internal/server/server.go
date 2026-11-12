@@ -24,6 +24,7 @@ import (
 	"github.com/kumoSleeping/iridium/internal/api"
 	"github.com/kumoSleeping/iridium/internal/channel"
 	"github.com/kumoSleeping/iridium/internal/config"
+	"github.com/kumoSleeping/iridium/internal/deliver"
 	"github.com/kumoSleeping/iridium/internal/discover"
 	"github.com/kumoSleeping/iridium/internal/files"
 	"github.com/kumoSleeping/iridium/internal/gate"
@@ -275,7 +276,24 @@ func (s *Server) createAs(ctx context.Context, c caller, req api.NewSession) (st
 	if err := s.checkCreate(c, &req); err != nil {
 		return "", err
 	}
+	// A channel of more than its own agent and everyone: made whole, then its first words said
+	// in it, so that they reach whom they name.
+	setup, first := req.Members, ""
+	if setup != nil {
+		first, req.Text, req.Members = req.Text, "", nil
+		if len(setup.Agents) >= MaxAgents {
+			return "", &createError{errFull}
+		}
+		for _, a := range append([]api.NewMember{{Nick: setup.Nick}}, setup.Agents...) {
+			if a.Nick != "" && !deliver.ValidNick(a.Nick) {
+				return "", &createError{fmt.Errorf("%w: %w", session.ErrBadRequest, channel.ErrNick)}
+			}
+		}
+	}
 	id, err := s.m.Create(ctx, req, s.fromOf(c, req.Caller))
+	if id != "" && err == nil && setup != nil {
+		err = s.setUp(ctx, c, id, *setup, first)
+	}
 	if id != "" {
 		via := c.session
 		if via == "" && c.socket {
@@ -319,6 +337,9 @@ func (s *Server) sendAs(ctx context.Context, c caller, from, id string, req api.
 		return s.sendChannel(ctx, c, from, ch, id, req)
 	}
 	if err := s.checkSend(c, id); err != nil {
+		return api.SendReply{}, err
+	}
+	if err := s.inChannel(c, id); err != nil {
 		return api.SendReply{}, err
 	}
 	via := c.session

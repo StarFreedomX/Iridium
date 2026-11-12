@@ -35,8 +35,9 @@ const (
 	RecvMine = "mine"
 )
 
-// WebAll is the member that is every login of the web.
-const WebAll = "ir_web/*"
+// Everyone is the member that is every login of every app: a channel nobody chose the people
+// of has it, and whoever sees the channel may speak in it.
+const Everyone = "*"
 
 // Sessions is what the channels ask of the sessions (session.Manager).
 type Sessions interface {
@@ -174,7 +175,7 @@ func (s *Service) Members(channel string) ([]Member, error) {
 	rows := s.members().rows[channel]
 	if len(rows) == 0 {
 		rows = []store.ChannelMember{
-			{Channel: channel, Member: WebAll, Recv: RecvAll},
+			{Channel: channel, Member: Everyone, Recv: RecvAll},
 			{Channel: channel, Member: store.AgentMember(channel), Recv: RecvAll},
 		}
 	}

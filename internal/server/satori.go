@@ -197,6 +197,9 @@ func (b satoriBackend) Patch(ctx context.Context, c satori.Caller, id string, p 
 	if _, err := b.s.using(cl, id); err != nil {
 		return err
 	}
+	if err := b.s.inChannel(cl, id); err != nil {
+		return err
+	}
 	// An agent's name never covers one a person gave (as ir rename did).
 	if p.Name != nil && (cl.agent || cl.session != "") {
 		p.ByAgent = true
@@ -361,6 +364,9 @@ func (b satoriBackend) Answer(ctx context.Context, c satori.Caller, a api.CardAn
 	if _, err := b.s.using(callerAs(c), id); err != nil {
 		return err
 	}
+	if err := b.s.inChannel(callerAs(c), id); err != nil {
+		return err
+	}
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
 	return b.s.m.AnswerCard(ctx, a)
@@ -368,6 +374,9 @@ func (b satoriBackend) Answer(ctx context.Context, c satori.Caller, a api.CardAn
 
 func (b satoriBackend) Press(ctx context.Context, c satori.Caller, sid, from, id string) (string, error) {
 	if _, err := b.s.using(callerAs(c), sid); err != nil {
+		return "", err
+	}
+	if err := b.s.inChannel(callerAs(c), sid); err != nil {
 		return "", err
 	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -378,6 +387,9 @@ func (b satoriBackend) Press(ctx context.Context, c satori.Caller, sid, from, id
 func (b satoriBackend) Upload(c satori.Caller, id, name string, size int64, body io.Reader) (string, error) {
 	s := b.s
 	if _, err := s.using(callerAs(c), id); err != nil {
+		return "", err
+	}
+	if err := s.inChannel(callerAs(c), id); err != nil {
 		return "", err
 	}
 	u, err := s.files.CreateUpload(id, api.NewUpload{Name: name, Size: size})

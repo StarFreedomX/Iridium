@@ -20,7 +20,10 @@ import (
 // gets all.
 func TestAgentsOffAndHomeScope(t *testing.T) {
 	t.Parallel()
-	l := startWith(t, func(s *Server, _ config.Config, _ string) { s.Remote = &remote.Hub{Self: "host-hash"}; s.WatchMachines() })
+	l := startWith(t, func(s *Server, _ config.Config, _ string) {
+		s.Remote = &remote.Hub{Self: "host-hash"}
+		s.WatchMachines()
+	})
 	l.want(200, "socket", "PUT", "/v1/internal/public", api.SetPublic{Origin: "https://ir.example.com"}, nil)
 	l.s.OpenPairing(0)
 	ask := func(req api.PairRequest) (api.Pairing, api.Need) {

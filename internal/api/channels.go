@@ -25,6 +25,10 @@ type ChannelMembers struct {
 	Channel string          `json:"channel"`
 	Multi   bool            `json:"multi"`
 	Members []ChannelMember `json:"members"`
+	// Joined: the caller is one of its people (may speak, answer, change the members); not
+	// joined, it only reads. Me: the member the caller is as a login ("<app>/<login>").
+	Joined bool   `json:"joined"`
+	Me     string `json:"me,omitempty"`
 }
 
 // NewMember adds an agent to a channel: a new session of Agent started in the channel's folder
@@ -63,4 +67,20 @@ type ChannelAgent struct {
 	Session string `json:"session"`
 	Agent   Agent  `json:"agent,omitempty"`
 	Nick    string `json:"nick,omitempty"`
+}
+
+// ChannelSetup is who a new session's channel has beside its own agent. Agents: more agents,
+// each a new session in the same folder. People: who may speak in it ("*" everyone, "<app>/*",
+// "<app>/<login>"); none: everyone. The one who makes it is always one of them.
+type ChannelSetup struct {
+	Agents []NewMember `json:"agents,omitempty"`
+	People []string    `json:"people,omitempty"`
+	// Nick, Recv: the first agent's own (the session's), as NewMember's; "": made, "all".
+	Nick string `json:"nick,omitempty"`
+	Recv string `json:"recv,omitempty"`
+}
+
+// People sets a channel's people (PUT …/people).
+type People struct {
+	People []string `json:"people"`
 }

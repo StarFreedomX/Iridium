@@ -139,4 +139,3 @@ type CardAnswer struct {
 	Words   []string `json:"words,omitempty"`
 	Message string   `json:"message,omitempty"`
 }
-

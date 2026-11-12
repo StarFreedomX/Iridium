@@ -12,10 +12,13 @@
 
 ## 成员
 
-- 三种：一个应用的全部登录（`ir_web/*`）、单个登录（`应用/登录`）、agent（`agent:<会话ID>`）。这一版能改的只有 agent。
+- agent 是 `agent:<会话ID>`。人有三种写法：`*`（所有应用的所有登录）、`应用/*`（一个应用的全部登录）、`应用/登录`。
+- 人：没选过的频道是 `*`，以前的会话都是这样。选了人以后，没被选进来的仍然在侧栏看到这个会话、能读，但不能发消息、不能答提问和审批、不能停 agent、不能改成员（403）。主机始终在里面；频道里的 agent 也在。群里任何人都能改成员（`PUT …/people`），改的人自己留在里面。
 - agent 的 `user.name` 是它现在用什么跑的（`Claude Opus 5.5 High`），`nick` 是频道里叫它的名字：字母、数字、`_`、`-`，至多 32 个，频道内唯一，加入时自动起（`claude`、`claude2`）。`@` 只认 `nick`。
 - 每个 agent 一个开关 `recv`：`all` 收人说的每句话；`at` 只收点到它的。频道原来的 agent 是 `all`，后加的默认 `at`。
 - 一个频道至多 8 个 agent。加进来的 agent 是一个新会话，开在频道的文件夹里，列表里不单独出现（`Session.channel`）；频道的 `Session.agents` 列出它的全部 agent。
+- 成员都开在频道的文件夹和机器上，不能在别的机器。
+- 建会话时可以一次配好：`channel.create` 的 `_data.members {agents, people, nick, recv}`；第一句话在成员都到齐后才说，点到谁就给谁。
 - 接口见 `docs/api.md`“频道”。agent 自己也能加：`ir api POST internal/channels/self/members agent=codex`。
 
 ## 叫起谁（两个以上 agent 时）
@@ -63,9 +66,8 @@ agent 的 `ir` 读不到同频道另一个 agent 的记录（403 `not_yours`）�
 
 ## 还没做
 
-- 人作为成员的增减和“相关 / 全部”开关。
+- 人的“相关 / 全部”开关。
 - 回复（`<quote>`）当作点名；`@全部`。
-- 建会话时一次配好多个 agent 的面板。
 - 网页以外的应用看到的活动、公开链接里的多 agent 频道。
 - `#` 插入会话引用，删掉旧的 `@` 选单。
 - 成员会话的“记录”视图：标题和用户气泡是注入后的原文（整段 `<channel-context>`）。

@@ -3,6 +3,7 @@ package channel
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/kumoSleeping/iridium/internal/deliver"
@@ -30,7 +31,7 @@ func (s *Service) written(channel string, base func(session string) string) erro
 		return err
 	}
 	defer s.changed()
-	if err := s.st.PutChannelMember(store.ChannelMember{Channel: channel, Member: WebAll, Recv: RecvAll}); err != nil {
+	if err := s.st.PutChannelMember(store.ChannelMember{Channel: channel, Member: Everyone, Recv: RecvAll}); err != nil {
 		return err
 	}
 	return s.st.PutChannelMember(store.ChannelMember{Channel: channel, Member: store.AgentMember(channel), Nick: s.freeNick(channel, base(channel)), Recv: RecvAll, Seen: end})
@@ -177,3 +178,77 @@ func (s *Service) Between(channel string, after, before int64, limit int) ([]Mes
 	}
 	return out, nil
 }
+
+// ---- the people ----
+
+// PersonMember is the member a login of an app is; AppMember, all of an app's logins.
+func PersonMember(app, login string) string { return app + "/" + login }
+func AppMember(app string) string           { return app + "/*" }
+
+// validPeople: m names people: everyone, an app's logins, or one login.
+func validPeople(m string) bool {
+	if m == Everyone {
+		return true
+	}
+	app, login, ok := strings.Cut(m, "/")
+	return ok && app != "" && login != "" && !strings.HasPrefix(m, "agent:") && !strings.ContainsAny(m, " \n")
+}
+
+// People are the people of channel as written: Everyone, apps' logins ("<app>/*"), logins
+// ("<app>/<login>").
+func (s *Service) People(channel string) []string {
+	ms, _ := s.Members(channel)
+	var out []string
+	for _, m := range ms {
+		if !m.Agent() {
+			out = append(out, m.Member)
+		}
+	}
+	return out
+}
+
+// Has: login of app is one of channel's people, so may speak in it, answer its agents and
+// change its members. Whoever is not still reads it.
+func (s *Service) Has(channel, app, login string) bool {
+	for _, m := range s.People(channel) {
+		if m == Everyone || m == AppMember(app) || (login != "" && m == PersonMember(app, login)) {
+			return true
+		}
+	}
+	return false
+}
+
+// SetPeople makes people the people of channel, in place of those it had; none is everyone.
+func (s *Service) SetPeople(channel string, people []string, base func(session string) string) error {
+	if len(people) == 0 {
+		people = []string{Everyone}
+	}
+	for _, p := range people {
+		if !validPeople(p) {
+			return fmt.Errorf("%w: %q", ErrPeople, p)
+		}
+	}
+	if err := s.written(channel, base); err != nil {
+		return err
+	}
+	defer s.changed()
+	for _, old := range s.People(channel) {
+		if !slices.Contains(people, old) {
+			if _, err := s.st.RemoveChannelMember(channel, old); err != nil {
+				return err
+			}
+		}
+	}
+	for _, p := range people {
+		if slices.Contains(people, Everyone) && p != Everyone {
+			continue // everyone: the rest says nothing more
+		}
+		if err := s.st.PutChannelMember(store.ChannelMember{Channel: channel, Member: p, Recv: RecvAll}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ErrPeople: not a way to name people.
+var ErrPeople = errors.New("people: \"*\", \"<app>/*\" or \"<app>/<login>\"")

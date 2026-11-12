@@ -437,6 +437,9 @@ type NewSession struct {
 	// Machine: the executor to run it at (a terminal ID or name; docs/exec.md); empty: here. Cwd
 	// is then a path there.
 	Machine string `json:"machine,omitempty"`
+	// Members: the channel it begins as has more than itself and everyone (docs/channels.md):
+	// more agents, started in the same folder; its people chosen.
+	Members *ChannelSetup `json:"members,omitempty"`
 }
 
 // Send gives the session a message: a new turn when idle; while a turn runs it waits in the

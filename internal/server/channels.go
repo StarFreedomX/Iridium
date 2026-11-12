@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kumoSleeping/iridium/internal/access"
 	"github.com/kumoSleeping/iridium/internal/activity"
 	"github.com/kumoSleeping/iridium/internal/agent"
 	"github.com/kumoSleeping/iridium/internal/agents"
@@ -82,6 +83,7 @@ func (s *Server) channelRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/internal/channels/{id}/members", s.memberAdd)
 	mux.HandleFunc("PATCH /v1/internal/channels/{id}/members/{member}", s.memberPatch)
 	mux.HandleFunc("DELETE /v1/internal/channels/{id}/members/{member}", s.memberRemove)
+	mux.HandleFunc("PUT /v1/internal/channels/{id}/people", s.peoplePut)
 	mux.HandleFunc("GET /v1/internal/sessions/{id}/injections", s.use(s.injections))
 }
 
@@ -110,6 +112,34 @@ func (s *Server) channelOf(id string) (string, []api.ChannelAgent) {
 func (s *Server) membersChanged() {
 	s.hub.Set("channels", s.channelsSeq.Add(1))
 	s.m.PublishList()
+}
+
+// errNotMember: the caller sees the channel but is not one of its people.
+var errNotMember = &access.Denied{Reason: "not one of this channel's people: it can be read, not spoken in"}
+
+// inChannel checks that c is one of the people of the channel session id is in (docs/channels.md
+// "人"): the host always; an agent of the channel; else the caller's login, as the channel's
+// people name it. Whoever is not may still read.
+func (s *Server) inChannel(c caller, id string) error {
+	ch := s.ch.Of(id)
+	if c.Host() && !c.agent && c.session == "" {
+		return nil
+	}
+	if sid := cmp.Or(c.session, c.Session); sid != "" && s.ch.Of(sid) == ch {
+		return nil
+	}
+	if s.ch.Has(ch, c.App, c.Login) {
+		return nil
+	}
+	return errNotMember
+}
+
+// memberOf is the member c is as a login.
+func memberOf(c caller) string {
+	if c.Login == "" {
+		return channel.AppMember(c.App)
+	}
+	return channel.PersonMember(c.App, c.Login)
 }
 
 // harnessOf names session's harness, for a nick.
@@ -141,12 +171,12 @@ func (s *Server) seeingChannel(c caller, id string) (string, *api.SessionState, 
 }
 
 // membersOf are channel ch's members as the API gives them.
-func (s *Server) membersOf(ch string) (api.ChannelMembers, error) {
+func (s *Server) membersOf(c caller, ch string) (api.ChannelMembers, error) {
 	ms, err := s.ch.Members(ch)
 	if err != nil {
 		return api.ChannelMembers{}, err
 	}
-	out := api.ChannelMembers{Channel: ch, Members: []api.ChannelMember{}}
+	out := api.ChannelMembers{Channel: ch, Members: []api.ChannelMember{}, Joined: s.inChannel(c, ch) == nil, Me: memberOf(c)}
 	n := 0
 	for _, m := range ms {
 		am := api.ChannelMember{Member: m.Member, Session: m.Session, Nick: m.Nick, Recv: m.Recv, Seen: m.Seen}
@@ -165,12 +195,13 @@ func (s *Server) membersOf(ch string) (api.ChannelMembers, error) {
 }
 
 func (s *Server) membersGet(w http.ResponseWriter, r *http.Request) {
-	ch, _, err := s.seeingChannel(callerOf(r), r.PathValue("id"))
+	c := callerOf(r)
+	ch, _, err := s.seeingChannel(c, r.PathValue("id"))
 	if err != nil {
 		s.error(w, err)
 		return
 	}
-	out, err := s.membersOf(ch)
+	out, err := s.membersOf(c, ch)
 	if err != nil {
 		s.fault(w, err)
 		return
@@ -181,7 +212,9 @@ func (s *Server) membersGet(w http.ResponseWriter, r *http.Request) {
 // memberFault answers with a membership's error.
 func (s *Server) memberFault(w http.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, channel.ErrNick), errors.Is(err, channel.ErrRecv):
+	case errors.Is(err, errFull):
+		refuse(w, http.StatusConflict, "full", err.Error())
+	case errors.Is(err, channel.ErrNick), errors.Is(err, channel.ErrRecv), errors.Is(err, channel.ErrPeople):
 		refuse(w, http.StatusBadRequest, "bad_request", err.Error())
 	case errors.Is(err, channel.ErrNoMember):
 		refuse(w, http.StatusUnprocessableEntity, "no_such_member", err.Error())
@@ -201,6 +234,10 @@ func (s *Server) memberAdd(w http.ResponseWriter, r *http.Request) {
 		s.error(w, err)
 		return
 	}
+	if err := s.inChannel(c, ch); err != nil {
+		s.error(w, err)
+		return
+	}
 	var req api.NewMember
 	if !readJSON(w, r, &req) {
 		return
@@ -215,17 +252,37 @@ func (s *Server) memberAdd(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
+	if _, err := s.addAgent(ctx, c, ch, st, req); err != nil {
+		s.memberFault(w, err)
+		return
+	}
+	out, err := s.membersOf(c, ch)
+	if err != nil {
+		s.fault(w, err)
+		return
+	}
+	s.membersChanged()
+	reply(w, http.StatusOK, out)
+}
+
+// addAgent starts a new agent in channel ch's folder (st: the channel's session) as c and puts
+// it in the channel: the session it is.
+func (s *Server) addAgent(ctx context.Context, c caller, ch string, st *api.SessionState, req api.NewMember) (string, error) {
+	if len(s.ch.Agents(ch)) >= MaxAgents {
+		return "", errFull
+	}
+	if req.Nick != "" && !deliver.ValidNick(req.Nick) {
+		return "", channel.ErrNick
+	}
 	id, err := s.createAs(ctx, c, api.NewSession{Agent: req.Agent, Cwd: st.Cwd, Machine: st.Machine, Model: req.Model, Mode: req.Mode,
 		Effort: req.Effort, Preset: req.Preset, Caller: ch})
 	if err != nil {
-		s.error(w, err)
-		return
+		return "", err
 	}
 	m, err := s.ch.Join(ch, id, req.Nick, req.Recv, s.harnessOf)
 	if err != nil {
 		_ = s.m.ArchiveTree(ctx, id, true)
-		s.memberFault(w, err)
-		return
+		return "", err
 	}
 	// Started before it was a member: again at its first message, told what it is (assemble's
 	// channel.system).
@@ -238,20 +295,102 @@ func (s *Server) memberAdd(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.logf("server: channel %s: %s joined as @%s (%s)", ch, id, m.Nick, m.Recv)
-	out, err := s.membersOf(ch)
+	s.m.Refresh([]string{ch, id})
+	return id, nil
+}
+
+var errFull = fmt.Errorf("a channel has at most %d agents", MaxAgents)
+
+// peoplePut sets who the channel's people are; the one who sets them stays one.
+func (s *Server) peoplePut(w http.ResponseWriter, r *http.Request) {
+	c := callerOf(r)
+	ch, _, err := s.seeingChannel(c, r.PathValue("id"))
+	if err != nil {
+		s.error(w, err)
+		return
+	}
+	if c.agent {
+		forbid(w, errors.New("an agent's ir may not change a channel's people"))
+		return
+	}
+	if err := s.inChannel(c, ch); err != nil {
+		s.error(w, err)
+		return
+	}
+	var req api.People
+	if !readJSON(w, r, &req) {
+		return
+	}
+	if err := s.setPeople(c, ch, req.People); err != nil {
+		s.memberFault(w, err)
+		return
+	}
+	s.membersChanged()
+	out, err := s.membersOf(c, ch)
 	if err != nil {
 		s.fault(w, err)
 		return
 	}
-	s.m.Refresh([]string{ch, id})
-	s.membersChanged()
 	reply(w, http.StatusOK, out)
+}
+
+// setUp makes new session id the channel setup says: its people, its own agent's nick and what
+// it receives, the other agents; then first, its first words, said in it. An agent that cannot
+// be started leaves the channel without it, and the error says so.
+func (s *Server) setUp(ctx context.Context, c caller, id string, setup api.ChannelSetup, first string) error {
+	st, err := s.m.State(id)
+	if err != nil {
+		return err
+	}
+	if err := s.setPeople(c, id, setup.People); err != nil {
+		return fmt.Errorf("%w: %w", session.ErrBadRequest, err)
+	}
+	var failed error
+	if setup.Nick != "" || setup.Recv != "" {
+		var nick, recv *string
+		if setup.Nick != "" {
+			nick = &setup.Nick
+		}
+		if setup.Recv != "" {
+			recv = &setup.Recv
+		}
+		if _, err := s.ch.Change(id, store.AgentMember(id), nick, recv, s.harnessOf); err != nil {
+			failed = cmp.Or(failed, err)
+		}
+	}
+	for _, a := range setup.Agents {
+		if _, err := s.addAgent(ctx, c, id, st, a); err != nil {
+			s.logf("server: channel %s: adding %s: %v", id, a.Agent, err)
+			failed = cmp.Or(failed, fmt.Errorf("%s: %w", a.Agent, err))
+		}
+	}
+	s.membersChanged()
+	if strings.TrimSpace(first) != "" {
+		if _, err := s.sendAs(ctx, c, s.fromOf(c, ""), id, api.Send{Text: first}); err != nil {
+			return err
+		}
+	}
+	return failed
+}
+
+// setPeople makes people channel ch's, c with them (the host is one always).
+func (s *Server) setPeople(c caller, ch string, people []string) error {
+	if len(people) > 0 && !slices.Contains(people, channel.Everyone) && !c.Host() {
+		if me := memberOf(c); !slices.Contains(people, me) && !slices.Contains(people, channel.AppMember(c.App)) {
+			people = append(people, me)
+		}
+	}
+	return s.ch.SetPeople(ch, people, s.harnessOf)
 }
 
 func (s *Server) memberPatch(w http.ResponseWriter, r *http.Request) {
 	c := callerOf(r)
 	ch, _, err := s.seeingChannel(c, r.PathValue("id"))
 	if err != nil {
+		s.error(w, err)
+		return
+	}
+	if err := s.inChannel(c, ch); err != nil {
 		s.error(w, err)
 		return
 	}
@@ -268,7 +407,7 @@ func (s *Server) memberPatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.membersChanged()
-	out, err := s.membersOf(ch)
+	out, err := s.membersOf(c, ch)
 	if err != nil {
 		s.fault(w, err)
 		return
@@ -281,6 +420,10 @@ func (s *Server) memberRemove(w http.ResponseWriter, r *http.Request) {
 	c := callerOf(r)
 	ch, _, err := s.seeingChannel(c, r.PathValue("id"))
 	if err != nil {
+		s.error(w, err)
+		return
+	}
+	if err := s.inChannel(c, ch); err != nil {
 		s.error(w, err)
 		return
 	}
@@ -300,7 +443,7 @@ func (s *Server) memberRemove(w http.ResponseWriter, r *http.Request) {
 			s.logf("server: channel %s: archiving %s: %v", ch, id, err)
 		}
 	}
-	out, err := s.membersOf(ch)
+	out, err := s.membersOf(c, ch)
 	if err != nil {
 		s.fault(w, err)
 		return
@@ -350,6 +493,9 @@ func (s *Server) sendChannel(ctx context.Context, c caller, from, ch, to string,
 	}
 	if !c.Host() && !s.sees(s.permsFor(c), st.Session) {
 		return api.SendReply{}, errNoSession
+	}
+	if err := s.inChannel(c, ch); err != nil {
+		return api.SendReply{}, err
 	}
 	text, images, err := s.files.Message(to, req.Text, req.Attachments)
 	if err != nil {

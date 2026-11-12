@@ -24,7 +24,9 @@ import (
 // scope's places: it is not there for the caller (not listed, not found). A session of an agent
 // the caller may not use it may see but not use: not start, send to, answer, rename, archive.
 
-func allPerms() api.Perms { return api.Perms{Agents: []string{api.PermsAll}, Scope: []string{api.PermsAll}} }
+func allPerms() api.Perms {
+	return api.Perms{Agents: []string{api.PermsAll}, Scope: []string{api.PermsAll}}
+}
 
 func orAll(p *api.Perms) api.Perms {
 	if p == nil {
@@ -155,7 +157,9 @@ func (s *Server) scopeHas(scope []string, app, path string) bool {
 }
 
 // sees reports whether p's scope has session st.
-func (s *Server) sees(p api.Perms, st api.Session) bool { return s.scopeHas(p.Scope, st.Machine, st.Cwd) }
+func (s *Server) sees(p api.Perms, st api.Session) bool {
+	return s.scopeHas(p.Scope, st.Machine, st.Cwd)
+}
 
 var errNoSession = fmt.Errorf("%w", session.ErrNotFound)
 

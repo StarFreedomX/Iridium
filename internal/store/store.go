@@ -246,6 +246,9 @@ var schema = []string{
 	// 35: the channels' messages by their words (channels.go "search"): a row a message, under
 	// the message's rowid; what is there already is indexed by the step below.
 	`CREATE VIRTUAL TABLE IF NOT EXISTS channel_fts USING fts5(terms, tokenize = 'unicode61');`,
+	// 36: a channel's people are everyone ("*") unless chosen; what was written as the web's
+	// logins was that default.
+	`UPDATE OR REPLACE channel_members SET member = '*' WHERE member = 'ir_web/*';`,
 }
 
 // steps run in Go after the migration of their version, in the same transaction.

@@ -538,6 +538,11 @@ export interface NewSession {
    * is then a path there.
    */
   machine?: string;
+  /**
+   * Members: the channel it begins as has more than itself and everyone (docs/channels.md):
+   * more agents, started in the same folder; its people chosen.
+   */
+  members?: ChannelSetup;
 }
 /**
  * Send gives the session a message: a new turn when idle; while a turn runs it waits in the
@@ -1148,6 +1153,12 @@ export interface ChannelMembers {
   channel: string;
   multi: boolean;
   members: ChannelMember[];
+  /**
+   * Joined: the caller is one of its people (may speak, answer, change the members); not
+   * joined, it only reads. Me: the member the caller is as a login ("<app>/<login>").
+   */
+  joined: boolean;
+  me?: string;
 }
 /**
  * NewMember adds an agent to a channel: a new session of Agent started in the channel's folder
@@ -1190,6 +1201,26 @@ export interface ChannelAgent {
   session: string;
   agent?: Agent;
   nick?: string;
+}
+/**
+ * ChannelSetup is who a new session's channel has beside its own agent. Agents: more agents,
+ * each a new session in the same folder. People: who may speak in it ("*" everyone, "<app>/*",
+ * "<app>/<login>"); none: everyone. The one who makes it is always one of them.
+ */
+export interface ChannelSetup {
+  agents?: NewMember[];
+  people?: string[];
+  /**
+   * Nick, Recv: the first agent's own (the session's), as NewMember's; "": made, "all".
+   */
+  nick?: string;
+  recv?: string;
+}
+/**
+ * People sets a channel's people (PUT …/people).
+ */
+export interface People {
+  people: string[];
 }
 
 //////////
