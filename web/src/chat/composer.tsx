@@ -109,9 +109,11 @@ type Props = {
   /** A channel of several agents (chat/channel): these, which an @ lists and calls by nick; no /
    *  commands, no command lines, nothing of one agent's own. */
   nicks?: AgentRow[];
+  /** In the foot right after the attach key: the channel's members' key (chat/channel/key.tsx). */
+  lead?: ReactNode;
 };
 
-export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s, turn, onSent, onSentDone, cycleMode, openModel, openMode, openUsage, openContext, cleared, tools, end, fresh, nicks }, ref) {
+export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s, turn, onSent, onSentDone, cycleMode, openModel, openMode, openUsage, openContext, cleared, tools, end, fresh, nicks, lead }, ref) {
   const multi = !!nicks;
   const [text, setText] = useState(() => kept(draftKey(s.id)) ?? "");
   const [atts, setAtts] = useState<Att[]>([]);
@@ -532,6 +534,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
         <IconKey label={t("composer.attach")} onClick={() => picker.current?.click()}>
           <Paperclip size={17} />
         </IconKey>
+        {lead}
         <div ref={toolRow} className={cn("flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden", fresh && "g-fade")}>
           {tools}
         </div>

@@ -25,6 +25,10 @@ import { errText } from "../toast";
 import { groupPath } from "../tree";
 import { agentName, cn, Lamp, lampOf, LogoLamp, LogoStack, sessionStatusText, tilde, Tip, titleOf, untitled } from "../ui";
 import { isMember, isMulti } from "./channel/lib";
+import { mayAct, useMembers } from "./channel/gate";
+// 群聊配置's key in the composer's foot, and the line in the composer's place for one not joined.
+const ChannelKey = lazy(() => import("./channel/key").then((m) => ({ default: m.ChannelKey })));
+const NotJoinedOf = lazy(() => import("./channel/key").then((m) => ({ default: m.NotJoinedOf })));
 // A channel of several agents: its own code, fetched as one is first opened.
 const ChannelPage = lazy(() => import("./channel/page").then((m) => ({ default: m.ChannelPage })));
 import { MachineFace, shownPath } from "../machines";
@@ -129,6 +133,9 @@ function OneChat({ id, sheet = 0, onSheet, onMe, back }: { id: string; sheet?: n
   const terminals = useWhoList();
   const workspaces = useWorkspaces().data;
   const confirms = useConfirms();
+  // Its channel's members (docs/channels.md): their key in the composer's foot; one not of its
+  // people reads, and neither speaks nor answers.
+  const may = mayAct(useMembers(id));
 
   // The newest page, or what was kept; then what came since.
   useEffect(() => {
@@ -361,7 +368,9 @@ function OneChat({ id, sheet = 0, onSheet, onMe, back }: { id: string; sheet?: n
         <div className="relative mx-auto max-w-[760px]">
           {!s.subagent && !elsewhere && <ShellRuns s={s} />}
           <Queue session={id} queue={s.queue ?? []} steered={(q) => onSent({ key: crypto.randomUUID(), text: q.text, files: [], from: 0, input: q.id, steer: true })} />
-          <Asks session={id} asks={s.asks} cwd={cwd} confirms={confirms.filter((c) => c.session === id && c.kind !== "ask")} />
+          <div inert={!may} className={cn(!may && "opacity-60")}>
+            <Asks session={id} asks={s.asks} cwd={cwd} confirms={confirms.filter((c) => c.session === id && c.kind !== "ask")} />
+          </div>
           {s.subagent ? (
             <div className="glass float rest flex h-12 items-center justify-center gap-1 rounded-[20px] text-sm text-ink-3">
               {t("chat.subagent")}
@@ -373,6 +382,10 @@ function OneChat({ id, sheet = 0, onSheet, onMe, back }: { id: string; sheet?: n
             </div>
           ) : elsewhere ? (
             <div className="glass float rest flex h-12 items-center justify-center rounded-[20px] text-sm text-ink-3">{t("chat.elsewhere")}</div>
+          ) : !may ? (
+            <Suspense fallback={<div className="h-12" />}>
+              <NotJoinedOf id={id} />
+            </Suspense>
           ) : (
             <Under s={s} ghost={ghost} composer={composer} onSent={onSent} onSentDone={sentDone} modelOpen={modelOpen} setModelOpen={setModelOpen} modeOpen={modeOpen} setModeOpen={setModeOpen} usageOpen={usageOpen} setUsageOpen={setUsageOpen} />
           )}
@@ -411,6 +424,11 @@ function Under({ s, ghost, composer, onSent, onSentDone, modelOpen, setModelOpen
         openUsage={() => setUsageOpen(true)}
         openContext={() => !!s.context?.max && (setCtxOpen(true), true)}
         cleared={openChat}
+        lead={
+          <Suspense fallback={null}>
+            <ChannelKey id={s.id} />
+          </Suspense>
+        }
         tools={
           <>
             {/* Not guessed from the row: the mode and the model come with the state, gliding in. */}

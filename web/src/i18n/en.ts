@@ -218,6 +218,12 @@ export const en: Dict = {
 
   "channel.agents": "Agents",
   "channel.add": "Add agent",
+  "channel.config": "Group chat",
+  "channel.people": "People",
+  "channel.everyone": "Everyone",
+  "channel.peopleN": "{n} people",
+  "channel.notJoined": "Not joined",
+  "channel.first": "First message",
   "channel.addKey": "Add",
   "channel.compact": "Compact",
   "channel.effort": "Effort",

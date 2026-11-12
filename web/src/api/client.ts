@@ -247,6 +247,8 @@ export const api = {
   addMember: (id: string, m: NewMember) => write<ChannelMembers>("POST", `/v1/internal/channels/${enc(id)}/members`, m, { signal: AbortSignal.timeout(SEND_WAIT) }),
   patchMember: (id: string, member: string, p: MemberPatch) => write<ChannelMembers>("PATCH", `/v1/internal/channels/${enc(id)}/members/${enc(member)}`, p),
   removeMember: (id: string, member: string) => write<ChannelMembers>("DELETE", `/v1/internal/channels/${enc(id)}/members/${enc(member)}`),
+  /** A channel's people set ("*" everyone, "<app>/*", "<app>/<login>"); the caller stays one. */
+  setPeople: (id: string, people: string[]) => write<ChannelMembers>("PUT", `/v1/internal/channels/${enc(id)}/people`, { people }),
   /** What the channel gave session id's agent, the newest first. */
   injections: (id: string) => get<Injection[]>(`${S(id)}/injections`),
   /** A block's whole text: internal/block.get, untruncated. */

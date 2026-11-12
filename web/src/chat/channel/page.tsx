@@ -4,17 +4,16 @@
 // and centred), the newest at the bottom, paged back as you scroll up; an agent's own record
 // (its thinking, its tool calls) is its session's chat. Under it: each agent's queue and asks,
 // under its nick; a composer whose @ calls an agent; the quota of each kind of agent.
-import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
 import { api } from "../../api/client";
-import type { Block, ChannelMembers, SessionState as LiveSession, Session } from "../../api/types.gen";
+import type { Block, SessionState as LiveSession, Session } from "../../api/types.gen";
 import { stateAhead, type Sent } from "../../chats";
 import { LOCAL_ME, useMe, useWhoList, useWorkspaces } from "../../data";
 import { t, useLang } from "../../i18n";
 import { pushIn } from "../../motion";
 import { openChat } from "../../route";
 import { PULL } from "../../sheet";
-import { getCarried, onCarried, setCarried, useCarried, useConfirms, useList, useQuota, useSession } from "../../store";
+import { getCarried, onCarried, setCarried, useConfirms, useList, useQuota, useSession } from "../../store";
 import { also, carries, events, opened, type SatoriEvent } from "../../stream";
 import { errText } from "../../toast";
 import { agentName, cn, lampOf, Logo } from "../../ui";
@@ -30,6 +29,8 @@ import { Assistant, Attached, Line, Pending, YouBubble } from "../said";
 import { Stick, toEnd } from "../stick";
 import { groupMessages, linkNicks, quotaKinds, stillWaiting, watchExtra, type AgentRow, type Did, type Group, type Msg } from "./lib";
 import { channelLog } from "./log";
+import { useMembers } from "./gate";
+import { MembersKey, NotJoined, useChannelCtl } from "./key";
 import { MemberBar } from "./members";
 import { Nicks, NickWords } from "./nick";
 
@@ -45,20 +46,6 @@ function useStates(ids: string[]): (LiveSession | undefined)[] {
   const key = ids.join(" ");
   useEffect(() => onCarried((k) => k.startsWith("session:") && ids.includes(k.slice(8)) && redraw((n) => n + 1)), [key]);
   return ids.map((id) => getCarried<LiveSession>(`session:${id}`));
-}
-
-/** A channel's members (GET …/members), asked again whenever any channel's members change (the
- *  carried "channels") or sig does (what its agents run as). */
-export function useMembers(id: string, sig: string) {
-  const seq = useCarried<number>("channels");
-  const qc = useQueryClient();
-  const q = useQuery({ queryKey: ["members", id], queryFn: () => api.members(id), staleTime: 0, retry: false });
-  const first = useRef(true);
-  useEffect(() => {
-    if (first.current) return void (first.current = false);
-    void qc.invalidateQueries({ queryKey: ["members", id] });
-  }, [seq, sig, id, qc]);
-  return q.data as ChannelMembers | undefined;
 }
 
 /** bar: the chat's top bar (chat.tsx Bar), the member bar its children. record: an agent's own
@@ -86,6 +73,9 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
   const states = useStates(sessions);
   const sig = states.map((st) => `${st?.model ?? ""}:${st?.effort ?? ""}:${st?.effortNow ?? ""}`).join(" ");
   const members = useMembers(id, sig);
+  const ctl = useChannelCtl(id, members);
+  // Not of its people: read, not spoken in (docs/channels.md).
+  const may = !ctl.readOnly || !members;
   const agents: AgentRow[] = (row?.agents ?? []).map((a, i) => {
     const m = members?.members.find((x) => x.session === a.session);
     const of = states[i] ?? list?.find((x) => x.id === a.session);
@@ -254,14 +244,14 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
             )}
           </div>
         </Stick>
-        {bar(s, <MemberBar channel={id} agents={agents} call={call} record={record} />)}
+        {bar(s, <MemberBar channel={id} agents={agents} call={call} record={record} ctl={ctl} />)}
         <div ref={stack} {...{ [PULL]: "" }} data-covered={sheet > 0 || undefined} data-sunk={(sheet > 0 && stackH > sheet - 16) || undefined} inert={sheet > 0} className="g-turn-stay g-sink vt-stack absolute inset-x-0 bottom-0 z-10 px-2.5 pb-[max(10px,calc(env(safe-area-inset-bottom)+6px))] sm:px-5">
           <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-[calc(64px+max(10px,calc(env(safe-area-inset-bottom)+6px)))] bg-[linear-gradient(to_bottom,transparent,var(--paper)_14px)]" />
           <div className="relative mx-auto max-w-[760px]">
             {agents.map((a, i) => {
               const st = states[i];
               return st?.queue?.length ? (
-                <Of key={a.session} a={a}>
+                <Of key={a.session} a={a} off={!may}>
                   <Queue session={a.session} queue={st.queue} steered={() => {}} />
                 </Of>
               ) : null;
@@ -270,12 +260,13 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
               const st = states[i];
               const needs = confirms.filter((c) => c.session === a.session && c.kind !== "ask");
               return st?.asks.length || needs.length ? (
-                <Of key={a.session} a={a}>
+                <Of key={a.session} a={a} off={!may}>
                   <Asks session={a.session} asks={st?.asks ?? []} cwd={st?.cwd ?? s.cwd} confirms={needs} />
                 </Of>
               ) : null;
             })}
-            <Composer ref={composer} s={s} turn={false} nicks={agents} onSent={onSent} onSentDone={changed} cycleMode={() => {}} openModel={() => {}} openMode={() => {}} openUsage={() => {}} openContext={() => false} cleared={openChat} />
+            {!may ? <NotJoined ctl={ctl} /> : null}
+            {may && <Composer ref={composer} s={s} turn={false} nicks={agents} lead={<MembersKey ctl={ctl} />} onSent={onSent} onSentDone={changed} cycleMode={() => {}} openModel={() => {}} openMode={() => {}} openUsage={() => {}} openContext={() => false} cleared={openChat} />}
             <Quotas agents={agents} states={states} />
           </div>
         </div>
@@ -284,10 +275,11 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
   );
 }
 
-/** Something of one agent's above the composer (its queue, its asks), under its logo and nick. */
-function Of({ a, children }: { a: AgentRow; children: ReactNode }) {
+/** Something of one agent's above the composer (its queue, its asks), under its logo and nick.
+ *  off: shown, not to be answered (the one looking is not of the channel's people). */
+function Of({ a, children, off }: { a: AgentRow; children: ReactNode; off?: boolean }) {
   return (
-    <div>
+    <div inert={off} className={cn(off && "opacity-60")}>
       <div className="relative z-10 flex h-6 items-center gap-1.5 px-2 text-xs text-ink-2">
         <Logo agent={a.agent} size={12} />
         <span className="max-w-40 truncate">{a.nick}</span>

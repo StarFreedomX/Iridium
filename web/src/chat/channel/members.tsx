@@ -10,18 +10,17 @@ import { Popover } from "@base-ui/react/popover";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AtSign, Box, Brain, ChartPie, Check, ChevronRight, CircleStop, FoldVertical, PencilLine, Plus, Inbox, ScrollText, ShieldCheck, UserMinus, X } from "lucide-react";
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
-import { api, ApiError } from "../../api/client";
-import type { Agent, ChannelMembers, SessionState as LiveSession, Session } from "../../api/types.gen";
+import { api } from "../../api/client";
+import type { ChannelMembers, SessionState as LiveSession, Session } from "../../api/types.gen";
 import { CardFrame, CardHead, MainKey, SecondKey } from "../../card";
-import { Choose } from "../../choose";
-import { agentsQ } from "../../data";
 import { t, useLang } from "../../i18n";
 import { ModeMark, modeName } from "../../modes";
 import { useContextState, useList, useSession } from "../../store";
 import { errText, toast } from "../../toast";
-import { AGENTS, agentName, cn, IconKey, Logo, LogoLamp, own, sessionStatusText, Tip, useLongPress, useMenuAt } from "../../ui";
+import { agentName, cn, IconKey, Logo, LogoLamp, own, sessionStatusText, useLongPress, useMenuAt } from "../../ui";
 import { levelName } from "../effort";
 import { ContextDetail, modelView, useMode } from "../meters";
+import { ConfigPopover, memberError, type Ctl } from "./key";
 import { givenParts, validNick, type AgentRow } from "./lib";
 
 const ITEM = "flex h-8 cursor-default items-center gap-2.5 rounded-md px-2.5 text-base outline-none select-none data-highlighted:bg-fill data-popup-open:bg-fill pointer-coarse:h-11";
@@ -30,17 +29,6 @@ const BUSY = new Set(["running", "compacting", "starting", "waiting"]);
 
 /** A member's state before the stream brings it, from its row. */
 const ghostOf = (row: Session): LiveSession => ({ ...row, asks: [], tasks: [], denials: [], queue: [], end: 0, proc: -1 });
-
-/** Why a change of the members was refused, in the page's words. */
-export function memberError(e: unknown): string {
-  if (e instanceof ApiError) {
-    const code = (e.body as { code?: string } | undefined)?.code;
-    if (e.status === 409 && code === "full") return t("channel.full");
-    if (e.status === 403) return t("channel.forbidden");
-    if (e.status === 400 && /nick/i.test(e.message)) return t("channel.nickTaken");
-  }
-  return errText(e);
-}
 
 /** Something that floats at a member's face: a popover's surface anchored there. */
 function At({ anchor, open, onOpenChange, children, className, bare }: { anchor: RefObject<HTMLElement | null>; open: boolean; onOpenChange: (o: boolean) => void; children: ReactNode; className?: string; bare?: boolean }) {
@@ -57,20 +45,28 @@ function At({ anchor, open, onOpenChange, children, className, bare }: { anchor:
   );
 }
 
-/** The row of members. call: a nick pressed; record: a member's own record asked for. */
-export function MemberBar({ channel, agents, call, record }: { channel: string; agents: AgentRow[]; call: (nick: string) => void; record: (session: string) => void }) {
+/** The row of members. call: a nick pressed; record: a member's own record asked for. ctl: what
+ *  the "+" after them opens, 群聊配置 (key.tsx); one not of the channel's people changes nothing. */
+export function MemberBar({ channel, agents, call, record, ctl }: { channel: string; agents: AgentRow[]; call: (nick: string) => void; record: (session: string) => void; ctl: Ctl }) {
   useLang();
   return (
     <div role="list" aria-label={t("channel.agents")} className="g-fade flex h-10 min-w-0 items-start gap-0.5 overflow-x-auto pr-2 pl-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
       {agents.map((a) => (
-        <Member key={a.session} channel={channel} a={a} call={call} record={record} />
+        <Member key={a.session} channel={channel} a={a} call={call} record={record} may={!ctl.readOnly} />
       ))}
-      <AddAgent channel={channel} agents={agents} />
+      <ConfigPopover
+        ctl={ctl}
+        trigger={
+          <IconKey label={t("channel.config")} tipSide="bottom" className="mt-0.5 size-8 text-ink-3 data-popup-open:bg-fill">
+            <Plus size={16} />
+          </IconKey>
+        }
+      />
     </div>
   );
 }
 
-function Member({ channel, a, call, record }: { channel: string; a: AgentRow; call: (nick: string) => void; record: (session: string) => void }) {
+function Member({ channel, a, call, record, may }: { channel: string; a: AgentRow; call: (nick: string) => void; record: (session: string) => void; may: boolean }) {
   const real = useSession(a.session);
   const row = useList()?.find((x) => x.id === a.session);
   const s = real ?? (row && ghostOf(row));
@@ -140,13 +136,14 @@ function Member({ channel, a, call, record }: { channel: string; a: AgentRow; ca
           channel={channel}
           a={a}
           s={s}
+          may={may}
           at={menuAt}
           close={() => setMenuAt(null)}
           detail={ctx?.max ? () => setDetail(true) : undefined}
           rename={() => setNaming(true)}
           record={() => record(a.session)}
           given={() => setGiven(true)}
-          remove={a.session === channel ? undefined : () => setSure(true)}
+          remove={a.session === channel || !may ? undefined : () => setSure(true)}
         />
       )}
       <At anchor={face} open={naming} onOpenChange={setNaming} className="w-64 p-2.5">
@@ -196,7 +193,8 @@ function Pick({ icon, label, now, value, options, set, i }: { icon: ReactNode; l
 
 /** A member's menu, at a point. Its model, effort and mode are its session's own, set as the
  *  one-agent chat's keys set them. remove: none for the session the channel is. */
-function MemberMenu({ channel, a, s, at, close, detail, rename, record, given, remove }: { channel: string; a: AgentRow; s: LiveSession; at: { x: number; y: number } | null; close: () => void; detail?: () => void; rename: () => void; record: () => void; given: () => void; remove?: () => void }) {
+/** may: the one looking is of the channel's people; else only what reads is offered. */
+function MemberMenu({ channel, a, s, may, at, close, detail, rename, record, given, remove }: { channel: string; a: AgentRow; s: LiveSession; may: boolean; at: { x: number; y: number } | null; close: () => void; detail?: () => void; rename: () => void; record: () => void; given: () => void; remove?: () => void }) {
   const qc = useQueryClient();
   const mode = useMode(s);
   const v = modelView(s);
@@ -224,8 +222,8 @@ function MemberMenu({ channel, a, s, at, close, detail, rename, record, given, r
         <Menu.Positioner anchor={anchor} side="bottom" align="start" sideOffset={4} collisionPadding={8} className="z-50">
           <Menu.Popup finalFocus={false} className={cn(POPUP, "min-w-52 p-1.5")}>
             <div className="g-stagger flex flex-col">
-              {item(<FoldVertical size={15} />, t("channel.compact"), act(() => api.send(a.session, "/compact"), t("err.action")))}
-              {v.models.length > 0 && (
+              {may && item(<FoldVertical size={15} />, t("channel.compact"), act(() => api.send(a.session, "/compact"), t("err.action")))}
+              {may && v.models.length > 0 && (
                 <Pick
                   icon={<Box size={15} />}
                   label={t("composer.model")}
@@ -236,10 +234,10 @@ function MemberMenu({ channel, a, s, at, close, detail, rename, record, given, r
                   i={i++}
                 />
               )}
-              {v.levels.length > 1 && (
+              {may && v.levels.length > 1 && (
                 <Pick icon={<Brain size={15} />} label={t("channel.effort")} now={v.level ? levelName(v.level) : undefined} value={v.level} options={v.levels.map((l) => ({ value: l, label: levelName(l) }))} set={(l) => act(() => api.effort(a.session, l), t("err.effort"))()} i={i++} />
               )}
-              {mode.modes.length > 1 && (
+              {may && mode.modes.length > 1 && (
                 <Pick
                   icon={<ShieldCheck size={15} />}
                   label={t("composer.mode")}
@@ -250,8 +248,8 @@ function MemberMenu({ channel, a, s, at, close, detail, rename, record, given, r
                   i={i++}
                 />
               )}
-              {BUSY.has(s.status) && item(<CircleStop size={15} />, t("channel.stop"), act(() => api.interrupt(a.session), t("err.stop")))}
-              <Pick
+              {may && BUSY.has(s.status) && item(<CircleStop size={15} />, t("channel.stop"), act(() => api.interrupt(a.session), t("err.stop")))}
+              {may && <Pick
                 icon={<AtSign size={15} />}
                 label={t("channel.recv")}
                 now={t(a.recv === "all" ? "channel.recvAll" : "channel.recvAt")}
@@ -262,8 +260,8 @@ function MemberMenu({ channel, a, s, at, close, detail, rename, record, given, r
                 ]}
                 set={recv}
                 i={i++}
-              />
-              {item(<PencilLine size={15} />, t("menu.rename"), later(rename))}
+              />}
+              {may && item(<PencilLine size={15} />, t("menu.rename"), later(rename))}
               {detail && item(<ChartPie size={15} />, t("ctx.title"), later(detail))}
               {item(<ScrollText size={15} />, t("channel.record"), record)}
               {item(<Inbox size={15} />, t("channel.given"), later(given))}
@@ -408,109 +406,5 @@ function Given({ a, close }: { a: AgentRow; close: () => void }) {
         </Dialog.Popup>
       </Dialog.Portal>
     </Dialog.Root>
-  );
-}
-
-const DEFAULT = "";
-
-/** Adds an agent: its harness, as a new session offers them; its model and effort, those an agent
- *  of that harness in the channel says it takes, else the harness's own; a nick (one is made if
- *  none); what it receives. */
-function AddAgent({ channel, agents }: { channel: string; agents: AgentRow[] }) {
-  const qc = useQueryClient();
-  const [open, setOpen] = useState(false);
-  const info = useQuery({ ...agentsQ, enabled: open }).data;
-  const kinds: Agent[] = info?.map((x) => x.agent) ?? AGENTS;
-  const missing = (k: Agent) => !!info?.find((x) => x.agent === k)?.missing;
-  const [agent, setAgent] = useState<Agent>(agents[0]?.agent ?? "claude");
-  const [model, setModel] = useState(DEFAULT);
-  const [effort, setEffort] = useState(DEFAULT);
-  const [nick, setNick] = useState("");
-  const [recv, setRecv] = useState("at");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  // What a harness takes, as one of its agents here says it.
-  const like = agents.find((a) => a.agent === agent);
-  const peer = useSession(like?.session ?? null);
-  const v = peer ? modelView(peer) : undefined;
-  const models = v?.models.filter((m) => m.value !== "default") ?? [];
-  const levels = peer?.efforts ?? [];
-  const bad = nick !== "" && !validNick(nick);
-  const taken = !!nick && agents.some((a) => a.nick.toLowerCase() === nick.toLowerCase());
-  const pick = (k: Agent) => (setAgent(k), setModel(DEFAULT), setEffort(DEFAULT), setError(""));
-  const add = async () => {
-    if (busy || bad || taken) return;
-    setBusy(true);
-    setError("");
-    try {
-      qc.setQueryData<ChannelMembers>(["members", channel], await api.addMember(channel, { agent, recv, ...(model ? { model } : {}), ...(effort ? { effort } : {}), ...(nick ? { nick } : {}) }));
-      setOpen(false);
-      setNick("");
-    } catch (e) {
-      setError(memberError(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-  const row = (label: string, field: ReactNode) => (
-    <label className="flex h-9 items-center justify-between gap-3 pl-1 text-sm pointer-coarse:h-11">
-      <span className="shrink-0 text-ink-2">{label}</span>
-      {field}
-    </label>
-  );
-  return (
-    <Popover.Root open={open} onOpenChange={setOpen}>
-      <Popover.Trigger
-        render={
-          <IconKey label={t("channel.add")} tipSide="bottom" className="mt-0.5 size-8 text-ink-3 data-popup-open:bg-fill">
-            <Plus size={16} />
-          </IconKey>
-        }
-      />
-      <Popover.Portal>
-        <Popover.Positioner side="bottom" align="start" sideOffset={8} collisionPadding={8} className="z-50">
-          <Popover.Popup initialFocus={(type) => type === "keyboard"} className={cn(POPUP, "w-[min(300px,calc(100vw-16px))] p-2")}>
-            <form
-              className="flex flex-col gap-1"
-              onSubmit={(e) => {
-                e.preventDefault();
-                void add();
-              }}
-            >
-              <div role="radiogroup" aria-label={t("new.agent")} className="g-stagger grid grid-cols-4 gap-1">
-                {kinds.map((k, i) => (
-                  <Tip key={k} label={missing(k) ? t("new.notInstalled", { name: agentName(k) }) : agentName(k)}>
-                    <button type="button" role="radio" aria-checked={agent === k} aria-label={agentName(k)} disabled={busy || missing(k)} onClick={() => pick(k)} style={{ "--i": i } as CSSProperties} className={cn("g-press grid h-14 place-items-center rounded-md hover:bg-fill disabled:opacity-40", agent === k && "bg-fill shadow-[inset_0_0_0_1px_var(--edge)]")}>
-                      <Logo agent={k} size={24} />
-                    </button>
-                  </Tip>
-                ))}
-              </div>
-              {models.length > 0 && row(t("composer.model"), <Choose label={t("composer.model")} value={model} onChange={setModel} options={[{ value: DEFAULT, label: t("channel.default") }, ...models.map((m) => ({ value: m.value, label: m.name }))]} />)}
-              {levels.length > 1 && row(t("channel.effort"), <Choose label={t("channel.effort")} value={effort} onChange={setEffort} options={[{ value: DEFAULT, label: t("channel.default") }, ...levels.map((l) => ({ value: l, label: levelName(l) }))]} />)}
-              {row(
-                t("channel.recv"),
-                <Choose
-                  label={t("channel.recv")}
-                  value={recv}
-                  onChange={setRecv}
-                  options={[
-                    { value: "at", label: t("channel.recvAt") },
-                    { value: "all", label: t("channel.recvAll") },
-                  ]}
-                />,
-              )}
-              <div className="mt-1 flex items-center gap-1.5">
-                <input aria-label={t("channel.nick")} placeholder={t("channel.nickAuto")} value={nick} maxLength={32} onChange={(e) => (setNick(e.target.value), setError(""))} className={FIELD} />
-                <MainKey type="submit" busy={busy} disabled={bad || taken} className="shrink-0">
-                  {t("channel.addKey")}
-                </MainKey>
-              </div>
-              {(bad || taken || error) && <p className="m-0 px-1 pt-0.5 text-xs text-err">{bad ? t("channel.nickBad") : taken ? t("channel.nickTaken") : error}</p>}
-            </form>
-          </Popover.Popup>
-        </Popover.Positioner>
-      </Popover.Portal>
-    </Popover.Root>
   );
 }
