@@ -34,11 +34,11 @@ func TestMentions(t *testing.T) {
 func TestRoute(t *testing.T) {
 	agents := []Agent{{"s1", "claude", true}, {"s2", "codex", false}, {"s3", "pi", true}}
 	wake := func(d Decision) string { return strings.Join(d.Wake, " ") }
-	// A person: those that receive everything, and whoever is named.
+	// A person: whoever is named; nobody named, those that receive everything.
 	if d := Route("hello", "", 0, agents); wake(d) != "s1 s3" {
 		t.Errorf("a person, nobody named: %+v", d)
 	}
-	if d := Route("@codex hello", "", 0, agents); wake(d) != "s1 s2 s3" || len(d.Named) != 1 {
+	if d := Route("@codex hello", "", 0, agents); wake(d) != "s2" || len(d.Named) != 1 {
 		t.Errorf("a person naming one: %+v", d)
 	}
 	// An agent: only whom it names, never itself, never by merely speaking.

@@ -29,8 +29,9 @@ type Decision struct {
 
 // Route decides for a message with words text. from: the session of the agent that said it,
 // "" for a person; hop: how many agents passed the chain on before it. A person's message wakes
-// the agents it names and those that receive everything; an agent's, only those it names:
-// agents do not wake each other by merely speaking.
+// the agents it names; one that names none, those that receive everything (they read the rest
+// when next called). An agent's wakes only those it names: agents do not wake each other by
+// merely speaking.
 func Route(text, from string, hop int, agents []Agent) Decision {
 	var nicks []string
 	for _, a := range agents {
@@ -52,7 +53,7 @@ func Route(text, from string, hop int, agents []Agent) Decision {
 		if a.Session == from {
 			continue
 		}
-		if named[strings.ToLower(a.Nick)] || (from == "" && a.All) {
+		if named[strings.ToLower(a.Nick)] || (from == "" && a.All && len(d.Named) == 0) {
 			d.Wake = append(d.Wake, a.Session)
 		}
 	}
