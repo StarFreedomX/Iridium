@@ -186,6 +186,7 @@ func (s *Server) membersOf(c caller, ch string) (api.ChannelMembers, error) {
 			if st, err := s.m.State(m.Session); err == nil {
 				info, _ := agents.Get(st.Agent)
 				am.Agent, am.Status = st.Agent, st.Status
+				s.keepChoices(st)
 				am.Name = satori.AgentName(cmp.Or(info.Name, string(st.Agent)), *st)
 			}
 		}
@@ -432,10 +433,36 @@ func (s *Server) agentChoices(w http.ResponseWriter, r *http.Request) {
 		}
 		if st, err := s.m.State(ss.ID); err == nil && len(st.Models) > 0 {
 			out.Models, out.Efforts = st.Models, append(out.Efforts, st.Efforts...)
+			s.keepChoices(st)
 			break
 		}
 	}
+	// Some harnesses say their models only while they run: what one said last is kept
+	// (keepChoices), for when none of the kind runs.
+	if len(out.Models) == 0 {
+		if kept := s.st.Kept(choicesKey(kind, machine)); kept != "" {
+			_ = json.Unmarshal([]byte(kept), &out)
+		}
+	}
 	reply(w, http.StatusOK, out)
+}
+
+func choicesKey(kind api.Agent, machine string) string {
+	return "choices:" + string(kind) + ":" + machine
+}
+
+// keepChoices keeps the models and efforts session st says its kind has where it runs, if it
+// says any and they are not those kept.
+func (s *Server) keepChoices(st *api.SessionState) {
+	if len(st.Models) == 0 {
+		return
+	}
+	b, err := json.Marshal(api.AgentChoices{Models: st.Models, Efforts: append([]string{}, st.Efforts...)})
+	if key := choicesKey(st.Agent, st.Machine); err == nil && s.st.Kept(key) != string(b) {
+		if err := s.st.Keep(key, string(b)); err != nil {
+			s.logf("server: keeping the choices of %s: %v", st.Agent, err)
+		}
+	}
 }
 
 // memberRow is member of channel ch as written.

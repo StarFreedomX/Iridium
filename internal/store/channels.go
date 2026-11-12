@@ -494,3 +494,18 @@ func (s *Store) Injections(session string, limit int) ([]Injection, error) {
 	}
 	return out, rows.Err()
 }
+
+// ---- kept by name ----
+
+// Kept is the value kept under key (the meta table); "" if none.
+func (s *Store) Kept(key string) string {
+	var v string
+	_ = s.db.QueryRow(`SELECT value FROM meta WHERE key = ?`, key).Scan(&v)
+	return v
+}
+
+// Keep keeps value under key, in place of what was there.
+func (s *Store) Keep(key, value string) error {
+	_, err := s.db.Exec(`INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value`, key, value)
+	return err
+}
