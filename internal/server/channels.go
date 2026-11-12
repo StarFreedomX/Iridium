@@ -790,6 +790,11 @@ func (s *Server) deliverTo(ctx context.Context, ch, to string, seq int64, said, 
 		return false, err
 	}
 	s.ch.Seen(ch, to, seq)
+	// Only a person speaking begins a chain anew: what agents pass on never shortens the one
+	// its receiver is in (two chains crossing would else go on past the limit).
+	if cur := s.chain.get(to); link.hop > 0 && cur.hop > link.hop {
+		link.hop = cur.hop
+	}
 	s.chain.set(to, link)
 	return queued, nil
 }

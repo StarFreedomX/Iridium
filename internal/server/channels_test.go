@@ -113,7 +113,7 @@ func TestChannelOfSeveral(t *testing.T) {
 	if code != 200 {
 		t.Fatalf("send naming: %d %+v", code, r)
 	}
-	all := l.waitSaid("web", ch, "@claude2 ", fmt.Sprintf("ok: #%d: now @claude2 look", r.Seq))
+	l.waitSaid("web", ch, "@claude2 ", fmt.Sprintf("ok: #%d: now @claude2 look", r.Seq))
 	p := l.page("web", second)
 	if len(p.Blocks) == 0 || p.Blocks[0].Kind != api.BlockKindUser {
 		t.Fatalf("the second agent's record: %+v", p.Blocks)
@@ -140,12 +140,20 @@ func TestChannelOfSeveral(t *testing.T) {
 	if code, _ := l.send("web", ch, api.Send{Text: "@claude and @claude2: ping"}); code != 200 {
 		t.Fatalf("send to both: %d", code)
 	}
-	all = l.waitSaid("web", ch, "iridium", "未转交")
-	time.Sleep(500 * time.Millisecond)
-	if after := l.said("web", ch); len(after) > len(all)+4 {
-		t.Errorf("it goes on: %d then %d messages", len(all), len(after))
+	l.waitSaid("web", ch, "iridium", "未转交")
+	// It stops: soon nothing more is said, well within what four passes of two agents make.
+	n, still := 0, time.Now()
+	for end := time.Now().Add(15 * time.Second); time.Since(still) < 700*time.Millisecond; time.Sleep(50 * time.Millisecond) {
+		if now := len(l.said("web", ch)); now != n {
+			n, still = now, time.Now()
+		}
+		if time.Now().After(end) {
+			t.Fatalf("it goes on: %d messages", n)
+		}
 	}
-	_ = all
+	if n > 60 {
+		t.Errorf("%d messages before it stopped", n)
+	}
 
 	// A member's record is its own: the other agent's ir does not read it; a person does.
 	if code := l.sat("agent-in:"+ch, "internal/block.list", map[string]any{"channel_id": second}, nil); code != 403 {
