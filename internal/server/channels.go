@@ -84,6 +84,33 @@ func (s *Server) channelRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/internal/sessions/{id}/injections", s.use(s.injections))
 }
 
+// channelOf is the channel session id is an agent of and, where it has several, its agents:
+// what the list of sessions is marked with.
+func (s *Server) channelOf(id string) (string, []api.ChannelAgent) {
+	ch := s.ch.Of(id)
+	if ch != id {
+		return ch, nil
+	}
+	ms, _ := s.ch.Members(ch)
+	var out []api.ChannelAgent
+	for _, m := range ms {
+		if m.Agent() {
+			out = append(out, api.ChannelAgent{Session: m.Session, Nick: m.Nick})
+		}
+	}
+	if len(out) < 2 {
+		return ch, nil
+	}
+	return ch, out
+}
+
+// membersChanged tells the pages a channel's members changed: the list of sessions again, and
+// the state "channels" (a number that only goes up; a page reads the members again).
+func (s *Server) membersChanged() {
+	s.hub.Set("channels", s.channelsSeq.Add(1))
+	s.m.PublishList()
+}
+
 // harnessOf names session's harness, for a nick.
 func (s *Server) harnessOf(id string) string {
 	st, err := s.m.State(id)
@@ -201,7 +228,14 @@ func (s *Server) memberAdd(w http.ResponseWriter, r *http.Request) {
 	}
 	// Started before it was a member: again at its first message, told what it is (assemble's
 	// channel.system).
-	_ = s.m.Stop(ctx, id)
+	if err := s.m.Stop(ctx, id); err == nil {
+		// Till it is gone: a message sent meanwhile would find a process on its way out.
+		for end := time.Now().Add(10 * time.Second); time.Now().Before(end); time.Sleep(50 * time.Millisecond) {
+			if st, err := s.m.State(id); err != nil || !st.Live {
+				break
+			}
+		}
+	}
 	s.logf("server: channel %s: %s joined as @%s (%s)", ch, id, m.Nick, m.Recv)
 	out, err := s.membersOf(ch)
 	if err != nil {
@@ -209,6 +243,7 @@ func (s *Server) memberAdd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.m.Refresh([]string{ch, id})
+	s.membersChanged()
 	reply(w, http.StatusOK, out)
 }
 
@@ -231,6 +266,7 @@ func (s *Server) memberPatch(w http.ResponseWriter, r *http.Request) {
 		s.memberFault(w, err)
 		return
 	}
+	s.membersChanged()
 	out, err := s.membersOf(ch)
 	if err != nil {
 		s.fault(w, err)
@@ -269,6 +305,7 @@ func (s *Server) memberRemove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.m.Refresh([]string{ch})
+	s.membersChanged()
 	reply(w, http.StatusOK, out)
 }
 
@@ -365,12 +402,14 @@ func (s *Server) sendChannel(ctx context.Context, c caller, from, ch, to string,
 		hop++
 	}
 	var firstErr error
+	var failed []string
 	sent := 0
 	for _, t := range wake {
 		queued, err := s.deliverTo(ctx, ch, t, seq, text, req.ID, from, req.Steer, images, chain{origin: link.origin, hop: hop})
 		if err != nil {
 			s.logf("server: channel %s: message %d to %s: %v", ch, seq, t, err)
 			firstErr = cmp.Or(firstErr, err)
+			failed = append(failed, t)
 			continue
 		}
 		sent++
@@ -379,6 +418,11 @@ func (s *Server) sendChannel(ctx context.Context, c caller, from, ch, to string,
 	if sent == 0 && firstErr != nil {
 		s.ch.Unsay(ch, seq)
 		return api.SendReply{}, firstErr
+	}
+	// Some got it, some not: said in the channel, where everyone sees whom it did not reach.
+	_, by := s.agentsOf(ch)
+	for _, t := range failed {
+		s.sat.Note(ch, fmt.Sprintf("未送达 #%d → @%s", seq, by[t].Nick), link.origin)
 	}
 	return out, nil
 }

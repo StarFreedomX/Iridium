@@ -56,3 +56,11 @@ type Injection struct {
 	At     int64           `json:"at"`
 	Record json.RawMessage `json:"record"`
 }
+
+// ChannelAgent is an agent of a channel as the list of sessions has it: its session, its
+// harness, the nick it is called by.
+type ChannelAgent struct {
+	Session string `json:"session"`
+	Agent   Agent  `json:"agent,omitempty"`
+	Nick    string `json:"nick,omitempty"`
+}

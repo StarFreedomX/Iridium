@@ -67,6 +67,37 @@ func (m *Manager) inChannel(id string) bool {
 	return false
 }
 
+// SetChannelOf has f say the channel a session is an agent of and, for a channel of several
+// agents, who they are (session and nick); List marks the sessions with it.
+func (m *Manager) SetChannelOf(f func(id string) (channel string, agents []api.ChannelAgent)) {
+	m.chanOf.Store(&f)
+}
+
+// markChannels writes each session's channel and a channel's agents into list.
+func (m *Manager) markChannels(list []api.Session) {
+	f := m.chanOf.Load()
+	if f == nil {
+		return
+	}
+	kind := map[string]api.Agent{}
+	for _, s := range list {
+		kind[s.ID] = s.Agent
+	}
+	for i := range list {
+		ch, agents := (*f)(list[i].ID)
+		if ch != "" && ch != list[i].ID {
+			list[i].Channel = ch
+			continue
+		}
+		if len(agents) > 1 {
+			for j := range agents {
+				agents[j].Agent = kind[agents[j].Session]
+			}
+			list[i].Agents = agents
+		}
+	}
+}
+
 // SetAnnotate makes the tails of the sessions' states carry the files their blocks name, as a
 // page of messages does. The server sets it; it comes after the manager.
 func (m *Manager) SetAnnotate(a Annotate) { m.annotate.Store(&a) }

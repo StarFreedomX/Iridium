@@ -237,6 +237,11 @@ func (s *Store) ChannelMembers(channel string) ([]ChannelMember, error) {
 	return s.members(`SELECT channel, member, nick, recv, seen, joined_at FROM channel_members WHERE channel = ? ORDER BY joined_at, rowid`, channel)
 }
 
+// AllChannelMembers are every channel's members as written.
+func (s *Store) AllChannelMembers() ([]ChannelMember, error) {
+	return s.members(`SELECT channel, member, nick, recv, seen, joined_at FROM channel_members ORDER BY joined_at, rowid`)
+}
+
 // ChannelsOf are the memberships of member, in every channel.
 func (s *Store) ChannelsOf(member string) ([]ChannelMember, error) {
 	return s.members(`SELECT channel, member, nick, recv, seen, joined_at FROM channel_members WHERE member = ? ORDER BY joined_at, rowid`, member)

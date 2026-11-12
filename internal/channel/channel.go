@@ -97,6 +97,45 @@ type Service struct {
 
 	mu    sync.Mutex
 	locks map[string]*sync.Mutex // a session's record is read in by one at a time
+
+	// The members as written, all of them, read once and again after a change (members.go).
+	imu   sync.Mutex
+	index *index
+}
+
+// index is every membership written: a channel's rows, and the channel each agent is in.
+type index struct {
+	rows map[string][]store.ChannelMember
+	of   map[string]string
+}
+
+func (s *Service) members() *index {
+	s.imu.Lock()
+	defer s.imu.Unlock()
+	if s.index != nil {
+		return s.index
+	}
+	ix := &index{rows: map[string][]store.ChannelMember{}, of: map[string]string{}}
+	all, err := s.st.AllChannelMembers()
+	if err != nil {
+		s.logf("channel: the members: %v", err)
+		return ix
+	}
+	for _, r := range all {
+		ix.rows[r.Channel] = append(ix.rows[r.Channel], r)
+		if id, ok := store.SessionOfMember(r.Member); ok {
+			ix.of[id] = r.Channel
+		}
+	}
+	s.index = ix
+	return ix
+}
+
+// changed: the members were written; read them again.
+func (s *Service) changed() {
+	s.imu.Lock()
+	s.index = nil
+	s.imu.Unlock()
 }
 
 func New(st *store.Store, ss Sessions, logf func(string, ...any)) *Service {
@@ -120,20 +159,16 @@ func (s *Service) lock(session string) func() {
 
 // Of is the channel session talks in: the one it was put in, else itself.
 func (s *Service) Of(session string) string {
-	ms, err := s.st.ChannelsOf(store.AgentMember(session))
-	if err != nil || len(ms) == 0 {
-		return session
+	if ch, ok := s.members().of[session]; ok {
+		return ch
 	}
-	return ms[0].Channel
+	return session
 }
 
 // Members are channel's members. One nobody has changed has the default: the web's logins, all
 // of them, and the session it is, which receives everything.
 func (s *Service) Members(channel string) ([]Member, error) {
-	rows, err := s.st.ChannelMembers(channel)
-	if err != nil {
-		return nil, err
-	}
+	rows := s.members().rows[channel]
 	if len(rows) == 0 {
 		rows = []store.ChannelMember{
 			{Channel: channel, Member: WebAll, Recv: RecvAll},

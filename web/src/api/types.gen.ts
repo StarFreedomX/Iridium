@@ -136,6 +136,13 @@ export interface Session {
   subagent?: boolean;
   parent?: string;
   /**
+   * Channel: the channel it is an agent of, when that is another session's (docs/channels.md):
+   * it is shown there, not as a session of its own. Agents: of a channel with several, all of
+   * them in the order they joined, itself first.
+   */
+  channel?: string;
+  agents?: ChannelAgent[];
+  /**
    * Done: a subagent that has finished (Claude: its transcript ends with its final answer, or it was stopped); the
    * sidebar shows a subagent only while it works.
    */
@@ -1174,6 +1181,15 @@ export interface Injection {
   input?: string;
   at: number /* int64 */;
   record: any /* json.RawMessage */;
+}
+/**
+ * ChannelAgent is an agent of a channel as the list of sessions has it: its session, its
+ * harness, the nick it is called by.
+ */
+export interface ChannelAgent {
+  session: string;
+  agent?: Agent;
+  nick?: string;
 }
 
 //////////

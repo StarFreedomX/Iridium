@@ -29,6 +29,7 @@ func (s *Service) written(channel string, base func(session string) string) erro
 	if err != nil {
 		return err
 	}
+	defer s.changed()
 	if err := s.st.PutChannelMember(store.ChannelMember{Channel: channel, Member: WebAll, Recv: RecvAll}); err != nil {
 		return err
 	}
@@ -101,6 +102,7 @@ func (s *Service) Join(channel, session, nick, recv string, base func(session st
 		_ = s.st.SetChannelSync(session, "", off)
 	}
 	row := store.ChannelMember{Channel: channel, Member: member, Nick: nick, Recv: recv}
+	defer s.changed()
 	if err := s.st.PutChannelMember(row); err != nil {
 		return Member{}, err
 	}
@@ -112,6 +114,7 @@ func (s *Service) Leave(channel, member string) error {
 	if member == store.AgentMember(channel) {
 		return fmt.Errorf("%w: the channel is this session's", ErrNoMember)
 	}
+	defer s.changed()
 	ok, err := s.st.RemoveChannelMember(channel, member)
 	if err == nil && !ok {
 		err = ErrNoMember
@@ -145,6 +148,7 @@ func (s *Service) Change(channel, member string, nick, recv *string, base func(s
 			}
 			m.Recv = *recv
 		}
+		defer s.changed()
 		return m, s.st.PutChannelMember(m.ChannelMember)
 	}
 	return Member{}, ErrNoMember
@@ -152,6 +156,7 @@ func (s *Service) Change(channel, member string, nick, recv *string, base func(s
 
 // Seen moves session's read position in its channel up to seq.
 func (s *Service) Seen(channel, session string, seq int64) {
+	defer s.changed()
 	if err := s.st.SetChannelSeen(channel, store.AgentMember(session), seq); err != nil {
 		s.logf("channel %s: %s read to %d: %v", channel, session, seq, err)
 	}

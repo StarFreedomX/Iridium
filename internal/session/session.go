@@ -99,6 +99,7 @@ type Manager struct {
 	tune     atomic.Pointer[Tunables] // tune.go
 	annotate atomic.Pointer[Annotate] // carry.go
 	inChan   atomic.Pointer[func(string) bool]
+	chanOf   atomic.Pointer[func(string) (string, []api.ChannelAgent)]
 }
 
 func New(o Options) (*Manager, error) {
@@ -501,6 +502,7 @@ func (m *Manager) List(ctx context.Context) ([]api.Session, error) {
 		}
 		return cmp.Compare(sortKey(b), sortKey(a))
 	})
+	m.markChannels(out)
 	return out, nil
 }
 
