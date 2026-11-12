@@ -1,5 +1,5 @@
 // The build's sizes (plan "弱网"): the first screen at most 250KB gzipped (the user, 2026-11-06; was 200KB); the chat loaded only when
-// opened, under its own limit, its libraries apart from the first screen's; a brotli and a gzip
+// opened, under its own limit (300KB gzipped: the user, 2026-11-12; was 200KB), its libraries apart from the first screen's; a brotli and a gzip
 // beside each script and style; the later files listed for idle prefetch.
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -50,7 +50,7 @@ test("the chat comes apart, under its limit", () => {
   const chat = [...files("src/chat/chat.tsx")].filter((f) => !first.has(f));
   console.log(`chat ${kb(chat).toFixed(1)}KB gzipped`);
   expect(manifest["src/chat/chat.tsx"]!.isDynamicEntry).toBe(true);
-  expect(kb(chat)).toBeLessThanOrEqual(200);
+  expect(kb(chat)).toBeLessThanOrEqual(300);
   expect(text(chat)).toContain("data-streamdown");
   // The page fetches them ahead once idle: the HTML lists them.
   const later = /<meta name="later" content="([^"]*)"/.exec(readFileSync(join(out, "index.html"), "utf8"))![1]!.split(" ");
