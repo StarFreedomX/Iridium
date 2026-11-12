@@ -362,6 +362,9 @@ func (s *Server) sendChannel(ctx context.Context, c caller, from, ch, to string,
 		sender, link = c.session, s.chain.get(c.session)
 		link.origin = cmp.Or(link.origin, c.ID())
 	}
+	if sender != "" && to == sender {
+		to = ch // an agent's "self" is its channel: it does not send to itself
+	}
 	var d deliver.Decision
 	if to != ch {
 		d.Wake = []string{to}
