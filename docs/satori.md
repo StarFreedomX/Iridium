@@ -1,6 +1,6 @@
 # Satori with ir
 
-应用用 Satori 协议和 Iridium 说话。规范版本：satorijs/docs@50fee9ef（副本 `~/kumo/satori-spec-50fee9ef/`）。实现在 `internal/satori`，server 侧的接线在 `internal/server/satori.go`。定下的事见 `docs/next/decisions.md` 1、25–31，计划见 `docs/next/draft.md` 三。
+应用用 Satori 协议和 Iridium 说话。规范版本：satorijs/docs@50fee9ef（副本 `~/kumo/satori-spec-50fee9ef/`）。频道见 `docs/channels.md`。实现在 `internal/satori`，server 侧的接线在 `internal/server/satori.go`。定下的事见 `docs/next/decisions.md` 1、25–31，计划见 `docs/next/draft.md` 三。
 
 ## 对应
 
@@ -12,20 +12,21 @@
 | `login.adapter` | `iridium` |
 | `channel` | 会话，`id` 即会话 ID，`type` 0，`parent_id` 是它所在的上一层：子 agent 的上级、派出它的拉起者（没被拖出来时），否则它的文件夹；会话所在的文件夹是分类频道，`type` 2，`id` 是 `folder:<分组用的路径>`（本机绝对路径，或 `机器:路径`），`_data` 是 `FolderMark`（`path`、颜色、置顶、拖到的位置） |
 | `guild` | 网页的文件夹组（`id` 是组号）；不在组里的会话归 `loose`（未分组） |
-| `user` | agent（`claude`、`codex`…，`is_bot`），以及说话的应用、登录、主机 |
-| `message` | 记录里的一块（人说的、agent 说的、思考、工具调用、系统行），`id` 是块的位置 `<偏移>.<序号>`；提问是 `ask:<会话>:<请求>` |
+| `user` | 频道里的 agent（`agent:<会话ID>`，`is_bot`，`name` 是它现在用什么跑的，`nick` 是频道里叫它的名字），以及说话的应用、登录、主机；`user.get` 也认 `claude`、`codex`… |
+| `message` | 频道里说的一句话（`docs/channels.md`），`id` 是它在频道里的编号；提问的卡片是 `ask:<会话>:<请求>` |
 
 鉴权：应用用 `Authorization: Bearer <应用 TOKEN>`（过 gate）。网页也是应用（一视同仁）：浏览器凭 cookie，`Satori-Platform: ir_web`、`Satori-User-ID: <登录 ID>`；没开公网时主机自己的页面是平台 `local` 的登录 `local`。这两种连接只代表这一个登录。会话 TOKEN 403 `no_login`。`Satori-Platform` 不是本应用 ID、没有 `Satori-User-ID`：403 `no_such_login`。新登录第一次说话：403 `login_pending`，产生“登录加入”需要（和 `/v1/internal/*` 一样）；配对时带上的登录（`ir pair --login`，默认 `bot`）随应用一并批准，READY 里一开始就有。
 
 ## HTTP `POST /v1/{资源}.{方法}`
 
 - `message.create {channel_id, content}`：发进会话（插入正在跑的回合），发送者显示为 `应用·登录`。`<img>`/`<file>` 的 `src` 是本登录在这个会话 `upload.create` 得到的 `internal:` 地址时，作为附件；`data:` 地址存成上传的文件再作附件；其余元素按意思转成文字。顶层的 `<message>` 各发一条。回 `[Message]`，`id` 是这条输入的 ID，拿去 `message.get` 能取到它（进了记录取记录里那块，还在排队取排队里的）。
-- `message.get`、`message.list`：记录的每一块是一条消息，内容见下面“记录”。`message.list` 是 BidiList，翻页标记是记录里行的偏移；`limit` 按块数、在行首截，可能略多；没有 `next` 时只能 `before`。多一个 `_data {start, end, more}`：这页从哪行起、读时记录到哪（下次 `direction: after` 从这里取新写的）、前面还有没有。`direction: after` 读到记录末尾时不带 `next`。网页读记录也走它。
+- `message.get`、`message.list`：频道里说的话，一句一条，不含思考和工具调用。`message.list` 是 BidiList，翻页标记是消息的编号；`limit` 默认 50，至多 500；没有 `next` 时只能 `before`。多一个 `_data {start, end, more}`：这页第一条和最后一条的编号、前面还有没有。`_data.q` 给词时只回有这些词的消息（`docs/channels.md`“搜索”）。`message.get` 的 `message_id` 也认输入的 ID 和提问的卡片。`channel_id` 给成员会话的 ID 时读的是它所在的频道。
+- `POST /v1/internal/block.list`、`block.get`（参数同上）：一个会话自己的记录，一块一条消息，内容见下面“记录”；翻页标记是记录里行的偏移，`limit` 按块数、在行首截，可能略多。`_data {start, end, more}`：这页从哪行起、读时记录到哪、前面还有没有。网页读记录走它。agent 读不到同频道另一个 agent 的。
 - `channel.get`、`channel.list {guild_id?, next?, _data?: {all}}`（不给 `guild_id` 是全部；先列文件夹，再列会话；不列归档和子 agent，`_data.all` 都列）、`guild.get`、`guild.list`（只列范围里的）、`login.get`、`user.get`。`channel.get`、`channel.list` 的每个 channel 带 `_data`：会话本身（同 `GET /v1/internal/sessions` 的一项，名字、标题、最后一句打码）；`guild.get`、`guild.list` 的 guild 带 `_data`：文件夹组（`path`、`only`），`loose` 没有。网页拿不到携带状态 `guilds` 时用 `guild.list` 的 `_data`。
 - `channel.create {guild_id?, data?: {name, parent_id}, _data: {agent, cwd, text?, model?, mode?, effort?, preset?}}`（2026-11-11）：开一个会话。`guild_id` 是文件夹组（`self` 自己的；不给或 `loose` 按目录归组），`data.parent_id` 是拉起者（不给是发话的会话自己，`ir` 开的就挂在自己下面），`data.name` 是名字；`_data` 是 agent 怎么起。回这个会话的 Channel（同 `channel.get`），随后照常有 `channel-added`。`ir api channel.create` 先印 ID，带 `text` 等 agent 接了再返回，`--wait` 等到这一回合结束。
 - `channel.update {channel_id, data?: {name, parent_id}, _data?: {archived, pinned, color, order, workspace}}` 改名，`_data.archived` 归档或恢复（挂在它下面的一起），`pinned` 置顶，`color` 颜色标签（`red`…`purple`，空串去掉），`order` 拖到的位置（毫秒，0 去掉），`workspace` 手动放进那个组（0 未归类）；`data.parent_id` 设成 `null` 或它自己的文件夹，就从拉起者下面拿出来（此后算人开的），别的值 422 `parent_fixed`。文件夹（`folder:…`）只收 `_data.color`（本机的文件夹）、`pinned`、`order`，只有面板和本机能改。
 - `message.update {channel_id, message_id, content | _data.text}`、`message.delete {channel_id, message_id}`（2026-11-11）：改、撤回还在排队的一条（`message_id` 是 `message.create` 回的 ID）；已经交给 agent 的 422 `no_such_message`。
-- `message.list` 带 `_data.blocks: true` 时，回答的 `_data.blocks` 另给这一页 Iridium 自己的块（`api.Block`，打码），`ir` 的 `--wait` 靠它读回复。
+- `block.list` 带 `_data.blocks: true` 时，回答的 `_data.blocks` 另给这一页 Iridium 自己的块（`api.Block`，打码），`ir` 的 `--wait` 靠它读回复。
 - `channel.delete {channel_id}` 归档（agent 停下，记录不删）。要能用这个会话。agent 改的名不盖人起的（409 `named`）。
 - `upload.create`：一个 multipart，带字段 `channel_id`，每个文件回 `internal:{应用}/{登录}/files/{会话}/{ref}`。网页用分块的 `/v1/internal/uploads`。
 - `POST /v1/meta`：本应用已批准的登录，`proxy_urls` 为空。`/v1/meta/*`（webhook）不做。
@@ -46,7 +47,7 @@
 
 ## 记录
 
-一块一条消息：标准元素放 Satori 有的（文字；文件按类型 `<img>`/`<video>`/`<audio>`/`<file>`，`src` 是 `internal:` 地址），其余用带适配器前缀的元素（advanced/internal.md），前缀 `iridium`。只认标准元素的客户端看到的是人和 agent 说的话。`created_at` 是块的时间。编码在 `internal/satori/blocks.go`，网页解码在 `web/src/satori.ts`，两边用同一张表 `internal/satori/testdata/blocks.json` 测，能原样还原。
+`block.list` 的一块一条消息：标准元素放 Satori 有的（文字；文件按类型 `<img>`/`<video>`/`<audio>`/`<file>`，`src` 是 `internal:` 地址），其余用带适配器前缀的元素（advanced/internal.md），前缀 `iridium`。只认标准元素的客户端看到的是人和 agent 说的话。`created_at` 是块的时间。编码在 `internal/satori/blocks.go`，网页解码在 `web/src/satori.ts`，两边用同一张表 `internal/satori/testdata/blocks.json` 测，能原样还原。
 
 | 块 | 内容 |
 | --- | --- |
@@ -60,7 +61,8 @@
 - `length`：文字（或参数）被截到 2000 字时全文的长度，`message.get` 给全文。
 - `<iridium:image mime width height unsent/>`：结果给模型的图，第 n 个用 `/v1/internal/sessions/{id}/image?at=<结果的 at>&n=`。
 - 文件元素还带 `path`、`size`、`mime`、`mtime`、`thumb`、`sha256`，图片带 `width`、`height`。没有登录的调用方不带文件。
-- 文字、参数、结果里的凭据打码。`message-created` 事件照旧只发 agent 的话，内容和这条块的一样。
+- 文字、参数、结果里的凭据打码。
+- 频道消息（`message.list`、事件）的内容：文字，文件元素，agent 的话后面可以跟 `<iridium:activity bash failed cmds read search fetch agents other files add del ms>`，里面每个改过的文件一个 `<iridium:file path add del/>`（路径只给网页和主机）。
 
 ## Iridium 自己的接口 `/v1/internal/*`
 
@@ -87,12 +89,13 @@
 | `message-created` | 回合最后一段话 | `reply` |
 | `message-created` | 提问、审批、计划 | `ask` |
 | `message-created` | agent 进程出错 | `error` |
+| `message-created` | Iridium 自己的一行（没转交、没送达） | `note` |
 | `message-updated` | 提问结束（答了或撤了）：去掉按钮，加“已结束” | `ask` |
 | `interaction/button` | 某个登录按了按钮 | — |
 | `channel-added` / `channel-updated` / `channel-removed` | 会话出现、改名或换组、归档或消失（看得见它的登录） | — |
 | `login-added` / `login-removed` | 本应用的登录被批准、被移除（发给本应用的连接；网页的连接只收自己的） | — |
 
-`_type` 固定 `iridium`，`_data.origin` 是发起这个回合的应用或网页登录（知道时）。agent 说的话能在记录里找到时，`message.id` 就是块的位置；找不到时是 `live:…`，只能在 24 小时内用 `message.get` 取。
+`_type` 固定 `iridium`，`_data.origin` 是发起这个回合的应用或网页登录（知道时）。`message.id` 是消息在频道里的编号（提问是卡片的 ID）。几个 agent 的频道里，每个 agent 的话都发，`user` 是说话的那个。
 
 ## 提问和按钮
 
@@ -103,7 +106,7 @@
 
 ## 元素
 
-收发都用 Satori 元素（`internal/satori/elements.go`）。Iridium 发：文字、`<img>`/`<file>`（`internal:` 地址）、`<button>`、`<p>`、`<b>`。会话用 `<sharp>`，位置和文件用 `<a>`，不用 `<at>`（会真的提醒人）；收到的 `<at>` 只当文字，收到的 `<sharp>` 转成网页的写法 `[名字](ir:session/<id>)`（2026-11-12，`plan.md`“@”）。
+收发都用 Satori 元素（`internal/satori/elements.go`）。Iridium 发：文字、`<img>`/`<file>`（`internal:` 地址）、`<button>`、`<p>`、`<b>`。会话用 `<sharp>`，位置和文件用 `<a>`，叫 agent 是正文里的 `@nick`（`docs/channels.md`“叫起谁”），不发 `<at>`；收到的 `<at>` 转成 `@名字`，收到的 `<sharp>` 转成网页的写法 `[名字](ir:session/<id>)`（2026-11-12，`plan.md`“@”）。
 
 ## 和规范不一样的地方
 

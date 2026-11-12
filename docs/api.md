@@ -285,6 +285,22 @@ Web Push，总开关在配置 `push`，默认关。VAPID 密钥存在状态目�
 
 推送的内容（service worker 收到的 JSON）：`PushMessage{kind, session, title, body, tag}`，`kind` 是 `needs_you`、`error`、`turn_end`、`test`；`tag` 是会话 ID。推送服务回 404/410 的订阅删掉。
 
+## 频道
+
+几个 agent 在一个频道里（`docs/channels.md`）。`{id}` 是频道，或它的一个成员会话。
+
+| 接口 | 做什么 |
+| --- | --- |
+| `GET /v1/internal/channels/{id}/members` | `ChannelMembers {channel, multi, members}`：成员（`member`、`session`、`agent`、`name`、`nick`、`recv`、`seen`、`status`）；`multi`：不止一个 agent |
+| `POST /v1/internal/channels/{id}/members` | `NewMember {agent, model?, mode?, effort?, preset?, nick?, recv?}`：在频道的文件夹里起一个新 agent 作成员。能起这个 agent 的调用方都行，频道里的 agent 也行。满 8 个回 409 `full` |
+| `PATCH /v1/internal/channels/{id}/members/{member}` | `MemberPatch {nick?, recv?}`；只给人 |
+| `DELETE /v1/internal/channels/{id}/members/{member}` | 移出，它的会话归档；频道自己的会话移不出（422 `no_such_member`）；只给人 |
+| `GET /v1/internal/sessions/{id}/injections` | 频道给过这个 agent 什么，新的在前：`Injection {id, seq, input, at, record}` |
+
+- 携带状态 `channels`：一个只增的数，任何频道的成员变了就加一；页面据此重读成员。
+- 会话列表里：成员会话带 `channel`（它所在的频道），几个 agent 的频道带 `agents`。
+- 发消息的回答多一个 `seq`：这条消息在频道里的编号。
+
 ## 公开链接
 
 把一个会话只读地给公网上的人看：拿到链接的人看得到标题、agent 和对话里人和 agent 说的话（文字、所带图片），看不到思考、工具调用和结果、系统行；凭据照样遮掉。不能发消息，也没有别的权限。

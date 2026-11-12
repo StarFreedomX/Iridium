@@ -187,28 +187,23 @@ func (s *Service) handle(n session.Notice, at time.Time) {
 		m := s.askMessage(st.Session, *n.Ask)
 		m.Channel, m.Guild = nil, nil
 		m.CreatedAt = time.Now().UnixMilli()
+		m.User = s.agentOf(n.Session)
 		s.note(n.Session, channel.KindAsk, Plain(Parse(m.Content), nil), m.ID, n.From)
-		s.emit(st.Session, Event{Type: "message-created", Message: &m, User: m.User}, nil, "ask", n.From)
+		s.emit(s.channelSession(n.Session), Event{Type: "message-created", Message: &m, User: m.User}, nil, "ask", n.From)
 	case session.NoticeAskDone:
 		card := cardID(n.Session, n.RequestID)
 		s.forget(card)
-		e, ok := s.out.message(n.Session, card)
+		ss := s.channelSession(n.Session)
+		e, ok := s.out.message(ss.ID, card)
 		if !ok {
 			return
 		}
 		m := *e.ev.Message
 		m.Content = closedContent(m.Content)
 		m.UpdatedAt = time.Now().UnixMilli()
-		ss := api.Session{ID: n.Session}
-		if st, err := s.b.Session(n.Session); err == nil {
-			ss = st.Session
-		}
 		s.emit(ss, Event{Type: "message-updated", Message: &m, User: m.User}, nil, "ask", "")
 	case session.NoticeError:
-		ss := api.Session{ID: n.Session}
-		if st, err := s.b.Session(n.Session); err == nil {
-			ss = st.Session
-		}
+		ss := s.channelSession(n.Session)
 		m := Message{ID: "error:" + n.Session + ":" + fmt.Sprint(time.Now().UnixNano()), Content: Escape(s.b.Mask(n.Text)), CreatedAt: time.Now().UnixMilli()}
 		m.User = s.agentOf(n.Session)
 		if l, ok := s.note(n.Session, channel.KindError, n.Text, "", origin); ok {
@@ -216,6 +211,16 @@ func (s *Service) handle(n session.Notice, at time.Time) {
 		}
 		s.emit(ss, Event{Type: "message-created", Message: &m, User: m.User}, nil, "error", origin)
 	}
+}
+
+// channelSession is the session that is the channel session talks in: whose events an agent's
+// asks and errors are, for those who see the channel.
+func (s *Service) channelSession(session string) api.Session {
+	ch := s.log.Of(session)
+	if st, err := s.b.Session(ch); err == nil {
+		return st.Session
+	}
+	return api.Session{ID: ch}
 }
 
 // emit keeps an event of session ss in the outbox, for the connections to send.

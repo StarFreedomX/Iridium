@@ -200,6 +200,10 @@ func (b satoriBackend) Patch(ctx context.Context, c satori.Caller, id string, p 
 	// An agent's name never covers one a person gave (as ir rename did).
 	if p.Name != nil && (cl.agent || cl.session != "") {
 		p.ByAgent = true
+		// A channel of several agents is named by people: an agent's title for it is let be.
+		if b.s.inMulti(id) {
+			p.Name = nil
+		}
 	}
 	err := b.s.patch(ctx, id, p)
 	if errors.Is(err, errPatchManager) {
