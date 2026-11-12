@@ -1,5 +1,5 @@
 // An agent called by its nick among the words of a channel of several (docs/channels.md): drawn
-// as a session named is (mention.tsx NamedLink), its harness's logo and its nick, underlined;
+// as a session named is (mention.tsx NamedLink), the @ kept in front (the user, 2026-11-12), its harness's logo and its nick, underlined;
 // pressed, the composer calls it too. One form, in a person's words and in an agent's Markdown
 // (chat/markdown.tsx, by the link lib.ts linkNicks makes of it).
 import { createContext, useContext } from "react";
@@ -17,6 +17,7 @@ export function NickLink({ nick }: { nick: string }) {
   return (
     <Tip label={[a.name, a.status !== "idle" && sessionStatusText(a)].filter(Boolean).join(" · ")}>
       <button type="button" onClick={() => ch.call(a.nick)} className="inline-flex max-w-full items-baseline gap-1 rounded-sm align-baseline text-ink underline decoration-ink-4 underline-offset-2 hover:decoration-ink-2">
+        <span className="-mr-0.5 text-ink-3">@</span>
         <span className="self-center">
           <Logo agent={a.agent} size={14} />
         </span>
