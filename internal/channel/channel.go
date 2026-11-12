@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kumoSleeping/iridium/internal/activity"
 	"github.com/kumoSleeping/iridium/internal/api"
 	"github.com/kumoSleeping/iridium/internal/store"
 	"github.com/kumoSleeping/iridium/internal/transcript"
@@ -58,6 +59,8 @@ type Data struct {
 	Quote int64    `json:"quote,omitempty"`
 	// Card: an ask's card id.
 	Card string `json:"card,omitempty"`
+	// Activity: what the agent did between the last thing it said and this.
+	Activity *activity.Activity `json:"activity,omitempty"`
 }
 
 // Message is a channel's message with its data read.
@@ -75,7 +78,7 @@ func read(m store.ChannelMessage) Message {
 }
 
 func (d Data) encode() string {
-	if d.Session == "" && d.Block == "" && len(d.Files) == 0 && !d.Final && len(d.At) == 0 && d.Quote == 0 && d.Card == "" {
+	if d.Session == "" && d.Block == "" && len(d.Files) == 0 && !d.Final && len(d.At) == 0 && d.Quote == 0 && d.Card == "" && d.Activity == nil {
 		return ""
 	}
 	b, _ := json.Marshal(d)
@@ -240,9 +243,15 @@ func (s *Service) Touch(channel string) {
 func (s *Service) Sync(session string) ([]Message, error) {
 	defer s.lock(session)()
 	ch := s.Of(session)
-	_, off, had, err := s.st.ChannelSync(session)
+	off, pending, had, err := s.st.ChannelSync(session)
 	if err != nil {
 		return nil, err
+	}
+	// What the agent did since it last spoke: counted as its record is read, given to what it
+	// says next.
+	var did activity.Activity
+	if pending != "" {
+		_ = json.Unmarshal([]byte(pending), &did)
 	}
 	// Alone: the channel is this session and no other agent's, so what Iridium wrote into its
 	// record is what was said in the channel. With others in it, that is each agent's delivery.
@@ -265,8 +274,17 @@ func (s *Service) Sync(session string) ([]Message, error) {
 			var err error
 			var isNew bool
 			switch b.Kind {
+			case api.BlockKindTool:
+				did.Add(activity.Call{Name: b.Name, Input: s.input(session, b), Failed: b.Result != nil && b.Result.Error, At: b.Time})
+				continue
 			case api.BlockKindAssistant:
-				m, isNew, err = s.syncSaid(ch, session, author, b)
+				var act *activity.Activity
+				if !did.Empty() && strings.TrimSpace(b.Text) != "" {
+					did.Close(b.Time)
+					done := did
+					act, did = &done, activity.Activity{}
+				}
+				m, isNew, err = s.syncSaid(ch, session, author, b, act)
 			case api.BlockKindUser:
 				m, isNew, err = s.syncUser(ch, session, b, alone, !had)
 			default:
@@ -285,7 +303,32 @@ func (s *Service) Sync(session string) ([]Message, error) {
 		}
 		off = p.End
 	}
-	return added, s.st.SetChannelSync(session, "", off)
+	pending = ""
+	if !did.Empty() {
+		if b, err := json.Marshal(did); err == nil {
+			pending = string(b)
+		}
+	}
+	return added, s.st.SetChannelSync(session, off, pending)
+}
+
+// Doing is what session's agent has done since it last spoke.
+func (s *Service) Doing(session string) activity.Activity {
+	var did activity.Activity
+	if _, pending, _, err := s.st.ChannelSync(session); err == nil && pending != "" {
+		_ = json.Unmarshal([]byte(pending), &did)
+	}
+	return did
+}
+
+// input is a tool call's whole input.
+func (s *Service) input(session string, b api.Block) string {
+	if b.Length > len([]rune(b.Input)) {
+		if full, err := s.ss.Full(session, b.At); err == nil {
+			return full
+		}
+	}
+	return b.Input
 }
 
 func (s *Service) whole(session string, b api.Block) string {
@@ -301,12 +344,12 @@ func blockRef(session, at string) string { return "b:" + session + ":" + at }
 
 // syncSaid takes in a block the agent said. Said live before the record had it (Heard), it is
 // that message, now known by its place.
-func (s *Service) syncSaid(ch, session, author string, b api.Block) (Message, bool, error) {
+func (s *Service) syncSaid(ch, session, author string, b api.Block, did *activity.Activity) (Message, bool, error) {
 	text := s.whole(session, b)
 	if strings.TrimSpace(text) == "" {
 		return Message{}, false, nil
 	}
-	d := Data{Session: session, Block: b.At, Files: b.Files}
+	d := Data{Session: session, Block: b.At, Files: b.Files, Activity: did}
 	ref := blockRef(session, b.At)
 	loose, err := s.st.UnanchoredMessages(ch, author, 8)
 	if err != nil {

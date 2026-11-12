@@ -29,8 +29,24 @@ const (
 	idChannelAnswered = "channel.context.answered" // who answered in it
 	idChannelFull     = "channel.context.full"     // heads the messages in full
 	idChannelLine     = "channel.context.line"     // before a message in full: its number, who, when
-	idChannelCut      = "channel.context.cut"      // after one cut short: how to get the rest
-	idChannelPull     = "channel.context.pull"     // how to read more of the channel
-	idChannelClose    = "channel.context.close"
-	idNL              = "nl" // a line's end
+	idChannelLineDid  = "channel.context.line-did" // then what its agent did before saying it
+	idChannelLineEnd  = "channel.context.line-end"
+	idChannelWork     = "channel.context.work"       // heads what each agent did since
+	idChannelWorkLine = "channel.context.work-line"  // an agent's line of it
+	idChannelWorkFile = "channel.context.work-files" // the files it changed
+
+	// What an agent did, in few words (activity.go).
+	idDidBash      = "activity.bash"
+	idDidCmds      = "activity.cmds"
+	idDidFailed    = "activity.failed"
+	idDidFiles     = "activity.files"
+	idDidRead      = "activity.read"
+	idDidWeb       = "activity.web"
+	idDidAgents    = "activity.agents"
+	idDidOther     = "activity.other"
+	idDidSep       = "activity.sep"
+	idChannelCut   = "channel.context.cut"  // after one cut short: how to get the rest
+	idChannelPull  = "channel.context.pull" // how to read more of the channel
+	idChannelClose = "channel.context.close"
+	idNL           = "nl" // a line's end
 )

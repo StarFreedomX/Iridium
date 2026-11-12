@@ -298,20 +298,20 @@ func (s *Store) SetChannelSeen(channel, member string, seq int64) error {
 
 // ---- reading an agent's record in ----
 
-// ChannelSync is how far session's record has been read into its channel: record, which record
-// it is (the agent's own id for it: a cleared session has another), offset, the line after the
-// last block read.
-func (s *Store) ChannelSync(session string) (record string, offset int64, ok bool, err error) {
-	err = s.db.QueryRow(`SELECT record, offset FROM channel_sync WHERE session = ?`, session).Scan(&record, &offset)
+// ChannelSync is how far session's record has been read into its channel: offset, the line
+// after the last block read; pending, what its agent did since it last spoke (JSON, the
+// channel package's); ok false: never read.
+func (s *Store) ChannelSync(session string) (offset int64, pending string, ok bool, err error) {
+	err = s.db.QueryRow(`SELECT offset, pending FROM channel_sync WHERE session = ?`, session).Scan(&offset, &pending)
 	if errors.Is(err, sql.ErrNoRows) {
-		return "", 0, false, nil
+		return 0, "", false, nil
 	}
-	return record, offset, err == nil, err
+	return offset, pending, err == nil, err
 }
 
-func (s *Store) SetChannelSync(session, record string, offset int64) error {
-	_, err := s.db.Exec(`INSERT INTO channel_sync (session, record, offset) VALUES (?, ?, ?)
-		ON CONFLICT (session) DO UPDATE SET record = excluded.record, offset = excluded.offset`, session, record, offset)
+func (s *Store) SetChannelSync(session string, offset int64, pending string) error {
+	_, err := s.db.Exec(`INSERT INTO channel_sync (session, offset, pending) VALUES (?, ?, ?)
+		ON CONFLICT (session) DO UPDATE SET offset = excluded.offset, pending = excluded.pending`, session, offset, pending)
 	return err
 }
 

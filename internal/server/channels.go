@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kumoSleeping/iridium/internal/activity"
 	"github.com/kumoSleeping/iridium/internal/agent"
 	"github.com/kumoSleeping/iridium/internal/agents"
 	"github.com/kumoSleeping/iridium/internal/api"
@@ -451,14 +452,36 @@ func (s *Server) deliverTo(ctx context.Context, ch, to string, seq int64, said, 
 		return false, err
 	}
 	var unseen []strategy.Msg
+	did := map[int64]activity.Activity{}
+	work := map[string]*activity.Activity{} // by agent session: all it did over what was not seen
 	for _, m := range rows {
 		if m.Author == me.Member || (m.Kind != channel.KindUser && m.Kind != channel.KindSaid) {
 			continue
 		}
-		_, agent := store.SessionOfMember(m.Author)
+		id, agent := store.SessionOfMember(m.Author)
 		unseen = append(unseen, strategy.Msg{Seq: m.Seq, Who: whoOf(m, by), Agent: agent, Text: m.Text, At: m.At})
+		if a := m.D.Activity; agent && a != nil {
+			did[m.Seq] = *a
+			if work[id] == nil {
+				work[id] = &activity.Activity{}
+			}
+			work[id].Sum(*a)
+		}
 	}
-	cc := assemble.Channel{You: me.Nick, Plan: strategy.Fold(unseen, strategy.Default), Pull: true, Zone: time.Local}
+	cc := assemble.Channel{You: me.Nick, Plan: strategy.Fold(unseen, strategy.Default), Pull: true, Zone: time.Local, Did: did}
+	for _, a := range list {
+		if a.Session == to {
+			continue
+		}
+		// And what it has done since it last spoke.
+		sum := s.ch.Doing(a.Session)
+		sum.First = 0
+		if w := work[a.Session]; w != nil {
+			w.Sum(sum)
+			sum = *w
+		}
+		cc.Work = append(cc.Work, assemble.Work{Who: a.Nick, Did: sum})
+	}
 	if st, err := s.m.State(to); err == nil && st.Machine != "" {
 		cc.Pull = false // at another machine: no ir of the host's to read the channel with
 	}

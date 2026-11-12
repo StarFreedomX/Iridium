@@ -241,6 +241,8 @@ var schema = []string{
 		record  TEXT NOT NULL
 	);
 	CREATE INDEX IF NOT EXISTS injections_session ON injections (session, id);`,
+	// 34: what an agent did since it last spoke, while its record is read in (channel_sync).
+	`ALTER TABLE channel_sync ADD COLUMN pending TEXT NOT NULL DEFAULT '';`,
 }
 
 // steps run in Go after the migration of their version, in the same transaction.

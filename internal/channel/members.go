@@ -95,11 +95,11 @@ func (s *Service) Join(channel, session, nick, recv string, base func(session st
 		return Member{}, ErrNick
 	}
 	// What its record holds by now is its own, from before it joined: not the channel's.
-	if _, off, _, err := s.st.ChannelSync(session); err == nil {
+	if off, _, _, err := s.st.ChannelSync(session); err == nil {
 		if p, err := s.ss.Messages(session, -1, off); err == nil {
 			off = max(off, p.End)
 		}
-		_ = s.st.SetChannelSync(session, "", off)
+		_ = s.st.SetChannelSync(session, off, "")
 	}
 	row := store.ChannelMember{Channel: channel, Member: member, Nick: nick, Recv: recv}
 	defer s.changed()

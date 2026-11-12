@@ -136,3 +136,35 @@ func TestSayAndHeard(t *testing.T) {
 		t.Errorf("after taking back: %v %+v", isNew, m)
 	}
 }
+
+// What an agent did between two things it said goes with what it says next; what it has done
+// since it last spoke is kept till it speaks.
+func TestActivity(t *testing.T) {
+	s, r, _ := rig(t)
+	r.add("s1", api.Block{Kind: api.BlockKindUser, Text: "go", ID: "in1", From: "web", FromTerminal: "t1"})
+	r.add("s1", api.Block{Kind: api.BlockKindTool, Name: "Bash", Input: `{"command":"go test ./..."}`, Time: 1000})
+	r.add("s1", api.Block{Kind: api.BlockKindTool, Name: "Edit", Input: `{"file_path":"/w/a.go","old_string":"a","new_string":"a\nb"}`})
+	r.add("s1", api.Block{Kind: api.BlockKindAssistant, Text: "fixed", Time: 4000})
+	r.add("s1", api.Block{Kind: api.BlockKindAssistant, Text: "and done", Time: 5000})
+	r.add("s1", api.Block{Kind: api.BlockKindTool, Name: "Read", Input: `{"file_path":"/w/a.go"}`})
+	ms, err := s.List("s1", 0, -1, 0)
+	if err != nil || len(ms) != 3 {
+		t.Fatalf("read in: %v %s", err, texts(ms))
+	}
+	a := ms[1].D.Activity
+	if a == nil || a.Bash != 1 || a.Cmds["go"] != 1 || len(a.Files) != 1 || a.Files[0].Add != 2 || a.Files[0].Del != 1 || a.Ms != 3000 {
+		t.Fatalf("what it did before speaking: %+v", a)
+	}
+	if ms[2].D.Activity != nil {
+		t.Errorf("nothing done, yet: %+v", ms[2].D.Activity)
+	}
+	if d := s.Doing("s1"); d.Read != 1 || d.Bash != 0 {
+		t.Errorf("doing: %+v", d)
+	}
+	// It speaks again: what it was doing goes with that, and nothing is left.
+	r.add("s1", api.Block{Kind: api.BlockKindAssistant, Text: "read it"})
+	ms, _ = s.List("s1", 0, -1, 0)
+	if a := ms[3].D.Activity; a == nil || a.Read != 1 || !s.Doing("s1").Empty() {
+		t.Errorf("after speaking: %+v, doing %+v", a, s.Doing("s1"))
+	}
+}

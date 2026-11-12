@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kumoSleeping/iridium/internal/activity"
 	"github.com/kumoSleeping/iridium/internal/agents"
 	"github.com/kumoSleeping/iridium/internal/api"
 	"github.com/kumoSleeping/iridium/internal/channel"
@@ -96,7 +97,53 @@ func (s *Service) logMessage(c Caller, m channel.Message, ch *Channel, guild *Gu
 	if m.D.Session != "" {
 		out.Content += fileElements(c.App, c.Login, m.D.Session, m.D.Files)
 	}
+	// The files' paths only for the pages (ir_web, the host): an app gets the counts.
+	out.Content += activityElement(m.D.Activity, c.Only)
 	return out
+}
+
+// activityElement is what an agent did before it said a message, as an element after the
+// words (docs/satori.md "活动"): counts as attributes; paths: the files changed too, each a
+// child. "" for nothing done.
+func activityElement(a *activity.Activity, paths bool) string {
+	if a == nil || a.Empty() {
+		return ""
+	}
+	var kv []string
+	num := func(k string, n int64) {
+		if n != 0 {
+			kv = append(kv, k, strconv.FormatInt(n, 10))
+		}
+	}
+	num("bash", int64(a.Bash))
+	num("failed", int64(a.Failed))
+	if top := a.Top(6); len(top) > 0 {
+		kv = append(kv, "cmds", strings.Join(top, ", "))
+	}
+	num("read", int64(a.Read))
+	num("search", int64(a.Search))
+	num("fetch", int64(a.Fetch))
+	num("agents", int64(a.Agents))
+	num("other", int64(a.Other))
+	add, del := a.Lines()
+	num("files", int64(len(a.Files)))
+	num("add", int64(add))
+	num("del", int64(del))
+	num("ms", a.Ms)
+	var kids []Element
+	if paths {
+		for _, f := range a.Files {
+			fk := []string{"path", f.Path}
+			if f.Add != 0 {
+				fk = append(fk, "add", strconv.Itoa(f.Add))
+			}
+			if f.Del != 0 {
+				fk = append(fk, "del", strconv.Itoa(f.Del))
+			}
+			kids = append(kids, Tag(Adapter+":file", fk))
+		}
+	}
+	return String([]Element{Tag(Adapter+":activity", kv, kids...)})
 }
 
 // logged is the message of channel ch that id names: its number, or what it is from (an
@@ -119,6 +166,7 @@ func (s *Service) tell(m channel.Message, kind, origin string, denied int) {
 	if denied > 0 {
 		msg.Content = Escape(s.b.Mask(strings.TrimSpace(m.Text + fmt.Sprintf("\n\n（auto 拦了 %d 步）", denied))))
 	}
+	msg.Content += activityElement(m.D.Activity, false)
 	s.emitOf(st.Session, m.D.Session, Event{Type: "message-created", Message: &msg, User: msg.User}, m.D.Files, kind, origin)
 	if s.onSaid != nil && m.Kind == channel.KindSaid {
 		s.onSaid(m)
