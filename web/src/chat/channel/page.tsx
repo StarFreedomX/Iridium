@@ -15,7 +15,7 @@ import { t, useLang } from "../../i18n";
 import { pushIn } from "../../motion";
 import { openChat } from "../../route";
 import { PULL } from "../../sheet";
-import { getCarried, onCarried, setCarried, useCarried, useConfirms, useList, useQuota, useSession } from "../../store";
+import { getCarried, onCarried, setCarried, useCarried, useConfirms, useList, useSession } from "../../store";
 import { also, carries, events, opened, type SatoriEvent } from "../../stream";
 import { errText } from "../../toast";
 import { agentName, Avatar, cn, lampOf, Logo, Tip } from "../../ui";
@@ -30,7 +30,7 @@ import { fromSatori, PLACE_DRAG, SESSION_DRAG, sourceOf, yours } from "../refs";
 import { Assistant, Attached, Line, Pending, Said, YouBubble } from "../said";
 import { folded } from "../fold";
 import { Stick, toEnd } from "../stick";
-import { groupMessages, readMarks, linkNicks, quotaKinds, stillWaiting, watchExtra, type AgentRow, type Did, type Group, type Msg, type Src, lineOf, workOf, eventParts, personName, type EventWords } from "./lib";
+import { groupMessages, readMarks, linkNicks, stillWaiting, watchExtra, type AgentRow, type Did, type Group, type Msg, type Src, lineOf, workOf, eventParts, personName, type EventWords } from "./lib";
 import { channelLog } from "./log";
 import { useMembers } from "./gate";
 import { NotJoined, useChannelCtl } from "./key";
@@ -213,6 +213,13 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
     return { who: yours(known ? { ...known, name: m.name || known.name } : { id: m.id, name: m.name, device: "none" }), mine };
   };
   const groups = useMemo(() => groupMessages(log.msgs), [log.msgs]);
+  // Each agent's usage after its model's name, as small as a phone's (the user, 2026-11-13).
+  const bars = (session: string) => {
+    const i = agents.findIndex((a) => a.session === session);
+    const st = states[i];
+    const a = agents[i];
+    return a ? <QuotaBars agent={a.agent} machine={st?.machine} live={st?.live ?? false} using={st ? [st.model, st.pick, modelView(st).name] : []} compact /> : null;
+  };
   // The message being answered (<quote>), over the composer till it is sent.
   const [quote, setQuote] = useState<Msg | null>(null);
   const nameOf = (m: Msg) => (m.author.kind === "agent" ? m.author.nick || m.author.name : m.author.kind === "person" ? m.author.name : "Iridium");
@@ -251,7 +258,7 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
           <div className="mx-auto flex max-w-[760px] flex-col gap-5 px-4 sm:px-6">
             {groups.map((g) => (
               <div key={g.key} className="flex min-w-0 flex-col gap-1">
-                <GroupView g={g} channel={id} agents={agents} who={who} record={record} call={call} may={may} quote={may ? quoting : undefined} quoted={quoted} />
+                <GroupView g={g} channel={id} agents={agents} who={who} record={record} call={call} may={may} quote={may ? quoting : undefined} quoted={quoted} bars={bars} />
                 {marks.has(g.key) && <ReadMarks readers={marks.get(g.key)!} agents={agents} />}
               </div>
             ))}
@@ -303,7 +310,7 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
               ) : null;
             })}
             {!may ? <NotJoined ctl={ctl} /> : null}
-            {may && <Composer ref={composer} s={s} turn={false} nicks={agents} quote={quote ? { n: quote.n, who: nameOf(quote), text: quote.text } : undefined} unquote={() => setQuote(null)} tools={<Quotas agents={agents} states={states} />} onSent={onSent} onSentDone={changed} cycleMode={() => {}} openModel={() => {}} openMode={() => {}} openUsage={() => {}} openContext={() => false} cleared={openChat} />}
+            {may && <Composer ref={composer} s={s} turn={false} nicks={agents} quote={quote ? { n: quote.n, who: nameOf(quote), text: quote.text } : undefined} unquote={() => setQuote(null)} onSent={onSent} onSentDone={changed} cycleMode={() => {}} openModel={() => {}} openMode={() => {}} openUsage={() => {}} openContext={() => false} cleared={openChat} />}
           </div>
         </div>
       </div>
@@ -340,25 +347,6 @@ function Of({ a, children, off }: { a: AgentRow; children: ReactNode; off?: bool
   );
 }
 
-/** The quota of each kind of agent in the channel, one each (two agents on one login share it),
- *  as the one-agent composer shows its own; none for a kind that has none. */
-function Quotas({ agents, states }: { agents: AgentRow[]; states: (LiveSession | undefined)[] }) {
-  const quota = useQuota();
-  const kinds = quotaKinds(agents.map((a, i) => ({ agent: a.agent, machine: states[i]?.machine, live: states[i]?.live, using: states[i] ? [states[i]!.model, states[i]!.pick, modelView(states[i]!).name] : [] })));
-  const shown = kinds.filter((k) => quota?.agents.some((q) => q.agent === k.agent && (q.machine ?? "") === (k.machine ?? "") && (q.windows?.length || q.balance?.length)));
-  if (!shown.length) return null;
-  return (
-    <div className="@container flex min-w-0 items-center gap-3 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-      {shown.map((k) => (
-        <span key={`${k.agent}:${k.machine ?? ""}`} className="flex shrink-0 items-center">
-          <Logo agent={k.agent} size={12} className="mr-0.5" />
-          <QuotaBars agent={k.agent} machine={k.machine} live={k.live} using={k.using} />
-        </span>
-      ))}
-    </div>
-  );
-}
-
 /** A message as the block an agent's words are drawn from, the nicks it calls links: kept per
  *  message, so one drawn is not drawn again. */
 const blocks = new WeakMap<Msg, { sig: string; b: Block }>();
@@ -375,7 +363,7 @@ function blockFor(m: Msg, agents: AgentRow[]): Block {
 }
 
 /** One speaker's messages: a person's bubble; an agent's words under its head; Iridium's line. */
-function GroupView({ g, channel, agents, who, record, call, may, quote, quoted }: { g: Group; channel: string; agents: AgentRow[]; who: (a: Extract<Msg["author"], { kind: "person" }>) => { who: ReturnType<typeof yours>; mine: boolean }; record: (session: string) => void; call: (nick: string) => void; may: boolean; quote?: (m: Msg) => void; quoted: (n: number) => { who: string; text: string } | undefined }) {
+function GroupView({ g, channel, agents, who, record, call, may, quote, quoted, bars }: { g: Group; channel: string; agents: AgentRow[]; who: (a: Extract<Msg["author"], { kind: "person" }>) => { who: ReturnType<typeof yours>; mine: boolean }; record: (session: string) => void; call: (nick: string) => void; may: boolean; quote?: (m: Msg) => void; quoted: (n: number) => { who: string; text: string } | undefined; bars: (session: string) => ReactNode }) {
   const list = useList();
   const a = g.author;
   if (a.kind === "iridium")
@@ -411,9 +399,10 @@ function GroupView({ g, channel, agents, who, record, call, may, quote, quoted }
         <span className="grid size-7 shrink-0 place-items-center rounded-full bg-fill">{agent && <Logo agent={agent} size={16} />}</span>
       )}
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-        <div className="flex h-4 min-w-0 items-baseline gap-1.5">
+        <div className="flex h-4 min-w-0 items-center gap-1.5">
           <span className="shrink-0 text-xs font-medium text-ink-2">{now?.nick || a.nick}</span>
           <span className="min-w-0 truncate text-xs text-ink-4">{now?.name || a.name}</span>
+          {now && bars(now.session)}
         </div>
         {g.msgs.map((m) => (
           <div key={m.n} className={cn(m.kind === "error" && "text-err")}>

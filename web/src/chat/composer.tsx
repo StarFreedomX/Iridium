@@ -126,6 +126,10 @@ const everyoneRows = (): AgentRow[] => [
 
 export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s, turn, onSent, onSentDone, cycleMode, openModel, openMode, openUsage, openContext, cleared, tools, end, fresh, nicks, lead, quote, unquote }, ref) {
   const multi = !!nicks;
+  // The quote as last shown: its row keeps its words while it shuts.
+  const lastQuote = useRef(quote);
+  if (quote) lastQuote.current = quote;
+  const shownQuote = quote ?? lastQuote.current;
   const [text, setText] = useState(() => kept(draftKey(s.id)) ?? "");
   const [atts, setAtts] = useState<Att[]>([]);
   const [busy, setBusy] = useState(false);
@@ -416,16 +420,17 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
         />
       )}
     <div className="glass float rest relative @container rounded-[20px]">
-      {quote && (
-        <div className="g-fade flex min-w-0 items-center gap-2 px-3.5 pt-2.5 text-xs text-ink-3">
-          <Reply size={13} className="shrink-0" />
-          <span className="shrink-0 font-medium text-ink-2">{quote.who}</span>
-          <span className="min-w-0 flex-1 truncate">{quote.text}</span>
-          <IconKey label={t("msg.unquote")} onClick={() => unquote?.()} className="size-6 pointer-coarse:size-8">
-            <X size={13} />
-          </IconKey>
+      {/* The message answered: its row opens and shuts as the attachments' does, no × (docs/
+          前端设计规范.md): Esc, a Backspace in an empty box, or a press on it put it away. */}
+      <div aria-hidden={!quote || undefined} className={cn("grid transition-[grid-template-rows,opacity] duration-(--dur-3) ease-(--ease-out)", quote ? "grid-rows-[1fr]" : "grid-rows-[0fr] opacity-0")}>
+        <div className="min-h-0 overflow-hidden">
+          <button type="button" tabIndex={quote ? 0 : -1} aria-label={t("msg.unquote")} onClick={() => unquote?.()} className="flex w-full min-w-0 items-center gap-2 px-3.5 pt-2.5 text-left text-xs text-ink-3 hover:text-ink-2">
+            <Reply size={13} className="shrink-0" />
+            <span className="shrink-0 font-medium text-ink-2">{shownQuote?.who}</span>
+            <span className="min-w-0 flex-1 truncate">{shownQuote?.text}</span>
+          </button>
         </div>
-      )}
+      </div>
       <div aria-hidden={!row || undefined} className={cn("grid transition-[grid-template-rows,opacity] duration-(--dur-3) ease-(--ease-out)", row ? "grid-rows-[1fr]" : "grid-rows-[0fr] opacity-0")}>
         <div className="min-h-0 overflow-hidden">
         <ul data-attachments className="m-0 flex list-none gap-2 overflow-x-auto px-3.5 pt-3 pb-0">
@@ -544,6 +549,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
             // → goes into the folder pointed at, only while the list is open on one.
             else if (e.key === "ArrowRight" && word && into(opts[sel], e.currentTarget, e.shiftKey || e.ctrlKey || e.metaKey || e.altKey)) enter(opts[sel]!);
             else if ((shown || atOpen) && e.key === "Escape") setShut(text);
+            else if (quote && (e.key === "Escape" || (e.key === "Backspace" && !text && e.currentTarget.selectionStart === 0))) unquote?.();
             else if (e.key === "Tab" && e.shiftKey) cycleMode();
             // In a turn, Ctrl or ⌘+Enter does what Enter does not: steer in (Claude Code's send now) or queue.
             else if (e.key === "Enter" && !e.shiftKey && (e.ctrlKey || e.metaKey) && turn) void (empty || go(true));

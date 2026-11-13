@@ -226,9 +226,11 @@ const quotaTone = (pct: number) => (pct >= 95 ? ["bg-err", "text-err"] : pct >= 
 /** using: what the session names the model it uses (chat.tsx): a window of one model shows only
  *  where that model is in use. machine: where the session runs; the windows are that machine's
  *  login's (an executor's may be another account), not this one's. */
-export function QuotaBars({ agent, machine, live, using, open, onOpenChange }: { agent: Agent; machine?: string; live: boolean; using: (string | undefined)[]; open?: boolean; onOpenChange?: (o: boolean) => void }) {
+/** compact: the phone's bars wherever it is (after an agent's model name, the user, 2026-11-13);
+ *  pressed, the popover. */
+export function QuotaBars({ agent, machine, live, using, open, onOpenChange, compact }: { agent: Agent; machine?: string; live: boolean; using: (string | undefined)[]; open?: boolean; onOpenChange?: (o: boolean) => void; compact?: boolean }) {
   const lang = useLang();
-  const phone = useMedia(PHONE);
+  const phone = useMedia(PHONE) || !!compact;
   useMinute(); // "read 5 min ago" and the fading, again each minute
   const quota = useQuota();
   // Held down (a finger), or the right button: the usage, at the bars (the user, 2026-11-08).
@@ -244,6 +246,7 @@ export function QuotaBars({ agent, machine, live, using, open, onOpenChange }: {
   const windows = (q?.windows ?? []).filter((w) => windowFor(w, using)); // all shown: no setting hides one (the user, 2026-11-06)
   // dsh has no windows but money: its balance where the bars would be (the user, 2026-11-08).
   const balance = q?.balance ?? [];
+  if (compact && (!q || (!windows.length && !balance.length))) return null;
   if (!q || (!windows.length && !balance.length))
     // No bars, but /usage still opens the popover, from where they would be.
     return (
@@ -264,7 +267,7 @@ export function QuotaBars({ agent, machine, live, using, open, onOpenChange }: {
       <Tip label={title}>
         <Popover.Trigger
           render={
-            <button ref={key} type="button" aria-label={label} {...hold} className="g-press flex h-7 shrink-0 items-center rounded-md px-1.5 select-none hover:bg-fill data-popup-open:bg-fill pointer-coarse:h-9 [-webkit-touch-callout:none]">
+            <button ref={key} type="button" aria-label={label} {...hold} className={cn("g-press flex shrink-0 items-center rounded-md select-none hover:bg-fill data-popup-open:bg-fill [-webkit-touch-callout:none]", compact ? "-my-1 h-6 px-1 pointer-coarse:h-8" : "h-7 px-1.5 pointer-coarse:h-9")}>
               {!windows.length ? (
                 <span className={cn("text-xs text-ink-3 tabular-nums transition-opacity", stale && "opacity-50")}>{balance.map((b) => money(b.currency, b.total)).join(" · ")}</span>
               ) : phone ? (

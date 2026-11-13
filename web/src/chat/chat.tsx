@@ -235,7 +235,6 @@ function OneChat({ id, sheet = 0, onSheet, onMe, back }: { id: string; sheet?: n
   }, []);
   const [modelOpen, setModelOpen] = useState(false);
   const [modeOpen, setModeOpen] = useState(false);
-  const [usageOpen, setUsageOpen] = useState(false);
   const shown = folded(log.blocks);
   const cwd = s?.cwd ?? row?.cwd ?? "";
   // 在哪干活 under the title (plan, 2026-11-10): the places this one sent sessions to, and those its
@@ -351,6 +350,7 @@ function OneChat({ id, sheet = 0, onSheet, onMe, back }: { id: string; sheet?: n
     });
   }
   const turns = turnsOf(rows);
+  const bars = s && <QuotaBars agent={s.agent} machine={s.machine} live={s.live} using={[s.model, s.pick, modelView(s).name]} compact />;
   // The channel as the list names it now: what the agent was given may be its id (not named
   // then) or an older name.
   const nameOf = (g: GivenTurn) => {
@@ -370,13 +370,13 @@ function OneChat({ id, sheet = 0, onSheet, onMe, back }: { id: string; sheet?: n
             x.kind === "one" ? (
               x.node
             ) : x.kind === "agent" ? (
-              <AgentTurn key={x.key} channel={id} a={i === turns.length - 1 ? face : resting} may={may}>
+              <AgentTurn key={x.key} channel={id} a={i === turns.length - 1 ? face : resting} may={may} bars={bars}>
                 {x.rows.map((r) => r.node)}
               </AgentTurn>
             ) : (
               <Relayed key={x.key} given={x.works.given} relay={x.works.relay} name={nameOf(x.works.given)} time={x.works.time} onJump={openChat}>
                 {x.rows.length > 0 && (
-                  <AgentTurn channel={id} a={resting} may={may}>
+                  <AgentTurn channel={id} a={resting} may={may} bars={bars}>
                     {x.rows.map((r) => r.node)}
                   </AgentTurn>
                 )}
@@ -433,7 +433,7 @@ function OneChat({ id, sheet = 0, onSheet, onMe, back }: { id: string; sheet?: n
               <NotJoinedOf id={id} />
             </Suspense>
           ) : (
-            <Under s={s} ghost={ghost} composer={composer} onSent={onSent} onSentDone={sentDone} modelOpen={modelOpen} setModelOpen={setModelOpen} modeOpen={modeOpen} setModeOpen={setModeOpen} usageOpen={usageOpen} setUsageOpen={setUsageOpen} />
+            <Under s={s} ghost={ghost} composer={composer} onSent={onSent} onSentDone={sentDone} modelOpen={modelOpen} setModelOpen={setModelOpen} modeOpen={modeOpen} setModeOpen={setModeOpen} />
           )}
         </div>
       </div>
@@ -443,7 +443,7 @@ function OneChat({ id, sheet = 0, onSheet, onMe, back }: { id: string; sheet?: n
 
 /** The composer, with in its foot the approval-mode key (back, its name alone, the user,
  *  2026-11-08), the model key, the quota bars, and at the right the context ring, then send. */
-function Under({ s, ghost, composer, onSent, onSentDone, modelOpen, setModelOpen, modeOpen, setModeOpen, usageOpen, setUsageOpen }: { s: LiveSession; ghost: boolean; composer: React.RefObject<ComposerHandle | null>; onSent: (x: Sent) => void; onSentDone: (x: Sent) => void; modelOpen: boolean; setModelOpen: (o: boolean) => void; modeOpen: boolean; setModeOpen: (o: boolean) => void; usageOpen: boolean; setUsageOpen: (o: boolean) => void }) {
+function Under({ s, ghost, composer, onSent, onSentDone, modelOpen, setModelOpen, modeOpen, setModeOpen }: { s: LiveSession; ghost: boolean; composer: React.RefObject<ComposerHandle | null>; onSent: (x: Sent) => void; onSentDone: (x: Sent) => void; modelOpen: boolean; setModelOpen: (o: boolean) => void; modeOpen: boolean; setModeOpen: (o: boolean) => void }) {
   const mode = useMode(s);
   const agentInfo = useAgent(s.agent);
   const [ctxOpen, setCtxOpen] = useState(false);
@@ -467,7 +467,7 @@ function Under({ s, ghost, composer, onSent, onSentDone, modelOpen, setModelOpen
         cycleMode={mode.cycle}
         openModel={() => setModelOpen(true)}
         openMode={() => setModeOpen(true)}
-        openUsage={() => setUsageOpen(true)}
+        openUsage={() => openUsage(undefined, s.machine)}
         openContext={() => !!s.context?.max && (setCtxOpen(true), true)}
         cleared={openChat}
         tools={
@@ -477,7 +477,6 @@ function Under({ s, ghost, composer, onSent, onSentDone, modelOpen, setModelOpen
             {!ghost && modelKnown && <ModelKey s={s} open={modelOpen} onOpenChange={setModelOpen} />}
             {/* dsh: its preset, then its balance where the bars would be (the user, 2026-11-08). */}
             {agentInfo?.presets ? <PresetKey s={s} /> : null}
-            <QuotaBars agent={s.agent} machine={s.machine} live={s.live} using={[s.model, s.pick, modelView(s).name]} open={usageOpen} onOpenChange={setUsageOpen} />
           </>
         }
         end={<ContextRing session={s.id} summary={s.context} tokens={s.tokens} open={ctxOpen} onOpenChange={setCtxOpen} />}
@@ -667,14 +666,17 @@ type Works = { given: GivenTurn; relay?: Relay; time?: number };
 
 /** What the agent did and said on end, under its face: the face at the left, its nick and what
  *  it runs as over the rest, as in a channel of several (chat/channel/page GroupView). */
-function AgentTurn({ channel, a, may, children }: { channel: string; a: AgentRow; may: boolean; children: ReactNode }) {
+/** bars: its usage, after its model's name (the user, 2026-11-13: as the composer's foot had it,
+ *  as small as a phone's). */
+function AgentTurn({ channel, a, may, bars, children }: { channel: string; a: AgentRow; may: boolean; bars?: ReactNode; children: ReactNode }) {
   return (
     <div className="flex min-w-0 items-start gap-2.5">
       <AgentFace channel={channel} a={a} may={may} />
       <div className="flex min-w-0 flex-1 flex-col gap-5">
-        <div className="-mb-3.5 flex h-4 min-w-0 items-baseline gap-1.5">
+        <div className="-mb-3.5 flex h-4 min-w-0 items-center gap-1.5">
           {a.nick && <span className="shrink-0 text-xs font-medium text-ink-2">{a.nick}</span>}
           <span className={cn("min-w-0 truncate text-xs", a.nick ? "text-ink-4" : "font-medium text-ink-2")}>{a.name}</span>
+          {bars}
         </div>
         {children}
       </div>
