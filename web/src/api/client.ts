@@ -57,7 +57,7 @@ import type {
 } from "./types.gen";
 import type { ShellOutput, ShellRun, ShellStarted } from "./types.gen";
 import type { SecretInfo, Secrets, SetSecret, Usage } from "./types.gen";
-import type { AgentChoices, ChannelMembers, Injection, MemberPatch, NewMember } from "./types.gen";
+import type { AgentChoices, ChannelMembers, ChannelReads, Injection, MemberPatch, NewMember } from "./types.gen";
 
 /** A message of a channel's log (Satori's message.list): id its number there. */
 export type ChannelMessage = { id: string; content: string; created_at?: number; user?: { id: string; name?: string; nick?: string; is_bot?: boolean }; _data?: { kind?: string; event?: unknown } };
@@ -247,6 +247,9 @@ export const api = {
   addMember: (id: string, m: NewMember) => write<ChannelMembers>("POST", `/v1/internal/channels/${enc(id)}/members`, m, { signal: AbortSignal.timeout(SEND_WAIT) }),
   patchMember: (id: string, member: string, p: MemberPatch) => write<ChannelMembers>("PATCH", `/v1/internal/channels/${enc(id)}/members/${enc(member)}`, p),
   removeMember: (id: string, member: string) => write<ChannelMembers>("DELETE", `/v1/internal/channels/${enc(id)}/members/${enc(member)}`),
+  /** How far each member has read the channel; read: this login has read it up to message seq. */
+  reads: (id: string) => get<ChannelReads>(`/v1/internal/channels/${enc(id)}/reads`),
+  read: (id: string, seq: number) => write<ChannelReads>("POST", `/v1/internal/channels/${enc(id)}/read`, { seq }),
   /** A channel's people set ("*" everyone, "<app>/*", "<app>/<login>"); the caller stays one. */
   setPeople: (id: string, people: string[]) => write<ChannelMembers>("PUT", `/v1/internal/channels/${enc(id)}/people`, { people }),
   /** What the channel gave session id's agent, the newest first. */

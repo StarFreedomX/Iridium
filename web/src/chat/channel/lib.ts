@@ -141,6 +141,23 @@ export function merge(have: Msg[], more: Msg[]): Msg[] {
  *  lines in a row close together; a person's each by itself. */
 export type Group = { key: string; author: Author; msgs: Msg[] };
 
+/** Where each reader's mark goes (docs/channels.md "已读"): under the group that holds the last
+ *  message it has read, by the group's key; one that has read nothing shown, or all of what is
+ *  before the first group, has none. skip: the member that is looking. */
+export function readMarks<R extends { member: string; seq: number }>(groups: Group[], readers: R[], skip?: string): Map<string, R[]> {
+  const out = new Map<string, R[]>();
+  for (const r of readers) {
+    if (r.member === skip || r.seq < 1) continue;
+    let at: Group | undefined;
+    for (const g of groups) {
+      if (g.msgs[0]!.n > r.seq) break;
+      at = g;
+    }
+    if (at) out.set(at.key, [...(out.get(at.key) ?? []), r]);
+  }
+  return out;
+}
+
 export function groupMessages(msgs: Msg[]): Group[] {
   const out: Group[] = [];
   for (const m of msgs) {
@@ -296,6 +313,19 @@ export const watchExtra = (channel: string, sessions: string[]) => {
   const rest = sessions.filter((s) => s !== channel);
   return [...rest.map((s) => `session:${s}`), ...rest.map((s) => `context:${s}`)];
 };
+
+/** What an agent was given of a channel, as its own record has it (internal/ctx/assemble
+ *  ChannelTurn: "#n: words", then a <channel-context> block): the message's number and its
+ *  words alone; channel: the channel it was called in, when that is not its own (it is in it by a
+ *  subscription, docs/channels.md). null: not such a message. */
+export type GivenTurn = { seq: number; words: string; channel?: { id: string; name: string } };
+
+export function givenTurn(text: string): GivenTurn | null {
+  const m = /^#(\d+): ([\s\S]*?)\n\n<channel-context>\n([\s\S]*)$/.exec(text);
+  if (!m) return null;
+  const c = /^You are \S+, called in the channel "([\s\S]*?)"(?: \(([0-9a-zA-Z_-]+)\))?, which people/.exec(m[3]!);
+  return { seq: Number(m[1]), words: m[2]!, ...(c ? { channel: { id: c[2] ?? "", name: c[1]! } } : {}) };
+}
 
 /** A part of what an agent was given (Injection.record): where it is from, the values its slots
  *  took, the messages it cites (#n). */

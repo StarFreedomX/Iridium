@@ -366,7 +366,7 @@ func (f *File) LastSaid() (*api.LastSaid, error) {
 	if b == nil || err != nil {
 		return nil, err
 	}
-	text := heading.ReplaceAllString(WithoutNameLines(b.Text), "")
+	text := heading.ReplaceAllString(WithoutNameLines(withoutChannelContext(b.Text)), "")
 	text = strings.NewReplacer("**", "", "`", "").Replace(text)
 	text = link.ReplaceAllString(text, "$1")
 	return &api.LastSaid{Role: string(b.Kind), Text: cut(oneLine(text), LastLen), From: b.From, FromTerminal: b.FromTerminal, At: b.Time}, nil
@@ -390,7 +390,24 @@ func (f *File) Title() (string, error) {
 	if b == nil || err != nil {
 		return "", err
 	}
-	return cut(oneLine(b.Text), TitleLen), nil
+	return cut(oneLine(withoutChannelContext(b.Text)), TitleLen), nil
+}
+
+// withoutChannelContext is a message an agent was given of a channel (internal/ctx/assemble
+// ChannelTurn: "#n: words", then a <channel-context> block) as its words alone; any other text
+// as it is.
+func withoutChannelContext(text string) string {
+	if !strings.HasPrefix(text, "#") {
+		return text
+	}
+	head, _, ok := strings.Cut(text, "\n\n<channel-context>\n")
+	if !ok {
+		return text
+	}
+	if _, words, ok := strings.Cut(head, ": "); ok {
+		return words
+	}
+	return head
 }
 
 // walk finds the first block (or the last, back) that ok takes, among lines that give messages.

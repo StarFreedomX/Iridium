@@ -6,17 +6,17 @@
 // under its nick; a composer whose @ calls an agent; the quota of each kind of agent.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
 import { api } from "../../api/client";
-import type { Block, SessionState as LiveSession, Session } from "../../api/types.gen";
+import type { Block, ChannelReads, Reader, SessionState as LiveSession, Session } from "../../api/types.gen";
 import { stateAhead, type Sent } from "../../chats";
 import { LOCAL_ME, useApps, useMe, useWhoList, useWorkspaces } from "../../data";
 import { t, useLang } from "../../i18n";
 import { pushIn } from "../../motion";
 import { openChat } from "../../route";
 import { PULL } from "../../sheet";
-import { getCarried, onCarried, setCarried, useConfirms, useList, useQuota, useSession } from "../../store";
+import { getCarried, onCarried, setCarried, useCarried, useConfirms, useList, useQuota, useSession } from "../../store";
 import { also, carries, events, opened, type SatoriEvent } from "../../stream";
 import { errText } from "../../toast";
-import { agentName, cn, lampOf, Logo } from "../../ui";
+import { agentName, Avatar, cn, lampOf, Logo, Tip } from "../../ui";
 import { Asks } from "../asks";
 import { placeDropped } from "../at";
 import { Composer, type ComposerHandle } from "../composer";
@@ -27,11 +27,12 @@ import { Queue } from "../queue";
 import { PLACE_DRAG, SESSION_DRAG, sourceOf, yours } from "../refs";
 import { Assistant, Attached, Line, Pending, YouBubble } from "../said";
 import { Stick, toEnd } from "../stick";
-import { groupMessages, linkNicks, quotaKinds, stillWaiting, watchExtra, type AgentRow, type Did, type Group, type Msg, eventParts, personName, type EventWords } from "./lib";
+import { groupMessages, readMarks, linkNicks, quotaKinds, stillWaiting, watchExtra, type AgentRow, type Did, type Group, type Msg, eventParts, personName, type EventWords } from "./lib";
 import { channelLog } from "./log";
 import { useMembers } from "./gate";
 import InviteLead from "./invite";
 import { NotJoined, useChannelCtl } from "./key";
+import { AgentFace } from "./members";
 import { NickLink, Nicks, NickWords } from "./nick";
 
 const WORKING = new Set(["running", "compacting", "starting"]);
@@ -199,11 +200,34 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
     if (to && to.id !== id) composer.current?.name(to.id);
   };
 
+  // Who said a person's words, and whether it is the one looking: only those are on the right
+  // (the user, 2026-11-13); another login, an app, a Bot on the left, under its own face.
   const who = (m: Extract<Msg["author"], { kind: "person" }>) => {
     const src = sourceOf(m.name, m.id, self, terminals, list ?? [], workspaces ?? []);
-    return src.kind === "you" ? src : yours({ id: m.id, name: m.name });
+    // The machine's own words (typed at its terminal, sent with its ir) are the host's.
+    const mine = m.id === self.id || (!!self.host && (m.id === "local" || (src.kind === "you" && !!src.local)));
+    if (src.kind === "you") return { who: src, mine };
+    const known = terminals.find((x) => x.id === m.id);
+    return { who: yours(known ? { ...known, name: m.name || known.name } : { id: m.id, name: m.name, device: "none" }), mine };
   };
   const groups = useMemo(() => groupMessages(log.msgs), [log.msgs]);
+
+  // How far each member has read (docs/channels.md "已读"): asked once, then as the stream
+  // brings it. This page has read what it shows: said as the log's end moves, while it is seen.
+  const reads = useCarried<ChannelReads>(`reads:${id}`);
+  useEffect(() => {
+    void api.reads(id).then(
+      (r) => getCarried(`reads:${id}`) || setCarried(`reads:${id}`, r),
+      () => {},
+    );
+  }, [id]);
+  const end = log.loaded ? log.end : 0;
+  useEffect(() => {
+    if (!end || !may || document.visibilityState !== "visible") return;
+    const timer = setTimeout(() => void api.read(id, end).then((r) => setCarried(`reads:${id}`, r), () => {}), 600);
+    return () => clearTimeout(timer);
+  }, [id, end, may]);
+  const marks = useMemo(() => readMarks(groups, reads?.readers ?? [], members?.me), [groups, reads, members?.me]);
   const working = agents.filter((a) => WORKING.has(a.status));
   const asking = agents.some((_, i) => states[i]?.asks.length);
   const grew = `${log.end} ${sent.length} ${working.map((a) => a.session).join(" ")}`;
@@ -216,7 +240,10 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
         <Stick scroller={scroller} tail={grew} older={() => log.older().then((any) => (changed(), any))} place={entry.place} bottom={stackH} quiet={asking} style={{ paddingTop: padTop, paddingBottom: stackH + 20 }}>
           <div className="mx-auto flex max-w-[760px] flex-col gap-5 px-4 sm:px-6">
             {groups.map((g) => (
-              <GroupView key={g.key} g={g} channel={id} agents={agents} who={who} record={record} />
+              <div key={g.key} className="flex min-w-0 flex-col gap-1">
+                <GroupView g={g} channel={id} agents={agents} who={who} record={record} call={call} may={may} />
+                {marks.has(g.key) && <ReadMarks readers={marks.get(g.key)!} agents={agents} />}
+              </div>
             ))}
             {sent.map((x) => (
               <Pending
@@ -274,6 +301,21 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
   );
 }
 
+/** Who has read up to here: small faces at the right, under what they last read. */
+function ReadMarks({ readers, agents }: { readers: Reader[]; agents: AgentRow[] }) {
+  const names = readers.map((r) => r.nick || r.name || r.member).join(t("channel.event.sep"));
+  return (
+    <Tip label={t("channel.readBy", { names })}>
+      <div role="group" aria-label={t("channel.readBy", { names })} className="g-fade flex h-4 items-center justify-end gap-0.5 self-end">
+        {readers.slice(0, 8).map((r) => {
+          const a = r.agent ?? agents.find((x) => x.member === r.member)?.agent;
+          return a ? <Logo key={r.member} agent={a} size={12} className="opacity-70" /> : <Avatar key={r.member} name={r.name} size={14} />;
+        })}
+      </div>
+    </Tip>
+  );
+}
+
 /** Something of one agent's above the composer (its queue, its asks), under its logo and nick.
  *  off: shown, not to be answered (the one looking is not of the channel's people). */
 function Of({ a, children, off }: { a: AgentRow; children: ReactNode; off?: boolean }) {
@@ -320,7 +362,7 @@ function blockFor(m: Msg, nicks: string[]): Block {
 }
 
 /** One speaker's messages: a person's bubble; an agent's words under its head; Iridium's line. */
-function GroupView({ g, channel, agents, who, record }: { g: Group; channel: string; agents: AgentRow[]; who: (a: Extract<Msg["author"], { kind: "person" }>) => ReturnType<typeof yours>; record: (session: string) => void }) {
+function GroupView({ g, channel, agents, who, record, call, may }: { g: Group; channel: string; agents: AgentRow[]; who: (a: Extract<Msg["author"], { kind: "person" }>) => { who: ReturnType<typeof yours>; mine: boolean }; record: (session: string) => void; call: (nick: string) => void; may: boolean }) {
   const list = useList();
   const a = g.author;
   if (a.kind === "iridium")
@@ -333,8 +375,9 @@ function GroupView({ g, channel, agents, who, record }: { g: Group; channel: str
     );
   if (a.kind === "person") {
     const m = g.msgs[0]!;
+    const by = who(a);
     return (
-      <YouBubble text={m.text} who={who(a)} time={m.time} words={<NickWords text={m.text} />}>
+      <YouBubble text={m.text} who={by.who} left={!by.mine} time={m.time} words={<NickWords text={m.text} />}>
         {m.files.map((f) => (
           <Attached key={f.ref} session={channel} f={f} />
         ))}
@@ -346,20 +389,26 @@ function GroupView({ g, channel, agents, who, record }: { g: Group; channel: str
   // One no longer in the channel: its harness as the list still has its session.
   const agent = now?.agent ?? list?.find((x) => x.id === a.session)?.agent;
   return (
-    <div className="flex min-w-0 flex-col gap-2">
-      <button type="button" onClick={() => record(a.session)} aria-label={`${now?.nick || a.nick} · ${t("channel.session")}`} className="g-press -mx-1 flex min-w-0 items-center gap-1.5 self-start rounded-md px-1 text-left hover:bg-fill">
-        {agent && <Logo agent={agent} size={16} />}
-        <span className="shrink-0 text-sm font-medium">{now?.nick || a.nick}</span>
-        <span className="min-w-0 truncate text-xs text-ink-3">{now?.name || a.name}</span>
-      </button>
-      {g.msgs.map((m) => (
-        <div key={m.n} className={cn(m.kind === "error" && "text-err")}>
-          {m.did && <DidLine did={m.did} />}
-          <Copyable copy={m.text}>
-            <Assistant b={blockFor(m, nicks)} session={a.session} />
-          </Copyable>
+    <div className="flex min-w-0 items-start gap-2.5">
+      {now ? (
+        <AgentFace channel={channel} a={now} call={call} record={record} may={may} />
+      ) : (
+        <span className="grid size-7 shrink-0 place-items-center rounded-full bg-fill">{agent && <Logo agent={agent} size={16} />}</span>
+      )}
+      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+        <div className="flex h-4 min-w-0 items-baseline gap-1.5">
+          <span className="shrink-0 text-xs font-medium text-ink-2">{now?.nick || a.nick}</span>
+          <span className="min-w-0 truncate text-xs text-ink-4">{now?.name || a.name}</span>
         </div>
-      ))}
+        {g.msgs.map((m) => (
+          <div key={m.n} className={cn(m.kind === "error" && "text-err")}>
+            {m.did && <DidLine did={m.did} />}
+            <Copyable copy={m.text}>
+              <Assistant b={blockFor(m, nicks)} session={a.session} />
+            </Copyable>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

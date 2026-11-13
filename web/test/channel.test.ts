@@ -2,7 +2,7 @@
 import { describe, expect, test } from "vitest";
 import type { ChannelMessage, ChannelPage } from "../src/api/client";
 import type { Session } from "../src/api/types.gen";
-import { eventParts, personName, type EventWords, channelLamp, givenParts, groupMessages, insertNick, isMulti, linkNicks, matchAgents, merge, msgOf, nickOfURL, nickParts, nickSpans, quotaKinds, stillWaiting, validNick, watchExtra } from "../src/chat/channel/lib";
+import { eventParts, personName, type EventWords, channelLamp, givenParts, givenTurn, groupMessages, insertNick, isMulti, linkNicks, matchAgents, merge, msgOf, nickOfURL, nickParts, nickSpans, quotaKinds, readMarks, stillWaiting, validNick, watchExtra } from "../src/chat/channel/lib";
 import { ChannelLog } from "../src/chat/channel/log";
 import { buildTree, standing } from "../src/tree";
 
@@ -122,6 +122,24 @@ describe("@nick", () => {
     expect(matchAgents(rows, "").map((r) => r.nick)).toEqual(["pi", "cc", "opi"]);
     expect(matchAgents(rows, "p").map((r) => r.nick)).toEqual(["pi", "opi", "cc"]);
     expect(matchAgents(rows, "zz")).toEqual([]);
+  });
+});
+
+describe("what an agent was given", () => {
+  test("a channel's message: its number, its words, the channel it was called in", () => {
+    expect(givenTurn("plain words")).toBeNull();
+    expect(givenTurn("#4: hello\nthere\n\n<channel-context>\nYou are claude in a channel shared with people.\n</channel-context>")).toEqual({ seq: 4, words: "hello\nthere" });
+    expect(givenTurn('#12: @pi look\n\n<channel-context>\nYou are pi, called in the channel "Room 1" (abc-123), which people and other agents share.\n</channel-context>')).toEqual({ seq: 12, words: "@pi look", channel: { id: "abc-123", name: "Room 1" } });
+    expect(givenTurn('#2: x\n\n<channel-context>\nYou are pi, called in the channel "R", which people and other agents share.')?.channel).toEqual({ id: "", name: "R" });
+  });
+});
+
+describe("who has read", () => {
+  test("a reader's mark is under the group that holds the last message it read", () => {
+    const m = (n: number, session?: string) => ({ n, text: "", files: [], author: session ? { kind: "agent" as const, session, nick: session, name: "" } : { kind: "person" as const, id: "u", name: "u" } });
+    const groups = groupMessages([m(1), m(2, "a"), m(3, "a"), m(5)] as never);
+    const marks = readMarks(groups, [{ member: "x", seq: 3 }, { member: "y", seq: 9 }, { member: "me", seq: 9 }, { member: "z", seq: 0 }, { member: "w", seq: 4 }], "me");
+    expect([...marks].map(([k, rs]) => `${k}:${rs.map((r) => r.member).join("")}`)).toEqual(["m2:xw", "m5:y"]);
   });
 });
 

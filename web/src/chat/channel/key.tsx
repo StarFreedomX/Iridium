@@ -1,23 +1,15 @@
-// 群聊配置's key (docs/channels.md; the user, 2026-11-12): in a composer's foot, by the attach key,
-// the channel's members in a few marks: its agents' logos one over the next, then 全部 or how
-// many people. Pressed, the popup (config.tsx, fetched as it first opens). The same key edits a
-// chat's members as they are (each change at once) and a new session's draft (nothing sent till
-// it is made): what it edits is a Ctl.
-import { Popover } from "@base-ui/react/popover";
+// What changes a channel's members (docs/channels.md), and the line shown in the composer's
+// place to one who is not of its people.
 import { useQueryClient } from "@tanstack/react-query";
-import { lazy, Suspense, type ReactElement } from "react";
 import { api, ApiError } from "../../api/client";
 import type { Agent, ChannelMembers, NewMember, SessionState } from "../../api/types.gen";
-import { useApps } from "../../data";
 import { t, useLang } from "../../i18n";
 import { getCarried, useList } from "../../store";
 import { useMembers } from "./gate";
 import { errText } from "../../toast";
-import { agentName, cn, LogoStack, PopSurface } from "../../ui";
+import { agentName } from "../../ui";
 import { modelView } from "../meters";
-import { everyone, mayAct, peopleCount, peopleOf } from "./setup";
-
-const Config = lazy(() => import("./config").then((m) => ({ default: m.Config })));
+import { mayAct, peopleOf } from "./setup";
 
 /** An agent as the popup lists it. own: the session the channel is (never taken out). */
 export type Line = { key: string; agent: Agent; nick: string; name: string; recv: string; own: boolean };
@@ -87,64 +79,14 @@ export function useChannelCtl(channel: string, members: ChannelMembers | undefin
   };
 }
 
-/** The key's few words for the people: 全部, or how many. */
-export function usePeopleWord(people: string[]): string {
+/** Where the composer would be, for one not of the channel's people: 未加入. */
+export function NotJoined(_: { ctl: Ctl }) {
   useLang();
-  const apps = useApps().data;
-  if (everyone(people)) return t("channel.everyone");
-  return t("channel.peopleN", { n: peopleCount(people, (app) => (apps?.logins ?? []).filter((l) => l.app === app).length) });
+  return <div className="glass float rest flex h-12 items-center justify-center rounded-[20px] px-4 text-sm text-ink-3">{t("channel.notJoined")}</div>;
 }
 
-/** The popup on a trigger of the caller's own (the member bar's "+"). */
-export function ConfigPopover({ ctl, trigger, side = "bottom", open, onOpenChange }: { ctl: Ctl; trigger: ReactElement; side?: "top" | "bottom"; open?: boolean; onOpenChange?: (o: boolean) => void }) {
-  return (
-    <Popover.Root open={open} onOpenChange={onOpenChange}>
-      <Popover.Trigger render={trigger} />
-      <PopSurface side={side} align="start" className="flex max-h-[min(560px,calc(var(--available-height)-8px))] w-[min(380px,calc(100vw-16px))] flex-col">
-        <Suspense fallback={<div className="h-40" />}>
-          <Config ctl={ctl} />
-        </Suspense>
-      </PopSurface>
-    </Popover.Root>
-  );
-}
-
-/** The key in a composer's foot. */
-export function MembersKey({ ctl, className, onOpenChange }: { ctl: Ctl; className?: string; onOpenChange?: (o: boolean) => void }) {
-  useLang();
-  const word = usePeopleWord(ctl.people);
-  const label = `${t("channel.config")}: ${ctl.lines.map((l) => l.nick || agentName(l.agent)).join(", ")} · ${word}`;
-  return (
-    <ConfigPopover
-      ctl={ctl}
-      side="top"
-      onOpenChange={onOpenChange}
-      trigger={
-        <button type="button" aria-label={label} className={cn("g-press flex h-7 shrink-0 items-center gap-1.5 rounded-md px-1.5 text-xs whitespace-nowrap text-ink-3 hover:bg-fill hover:text-ink data-popup-open:bg-fill pointer-coarse:h-9", className)}>
-          <LogoStack agents={ctl.lines.map((l) => l.agent)} size={15} />
-          <span>{word}</span>
-        </button>
-      }
-    />
-  );
-}
-
-/** Where the composer would be, for one not of the channel's people: 未加入, and the members'
- *  key, which still shows who is. */
-export function NotJoined({ ctl }: { ctl: Ctl }) {
-  return (
-    <div className="glass float rest flex h-12 items-center gap-2 rounded-[20px] px-2 text-sm text-ink-3">
-      <MembersKey ctl={ctl} />
-      <span className="min-w-0 flex-1 truncate pr-10 text-center">{t("channel.notJoined")}</span>
-    </div>
-  );
-}
-
-/** A chat's own key and its line for one not joined, by the chat's id alone: what the one-agent
- *  chat draws, their code fetched apart from it (chat.tsx). */
-export function ChannelKey({ id }: { id: string }) {
-  return <MembersKey ctl={useChannelCtl(id, useMembers(id))} />;
-}
+/** The line for one not joined, by the chat's id alone: what the one-agent chat draws, its code
+ *  fetched apart from it (chat.tsx). */
 export function NotJoinedOf({ id }: { id: string }) {
   return <NotJoined ctl={useChannelCtl(id, useMembers(id))} />;
 }

@@ -2,7 +2,7 @@
 // popover shell, icon keys, agent logos with their status lamp, terminal avatars, switches.
 import { Popover } from "@base-ui/react/popover";
 import { Tooltip } from "@base-ui/react/tooltip";
-import { Bot, Camera, Monitor, Puzzle, ScrollText, type LucideIcon } from "lucide-react";
+import { Bot, Camera, Hash, Monitor, Puzzle, ScrollText, type LucideIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ComponentProps, type CSSProperties, type ReactElement, type ReactNode } from "react";
 import type { Agent, Status } from "./api/types.gen";
 import { t } from "./i18n";
@@ -265,6 +265,8 @@ export const AGENTS: Agent[] = ["claude", "codex", "pi", "dsh"];
 /** An agent's mark, the only coloured thing in a row. */
 export function Logo({ agent, size = 16, className }: { agent: Agent; size?: number; className?: string }) {
   const style: CSSProperties = { width: size, height: size };
+  // No agent: a channel that is no session's (Session.bare).
+  if (!agent) return <Hash aria-hidden className={cn("shrink-0 text-ink-2", className)} style={style} strokeWidth={2.25} />;
   if (agent === "codex")
     return (
       <svg role="img" aria-label="Codex" viewBox={OPENAI_VIEWBOX} className={cn("shrink-0 text-ink", className)} style={style}>

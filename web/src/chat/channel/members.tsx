@@ -1,14 +1,13 @@
-// A channel's agents, in a row under the chat's title (docs/channels.md): each its harness's logo
-// inside the ring of its context, its lamp on the corner, its nick beside it. A press calls it
-// (@nick in the composer); the mouse resting on it shows what it runs as and its context's parts;
-// the right button, or a finger held down, its menu: compact, model, effort, approval mode, stop,
-// what it receives, its nick, its own record, what the channel gave it, out. After them a "+" adds
-// another. The people in the channel are not shown here yet.
+// A channel's agents as faces (docs/channels.md): beside what each said, its harness's logo on a
+// disc, its lamp on the corner. A press calls it (@nick in the composer); the mouse resting on
+// it shows what it runs as and its context's parts; the right button, or a finger held down,
+// its menu: compact, model, effort, approval mode, stop, what it receives, its nick, usage, its
+// own session, what the channel gave it, out.
 import { Dialog } from "@base-ui/react/dialog";
 import { Menu } from "@base-ui/react/menu";
 import { Popover } from "@base-ui/react/popover";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AtSign, Box, Brain, ChartPie, Check, ChevronRight, CircleStop, FoldVertical, PencilLine, Plus, Inbox, ScrollText, ShieldCheck, UserMinus, X } from "lucide-react";
+import { AtSign, BarChart3, Box, Brain, ChartPie, Check, ChevronRight, CircleStop, FoldVertical, PencilLine, Inbox, ScrollText, ShieldCheck, UserMinus, X } from "lucide-react";
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 import { api } from "../../api/client";
 import type { ChannelMembers, SessionState as LiveSession, Session } from "../../api/types.gen";
@@ -17,10 +16,11 @@ import { t, useLang } from "../../i18n";
 import { ModeMark, modeName } from "../../modes";
 import { useContextState, useList, useSession } from "../../store";
 import { errText, toast } from "../../toast";
-import { agentName, cn, IconKey, Logo, LogoLamp, own, sessionStatusText, useLongPress, useMenuAt } from "../../ui";
+import { openUsage } from "../../route";
+import { agentName, cn, Logo, LogoLamp, own, sessionStatusText, useLongPress, useMenuAt } from "../../ui";
 import { levelName } from "../effort";
 import { ContextDetail, modelView, useMode } from "../meters";
-import { ConfigPopover, memberError, type Ctl } from "./key";
+import { memberError } from "./key";
 import { givenParts, validNick, type AgentRow } from "./lib";
 
 const ITEM = "flex h-8 cursor-default items-center gap-2.5 rounded-md px-2.5 text-base outline-none select-none data-highlighted:bg-fill data-popup-open:bg-fill pointer-coarse:h-11";
@@ -45,28 +45,10 @@ function At({ anchor, open, onOpenChange, children, className, bare }: { anchor:
   );
 }
 
-/** The row of members. call: a nick pressed; record: a member's own record asked for. ctl: what
- *  the "+" after them opens, 群聊配置 (key.tsx); one not of the channel's people changes nothing. */
-export function MemberBar({ channel, agents, call, record, ctl }: { channel: string; agents: AgentRow[]; call: (nick: string) => void; record: (session: string) => void; ctl: Ctl }) {
-  useLang();
-  return (
-    <div role="list" aria-label={t("channel.agents")} className="g-fade flex h-10 min-w-0 items-start gap-0.5 overflow-x-auto pr-2 pl-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-      {agents.map((a) => (
-        <Member key={a.session} channel={channel} a={a} call={call} record={record} may={!ctl.readOnly} />
-      ))}
-      <ConfigPopover
-        ctl={ctl}
-        trigger={
-          <IconKey label={t("channel.config")} tipSide="bottom" className="mt-0.5 size-8 text-ink-3 data-popup-open:bg-fill">
-            <Plus size={16} />
-          </IconKey>
-        }
-      />
-    </div>
-  );
-}
-
-function Member({ channel, a, call, record, may }: { channel: string; a: AgentRow; call: (nick: string) => void; record: (session: string) => void; may: boolean }) {
+/** An agent's face beside what it said (the user, 2026-11-13): its harness's logo on a disc, its
+ *  lamp on the corner. A press calls it (@nick in the composer); the mouse resting on it shows
+ *  what it runs as and its context; the right button, or a finger held down, its menu. */
+export function AgentFace({ channel, a, call, record, may, size = 28 }: { channel: string; a: AgentRow; call: (nick: string) => void; record: (session: string) => void; may: boolean; size?: number }) {
   const real = useSession(a.session);
   const row = useList()?.find((x) => x.id === a.session);
   const s = real ?? (row && ghostOf(row));
@@ -88,16 +70,12 @@ function Member({ channel, a, call, record, may }: { channel: string; a: AgentRo
     const r = face.current?.getBoundingClientRect();
     setMenuAt(r ? { x: r.left, y: r.bottom + 4 } : { x: 40, y: 80 });
   });
-  const pct = ctx?.max ? Math.min(100, Math.round((ctx.used / ctx.max) * 100)) : 0;
-  const R = 13;
-  const circ = 2 * Math.PI * R;
   const label = [a.nick, a.name, a.status !== "idle" && sessionStatusText(a)].filter(Boolean).join(" · ");
   return (
     <>
       <button
         ref={face}
         type="button"
-        role="listitem"
         aria-label={label}
         onClick={() => (clearTimeout(rest.current), setDetail(false), call(a.nick))}
         {...lp}
@@ -110,17 +88,10 @@ function Member({ channel, a, call, record, may }: { channel: string; a: AgentRo
           setDetail(false);
           setMenuAt({ x: e.clientX, y: e.clientY });
         }}
-        className="g-press flex h-9 shrink-0 items-center gap-1.5 rounded-md pr-2 pl-1 select-none hover:bg-fill pointer-coarse:h-10 [-webkit-touch-callout:none]"
+        style={{ width: size, height: size }}
+        className="g-press grid shrink-0 place-items-center rounded-full bg-fill select-none hover:bg-fill-2 [-webkit-touch-callout:none]"
       >
-        <span className="relative grid size-[30px] shrink-0 place-items-center">
-          {/* The ring of its context, as the composer's (chat/meters.tsx ContextRing), around the logo. */}
-          <svg width="30" height="30" viewBox="0 0 30 30" className="absolute inset-0 -rotate-90" aria-hidden>
-            <circle cx="15" cy="15" r={R} fill="none" stroke="var(--fill-2)" strokeWidth="2" />
-            {pct > 0 && <circle cx="15" cy="15" r={R} fill="none" stroke={pct >= 90 ? "var(--need)" : "var(--ink-2)"} strokeWidth="2" strokeLinecap="round" strokeDasharray={`${(circ * pct) / 100} ${circ}`} />}
-          </svg>
-          <LogoLamp agent={a.agent} status={a.status} size={15} />
-        </span>
-        <span className="max-w-28 truncate text-xs text-ink-2">{a.nick}</span>
+        <LogoLamp agent={a.agent} status={a.status} size={Math.round(size * 0.57)} />
       </button>
       <At anchor={face} open={detail} onOpenChange={setDetail} className="w-[min(300px,calc(100vw-16px))] p-3.5">
         <div onPointerEnter={() => clearTimeout(rest.current)} onPointerLeave={(e) => e.pointerType === "mouse" && hover(false, 150)}>
@@ -263,7 +234,8 @@ function MemberMenu({ channel, a, s, may, at, close, detail, rename, record, giv
               />}
               {may && item(<PencilLine size={15} />, t("menu.rename"), later(rename))}
               {detail && item(<ChartPie size={15} />, t("ctx.title"), later(detail))}
-              {item(<ScrollText size={15} />, t("channel.record"), record)}
+              {item(<BarChart3 size={15} />, t("usage.title"), later(() => openUsage(at ? { x: at.x, y: at.y } : undefined, s.machine)))}
+              {item(<ScrollText size={15} />, t("channel.session"), record)}
               {item(<Inbox size={15} />, t("channel.given"), later(given))}
               {remove && item(<UserMinus size={15} />, t("channel.remove"), later(remove), "text-err")}
             </div>

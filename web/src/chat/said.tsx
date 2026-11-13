@@ -5,9 +5,10 @@
 // peer sent; Iridium's own lines
 // centred and faint; the agent's words as Markdown with the files they name; tool calls and
 // thoughts folded to a line.
-import { Archive, ArchiveRestore, ArrowUpRight, BookOpen, Bot, BotMessageSquare, ChartColumn, Check, ChevronRight, CircleStop, CircleX, Clock, CloudDownload, CloudUpload, Copy, Cpu, Earth, FileCode, FileDiff, FilePen, Files as FilesIcon, FileText, FlaskConical, FolderGit2, FolderOpen, Folders, FoldVertical, GitBranch, GitCommitHorizontal, GitPullRequest, Globe, Hammer, History, Hourglass, KeyRound, Laptop, Link2, List, ListChecks, LoaderCircle, LockKeyhole, MessageCircleQuestionMark, MessageSquarePlus, Monitor, MonitorSmartphone, MousePointerClick, Network, Package, PencilLine, Plug, RotateCcw, RotateCw, Search, Send, ServerCog, SlidersHorizontal, Smartphone, SquareTerminal, StickyNote, Terminal, Trash2, type LucideIcon, UserRound, Workflow as WorkflowIcon, Wrench, X } from "lucide-react";
+import { Archive, ArchiveRestore, ArrowUpRight, BookOpen, Bot, BotMessageSquare, ChartColumn, Check, ChevronRight, CircleStop, CircleX, Clock, CloudDownload, CloudUpload, Copy, Cpu, Earth, FileCode, FileDiff, FilePen, Files as FilesIcon, FileText, FlaskConical, FolderGit2, FolderOpen, Folders, FoldVertical, GitBranch, GitCommitHorizontal, GitPullRequest, Globe, Hammer, Hash, History, Hourglass, KeyRound, Laptop, Link2, List, ListChecks, LoaderCircle, LockKeyhole, MessageCircleQuestionMark, MessageSquarePlus, Monitor, MonitorSmartphone, MousePointerClick, Network, Package, PencilLine, Plug, RotateCcw, RotateCw, Search, Send, ServerCog, SlidersHorizontal, Smartphone, SquareTerminal, StickyNote, Terminal, Trash2, type LucideIcon, UserRound, Workflow as WorkflowIcon, Wrench, X } from "lucide-react";
 import { Copyable } from "./copyable";
 import { Children, forwardRef, memo, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { givenTurn, type GivenTurn } from "./channel/lib";
 import { Popover } from "@base-ui/react/popover";
 import { api } from "../api/client";
 import type { Block, FileRef, Result } from "../api/types.gen";
@@ -85,18 +86,20 @@ function Face({ who }: { who: You | From }) {
 /** One message of the user's side, QQ-like: the face beside it, the name above, yours on the right.
  *  jump: a key to the sending session, on the face and the name. Your own face opens the settings
  *  (the user, 2026-11-08). */
-const Sender = forwardRef<HTMLDivElement, { who: You | From; title?: string; jump?: () => void; children: ReactNode }>(function Sender({ who, title, jump, children }, ref) {
+/** left: another's words in a channel others speak in too, on the left: only yours are on the
+ *  right there (the user, 2026-11-13). */
+const Sender = forwardRef<HTMLDivElement, { who: You | From; title?: string; jump?: () => void; left?: boolean; children: ReactNode }>(function Sender({ who, title, jump, left, children }, ref) {
   const mine = who.kind === "you";
   const name = mine ? youName(who) : who.name;
   // A session's letter: its folder too, in the tip; the name is its title alone.
   const whole = !mine && who.where ? `${name} · ${tilde(who.where)}` : name;
   const tip = mine ? t("msg.fromPanel", { name: deviceOf(who) ? `${name} · ${t(deviceOf(who)![1])}` : name }) : jump ? t("msg.jump", { name: whole }) : who.channel ? t("msg.viaChannel", { name }) : whole;
   const face = <Face who={who} />;
-  const press = jump ?? (mine ? () => go({ name: "settings" }) : undefined);
+  const press = jump ?? (mine && !left ? () => go({ name: "settings" }) : undefined);
   // Every sender on the right, a letter as your words are: on the left it read as the agent's own
   // (the user, 2026-11-06).
   return (
-    <div ref={ref} className="flex flex-row-reverse items-start gap-2.5 pl-6 sm:pl-10" title={title}>
+    <div ref={ref} className={cn("flex items-start gap-2.5", left ? "pr-6 sm:pr-10" : "flex-row-reverse pl-6 sm:pl-10")} title={title}>
       <Tip label={tip}>
         {press ? (
           <button type="button" onClick={press} aria-label={tip} className="g-press grid shrink-0 rounded-full">
@@ -108,7 +111,7 @@ const Sender = forwardRef<HTMLDivElement, { who: You | From; title?: string; jum
           </span>
         )}
       </Tip>
-      <div className="flex min-w-0 flex-col items-end gap-1">
+      <div className={cn("flex min-w-0 flex-col gap-1", left ? "items-start" : "items-end")}>
         {jump ? (
           <button type="button" onClick={jump} className="group flex max-w-full items-center gap-0.5 rounded-sm px-0.5 text-xs leading-4 text-ink-3 hover:text-ink-2">
             <span className="min-w-0 truncate">{name}</span>
@@ -139,14 +142,14 @@ function SendState({ state }: { state: Going }) {
 }
 
 /** words: the text drawn another way than Worded's (a channel's, its nicks too: chat/channel). */
-export const YouBubble = forwardRef<HTMLDivElement, { text: string; who: You; failed?: boolean; children?: ReactNode; time?: number; going?: Going; words?: ReactNode }>(function YouBubble({ text, who, failed, children, time, going, words }, ref) {
+export const YouBubble = forwardRef<HTMLDivElement, { text: string; who: You; failed?: boolean; children?: ReactNode; time?: number; going?: Going; words?: ReactNode; left?: boolean }>(function YouBubble({ text, who, failed, children, time, going, words, left }, ref) {
   // What the words name, where they name it (Worded); the files in a row under them.
   const row = Children.count(children) > 0;
   return (
-    <Sender ref={ref} who={who} title={time ? clock(time) : undefined}>
+    <Sender ref={ref} who={who} left={left} title={time ? clock(time) : undefined}>
       <div className="relative max-w-[min(560px,100%)] px-3.5 py-2">
         {going && <SendState state={going} />}
-        <span data-bubble-bg className={cn("absolute inset-0 rounded-xl rounded-tr-sm bg-fill", failed && "shadow-[inset_0_0_0_1px_var(--err)]")} aria-hidden />
+        <span data-bubble-bg className={cn("absolute inset-0 rounded-xl bg-fill", left ? "rounded-tl-sm" : "rounded-tr-sm", failed && "shadow-[inset_0_0_0_1px_var(--err)]")} aria-hidden />
         {text && (
           <span className="relative block text-md whitespace-pre-wrap [overflow-wrap:anywhere]">
             {words ?? <Worded text={text} />}
@@ -285,6 +288,30 @@ export const Assistant = memo(function Assistant({ b, session }: { b: Block; ses
   );
 });
 
+/** 在某频道中工作: where an agent's work for another channel begins in its own record. Folded:
+ *  the channel's name, a key to it; opened, the words that called it. */
+function WorksIn({ given, time, onJump }: { given: GivenTurn; time?: number; onJump: (id: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const ch = given.channel!;
+  return (
+    <div className="flex flex-col items-center gap-1">
+      <Line icon={<Hash size={12} />} title={time ? clock(time) : undefined}>
+        <span className="inline-flex items-center gap-1">
+          <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="rounded-sm hover:text-ink-2">
+            {t("channel.worksIn", { name: ch.name })} · #{given.seq}
+          </button>
+          {ch.id && (
+            <button type="button" aria-label={t("msg.jump", { name: ch.name })} onClick={() => onJump(ch.id)} className="grid rounded-sm hover:text-ink-2">
+              <ArrowUpRight size={12} />
+            </button>
+          )}
+        </span>
+      </Line>
+      {open && <p className="g-fade m-0 max-w-[min(560px,100%)] rounded-lg bg-fill px-3 py-1.5 text-sm whitespace-pre-wrap text-ink-2 [overflow-wrap:anywhere]">{given.words}</p>}
+    </div>
+  );
+}
+
 export function Said({ b, session, cwd, source, onJump }: { b: Shown; session: string; cwd: string; source: (b: { from?: string; fromTerminal?: string }) => Source; onJump: (id: string) => void }) {
   switch (b.kind) {
     case "user": {
@@ -292,8 +319,13 @@ export function Said({ b, session, cwd, source, onJump }: { b: Shown; session: s
       const text = b.text ?? "";
       if (src.kind === "iridium") return <Line icon={<RotateCcw size={12} />}>{text}</Line>;
       // The server writes each attachment as a line "[附件] `path`" (absolute): the file shows as itself instead.
+      // A channel's message as the agent was given it (chat/channel/lib givenTurn): its words
+      // alone; one of a channel it is in beside its own, a line that it works there, which
+      // opens to the words and goes to that channel (the user, 2026-11-13).
+      const given = givenTurn(text);
+      if (given?.channel) return <WorksIn given={given} time={b.time} onJump={onJump} />;
       const paths = new Set(b.files?.map((f) => f.path));
-      const words = paths.size ? withoutFiles(text, paths) : text;
+      const words = given ? given.words : paths.size ? withoutFiles(text, paths) : text;
       if (src.kind === "letter")
         return (
           <Letter src={src} text={words} time={b.time} onJump={onJump}>
