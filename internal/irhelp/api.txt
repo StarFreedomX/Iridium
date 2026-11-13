@@ -36,6 +36,7 @@ PUT internal/channels/{id}/avatar {avatar} -> {ok}  give it a face: avatar a PNG
 DELETE internal/channels/{id}/avatar - -> {ok}  take its own face away; person only
 GET internal/channels/{id}/reads - -> ChannelReads  how far each member has read the channel: a person as they said, an agent as far as it was given; who read message n: those with seq >= n  view=readers.member,readers.name,readers.nick,readers.seq
 POST internal/channels/{id}/read {seq} -> ChannelReads  you have read the channel up to message seq (never back); person only
+POST internal/dm {user} -> {channel}  the channel of you and one person (a login's user id; "local" the host): the same two, the same one; no agent, the two its people
 DELETE internal/channels/{id}/members/{member} - -> ChannelMembers  take a member out; its session stays as it is; person only
 GET internal/sessions/{id}/injections - -> Injection[]  what the agent was given by the channel, newest first: where each part came from  view=id,seq,at
 POST internal/block.list {channel_id, next?, direction?, limit?, order?, _data.blocks?} -> BidiList<Message>  a session's own record, a message a block (thinking, tool calls too)  view=id,content
