@@ -1214,6 +1214,10 @@ export interface MemberPatch {
  */
 export interface Injection {
   id: number /* int64 */;
+  /**
+   * Channel: the channel the message is of (the session's own, or one it is in).
+   */
+  channel?: string;
   seq?: number /* int64 */;
   input?: string;
   at: number /* int64 */;

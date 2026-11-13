@@ -63,11 +63,13 @@ type MemberPatch struct {
 // its channel, as input Input, at At (ms); Record says where each part of it came from
 // (assemble.Record: the fragment and its hash, the values its slots took, the messages cited).
 type Injection struct {
-	ID     int64           `json:"id"`
-	Seq    int64           `json:"seq,omitempty"`
-	Input  string          `json:"input,omitempty"`
-	At     int64           `json:"at"`
-	Record json.RawMessage `json:"record"`
+	ID int64 `json:"id"`
+	// Channel: the channel the message is of (the session's own, or one it is in).
+	Channel string          `json:"channel,omitempty"`
+	Seq     int64           `json:"seq,omitempty"`
+	Input   string          `json:"input,omitempty"`
+	At      int64           `json:"at"`
+	Record  json.RawMessage `json:"record"`
 }
 
 // ChannelAgent is an agent of a channel as the list of sessions has it: its session, its

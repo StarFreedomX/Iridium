@@ -963,7 +963,7 @@ func (s *Server) injections(w http.ResponseWriter, r *http.Request) {
 	}
 	out := []api.Injection{}
 	for _, in := range rows {
-		out = append(out, api.Injection{ID: in.ID, Seq: in.Seq, Input: in.Input, At: in.At, Record: json.RawMessage(in.Record)})
+		out = append(out, api.Injection{ID: in.ID, Channel: in.Channel, Seq: in.Seq, Input: in.Input, At: in.At, Record: json.RawMessage(in.Record)})
 	}
 	reply(w, http.StatusOK, out)
 }
