@@ -204,7 +204,8 @@ func (b satoriBackend) Patch(ctx context.Context, c satori.Caller, id string, p 
 	if p.Name != nil && (cl.agent || cl.session != "") {
 		p.ByAgent = true
 		// A channel of several agents is named by people: an agent's title for it is let be.
-		if b.s.multi(id) {
+		// One that is no session's and has no name yet takes it (the agent that made it names it).
+		if c, own := b.s.ch.Own(id); b.s.multi(id) && !(own && c.Name == "") {
 			p.Name = nil
 		}
 	}

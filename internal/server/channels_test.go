@@ -385,8 +385,15 @@ func TestChannelBare(t *testing.T) {
 	}
 	l.wantSat(200, "agent-in:"+agent, "message.create", map[string]any{"channel_id": ch, "content": "looked"}, &sent)
 	l.waitSaid(bot, ch, "@"+nick+" looked")
+	// An agent's name for it does not cover the one it has; a channel with none takes it.
+	l.wantSat(200, "agent-in:"+agent, "channel.update", map[string]any{"channel_id": ch, "data": map[string]any{"name": "mine"}}, nil)
+	var unnamed, got2 satori.Channel
+	l.wantSat(200, "agent-in:"+agent, "channel.create", map[string]any{"data": map[string]any{"name": "made by an agent"}, "_data": map[string]any{"cwd": l.work}}, &unnamed)
+	if l.wantSat(200, "web", "channel.get", map[string]any{"channel_id": ch}, &got2); got2.Name != "room" || unnamed.Name != "made by an agent" {
+		t.Errorf("named by an agent: %q, one it made %q", got2.Name, unnamed.Name)
+	}
 	// Renamed and archived as a session is.
-	l.wantSat(200, "web", "channel.update", map[string]any{"channel_id": ch, "data": map[string]any{"name": "hall"}}, nil)
+	l.wantSat(200, "socket", "channel.update", map[string]any{"channel_id": ch, "data": map[string]any{"name": "hall"}}, nil)
 	l.wantSat(200, "web", "channel.delete", map[string]any{"channel_id": ch}, nil)
 	for _, ss := range l.sessions("web") {
 		if ss.ID == ch && (!ss.Archived || ss.Title != "hall") {
