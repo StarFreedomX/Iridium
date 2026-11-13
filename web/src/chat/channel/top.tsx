@@ -2,6 +2,7 @@
 // members (what each receives) at the bar's right, each a key of its own; ⋯ keeps 邀请: agents
 // (invite.tsx) and people, an app a submenu of its logins. The face is the title's key (chat.tsx).
 import { Menu } from "@base-ui/react/menu";
+import { Popover } from "@base-ui/react/popover";
 import { useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronRight, ImagePlus, UserPlus, Users } from "lucide-react";
 import type { CSSProperties, ReactNode } from "react";
@@ -12,7 +13,7 @@ import { t, useLang } from "../../i18n";
 import { openChat } from "../../route";
 import { useCarried, useList } from "../../store";
 import { toast } from "../../toast";
-import { agentName, Avatar, cn, Lamp, Logo, Tip } from "../../ui";
+import { agentName, Avatar, cn, Lamp, Logo, PopSurface, Tip } from "../../ui";
 import { pickFace } from "./face";
 import { mayAct, useMembers } from "./gate";
 import { AgentKinds, ITEM, POPUP } from "./invite";
@@ -44,8 +45,8 @@ function Sub({ icon, label, now, i, children }: { icon: ReactNode; label: string
 
 const check = (on: boolean) => <span className="grid size-3.5 place-items-center text-ink">{on && <Check size={14} />}</span>;
 
-/** The bar's right (the user, 2026-11-13): who is looking now, their faces; the members, a key
- *  with their count opening the list of them. */
+/** The bar's right (the user, 2026-11-13): who is looking now, their faces, pressed their names;
+ *  the members, a key with their count opening the list of them. */
 export function TopRight({ id }: { id: string }) {
   useLang();
   const members = useMembers(id);
@@ -55,16 +56,30 @@ export function TopRight({ id }: { id: string }) {
   return (
     <span className="g-fade flex shrink-0 items-center gap-0.5">
       {viewers.length > 0 && (
-        <Tip label={`${t("channel.viewing")} · ${viewers.map((v) => v.name).join(t("channel.event.sep"))}`} side="bottom">
-          <span role="img" aria-label={t("channel.viewing")} className="flex h-8 items-center px-1.5 pointer-coarse:h-10">
-            {viewers.slice(0, 4).map((v, i) => (
-              <span key={v.member} className="grid rounded-full ring-2 ring-paper" style={{ marginLeft: i ? -5 : 0, zIndex: 4 - i }}>
+        // Pressed, not hovered (a phone has no hover): the names in a popover.
+        <Popover.Root>
+          <Popover.Trigger
+            render={
+              <button type="button" aria-label={t("channel.viewing")} className="g-press flex h-8 items-center rounded-md px-1.5 hover:bg-fill data-popup-open:bg-fill pointer-coarse:h-10">
+                {viewers.slice(0, 4).map((v, i) => (
+                  <span key={v.member} className="grid rounded-full ring-2 ring-paper" style={{ marginLeft: i ? -5 : 0, zIndex: 4 - i }}>
+                    <Avatar name={v.name} size={18} />
+                  </span>
+                ))}
+                {viewers.length > 4 && <span className="ml-1 text-xs text-ink-3 tabular-nums">+{viewers.length - 4}</span>}
+              </button>
+            }
+          />
+          <PopSurface align="end" sideOffset={6} className="no-bar max-h-[min(480px,var(--available-height))] min-w-48 max-w-[calc(100vw-16px)] overflow-y-auto p-1.5">
+            <div className={HEAD}>{t("channel.viewing")}</div>
+            {viewers.map((v) => (
+              <div key={v.member} className="flex h-8 items-center gap-2.5 px-2.5 text-base pointer-coarse:h-11">
                 <Avatar name={v.name} size={18} />
-              </span>
+                <span className="min-w-0 flex-1 truncate">{v.name}</span>
+              </div>
             ))}
-            {viewers.length > 4 && <span className="ml-1 text-xs text-ink-3 tabular-nums">+{viewers.length - 4}</span>}
-          </span>
-        </Tip>
+          </PopSurface>
+        </Popover.Root>
       )}
       <Menu.Root>
         <Tip label={`${t("channel.members")} · ${agents.length || 1} · ${everyone(people) ? t("channel.everyone") : t("channel.peopleN", { n: people.length })}`} side="bottom">

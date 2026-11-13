@@ -267,7 +267,7 @@ export const zh = {
   "channel.invite": "邀请",
   "channel.direct": "直出",
   "channel.talk": "发消息",
-  "channel.call": "@ 它",
+  "channel.call": "提及",
   "channel.session": "查看会话",
   "channel.readBy": "已读：{names}",
   "channel.worksIn": "在「{name}」中工作",

@@ -5,6 +5,7 @@
 // (its thinking, its tool calls) is its session's chat. Under it: each agent's queue and asks,
 // under its nick; a composer whose @ calls an agent; the quota of each kind of agent.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { api } from "../../api/client";
 import type { Block, ChannelReads, Reader, SessionState as LiveSession, Session } from "../../api/types.gen";
 import { stateAhead, type Sent } from "../../chats";
@@ -25,9 +26,10 @@ import { Waiting } from "../live";
 import { modelView, QuotaBars } from "../meters";
 import { Queue } from "../queue";
 import { PLACE_DRAG, SESSION_DRAG, sourceOf, yours } from "../refs";
-import { Assistant, Attached, Line, Pending, YouBubble } from "../said";
+import { Assistant, Attached, Line, Pending, Said, YouBubble } from "../said";
+import { folded } from "../fold";
 import { Stick, toEnd } from "../stick";
-import { groupMessages, readMarks, linkNicks, quotaKinds, stillWaiting, watchExtra, type AgentRow, type Did, type Group, type Msg, eventParts, personName, type EventWords } from "./lib";
+import { groupMessages, readMarks, linkNicks, quotaKinds, stillWaiting, watchExtra, type AgentRow, type Did, type Group, type Msg, type Src, lineOf, workOf, eventParts, personName, type EventWords } from "./lib";
 import { channelLog } from "./log";
 import { useMembers } from "./gate";
 import InviteLead from "./invite";
@@ -402,7 +404,7 @@ function GroupView({ g, channel, agents, who, record, call, may }: { g: Group; c
         </div>
         {g.msgs.map((m) => (
           <div key={m.n} className={cn(m.kind === "error" && "text-err")}>
-            {m.did && <DidLine did={m.did} />}
+            {m.did && (m.src ? <Work src={m.src} did={m.did} /> : <DidLine did={m.did} />)}
             <Copyable copy={m.text}>
               <Assistant b={blockFor(m, nicks)} session={a.session} />
             </Copyable>
@@ -432,7 +434,32 @@ function EventLine({ m }: { m: Msg }) {
   );
 }
 
-/** What the agent did before the words under it, in one quiet line; the files it changed on hover. */
+/** What the agent did before the words under it (the user, 2026-11-13: all of it, not a count):
+ *  its thinking and tool calls from its own record, folded as its own chat folds them. The
+ *  count's line until they come, or when the record cannot be read. */
+function Work({ src, did }: { src: Src; did: Did }) {
+  const row = useList()?.find((x) => x.id === src.session);
+  const q = useQuery({
+    queryKey: ["work", src.session, src.block ?? "", src.from ?? 0, src.to ?? 0],
+    queryFn: async () => {
+      const page = src.from !== undefined ? await api.messages(src.session, { after: Math.max(0, src.from - 1) }) : await api.messages(src.session, { before: lineOf(src.block!) + 1 });
+      return workOf(page.blocks, src);
+    },
+    staleTime: Infinity,
+    retry: false,
+  });
+  const work = q.data;
+  if (!work?.length) return <DidLine did={did} />;
+  return (
+    <div className="mb-1.5 flex min-w-0 flex-col gap-3">
+      {folded(work).map((b) => (
+        <Said key={b.at} b={b} session={src.session} cwd={row?.cwd ?? ""} source={() => ({ kind: "you" }) as ReturnType<Parameters<typeof Said>[0]["source"]>} onJump={openChat} />
+      ))}
+    </div>
+  );
+}
+
+/** What the agent did before the words under it, in one quiet line. */
 function DidLine({ did }: { did: Did }) {
   useLang();
   const parts: string[] = [];
@@ -443,9 +470,8 @@ function DidLine({ did }: { did: Did }) {
   if (did.agents) parts.push(t("channel.did.agents", { n: did.agents }));
   if (did.other) parts.push(t("channel.did.other", { n: did.other }));
   if (!parts.length) return null;
-  const title = did.paths.map((f) => `${f.path}  +${f.add} −${f.del}`).join("\n");
   return (
-    <div className="mb-1 truncate text-xs text-ink-3 tabular-nums" title={title || undefined}>
+    <div className="mb-1 truncate text-xs text-ink-3 tabular-nums">
       {parts.join(" · ")}
     </div>
   );

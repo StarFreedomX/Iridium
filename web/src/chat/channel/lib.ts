@@ -13,7 +13,31 @@ export type Author = { kind: "agent"; session: string; nick: string; name: strin
 
 /** A message of a channel: n, its number there. kind: as its event said it (user, progress, reply,
  *  ask, error, note); the log itself does not say. */
-export type Msg = { n: number; text: string; files: FileRef[]; time?: number; author: Author; kind?: string; did?: Did; event?: ChEvent };
+/** Where an agent's message is from in its own record (docs/channels.md "指向"): said straight
+ *  out, the block; with ir, the lines from (where it was called) to to (where it spoke). */
+export type Src = { session: string; block?: string; from?: number; to?: number };
+
+export type Msg = { n: number; text: string; files: FileRef[]; time?: number; author: Author; kind?: string; did?: Did; event?: ChEvent; src?: Src };
+
+/** The line of a block's at ("<line>.<n>"). */
+export const lineOf = (at: string) => Number.parseInt(at, 10);
+
+/** The work under an agent's message from what its record has around it (newest last): with ir,
+ *  the blocks of lines from..to; said straight out, those after the last thing it said or was
+ *  given before the block. Its thinking, tool calls, and words it said on the way. */
+export function workOf<B extends { at: string; kind: string; text?: string }>(blocks: B[], src: Src): B[] {
+  if (src.from !== undefined && src.to !== undefined) return blocks.filter((b) => lineOf(b.at) >= src.from! && lineOf(b.at) < src.to! && b.kind !== "user" && b.kind !== "system");
+  if (!src.block) return [];
+  const end = lineOf(src.block);
+  const out: B[] = [];
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    const b = blocks[i]!;
+    if (lineOf(b.at) >= end) continue;
+    if (b.kind === "user" || b.kind === "system" || (b.kind === "assistant" && b.text?.trim())) break;
+    out.unshift(b);
+  }
+  return out;
+}
 
 /** Something that happened to a channel, a line of Iridium's own in it (internal/channel Event):
  *  join, leave (nick), rename (from, nick), recv (nick, recv), people (added, removed: member
@@ -119,7 +143,7 @@ export function msgOf(m: ChannelMessage): Msg | undefined {
   const b = blockOf({ id: m.id, content: m.content, created_at: m.created_at });
   const u = m.user;
   const author: Author = u?.id.startsWith(AGENT) ? { kind: "agent", session: u.id.slice(AGENT.length), nick: u.nick ?? "", name: u.name ?? "" } : !u || u.id === "iridium" ? { kind: "iridium" } : { kind: "person", id: u.id, name: u.name ?? "" };
-  return { n, text: b.text ?? "", files: b.files ?? [], author, ...(m.created_at ? { time: m.created_at } : {}), ...(m._data?.kind ? { kind: m._data.kind } : {}), ...(author.kind === "agent" && didOf(m.content) ? { did: didOf(m.content)! } : {}), ...(m._data?.event && typeof m._data.event === "object" ? { event: m._data.event as ChEvent } : {}) };
+  return { n, text: b.text ?? "", files: b.files ?? [], author, ...(m.created_at ? { time: m.created_at } : {}), ...(m._data?.kind ? { kind: m._data.kind } : {}), ...(author.kind === "agent" && didOf(m.content) ? { did: didOf(m.content)! } : {}), ...(m._data?.event && typeof m._data.event === "object" ? { event: m._data.event as ChEvent } : {}), ...(author.kind === "agent" && m._data?.session ? { src: { session: m._data.session, ...(m._data.block ? { block: m._data.block } : {}), ...(m._data.from ? { from: m._data.from } : {}), ...(m._data.to ? { to: m._data.to } : {}) } } : {}) };
 }
 
 /** have with more put in: each number once (the later one wins: a message read again, changed),

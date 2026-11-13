@@ -2,7 +2,7 @@
 import { describe, expect, test } from "vitest";
 import type { ChannelMessage, ChannelPage } from "../src/api/client";
 import type { Session } from "../src/api/types.gen";
-import { eventParts, personName, type EventWords, channelLamp, givenParts, givenTurn, groupMessages, insertNick, isMulti, linkNicks, matchAgents, merge, msgOf, nickOfURL, nickParts, nickSpans, quotaKinds, readMarks, stillWaiting, validNick, watchExtra } from "../src/chat/channel/lib";
+import { eventParts, personName, type EventWords, channelLamp, givenParts, givenTurn, groupMessages, insertNick, isMulti, linkNicks, matchAgents, merge, msgOf, nickOfURL, nickParts, nickSpans, quotaKinds, readMarks, stillWaiting, validNick, watchExtra, workOf } from "../src/chat/channel/lib";
 import { ChannelLog } from "../src/chat/channel/log";
 import { buildTree, standing } from "../src/tree";
 
@@ -246,5 +246,24 @@ describe("a channel's events", () => {
     expect(personName("bot/*", apps, logins)).toBe("QQ");
     expect(personName("ir_web/zz", apps, logins)).toBe("ir_web/zz");
     expect(personName("*", apps, logins)).toBe("*");
+  });
+});
+
+describe("workOf", () => {
+  const bs = [
+    { at: "10.0", kind: "user", text: "do it" },
+    { at: "11.0", kind: "thinking", text: "hm" },
+    { at: "12.0", kind: "tool", name: "Bash" },
+    { at: "13.0", kind: "assistant", text: "half way" },
+    { at: "14.0", kind: "tool", name: "Read" },
+    { at: "15.0", kind: "assistant", text: "done" },
+    { at: "16.0", kind: "tool", name: "Edit" },
+  ];
+  test("said straight out: after the last words before its block", () => {
+    expect(workOf(bs, { session: "s", block: "15.0" }).map((b) => b.at)).toEqual(["14.0"]);
+    expect(workOf(bs, { session: "s", block: "13.0" }).map((b) => b.at)).toEqual(["11.0", "12.0"]);
+  });
+  test("with ir: the lines from..to, but what it was given", () => {
+    expect(workOf(bs, { session: "s", from: 10, to: 16 }).map((b) => b.at)).toEqual(["11.0", "12.0", "13.0", "14.0", "15.0"]);
   });
 });
