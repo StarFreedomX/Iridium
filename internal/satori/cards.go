@@ -248,7 +248,7 @@ func (s *Service) forget(card string) {
 // serveInternal serves /v1/internal/: button (an action button pressed: {id}, or a card answered
 // whole: {id: <card>, option, choices, words, message}).
 func (s *Service) serveInternal(w http.ResponseWriter, r *http.Request, name string) {
-	blocks := map[string]method{"block.list": (*Service).blockList, "block.get": (*Service).blockGet}[name]
+	blocks := map[string]method{"block.list": (*Service).blockList, "block.get": (*Service).blockGet, "block.outline": (*Service).blockOutline}[name]
 	if name != "button" && blocks == nil {
 		s.fail(w, refuse(http.StatusNotFound, "no_such_api", "no API internal/"+name))
 		return

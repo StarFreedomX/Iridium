@@ -166,6 +166,10 @@ export interface Session {
   last?: LastSaid;
   updatedAt: number /* int64 */; // ms since the epoch
   /**
+   * CreatedAt: when Iridium started it (ms), for one it hosts.
+   */
+  createdAt?: number /* int64 */;
+  /**
    * Machine: the executor it runs at (its terminal ID; docs/exec.md), empty for this machine.
    * Offline: that executor is not connected now.
    */
@@ -1255,6 +1259,63 @@ export interface Follow {
   user: string;
   count?: number /* int */;
   seconds?: number /* int */;
+}
+/**
+ * ChannelReads is how far each member has read a channel (GET …/reads, the carried state
+ * "reads:<channel>"): End, the number of its last message; Readers, a person a login that
+ * opened it, an agent each one in it. Who has read message n: those whose Seq is n or more.
+ */
+export interface ChannelReads {
+  channel: string;
+  end: number /* int64 */;
+  readers: Reader[];
+}
+/**
+ * Reader is how far Member (a login "<app>/<login>", an agent "agent:<session>") has read: Seq,
+ * the number of the last message it read (an agent: was given), at At (ms; a person's). Name:
+ * what it goes by; Nick, Agent: an agent's.
+ */
+export interface Reader {
+  member: string;
+  name?: string;
+  nick?: string;
+  agent?: Agent;
+  seq: number /* int64 */;
+  at?: number /* int64 */;
+}
+/**
+ * Read moves the caller's place in a channel up to message Seq (POST …/read).
+ */
+export interface Read {
+  seq: number /* int64 */;
+}
+/**
+ * Outline is a session's record by turn (POST internal/block.outline): between what an agent
+ * did in counts and the record whole. Start, End: the lines of the record it spans; More: there
+ * are earlier turns.
+ */
+export interface Outline {
+  turns: OutlineTurn[];
+  start: number /* int64 */;
+  end: number /* int64 */;
+  more?: boolean;
+}
+/**
+ * OutlineTurn is one turn of a record in a line: At, End, the blocks it begins and ends with
+ * (block.list reads between them); Time, when it began (ms); From, who asked; Asked, their first
+ * words; Did, what the agent did in it (activity.Activity: bash, failed, cmds, read, search,
+ * fetch, agents, other, files, ms); Said, the first words of the last thing it said; Words,
+ * how many times it spoke.
+ */
+export interface OutlineTurn {
+  at: string;
+  end: string;
+  time?: number /* int64 */;
+  from?: string;
+  asked?: string;
+  did?: any /* json.RawMessage */;
+  said?: string;
+  words?: number /* int */;
 }
 /**
  * People sets a channel's people (PUT …/people).

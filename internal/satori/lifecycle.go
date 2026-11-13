@@ -145,12 +145,12 @@ func (s *Service) Sessions(l []api.Session) {
 // Input is what someone wrote to session ss (its input id, its text): said in the session's
 // channel, under the number it returns, and sent as message-created, _data.kind "user", to the
 // logins that see it: the agent's words are not alone in the stream.
-func (s *Service) Input(ss api.Session, id, text string, from User, origin string) int64 {
+func (s *Service) Input(ss api.Session, id, text string, from User, origin string, of ...channel.Data) int64 {
 	if id == "" {
 		return 0
 	}
 	m, isNew, err := s.log.Say(channel.Message{ChannelMessage: store.ChannelMessage{Channel: ss.ID, Author: from.ID, Name: from.Name,
-		Kind: channel.KindUser, Text: text, Ref: id, Origin: origin}})
+		Kind: channel.KindUser, Text: text, Ref: id, Origin: origin}, D: append(of, channel.Data{})[0]})
 	if err != nil {
 		s.logf("satori: channel %s: %v", ss.ID, err)
 		return 0

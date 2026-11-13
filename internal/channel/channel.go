@@ -57,6 +57,11 @@ type Data struct {
 	Session string        `json:"session,omitempty"`
 	Block   string        `json:"block,omitempty"`
 	Files   []api.FileRef `json:"files,omitempty"`
+	// From, To: for what an agent said with ir (in a channel it is in by a subscription), the
+	// stretch of its own record (Session's) that led to it: the lines it spans. From 0: not
+	// known where it began.
+	From int64 `json:"from,omitempty"`
+	To   int64 `json:"to,omitempty"`
 	// Final: the last thing the agent said in its turn.
 	Final bool `json:"final,omitempty"`
 	// At: the members the message names; Quote: the message it answers.
@@ -106,7 +111,7 @@ func read(m store.ChannelMessage) Message {
 }
 
 func (d Data) encode() string {
-	if d.Session == "" && d.Block == "" && len(d.Files) == 0 && !d.Final && len(d.At) == 0 && d.Quote == 0 && d.Card == "" && d.Activity == nil && d.Event == nil {
+	if d.Session == "" && d.Block == "" && d.From == 0 && d.To == 0 && len(d.Files) == 0 && !d.Final && len(d.At) == 0 && d.Quote == 0 && d.Card == "" && d.Activity == nil && d.Event == nil {
 		return ""
 	}
 	b, _ := json.Marshal(d)

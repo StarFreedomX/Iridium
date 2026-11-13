@@ -175,12 +175,79 @@ func TestChannelOfSeveral(t *testing.T) {
 		t.Errorf("injections: %+v", ins)
 	}
 
+	// How far each has read: the channel's own agent all of it, the second what it was given;
+	// a person as they say, never back, and not an agent by hand.
+	var reads api.ChannelReads
+	l.want(200, "web", "GET", "/v1/internal/channels/"+ch+"/reads", nil, &reads)
+	if reads.End < r.Seq || len(reads.Readers) != 2 || reads.Readers[0].Member != "agent:"+ch || reads.Readers[0].Seq != reads.End ||
+		reads.Readers[1].Nick != "claude2" || reads.Readers[1].Seq != r.Seq || reads.Readers[1].Name == "" {
+		t.Errorf("reads: %+v, the message named %d", reads, r.Seq)
+	}
+	l.want(400, "web", "POST", "/v1/internal/channels/"+ch+"/read", api.Read{}, nil)
+	l.want(403, "agent-in:"+second, "POST", "/v1/internal/channels/"+ch+"/read", api.Read{Seq: 1}, nil)
+	l.want(200, "web", "POST", "/v1/internal/channels/"+ch+"/read", api.Read{Seq: 3}, &reads)
+	l.want(200, "web", "POST", "/v1/internal/channels/"+ch+"/read", api.Read{Seq: 2}, &reads)
+	if len(reads.Readers) != 3 || reads.Readers[0].Seq != 3 || reads.Readers[0].Member == "" || reads.Readers[0].Name == "" || reads.Readers[0].At == 0 {
+		t.Errorf("reads with a person's: %+v", reads)
+	}
+	l.want(200, "web", "POST", "/v1/internal/channels/"+ch+"/read", api.Read{Seq: 1 << 40}, &reads)
+	if reads.Readers[0].Seq != reads.End {
+		t.Errorf("read past the end: %+v", reads)
+	}
+
 	// It speaks in the channel with ir: said there under its nick, given to whom it names.
 	var sent []satori.Message
 	l.wantSat(200, "agent-in:"+second, "message.create", map[string]any{"channel_id": ch, "content": "seen, @claude go on"}, &sent)
 	all := l.waitSaid("web", ch, "@claude ", "seen, @claude go on", "ok: #")
 	if !slices.ContainsFunc(all, func(m string) bool { return strings.Contains(m, " @claude2 seen, @claude go on") }) {
 		t.Errorf("what it sent is not said under its nick:\n%s", strings.Join(all, "\n"))
+	}
+	// What it sent says where it is from: the stretch of its own record since it was called.
+	var page satori.BidiList[satori.Message]
+	l.wantSat(200, "web", "message.list", map[string]any{"channel_id": ch, "limit": 200}, &page)
+	pointed := false
+	for _, m := range page.Data {
+		if raw, _ := json.Marshal(m.Data); strings.Contains(m.Content, "seen, @claude go on") && m.User.Nick == "claude2" {
+			var d satori.LogData
+			_ = json.Unmarshal(raw, &d)
+			pointed = d.Session == second && d.To > d.From
+		}
+	}
+	if !pointed {
+		t.Errorf("what it sent does not point at its record")
+	}
+	// The members as Satori has them: of the guild, the agents of its sessions and the app's
+	// logins; of the channel alone (Iridium's own), its agents with when each joined.
+	var gm satori.List[satori.GuildMember]
+	l.wantSat(200, "web", "guild.member.list", map[string]any{"guild_id": "loose"}, &gm)
+	inGuild := map[string]satori.GuildMember{}
+	for _, m := range gm.Data {
+		inGuild[m.User.ID] = m
+	}
+	if m := inGuild["agent:"+second]; m.Nick != "claude2" || m.JoinedAt == 0 || !m.User.IsBot || inGuild["agent:"+ch].Nick != "claude" {
+		t.Errorf("the guild's members: %+v", gm.Data)
+	}
+	l.wantSat(200, "web", "guild.member.list", map[string]any{"_data": map[string]any{"channel_id": ch}}, &gm)
+	if len(gm.Data) < 2 || gm.Data[0].User.ID != "agent:"+ch || gm.Data[1].User.ID != "agent:"+second || gm.Data[1].JoinedAt == 0 {
+		t.Errorf("the channel's members: %+v", gm.Data)
+	}
+	var one satori.GuildMember
+	if l.wantSat(200, "web", "guild.member.get", map[string]any{"guild_id": "loose", "user_id": "agent:" + second}, &one); one.Nick != "claude2" || one.User == nil {
+		t.Errorf("a member: %+v", one)
+	}
+	l.wantSat(422, "web", "guild.member.get", map[string]any{"guild_id": "loose", "user_id": "agent:nobody"}, nil)
+	l.wantSat(400, "web", "guild.member.list", map[string]any{}, nil)
+
+	// Its record in outline: a turn a line, the channel's message by its words alone.
+	var outline api.Outline
+	l.wantSat(200, "agent-in:"+ch, "internal/block.outline", map[string]any{"channel_id": second}, &outline)
+	if len(outline.Turns) < 1 || !strings.HasPrefix(outline.Turns[0].Asked, fmt.Sprintf("#%d: now @claude2 look", r.Seq)) || strings.Contains(outline.Turns[0].Asked, "channel-context") ||
+		!strings.HasPrefix(outline.Turns[0].Said, "ok: #") || outline.Turns[0].Words != 1 || outline.Turns[0].At == "" || outline.End == 0 {
+		t.Errorf("outline: %+v", outline)
+	}
+	l.wantSat(400, "web", "internal/block.outline", map[string]any{"channel_id": second, "from": "x"}, nil)
+	if l.wantSat(200, "web", "internal/block.outline", map[string]any{"channel_id": second, "from": fmt.Sprint(outline.End)}, &outline); len(outline.Turns) != 0 {
+		t.Errorf("outline after the end: %+v", outline)
 	}
 
 	// The fake agents echo what they get. The second keeps sending the first words that name

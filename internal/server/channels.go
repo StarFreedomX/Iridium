@@ -85,6 +85,9 @@ type called struct {
 	channel string
 	seq     int64
 	spoke   bool
+	// from: the line its own record was at when it was called: where what it does for the call
+	// begins.
+	from int64
 }
 
 // calls are the calls each session's agent has open: made as it is given a channel's message,
@@ -103,15 +106,20 @@ func (k *calls) add(session string, c called) {
 	k.of[session] = append(k.of[session], c)
 }
 
-// spoke: session's agent said something in channel.
-func (k *calls) spoke(session, channel string) {
+// spoke: session's agent said something in channel, its record at line to by then. It gives
+// the line the stretch that led to it began at (0: not called there), and the next begins at to.
+func (k *calls) spoke(session, channel string, to int64) (from int64) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	for i := range k.of[session] {
-		if k.of[session][i].channel == channel {
-			k.of[session][i].spoke = true
+		if c := &k.of[session][i]; c.channel == channel {
+			if from == 0 || c.from < from {
+				from = c.from
+			}
+			c.spoke, c.from = true, to
 		}
 	}
+	return from
 }
 
 // take are session's open calls, which are then closed.
@@ -168,6 +176,8 @@ func (s *Server) channelRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /v1/internal/channels/{id}/members/{member}", s.memberRemove)
 	mux.HandleFunc("PUT /v1/internal/channels/{id}/people", s.peoplePut)
 	mux.HandleFunc("POST /v1/internal/channels/{id}/follow", s.followAdd)
+	mux.HandleFunc("GET /v1/internal/channels/{id}/reads", s.readsGet)
+	mux.HandleFunc("POST /v1/internal/channels/{id}/read", s.readPost)
 	mux.HandleFunc("GET /v1/internal/agents/{agent}/choices", s.agentChoices)
 	mux.HandleFunc("GET /v1/internal/sessions/{id}/injections", s.use(s.injections))
 }
@@ -729,6 +739,87 @@ func (s *Server) memberPatch(w http.ResponseWriter, r *http.Request) {
 	reply(w, http.StatusOK, out)
 }
 
+// readsOf is how far each member has read channel ch: the people that opened it, as they said
+// (readPost); its agents, as far as each was given. The channel's own agent with no row of its
+// own has all of it: what is said there is its own record.
+func (s *Server) readsOf(ch string) api.ChannelReads {
+	out := api.ChannelReads{Channel: ch, End: s.ch.End(ch), Readers: []api.Reader{}}
+	rows, err := s.st.ChannelReads(ch)
+	if err != nil {
+		s.logf("server: channel %s: who read it: %v", ch, err)
+	}
+	for _, r := range rows {
+		out.Readers = append(out.Readers, api.Reader{Member: r.Reader, Name: r.Name, Seq: min(r.Seq, out.End), At: r.At})
+	}
+	ms, _ := s.ch.Members(ch)
+	for _, m := range ms {
+		if !m.Agent() {
+			continue
+		}
+		rd := api.Reader{Member: m.Member, Nick: m.Nick, Seq: m.Seen}
+		if m.Direct() {
+			rd.Seq = out.End
+		}
+		if st, err := s.m.State(m.Session); err == nil {
+			info, _ := agents.Get(st.Agent)
+			rd.Agent, rd.Name = st.Agent, satori.AgentName(cmp.Or(info.Name, string(st.Agent)), *st)
+		}
+		out.Readers = append(out.Readers, rd)
+	}
+	return out
+}
+
+// seen: session's agent was given channel ch up to message seq; the pages are told.
+func (s *Server) seen(ch, session string, seq int64) {
+	s.ch.Seen(ch, session, seq)
+	s.readsChanged(ch)
+}
+
+// readsChanged tells the pages how far channel ch is read now (the carried state "reads:<ch>").
+func (s *Server) readsChanged(ch string) { s.hub.Set("reads:"+ch, s.readsOf(ch)) }
+
+func (s *Server) readsGet(w http.ResponseWriter, r *http.Request) {
+	ch, _, err := s.seeingChannel(callerOf(r), r.PathValue("id"))
+	if err != nil {
+		s.error(w, err)
+		return
+	}
+	reply(w, http.StatusOK, s.readsOf(ch))
+}
+
+// readPost: the person who calls has read the channel up to a message. A login's own; an
+// agent's place is what it was given.
+func (s *Server) readPost(w http.ResponseWriter, r *http.Request) {
+	c := callerOf(r)
+	ch, _, err := s.seeingChannel(c, r.PathValue("id"))
+	if err != nil {
+		s.error(w, err)
+		return
+	}
+	if c.agent || c.session != "" {
+		forbid(w, errors.New("an agent has read what it was given: its place is not set by hand"))
+		return
+	}
+	var req api.Read
+	if !readJSON(w, r, &req) {
+		return
+	}
+	seq := min(req.Seq, s.ch.End(ch))
+	if seq < 1 {
+		refuse(w, http.StatusBadRequest, "bad_request", "seq: the number of a message of the channel")
+		return
+	}
+	moved, err := s.st.SetChannelRead(ch, memberOf(c), s.satoriUser(c).Name, seq)
+	if err != nil {
+		s.fault(w, err)
+		return
+	}
+	if moved {
+		s.readsChanged(ch)
+	}
+	reply(w, http.StatusOK, s.readsOf(ch))
+}
+
 // Follows: how many messages one may ask for, and for how long (seconds).
 const (
 	FollowCount   = 50
@@ -970,7 +1061,6 @@ func (s *Server) sendChannelAs(ctx context.Context, c caller, from, ch string, r
 	if s.ch.Speaks(ch, c.session) {
 		sender, link = c.session, s.chain.get(c.session)
 		link.origin = cmp.Or(link.origin, c.ID())
-		s.calls.spoke(sender, ch)
 	}
 	u := s.satoriUser(c)
 	if tag := s.m.SourceTag(from); tag != "" {
@@ -990,7 +1080,7 @@ func (s *Server) sendChannelAs(ctx context.Context, c caller, from, ch string, r
 		if !me.Direct() {
 			cc.ID = ch
 		}
-		s.ch.Seen(ch, sender, s.ch.End(ch))
+		s.seen(ch, sender, s.ch.End(ch))
 		if check && (named || len(msgs) > BehindMax) {
 			in, err := assemble.ChannelBehind(cc, len(msgs), named)
 			if err != nil {
@@ -1019,14 +1109,23 @@ func (s *Server) sendChannelAs(ctx context.Context, c caller, from, ch string, r
 	if req.ID == "" {
 		req.ID = session.NewInputID()
 	}
-	seq := s.sat.Input(st.Session, req.ID, req.Text, u, link.origin)
+	var of channel.Data
+	if sender != "" && sender != ch {
+		// Where it is from: the stretch of the agent's own record since it was called here.
+		of.Session = sender
+		if sst, err := s.m.State(sender); err == nil {
+			of.To = sst.End
+		}
+		of.From = s.calls.spoke(sender, ch, of.To)
+	}
+	seq := s.sat.Input(st.Session, req.ID, req.Text, u, link.origin, of)
 	if seq == 0 {
 		return api.SendReply{}, errors.New("the channel did not take the message")
 	}
 	s.noteOrigin(c, ch, c.session)
 	out := api.SendReply{Input: req.ID, Seq: seq, Said: true, Unseen: unseen}
 	if sender != "" {
-		s.ch.Seen(ch, sender, seq)
+		s.seen(ch, sender, seq)
 	}
 	var firstErr error
 	var failed []string
@@ -1134,13 +1233,17 @@ func (s *Server) deliverTo(ctx context.Context, ch, to string, seq int64, said, 
 			s.logf("server: channel %s: keeping what %s was given: %v", ch, to, err)
 		}
 	}
+	var before int64
+	if st, err := s.m.State(to); err == nil {
+		before = st.End
+	}
 	_, queued, err := s.m.SendAs(ctx, to, id, in.String(), from, steer, images...)
 	if err != nil {
 		return false, err
 	}
-	s.ch.Seen(ch, to, seq)
+	s.seen(ch, to, seq)
 	if !me.Direct() {
-		s.calls.add(to, called{channel: ch, seq: seq})
+		s.calls.add(to, called{channel: ch, seq: seq, from: before})
 	}
 	// Only a person speaking begins a chain anew: what agents pass on never shortens the one
 	// its receiver is in (two chains crossing would else go on past the limit).

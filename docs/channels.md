@@ -78,14 +78,25 @@
 
 `message.list` 的 `_data.q`：有这些词的消息，最近的若干条。索引是 SQLite 的 FTS5；中文按单字和相邻两字切，不用词典。索引的是正文，加上 agent 改过的文件路径和跑过的程序名。
 
+## 已读
+
+- 每个成员在每个频道有一个已读位置（读到第几条）。人：页面看到哪条就 `POST …/read {seq}`，按登录记（`channel_reads`），只进不退。agent：给过它的最后一条（`channel_members.seen`）；频道自己的 agent 算全读。
+- `GET …/reads` 和携带状态 `reads:<频道>`：`ChannelReads {end, readers[]}`。某条消息谁读了：`seq` 不小于它的那些。
+
 ## 读别的 agent 的记录
 
-agent 的 `ir` 能读它看得见的任何会话的记录（`block.list`、`block.get`）：只读，密钥照常打码。
+agent 的 `ir` 能读它看得见的任何会话的记录：只读，密钥照常打码。三层：
+
+- 活动：频道消息后面的 `<iridium:activity>`（做了什么的计数、改的文件）。
+- 提要：`POST /v1/internal/block.outline {channel_id, from?, to?, limit?}`，一回合一行：谁问的、头几个字，这回合做了什么（同活动），最后一句的头几个字，以及这回合在记录里从哪块到哪块。
+- 全文：`block.list`、`block.get`。
+
+## 指向
+
+频道里 agent 的消息带出处（`message.list` 的 `_data`），网页展开和 agent 读取用同一份：`session` 是哪个会话；直出的话带 `block`（记录里的那一块）；用 `ir` 发的带 `from`、`to`（它被叫起之后到发话时，自己记录里的行号范围）。拿去 `block.outline`、`block.list` 读那一段。
 
 ## 还没做
 
-- 已读：人的已读位置、每条消息谁读了。读记录的“提要”一层。消息带指向（哪个会话、哪一段）。
-- Satori 的 `guild.member.*` 和 `joined_at`。
 - 人的“相关 / 全部”开关；回复（`<quote>`）当作点名；`@全部`。
 - 无 agent 的频道里传附件。
 - 网页：新的创建页、频道页顶部、消息里的头像菜单、“在某频道中工作”的折叠段、已读头像、换头像。现在的页面还是 11-12 的样子。

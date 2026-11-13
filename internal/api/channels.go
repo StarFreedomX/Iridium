@@ -105,6 +105,58 @@ type Follow struct {
 	Seconds int    `json:"seconds,omitempty"`
 }
 
+// ChannelReads is how far each member has read a channel (GET …/reads, the carried state
+// "reads:<channel>"): End, the number of its last message; Readers, a person a login that
+// opened it, an agent each one in it. Who has read message n: those whose Seq is n or more.
+type ChannelReads struct {
+	Channel string   `json:"channel"`
+	End     int64    `json:"end"`
+	Readers []Reader `json:"readers"`
+}
+
+// Reader is how far Member (a login "<app>/<login>", an agent "agent:<session>") has read: Seq,
+// the number of the last message it read (an agent: was given), at At (ms; a person's). Name:
+// what it goes by; Nick, Agent: an agent's.
+type Reader struct {
+	Member string `json:"member"`
+	Name   string `json:"name,omitempty"`
+	Nick   string `json:"nick,omitempty"`
+	Agent  Agent  `json:"agent,omitempty"`
+	Seq    int64  `json:"seq"`
+	At     int64  `json:"at,omitempty"`
+}
+
+// Read moves the caller's place in a channel up to message Seq (POST …/read).
+type Read struct {
+	Seq int64 `json:"seq"`
+}
+
+// Outline is a session's record by turn (POST internal/block.outline): between what an agent
+// did in counts and the record whole. Start, End: the lines of the record it spans; More: there
+// are earlier turns.
+type Outline struct {
+	Turns []OutlineTurn `json:"turns"`
+	Start int64         `json:"start"`
+	End   int64         `json:"end"`
+	More  bool          `json:"more,omitempty"`
+}
+
+// OutlineTurn is one turn of a record in a line: At, End, the blocks it begins and ends with
+// (block.list reads between them); Time, when it began (ms); From, who asked; Asked, their first
+// words; Did, what the agent did in it (activity.Activity: bash, failed, cmds, read, search,
+// fetch, agents, other, files, ms); Said, the first words of the last thing it said; Words,
+// how many times it spoke.
+type OutlineTurn struct {
+	At    string          `json:"at"`
+	End   string          `json:"end"`
+	Time  int64           `json:"time,omitempty"`
+	From  string          `json:"from,omitempty"`
+	Asked string          `json:"asked,omitempty"`
+	Did   json.RawMessage `json:"did,omitempty"`
+	Said  string          `json:"said,omitempty"`
+	Words int             `json:"words,omitempty"`
+}
+
 // People sets a channel's people (PUT …/people).
 type People struct {
 	People []string `json:"people"`

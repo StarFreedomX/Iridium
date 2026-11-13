@@ -90,6 +90,16 @@ type User struct {
 	IsBot  bool   `json:"is_bot,omitempty"`
 }
 
+// GuildMember is a member of a guild: an agent (its session's user, its nick), or a login of the
+// app that asks. JoinedAt: when it came to be there (ms): an agent's session was started, or it
+// joined the channel asked about.
+type GuildMember struct {
+	User     *User  `json:"user,omitempty"`
+	Nick     string `json:"nick,omitempty"`
+	Avatar   string `json:"avatar,omitempty"`
+	JoinedAt int64  `json:"joined_at,omitempty"`
+}
+
 // Channel is a session, or a folder sessions are in (ChannelCategory).
 type Channel struct {
 	ID       string `json:"id"`

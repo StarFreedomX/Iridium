@@ -986,7 +986,7 @@ func (h *Hosted) summaryLocked(o store.Overlay, archived bool) api.Session {
 		ID: h.id, Agent: h.meta.Agent, Cwd: h.meta.Cwd, Name: o.Name, Title: h.said.title,
 		Status: h.status(), Hosted: true, Live: h.live,
 		Pinned: o.Pinned, Archived: archived, Workspace: o.Workspace, Color: api.Color(o.Color), Order: o.Order,
-		Launcher: h.meta.Launcher, Last: h.said.last, UpdatedAt: h.shownAt.UnixMilli(),
+		Launcher: h.meta.Launcher, Last: h.said.last, UpdatedAt: h.shownAt.UnixMilli(), CreatedAt: h.meta.Created,
 		Machine: h.meta.Machine, Offline: h.offline(),
 	}
 	s.Own = ownOf(s, o)

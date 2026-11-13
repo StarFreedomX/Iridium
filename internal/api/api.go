@@ -131,6 +131,8 @@ type Session struct {
 	Workflow  *SessionWorkflow `json:"workflow,omitempty"`
 	Last      *LastSaid        `json:"last,omitempty"`
 	UpdatedAt int64            `json:"updatedAt"` // ms since the epoch
+	// CreatedAt: when Iridium started it (ms), for one it hosts.
+	CreatedAt int64 `json:"createdAt,omitempty"`
 	// Machine: the executor it runs at (its terminal ID; docs/exec.md), empty for this machine.
 	// Offline: that executor is not connected now.
 	Machine string `json:"machine,omitempty"`

@@ -270,6 +270,16 @@ var schema = []string{
 	UPDATE channel_members SET send = CASE WHEN member = 'agent:' || channel THEN 'direct' ELSE 'ir' END WHERE member LIKE 'agent:%';`,
 	// 38: the nicks are the sessions' now.
 	`ALTER TABLE channel_members DROP COLUMN nick;`,
+	// 39: how far each person has read each channel (channels.go "read"): the number of the last
+	// message read, under the login ("<app>/<login>") with the name it goes by.
+	`CREATE TABLE IF NOT EXISTS channel_reads (
+		channel TEXT NOT NULL,
+		reader  TEXT NOT NULL,
+		name    TEXT NOT NULL DEFAULT '',
+		seq     INTEGER NOT NULL,
+		at      INTEGER NOT NULL,
+		PRIMARY KEY (channel, reader)
+	);`,
 }
 
 // steps run in Go after the migration of their version, in the same transaction.

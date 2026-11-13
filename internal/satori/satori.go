@@ -34,7 +34,7 @@ const Adapter = "iridium"
 
 // Features are login.features: the APIs served.
 var Features = []string{"message.create", "message.get", "message.list", "message.update", "message.delete", "channel.get", "channel.list", "channel.create", "channel.update", "channel.delete",
-	"guild.get", "guild.list", "login.get", "user.get", "upload.create"}
+	"guild.get", "guild.list", "guild.member.get", "guild.member.list", "login.get", "user.get", "upload.create"}
 
 // Caller is who a request comes from: an app (by its TOKEN) and, past the headers, its login.
 type Caller struct {
@@ -261,21 +261,23 @@ func (s *Service) fail(w http.ResponseWriter, err error) {
 type method func(s *Service, ctx context.Context, c Caller, body []byte) (any, error)
 
 var methods = map[string]method{
-	"message.create": (*Service).messageCreate,
-	"message.get":    (*Service).messageGet,
-	"message.list":   (*Service).messageList,
-	"message.update": (*Service).messageUpdate,
-	"message.delete": (*Service).messageDelete,
-	"channel.get":    (*Service).channelGet,
-	"channel.list":   (*Service).channelList,
-	"channel.create": (*Service).channelCreate,
-	"channel.update": (*Service).channelUpdate,
-	"channel.delete": (*Service).channelDelete,
-	"guild.get":      (*Service).guildGet,
-	"guild.list":     (*Service).guildList,
-	"login.get":      (*Service).loginGet,
-	"user.get":       (*Service).userGet,
-	"upload.create":  nil, // multipart: served on its own
+	"message.create":    (*Service).messageCreate,
+	"message.get":       (*Service).messageGet,
+	"message.list":      (*Service).messageList,
+	"message.update":    (*Service).messageUpdate,
+	"message.delete":    (*Service).messageDelete,
+	"channel.get":       (*Service).channelGet,
+	"channel.list":      (*Service).channelList,
+	"channel.create":    (*Service).channelCreate,
+	"channel.update":    (*Service).channelUpdate,
+	"channel.delete":    (*Service).channelDelete,
+	"guild.get":         (*Service).guildGet,
+	"guild.list":        (*Service).guildList,
+	"guild.member.get":  (*Service).guildMemberGet,
+	"guild.member.list": (*Service).guildMemberList,
+	"login.get":         (*Service).loginGet,
+	"user.get":          (*Service).userGet,
+	"upload.create":     nil, // multipart: served on its own
 }
 
 // ServeHTTP serves /v1/: the API, the event stream, meta, the proxy and the internal routes.

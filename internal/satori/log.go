@@ -160,19 +160,25 @@ func activityElement(a *activity.Activity, paths bool) string {
 }
 
 // LogData is a listed message's own (_data): Kind as the events have it (user, progress, reply,
-// ask, error, note); Input, the id of the input a person's message was sent as; Session, the
-// agent's session it is from; Card, an ask's card.
+// ask, error, note); Input, the id of the input a person's message was sent as; Card, an ask's
+// card. Where an agent's message is from (docs/channels.md "指向"): Session, the agent's
+// session; Block, the block of its record the message is (what it said in a turn); From, To,
+// the lines of its record that led to it (what it said with ir). block.list and block.outline
+// of that session read them.
 type LogData struct {
 	Kind    string `json:"kind"`
 	Input   string `json:"input,omitempty"`
 	Session string `json:"session,omitempty"`
+	Block   string `json:"block,omitempty"`
+	From    int64  `json:"from,omitempty"`
+	To      int64  `json:"to,omitempty"`
 	Card    string `json:"card,omitempty"`
 	// Event: what a note tells of (channel.Event).
 	Event *channel.Event `json:"event,omitempty"`
 }
 
 func logData(m channel.Message) LogData {
-	d := LogData{Kind: m.Kind, Session: m.D.Session, Card: m.D.Card, Event: m.D.Event}
+	d := LogData{Kind: m.Kind, Session: m.D.Session, Block: m.D.Block, From: m.D.From, To: m.D.To, Card: m.D.Card, Event: m.D.Event}
 	switch m.Kind {
 	case channel.KindUser:
 		if !strings.HasPrefix(m.Ref, "b:") {

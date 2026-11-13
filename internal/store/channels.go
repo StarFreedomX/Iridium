@@ -417,6 +417,48 @@ func (s *Store) SetChannelSeen(channel, member string, seq int64) error {
 	return err
 }
 
+// ---- how far people have read ----
+
+// ChannelRead is how far Reader (a login, "<app>/<login>"), who goes by Name, has read Channel:
+// Seq, the number of the last message read, at At (ms).
+type ChannelRead struct {
+	Channel string
+	Reader  string
+	Name    string
+	Seq     int64
+	At      int64
+}
+
+// SetChannelRead moves reader's place in channel up to seq (never back); moved: it did.
+func (s *Store) SetChannelRead(channel, reader, name string, seq int64) (moved bool, err error) {
+	res, err := s.db.Exec(`INSERT INTO channel_reads (channel, reader, name, seq, at) VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT (channel, reader) DO UPDATE SET seq = excluded.seq, name = excluded.name, at = excluded.at WHERE excluded.seq > channel_reads.seq`,
+		channel, reader, name, seq, now())
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
+// ChannelReads are how far each person has read channel, the first to read first.
+func (s *Store) ChannelReads(channel string) ([]ChannelRead, error) {
+	rows, err := s.db.Query(`SELECT channel, reader, name, seq, at FROM channel_reads WHERE channel = ? ORDER BY rowid`, channel)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ChannelRead
+	for rows.Next() {
+		var r ChannelRead
+		if err := rows.Scan(&r.Channel, &r.Reader, &r.Name, &r.Seq, &r.At); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
 // ---- the agents' nicks ----
 
 // ErrNickTaken: another session has the nick.

@@ -42,7 +42,7 @@ func (s *Server) withSatori(next http.Handler) http.Handler {
 		// /v1/internal/<path>: Iridium's own API (Satori's "internal" routes, spec advanced/internal),
 		// served by next. Satori-Platform and Satori-User-ID, if given, must be the caller's.
 		// (button and the records' blocks are the Satori package's own.)
-		if rest, ok := strings.CutPrefix(r.URL.Path, "/v1/internal/"); ok && rest != "button" && rest != "block.list" && rest != "block.get" {
+		if rest, ok := strings.CutPrefix(r.URL.Path, "/v1/internal/"); ok && rest != "button" && rest != "block.list" && rest != "block.get" && rest != "block.outline" {
 			if c, ok := (satoriBackend{s}).Who(r); ok {
 				if p := r.Header.Get(satori.HeaderPlatform); p != "" && p != c.App {
 					refuse(w, http.StatusForbidden, "no_such_login", satori.HeaderPlatform+" is not this caller's")
