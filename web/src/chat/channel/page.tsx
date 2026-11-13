@@ -280,7 +280,7 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
     <Nicks.Provider value={nicks}>
       <div className="relative h-full" data-chat-drop={id} onDragOver={(e) => files(e) || session(e) || place(e)} onDrop={drop}>
         <Stick scroller={scroller} tail={grew} older={() => log.older().then((any) => (changed(), any))} place={entry.place} bottom={stackH} quiet={asking} style={{ paddingTop: padTop, paddingBottom: stackH + 20 }}>
-          <div className="mx-auto flex max-w-[760px] flex-col gap-5 px-4 sm:px-6">
+          <div className="mx-auto flex max-w-(--chat-w) flex-col gap-5 px-4 sm:px-6">
             {groups.map((g) => (
               <div key={g.key} className="relative flex min-w-0 flex-col">
                 <GroupView g={g} channel={id} agents={agents} who={who} record={record} call={call} may={may} quote={may ? quoting : undefined} quoted={quoted} bars={bars} />
@@ -317,7 +317,7 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
         {bar(s)}
         <div ref={stack} {...{ [PULL]: "" }} data-covered={sheet > 0 || undefined} data-sunk={(sheet > 0 && stackH > sheet - 16) || undefined} inert={sheet > 0} className="g-turn-stay g-sink vt-stack absolute inset-x-0 bottom-0 z-10 px-2.5 pb-[max(10px,calc(env(safe-area-inset-bottom)+6px))] sm:px-5">
           <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-[calc(64px+max(10px,calc(env(safe-area-inset-bottom)+6px)))] bg-[linear-gradient(to_bottom,transparent,var(--paper)_14px)]" />
-          <div className="relative mx-auto max-w-[760px]">
+          <div className="relative mx-auto max-w-(--chat-w)">
             {agents.map((a, i) => {
               const st = states[i];
               return st?.queue?.length ? (
