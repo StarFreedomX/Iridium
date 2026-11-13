@@ -195,7 +195,8 @@ func parseAPI(args []string) (*apiCall, error) {
 	}
 	// internal/button is Satori's own (an ask answered, a button pressed): as the login too.
 	button := c.path == "/v1/internal/button"
-	if button {
+	// And a session's record (block.list, block.get, block.outline).
+	if button || strings.HasPrefix(c.path, "/v1/internal/block.") {
 		c.satori = true
 	}
 	if c.all && (!c.satori || button) {
