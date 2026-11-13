@@ -32,6 +32,10 @@ func (s *Service) agentOf(session string) *User {
 	info, _ := agents.Get(st.Agent)
 	u.Name = AgentName(cmp.Or(info.Name, string(st.Agent)), *st)
 	u.Nick = s.log.Nick(session)
+	// Its face, where it was given one (the backend's to say).
+	if a, ok := s.b.(interface{ AgentAvatar(session string) string }); ok {
+		u.Avatar = a.AgentAvatar(session)
+	}
 	return &u
 }
 

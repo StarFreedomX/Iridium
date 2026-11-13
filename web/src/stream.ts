@@ -31,7 +31,7 @@ const link = (l: Partial<Link>) => setCarried("link", { ...(getCarried<Link>("li
 
 // The states every page carries. A key the daemon does not carry for this terminal (confirms and
 // colors, but for panels) is said to be ignored as the stream opens; the rest goes on.
-const ALWAYS = ["list", "guilds", "quota", "update", "needs", "pairing", "terminals", "notes", "channels"];
+const ALWAYS = ["list", "guilds", "quota", "update", "needs", "pairing", "terminals", "notes", "channels", "avatars"];
 /** How many states a stream carries at most (internal/server watchStates). */
 export const MAX_KEYS = 32;
 /** More states the open chat asks for, in the order it wants them: a channel's other agents. */

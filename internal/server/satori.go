@@ -424,6 +424,8 @@ func (b satoriBackend) ServeFile(w http.ResponseWriter, r *http.Request, path st
 // "读记录"): read only, its secrets masked as everywhere.
 func (b satoriBackend) MayReadRecord(c satori.Caller, id string) bool { return true }
 
+func (b satoriBackend) AgentAvatar(id string) string { return b.s.AgentAvatar(id) }
+
 func (b satoriBackend) Mask(text string) string { return b.s.MaskText(text) }
 
 // Fault: decision 28, what is not there is 422 with its code; 404 is the routes'.

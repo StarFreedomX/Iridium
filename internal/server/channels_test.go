@@ -1,8 +1,12 @@
 package server
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"image"
+	pngpkg "image/png"
 	"slices"
 	"strings"
 	"testing"
@@ -602,4 +606,41 @@ func TestChannelSendCheckAndFollows(t *testing.T) {
 		}
 		l.waitSaid("web", kid, fmt.Sprintf("turn%d", i), "ok: #")
 	}
+}
+
+// A channel's face: given by one of its people, served to whoever sees it; a session's is its
+// model's too, which a session of that model with none of its own has.
+func TestChannelAvatar(t *testing.T) {
+	t.Parallel()
+	l := start(t)
+	a := l.create(200, "web", api.NewSession{Agent: api.AgentClaude, Cwd: l.work, Text: "first"})
+	l.waitReply("web", a, "ok: first")
+	b := l.create(200, "web", api.NewSession{Agent: api.AgentClaude, Cwd: l.work, Text: "second"})
+	l.waitReply("web", b, "ok: second")
+	l.want(404, "web", "GET", "/v1/internal/channels/"+a+"/avatar", nil, nil)
+	var png bytes.Buffer
+	img := image.NewRGBA(image.Rect(0, 0, 8, 8))
+	_ = pngpkg.Encode(&png, img)
+	put := func(as, id string, body []byte) int {
+		return l.do(as, "PUT", "/v1/internal/channels/"+id+"/avatar", map[string]string{"avatar": base64.StdEncoding.EncodeToString(body)}, nil)
+	}
+	if code := put("web", a, []byte("not an image")); code != 422 {
+		t.Errorf("not an image: %d", code)
+	}
+	if code := put("agent-in:"+a, a, png.Bytes()); code != 403 {
+		t.Errorf("an agent: %d", code)
+	}
+	if code := put("web", a, png.Bytes()); code != 200 {
+		t.Fatalf("put: %d", code)
+	}
+	l.want(200, "web", "GET", "/v1/internal/channels/"+a+"/avatar", nil, nil)
+	// The other session of the model has it too, until it is given its own; a's own taken away,
+	// the model's stays.
+	l.want(200, "web", "GET", "/v1/internal/channels/"+b+"/avatar", nil, nil)
+	var u satori.User
+	if l.wantSat(200, "web", "user.get", map[string]any{"user_id": "agent:" + b}, &u); !strings.HasPrefix(u.Avatar, "/v1/internal/channels/"+b+"/avatar?v=") {
+		t.Errorf("the agent as a user: %+v", u)
+	}
+	l.want(200, "web", "DELETE", "/v1/internal/channels/"+a+"/avatar", nil, nil)
+	l.want(200, "web", "GET", "/v1/internal/channels/"+a+"/avatar", nil, nil)
 }

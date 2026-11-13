@@ -270,6 +270,7 @@ export const en: Dict = {
   "channel.readBy": "Read by {names}",
   "channel.worksIn": "Working in {name}",
   "channel.spawnedBy": "Started by {name}",
+  "channel.avatar": "Change channel avatar",
   "channel.back": "Back to channel",
   "queue.title": "Queue",
   "queue.paused": "Paused",

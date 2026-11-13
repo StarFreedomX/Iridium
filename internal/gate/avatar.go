@@ -29,6 +29,9 @@ var (
 	ErrAvatarFormat   = errors.New("gate: avatar must be a PNG, JPEG or WebP image")
 )
 
+// MakeAvatar is makeAvatar for what is not the gate's own: a session's face, a channel's.
+func MakeAvatar(data []byte) (avatar []byte, version string, err error) { return makeAvatar(data) }
+
 // makeAvatar turns an uploaded image into the stored avatar and its version.
 func makeAvatar(data []byte) (avatar []byte, version string, err error) {
 	if len(data) > MaxAvatarBytes {

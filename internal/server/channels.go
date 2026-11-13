@@ -1,11 +1,14 @@
 package server
 
 import (
+	"bytes"
 	"cmp"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"slices"
 	"strings"
@@ -176,6 +179,9 @@ func (s *Server) channelRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /v1/internal/channels/{id}/members/{member}", s.memberRemove)
 	mux.HandleFunc("PUT /v1/internal/channels/{id}/people", s.peoplePut)
 	mux.HandleFunc("POST /v1/internal/channels/{id}/follow", s.followAdd)
+	mux.HandleFunc("GET /v1/internal/channels/{id}/avatar", s.avatarGet)
+	mux.HandleFunc("PUT /v1/internal/channels/{id}/avatar", s.avatarPut)
+	mux.HandleFunc("DELETE /v1/internal/channels/{id}/avatar", s.avatarPut)
 	mux.HandleFunc("GET /v1/internal/channels/{id}/reads", s.readsGet)
 	mux.HandleFunc("POST /v1/internal/channels/{id}/read", s.readPost)
 	mux.HandleFunc("GET /v1/internal/agents/{agent}/choices", s.agentChoices)
@@ -737,6 +743,140 @@ func (s *Server) memberPatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	reply(w, http.StatusOK, out)
+}
+
+// Faces (docs/channels.md "头像"): a channel's, which for a session's own channel is its
+// agent's. A session with none of its own has the one last given to a session of its model.
+
+func channelAvatarKey(id string) string { return "c:" + id }
+
+// modelAvatarKey is where the face of the sessions of st's model is kept; "" while the model is
+// not known.
+func modelAvatarKey(st *api.SessionState) string {
+	if st == nil || st.Bare || st.Agent == "" {
+		return ""
+	}
+	model := cmp.Or(st.Model, st.Pick)
+	if model == "" || model == "default" {
+		return ""
+	}
+	return "m:" + string(st.Agent) + ":" + model
+}
+
+// avatarOf is the face of channel ch (st its state): its own, else its model's.
+func (s *Server) avatarOf(ch string, st *api.SessionState) (image []byte, version string, ok bool) {
+	if img, v, ok, err := s.st.Avatar(channelAvatarKey(ch)); err == nil && ok {
+		return img, v, true
+	}
+	if key := modelAvatarKey(st); key != "" {
+		if img, v, ok, err := s.st.Avatar(key); err == nil && ok {
+			return img, v, true
+		}
+	}
+	return nil, "", false
+}
+
+// AgentAvatar is where the face of session id's agent is fetched; "" if it has none.
+func (s *Server) AgentAvatar(id string) string {
+	st, err := s.m.State(id)
+	if err != nil {
+		return ""
+	}
+	if _, v, ok := s.avatarOf(id, st); ok {
+		return "/v1/internal/channels/" + id + "/avatar?v=" + v
+	}
+	return ""
+}
+
+func (s *Server) avatarGet(w http.ResponseWriter, r *http.Request) {
+	ch, st, err := s.seeingChannel(callerOf(r), r.PathValue("id"))
+	if err != nil {
+		s.error(w, err)
+		return
+	}
+	img, v, ok := s.avatarOf(ch, st)
+	if !ok {
+		refuse(w, http.StatusNotFound, "not_found", "no avatar")
+		return
+	}
+	h := w.Header()
+	h.Set("Content-Type", http.DetectContentType(img))
+	h.Set("Content-Security-Policy", "default-src 'none'; sandbox")
+	h.Set("ETag", `"`+v+`"`)
+	h.Set("Cache-Control", "private, no-cache")
+	http.ServeContent(w, r, "", time.Time{}, bytes.NewReader(img))
+}
+
+// avatarPut gives channel {id} a face (the body: a PNG, JPEG or WebP image, or JSON with it in
+// base64), or with DELETE
+// takes it away. A session's is also kept for its model: the sessions of that model with none
+// of their own have it, those started later too. One of the channel's people may; not an agent.
+func (s *Server) avatarPut(w http.ResponseWriter, r *http.Request) {
+	c := callerOf(r)
+	ch, st, err := s.seeingChannel(c, r.PathValue("id"))
+	if err != nil {
+		s.error(w, err)
+		return
+	}
+	if err := s.inChannel(c, ch); err != nil {
+		s.error(w, err)
+		return
+	}
+	if c.agent || c.session != "" {
+		forbid(w, errors.New("an agent's ir may not change a face"))
+		return
+	}
+	if r.Method == http.MethodDelete {
+		if err := s.st.DeleteAvatar(channelAvatarKey(ch)); err != nil {
+			s.fault(w, err)
+			return
+		}
+	} else {
+		data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 2*gate.MaxAvatarBytes))
+		if err != nil {
+			refuse(w, http.StatusRequestEntityTooLarge, "avatar_too_large", "at most 2 MB")
+			return
+		}
+		// As JSON: {"avatar": the image in base64, or a data: URL}.
+		if strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") || bytes.HasPrefix(bytes.TrimSpace(data), []byte("{")) {
+			var body struct {
+				Avatar string `json:"avatar"`
+			}
+			if json.Unmarshal(data, &body) != nil {
+				refuse(w, http.StatusBadRequest, "bad_request", "avatar: the image in base64")
+				return
+			}
+			b64 := body.Avatar
+			if strings.HasPrefix(b64, "data:") {
+				_, b64, _ = strings.Cut(b64, ",")
+			}
+			if data, err = base64.StdEncoding.DecodeString(b64); err != nil {
+				refuse(w, http.StatusBadRequest, "bad_request", "avatar: the image in base64")
+				return
+			}
+		}
+		img, v, err := gate.MakeAvatar(data)
+		switch {
+		case errors.Is(err, gate.ErrAvatarTooLarge):
+			refuse(w, http.StatusRequestEntityTooLarge, "avatar_too_large", "at most 2 MB")
+			return
+		case err != nil:
+			refuse(w, http.StatusUnprocessableEntity, "avatar_format", "a PNG, JPEG or WebP image")
+			return
+		}
+		for _, key := range []string{channelAvatarKey(ch), modelAvatarKey(st)} {
+			if key == "" {
+				continue
+			}
+			if err := s.st.PutAvatar(key, img, v); err != nil {
+				s.fault(w, err)
+				return
+			}
+		}
+	}
+	// The pages draw the faces again.
+	s.hub.Set("avatars", s.avatarsSeq.Add(1))
+	reply(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 // viewers are the people looking at each channel now: by channel, by member, how many pages of

@@ -7,7 +7,7 @@ import { Dialog } from "@base-ui/react/dialog";
 import { Menu } from "@base-ui/react/menu";
 import { Popover } from "@base-ui/react/popover";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AtSign, BarChart3, Box, Brain, ChartPie, Check, ChevronRight, CircleStop, FoldVertical, PencilLine, Inbox, ScrollText, ShieldCheck, UserMinus, X } from "lucide-react";
+import { AtSign, BarChart3, Box, Brain, ChartPie, Check, ChevronRight, CircleStop, FoldVertical, ImagePlus, PencilLine, Inbox, ScrollText, ShieldCheck, UserMinus, X } from "lucide-react";
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 import { api } from "../../api/client";
 import type { ChannelMembers, SessionState as LiveSession, Session } from "../../api/types.gen";
@@ -17,9 +17,10 @@ import { ModeMark, modeName } from "../../modes";
 import { useContextState, useList, useSession } from "../../store";
 import { errText, toast } from "../../toast";
 import { openUsage } from "../../route";
-import { agentName, cn, Logo, LogoLamp, own, sessionStatusText, useLongPress, useMenuAt } from "../../ui";
+import { agentName, cn, Lamp, Logo, own, sessionStatusText, useLongPress, useMenuAt } from "../../ui";
 import { levelName } from "../effort";
 import { ContextDetail, modelView, useMode } from "../meters";
+import { Face, pickFace } from "./face";
 import { memberError } from "./key";
 import { givenParts, validNick, type AgentRow } from "./lib";
 
@@ -91,7 +92,14 @@ export function AgentFace({ channel, a, call, record, may, size = 28 }: { channe
         style={{ width: size, height: size }}
         className="g-press grid shrink-0 place-items-center rounded-full bg-fill select-none hover:bg-fill-2 [-webkit-touch-callout:none]"
       >
-        <LogoLamp agent={a.agent} status={a.status} size={Math.round(size * 0.57)} />
+        <span className="relative grid">
+          <Face id={a.session} agent={a.agent} size={size} logo={Math.round(size * 0.57)} />
+          {a.status !== "idle" && (
+            <span className="absolute -right-0.5 -bottom-0.5">
+              <Lamp status={a.status} />
+            </span>
+          )}
+        </span>
       </button>
       <At anchor={face} open={detail} onOpenChange={setDetail} className="w-[min(300px,calc(100vw-16px))] p-3.5">
         <div onPointerEnter={() => clearTimeout(rest.current)} onPointerLeave={(e) => e.pointerType === "mouse" && hover(false, 150)}>
@@ -235,6 +243,7 @@ function MemberMenu({ channel, a, s, may, at, close, detail, rename, record, giv
               {may && item(<PencilLine size={15} />, t("menu.rename"), later(rename))}
               {detail && item(<ChartPie size={15} />, t("ctx.title"), later(detail))}
               {item(<BarChart3 size={15} />, t("usage.title"), later(() => openUsage(at ? { x: at.x, y: at.y } : undefined, s.machine)))}
+              {may && item(<ImagePlus size={15} />, t("me.avatar"), later(() => pickFace(a.session)))}
               {item(<ScrollText size={15} />, t("channel.session"), record)}
               {item(<Inbox size={15} />, t("channel.given"), later(given))}
               {remove && item(<UserMinus size={15} />, t("channel.remove"), later(remove), "text-err")}

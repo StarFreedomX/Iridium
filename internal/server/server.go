@@ -90,6 +90,8 @@ type Server struct {
 	calls   calls            // the channels each agent was called in by a subscription (channels.go)
 	// channelsSeq: the state "channels", up by one at each change of a channel's members.
 	channelsSeq atomic.Int64
+	// avatarsSeq: the state "avatars", up by one at each change of a face.
+	avatarsSeq atomic.Int64
 	// stopList stops giving Satori the session list (its channel events).
 	stopList func()
 }
@@ -431,7 +433,7 @@ func (s *Server) release(w http.ResponseWriter, r *http.Request) {
 	s.done(w, s.m.Release(ctx, r.PathValue("id"), req.ToolUseID, req.Dismiss))
 }
 
-var stateKey = regexp.MustCompile(`^(list|quota|guilds|needs|pairing|update|terminals|machines|notes|channels|(session|context|reads|viewers):[0-9a-zA-Z_-]{1,128})$`)
+var stateKey = regexp.MustCompile(`^(list|quota|guilds|needs|pairing|update|terminals|machines|notes|channels|avatars|(session|context|reads|viewers):[0-9a-zA-Z_-]{1,128})$`)
 
 // stateKeys splits the states a WATCH asks for into those it carries and those it leaves
 // out (unknown, or not this caller's: needs, pairing and notes are a person's on ir_web or at

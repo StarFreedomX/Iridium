@@ -280,6 +280,15 @@ var schema = []string{
 		at      INTEGER NOT NULL,
 		PRIMARY KEY (channel, reader)
 	);`,
+	// 40: the faces of channels and sessions (channels.go "avatars"): key "c:<id>" a channel's
+	// (a session's is its own channel's), "m:<agent>:<model>" the one the sessions of a model
+	// have when they have none of their own.
+	`CREATE TABLE IF NOT EXISTS avatars (
+		key     TEXT PRIMARY KEY,
+		image   BLOB NOT NULL,
+		version TEXT NOT NULL,
+		at      INTEGER NOT NULL
+	);`,
 }
 
 // steps run in Go after the migration of their version, in the same transaction.

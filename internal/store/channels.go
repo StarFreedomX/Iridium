@@ -459,6 +459,30 @@ func (s *Store) ChannelReads(channel string) ([]ChannelRead, error) {
 	return out, rows.Err()
 }
 
+// ---- faces ----
+
+// PutAvatar keeps image (as stored: gate.MakeAvatar) under key, with its version.
+func (s *Store) PutAvatar(key string, image []byte, version string) error {
+	_, err := s.db.Exec(`INSERT INTO avatars (key, image, version, at) VALUES (?, ?, ?, ?)
+		ON CONFLICT (key) DO UPDATE SET image = excluded.image, version = excluded.version, at = excluded.at`, key, image, version, now())
+	return err
+}
+
+// DeleteAvatar takes the image under key away.
+func (s *Store) DeleteAvatar(key string) error {
+	_, err := s.db.Exec(`DELETE FROM avatars WHERE key = ?`, key)
+	return err
+}
+
+// Avatar is the image kept under key and its version; ok false if none.
+func (s *Store) Avatar(key string) (image []byte, version string, ok bool, err error) {
+	err = s.db.QueryRow(`SELECT image, version FROM avatars WHERE key = ?`, key).Scan(&image, &version)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, "", false, nil
+	}
+	return image, version, err == nil, err
+}
+
 // ---- the agents' nicks ----
 
 // ErrNickTaken: another session has the nick.

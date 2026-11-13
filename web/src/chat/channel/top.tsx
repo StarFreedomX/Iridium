@@ -3,7 +3,7 @@
 // its logins. No faces are lined up under the title.
 import { Menu } from "@base-ui/react/menu";
 import { useQueryClient } from "@tanstack/react-query";
-import { Check, ChevronRight, Eye, UserPlus, Users } from "lucide-react";
+import { Check, ChevronRight, Eye, ImagePlus, UserPlus, Users } from "lucide-react";
 import type { CSSProperties, ReactNode } from "react";
 import { api } from "../../api/client";
 import type { ChannelMembers, Viewer } from "../../api/types.gen";
@@ -13,6 +13,7 @@ import { openChat } from "../../route";
 import { useCarried, useList } from "../../store";
 import { toast } from "../../toast";
 import { agentName, Avatar, cn, Lamp, Logo } from "../../ui";
+import { pickFace } from "./face";
 import { mayAct, useMembers } from "./gate";
 import { AgentKinds, ITEM, POPUP } from "./invite";
 import { memberError } from "./key";
@@ -117,6 +118,14 @@ export default function ChannelMenu({ id, from = 0 }: { id: string; from?: numbe
         <div className={HEAD}>{t("channel.people")}</div>
         <div className="flex h-8 items-center px-2.5 text-base text-ink-2 pointer-coarse:h-11">{everyone(people) ? t("channel.everyone") : t("channel.peopleN", { n: people.length })}</div>
       </Sub>
+      {may && (
+        <Menu.Item onClick={() => requestAnimationFrame(() => pickFace(id))} style={{ "--i": from + 3 } as CSSProperties} className={ITEM}>
+          <span className="text-ink-2">
+            <ImagePlus size={15} />
+          </span>
+          {t("channel.avatar")}
+        </Menu.Item>
+      )}
       {may && (
         <Sub icon={<UserPlus size={15} />} label={t("channel.invite")} i={from + 2}>
           <div className={HEAD}>{t("channel.agents")}</div>

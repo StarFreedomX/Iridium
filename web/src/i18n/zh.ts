@@ -270,6 +270,7 @@ export const zh = {
   "channel.readBy": "已读：{names}",
   "channel.worksIn": "在「{name}」中工作",
   "channel.spawnedBy": "由「{name}」拉起",
+  "channel.avatar": "换频道头像",
   "channel.back": "返回频道",
   "queue.title": "待发队列",
   "queue.paused": "已暂停",
