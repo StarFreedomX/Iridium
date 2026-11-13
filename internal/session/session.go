@@ -101,6 +101,7 @@ type Manager struct {
 	inChan   atomic.Pointer[func(string) bool]
 	chanOf   atomic.Pointer[func(string) ([]api.ChannelAgent, []string)]
 	spawned  atomic.Pointer[func(string) *api.Spawned]
+	bare     atomic.Pointer[func() []api.Session]
 }
 
 func New(o Options) (*Manager, error) {
@@ -478,20 +479,22 @@ func (m *Manager) List(ctx context.Context) ([]api.Session, error) {
 		// A hosted Codex session is on disk under its thread: listed once, as hosted.
 		seen[h.id], seen[as] = true, true
 	}
+	var found []api.Session
 	if m.o.Discovery != nil {
-		found, err := m.o.Discovery.Sessions(ctx)
+		found, err = m.o.Discovery.Sessions(ctx)
 		if err != nil {
 			m.o.Logf("session: discovery: %v", err)
 		}
-		for _, s := range found {
-			if !seen[s.ID] {
-				o := over[s.ID]
-				s.Name, s.Pinned, s.Workspace, s.Color, s.Order = o.Name, o.Pinned, o.Workspace, api.Color(o.Color), o.Order
-				s.Archived = !vis.Shown(string(s.Agent), s.ID)
-				m.parentOf(&s)
-				s.Own = ownOf(s, o)
-				out = append(out, s)
-			}
+	}
+	// And the channels that are no session's (SetBare).
+	for _, s := range append(found, m.bares()...) {
+		if !seen[s.ID] {
+			o := over[s.ID]
+			s.Name, s.Pinned, s.Workspace, s.Color, s.Order = o.Name, o.Pinned, o.Workspace, api.Color(o.Color), o.Order
+			s.Archived = !vis.Shown(string(s.Agent), s.ID)
+			m.parentOf(&s)
+			s.Own = ownOf(s, o)
+			out = append(out, s)
 		}
 	}
 	slices.SortStableFunc(out, func(a, b api.Session) int {
@@ -698,6 +701,9 @@ func writeJSON(path string, v any) error {
 
 // NewInputID is an input id for a sender that chose none (SendAs).
 func NewInputID() string { return newUUID() }
+
+// NewChannelID is a new id for a channel that is no session's: as a session's.
+func NewChannelID() string { return newUUID() }
 
 // SourceTag is the name the agent sees a message from `from` under (Send's "[name] ").
 func (m *Manager) SourceTag(from string) string {

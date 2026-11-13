@@ -136,6 +136,11 @@ export interface Session {
   subagent?: boolean;
   parent?: string;
   /**
+   * Bare: a channel that is no session's (docs/channels.md): no agent of its own, no record;
+   * what is said in it is its messages. Listed as a session is, in its folder.
+   */
+  bare?: boolean;
+  /**
    * Agents: of a session whose channel has several agents (docs/channels.md), all of them in
    * the order they joined, itself first. In: the channels it is in beside its own. Spawned:
    * where it was started, if for a channel.

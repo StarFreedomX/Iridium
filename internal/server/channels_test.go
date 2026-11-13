@@ -326,3 +326,74 @@ func TestChannelCreatedWhole(t *testing.T) {
 	}
 	l.create(400, "web", api.NewSession{Agent: api.AgentClaude, Cwd: l.work, Members: &api.ChannelSetup{Agents: []api.NewMember{{Agent: api.AgentClaude, Nick: "a b"}}}})
 }
+
+// A channel that is no session's, made as Satori has it (channel.create with no agent): listed
+// in its folder, with no agent until one joins; what is said in it is its messages. An app
+// names an agent by Satori's <at id>, as a person types its nick.
+func TestChannelBare(t *testing.T) {
+	t.Parallel()
+	l := start(t)
+	var made satori.Channel
+	l.wantSat(200, "web", "channel.create", map[string]any{"data": map[string]any{"name": "room"}, "_data": map[string]any{"cwd": l.work}}, &made)
+	ch := made.ID
+	if ch == "" || made.Name != "room" || made.Type != satori.ChannelText || made.Data == nil || !made.Data.Bare || made.Data.Agent != "" {
+		t.Fatalf("made: %+v %+v", made, made.Data)
+	}
+	listed := false
+	for _, ss := range l.sessions("web") {
+		if ss.ID == ch {
+			listed = ss.Bare && ss.Cwd == l.work && !ss.Archived && ss.Title == "room"
+		}
+	}
+	if !listed {
+		t.Fatalf("not listed as it is")
+	}
+	var ms api.ChannelMembers
+	l.want(200, "web", "GET", "/v1/internal/channels/"+ch+"/members", nil, &ms)
+	if len(ms.Members) != 1 || ms.Members[0].Member != "*" || !ms.Joined {
+		t.Fatalf("members: %+v", ms)
+	}
+	// Words with nobody to wake are said all the same; a slash is words too.
+	code, r := l.send("web", ch, api.Send{Text: "anyone here"})
+	if code != 200 || r.Seq != 1 {
+		t.Fatalf("send: %d %+v", code, r)
+	}
+	if code, _ := l.send("web", ch, api.Send{Text: "/clear"}); code != 200 {
+		t.Fatalf("send a slash: %d", code)
+	}
+	if all := l.said("web", ch); len(all) != 2 || !strings.Contains(all[0], "anyone here") {
+		t.Fatalf("said: %v", all)
+	}
+	// An agent joins: a session of its own in the channel's folder; it is given what names it,
+	// with what it has not seen, and answers with ir.
+	l.want(200, "web", "POST", "/v1/internal/channels/"+ch+"/members", api.NewMember{Agent: api.AgentClaude}, &ms)
+	if len(ms.Members) != 2 || ms.Members[1].Send != "ir" || ms.Members[1].Cwd != l.work {
+		t.Fatalf("members with an agent: %+v", ms)
+	}
+	agent, nick := ms.Members[1].Session, ms.Members[1].Nick
+	bot := l.newApp("bot", true).Token
+	var sent []satori.Message
+	l.wantSat(200, bot, "message.create", map[string]any{"channel_id": ch, "content": `<at id="agent:` + agent + `"/> look at this`}, &sent)
+	l.waitSaid("web", agent, "@"+nick+" look at this")
+	got := l.page("web", agent).Blocks[0].Text
+	for _, want := range []string{"called in the channel \"room\"", "]: anyone here\n", "message.create channel_id=" + ch} {
+		if !strings.Contains(got, want) {
+			t.Errorf("given without %q:\n%s", want, got)
+		}
+	}
+	l.wantSat(200, "agent-in:"+agent, "message.create", map[string]any{"channel_id": ch, "content": "looked"}, &sent)
+	l.waitSaid(bot, ch, "@"+nick+" looked")
+	// Renamed and archived as a session is.
+	l.wantSat(200, "web", "channel.update", map[string]any{"channel_id": ch, "data": map[string]any{"name": "hall"}}, nil)
+	l.wantSat(200, "web", "channel.delete", map[string]any{"channel_id": ch}, nil)
+	for _, ss := range l.sessions("web") {
+		if ss.ID == ch && (!ss.Archived || ss.Title != "hall") {
+			t.Errorf("after renaming and archiving: %+v", ss)
+		}
+	}
+	// The agent's session is as it was.
+	var st api.SessionState
+	if l.want(200, "web", "GET", "/v1/internal/sessions/"+agent, nil, &st); st.Archived {
+		t.Errorf("the agent's session: %+v", st.Session)
+	}
+}

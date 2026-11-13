@@ -535,6 +535,13 @@ func (s *Store) Channels() ([]Channel, error) {
 	return out, rows.Err()
 }
 
+// ChannelTouched is when channel's last message was said (ms); 0 if it has none.
+func (s *Store) ChannelTouched(channel string) int64 {
+	var at int64
+	_ = s.db.QueryRow(`SELECT COALESCE(MAX(at), 0) FROM channel_messages WHERE channel = ?`, channel).Scan(&at)
+	return at
+}
+
 // DeleteChannel removes channel id's row and its members; what was said in it stays.
 func (s *Store) DeleteChannel(id string) error {
 	if _, err := s.db.Exec(`DELETE FROM channel_members WHERE channel = ?`, id); err != nil {

@@ -318,6 +318,62 @@ func (s *Server) addAgent(ctx context.Context, c caller, ch string, st *api.Sess
 	return id, nil
 }
 
+// bareChannels are the channels that are no session's, each as the list of sessions has it: no
+// agent, in its folder, last active when something was last said in it.
+func (s *Server) bareChannels() []api.Session {
+	var out []api.Session
+	for _, c := range s.ch.Owns() {
+		out = append(out, api.Session{ID: c.ID, Cwd: c.Cwd, Machine: c.Machine, Title: c.Name, Status: api.StatusIdle, Bare: true,
+			UpdatedAt: max(c.Created, s.st.ChannelTouched(c.ID))})
+	}
+	return out
+}
+
+// createChannel makes a channel that is no session's as c (channel.create with no agent): in
+// req.Cwd, with the people and agents req.Members names; then req.Text, its first words, said
+// in it. Whoever may see that folder may make one there.
+func (s *Server) createChannel(ctx context.Context, c caller, req api.NewSession) (string, error) {
+	if !c.Host() {
+		app := gate.HostID
+		if req.Machine != "" {
+			if info, ok := s.gate().Find(req.Machine); ok {
+				app = info.ID
+			}
+		}
+		if !s.scopeHas(s.permsFor(c).Scope, app, req.Cwd) {
+			return "", &access.Denied{Reason: fmt.Sprintf("%s is out of this one's scope", req.Cwd)}
+		}
+	}
+	setup := api.ChannelSetup{}
+	if req.Members != nil {
+		setup = *req.Members
+	}
+	if len(setup.Agents) > MaxAgents {
+		return "", &createError{errFull}
+	}
+	for _, a := range setup.Agents {
+		if a.Nick != "" && !deliver.ValidNick(a.Nick) {
+			return "", &createError{fmt.Errorf("%w: %w", session.ErrBadRequest, channel.ErrNick)}
+		}
+	}
+	id := session.NewChannelID()
+	if err := s.ch.Create(store.Channel{ID: id, Cwd: req.Cwd, Machine: req.Machine, Creator: c.ID()}); err != nil {
+		return "", &createError{err}
+	}
+	if err := s.m.ListBare(id, req.Cwd, req.Caller); err != nil {
+		s.logf("server: channel %s: listing it: %v", id, err)
+	}
+	if req.Workspace != 0 {
+		if err := s.st.Assign(id, req.Workspace, true); err != nil {
+			s.logf("server: channel %s: its group: %v", id, err)
+		}
+	}
+	setup.Nick, setup.Recv = "", ""
+	err := s.setUp(ctx, c, id, setup, req.Text)
+	s.m.Refresh([]string{id})
+	return id, err
+}
+
 // spawnedKey is where what is kept of a session started for a channel is.
 func spawnedKey(id string) string { return "spawned:" + id }
 

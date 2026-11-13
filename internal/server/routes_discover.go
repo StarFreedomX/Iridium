@@ -89,6 +89,17 @@ func (s *Server) patch(ctx context.Context, id string, req api.SessionPatch) err
 		}
 	}
 	req.Detach = nil
+	// A channel that is no session's is named in its own row.
+	if _, own := s.ch.Own(id); own && req.Name != nil {
+		if err := s.ch.Rename(id, *req.Name); err != nil {
+			return managerErr{err}
+		}
+		req.Name = nil
+		s.m.Refresh([]string{id})
+	}
+	if req == (api.SessionPatch{ByAgent: req.ByAgent}) {
+		return nil // nothing more to change
+	}
 	if s.Discover == nil {
 		return managerErr{errNotIndexed}
 	}

@@ -37,9 +37,38 @@ func (m *Manager) finder() Finder {
 // found is session id as discovery found it, if Iridium does not host it.
 func (m *Manager) found(id string) (api.Session, *transcript.File, bool) {
 	if f := m.finder(); f != nil {
-		return f.Found(id)
+		if s, tf, ok := f.Found(id); ok {
+			return s, tf, true
+		}
+	}
+	for _, s := range m.bares() {
+		if s.ID == id {
+			return s, nil, true
+		}
 	}
 	return api.Session{}, nil, false
+}
+
+// SetBare has f list the channels that are no session's (docs/channels.md), each as a session
+// with no agent: listed, named, pinned, grouped and archived as the sessions found on disk are.
+func (m *Manager) SetBare(f func() []api.Session) { m.bare.Store(&f) }
+
+func (m *Manager) bares() []api.Session {
+	if f := m.bare.Load(); f != nil {
+		return (*f)()
+	}
+	return nil
+}
+
+// ListBare puts a new channel that is no session's in the list: shown, and in its folder's group
+// (the caller's, if that holds the folder).
+func (m *Manager) ListBare(id, cwd, caller string) error {
+	if _, err := m.o.Store.Show("", id); err != nil {
+		return err
+	}
+	m.intoGroup(id, cwd, caller)
+	m.Refresh([]string{id})
+	return nil
 }
 
 // Known: Iridium hosts session id, or found it on disk.

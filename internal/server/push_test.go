@@ -107,7 +107,7 @@ func TestPushOnAsk(t *testing.T) {
 	if p.do("POST", "/v1/internal/web/push/test", nil, &sent); sent["sent"] != 1 || (<-got).Kind != "test" {
 		t.Errorf("test push: %v", sent)
 	}
-	created, _ := createAt(p.t, http.DefaultClient, p.base, api.NewSession{Cwd: p.work, Text: "hi"})
+	created, _ := createAt(p.t, http.DefaultClient, p.base, api.NewSession{Agent: api.AgentClaude, Cwd: p.work, Text: "hi"})
 	// A turn's end with the switch off: nothing (a push meanwhile would be the first got below).
 	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
 		var s api.SessionState
@@ -205,7 +205,7 @@ func TestPushPanelsOnly(t *testing.T) {
 func TestQueueAndPushRoutes(t *testing.T) {
 	t.Parallel()
 	p := newPushRig(t)
-	created, _ := createAt(p.t, http.DefaultClient, p.base, api.NewSession{Cwd: p.work, Text: "one WAIT"})
+	created, _ := createAt(p.t, http.DefaultClient, p.base, api.NewSession{Agent: api.AgentClaude, Cwd: p.work, Text: "one WAIT"})
 	id, sentInput := created, ""
 	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
 		var s api.SessionState

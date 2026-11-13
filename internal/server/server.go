@@ -112,6 +112,7 @@ func New(cfg config.Config, m *session.Manager, h *hub.Hub, logf func(string, ..
 	m.SetInChannel(s.multi)
 	m.SetChannelOf(s.channelOf)
 	m.SetSpawned(s.spawnedOf)
+	m.SetBare(s.bareChannels)
 	s.sat.Keep(satoriKeeper{s.st})
 	m.Watch(s.sat.Notice)
 	lctx, lstop := context.WithCancel(context.Background())
@@ -274,6 +275,9 @@ func (s *Server) createAs(ctx context.Context, c caller, req api.NewSession) (st
 	if err := s.where(c, &req); err != nil {
 		return "", err
 	}
+	if req.Agent == "" {
+		return s.createChannel(ctx, c, req)
+	}
 	if err := s.checkCreate(c, &req); err != nil {
 		return "", err
 	}
@@ -334,6 +338,9 @@ func (s *Server) sendAs(ctx context.Context, c caller, from, id string, req api.
 	// A channel of several agents: said there, given to those it wakes (channels.go). A command
 	// is the agent's own that it is sent to, as ever.
 	command := strings.HasPrefix(strings.TrimSpace(req.Text), "/")
+	if _, own := s.ch.Own(id); own {
+		command = false // no agent of its own to run one: words as any
+	}
 	if !command && s.multi(id) {
 		return s.sendChannel(ctx, c, from, id, req)
 	}

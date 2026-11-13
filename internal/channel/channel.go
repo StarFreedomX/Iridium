@@ -8,6 +8,7 @@
 package channel
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"slices"
@@ -211,6 +212,17 @@ func (s *Service) lock(session string) func() {
 func (s *Service) Own(id string) (store.Channel, bool) {
 	c, ok := s.members().own[id]
 	return c, ok
+}
+
+// Owns are the channels of their own, oldest first.
+func (s *Service) Owns() []store.Channel {
+	ix := s.members()
+	out := make([]store.Channel, 0, len(ix.own))
+	for _, c := range ix.own {
+		out = append(out, c)
+	}
+	slices.SortFunc(out, func(a, b store.Channel) int { return cmp.Or(cmp.Compare(a.Created, b.Created), cmp.Compare(a.ID, b.ID)) })
+	return out
 }
 
 // In are the channels session is in beside its own, in the order it joined them.
