@@ -470,7 +470,7 @@ func TestChannelSendCheckAndFollows(t *testing.T) {
 	var f api.Follow
 	l.want(403, "web", "POST", "/v1/internal/channels/"+ch+"/follow", api.Follow{User: "*"}, nil)
 	l.want(400, "agent-in:"+guest, "POST", "/v1/internal/channels/"+ch+"/follow", api.Follow{User: "*", Count: 500}, nil)
-	l.want(200, "agent-in:"+guest, "POST", "/v1/internal/channels/"+ch+"/follow", api.Follow{User: "*"}, &f)
+	l.want(200, "agent-in:"+guest, "POST", "/v1/internal/channels/"+ch[:8]+"/follow", api.Follow{User: "*"}, &f)
 	if f.Count != 1 || f.Seconds != 600 {
 		t.Errorf("follow: %+v", f)
 	}

@@ -239,8 +239,13 @@ func (s *Server) multi(ch string) bool {
 	return len(s.ch.Agents(ch)) > 1
 }
 
-// seeingChannel is channel ch if c sees it.
+// seeingChannel is the channel ch names (its id, the start of it, or self: the caller's own) if
+// c sees it.
 func (s *Server) seeingChannel(c caller, ch string) (string, *api.SessionState, error) {
+	ch, err := s.sessionArg(context.Background(), c, ch)
+	if err != nil {
+		return "", nil, err
+	}
 	st, err := s.m.State(ch)
 	if err != nil {
 		return "", nil, err
