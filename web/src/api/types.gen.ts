@@ -1284,6 +1284,17 @@ export interface Reader {
   at?: number /* int64 */;
 }
 /**
+ * Viewer is someone looking at a channel now (the carried state "viewers:<channel>", a list of
+ * them): Member, the login ("<app>/<login>"); Name, what it goes by; Pages, how many of its
+ * pages have the channel open; Since, when the first did (ms).
+ */
+export interface Viewer {
+  member: string;
+  name?: string;
+  pages: number /* int */;
+  since: number /* int64 */;
+}
+/**
  * Read moves the caller's place in a channel up to message Seq (POST …/read).
  */
 export interface Read {

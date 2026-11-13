@@ -126,6 +126,16 @@ type Reader struct {
 	At     int64  `json:"at,omitempty"`
 }
 
+// Viewer is someone looking at a channel now (the carried state "viewers:<channel>", a list of
+// them): Member, the login ("<app>/<login>"); Name, what it goes by; Pages, how many of its
+// pages have the channel open; Since, when the first did (ms).
+type Viewer struct {
+	Member string `json:"member"`
+	Name   string `json:"name,omitempty"`
+	Pages  int    `json:"pages"`
+	Since  int64  `json:"since"`
+}
+
 // Read moves the caller's place in a channel up to message Seq (POST …/read).
 type Read struct {
 	Seq int64 `json:"seq"`

@@ -739,6 +739,57 @@ func (s *Server) memberPatch(w http.ResponseWriter, r *http.Request) {
 	reply(w, http.StatusOK, out)
 }
 
+// viewers are the people looking at each channel now: by channel, by member, how many pages of
+// theirs have it open.
+type viewers struct {
+	mu sync.Mutex
+	of map[string]map[string]*api.Viewer
+}
+
+// viewing: c has channel ch open on a page, until the func it gives is called. The pages are
+// told who is looking (the carried state "viewers:<ch>").
+func (s *Server) viewing(c caller, ch string) func() {
+	me, name := memberOf(c), s.satoriUser(c).Name
+	change := func(by int) {
+		s.viewers.mu.Lock()
+		if s.viewers.of == nil {
+			s.viewers.of = map[string]map[string]*api.Viewer{}
+		}
+		in := s.viewers.of[ch]
+		if in == nil {
+			in = map[string]*api.Viewer{}
+			s.viewers.of[ch] = in
+		}
+		v := in[me]
+		if v == nil {
+			v = &api.Viewer{Member: me, Name: name, Since: time.Now().UnixMilli()}
+			in[me] = v
+		}
+		if v.Pages += by; v.Pages <= 0 {
+			delete(in, me)
+		}
+		if len(in) == 0 {
+			delete(s.viewers.of, ch)
+		}
+		s.viewers.mu.Unlock()
+		s.hub.Set("viewers:"+ch, s.viewersOf(ch))
+	}
+	change(1)
+	return func() { change(-1) }
+}
+
+// viewersOf are the people looking at channel ch now, the first to open it first.
+func (s *Server) viewersOf(ch string) []api.Viewer {
+	s.viewers.mu.Lock()
+	defer s.viewers.mu.Unlock()
+	out := []api.Viewer{}
+	for _, v := range s.viewers.of[ch] {
+		out = append(out, *v)
+	}
+	slices.SortFunc(out, func(a, b api.Viewer) int { return cmp.Or(cmp.Compare(a.Since, b.Since), cmp.Compare(a.Member, b.Member)) })
+	return out
+}
+
 // readsOf is how far each member has read channel ch: the people that opened it, as they said
 // (readPost); its agents, as far as each was given. The channel's own agent with no row of its
 // own has all of it: what is said there is its own record.

@@ -86,6 +86,7 @@ type Server struct {
 	ch      *channel.Service // what is said in the channels (docs/channels.md)
 	chain   chains           // the chain each agent's turn is in (channels.go)
 	follows follows          // what agents asked to be given of a channel beside what names them (channels.go)
+	viewers viewers          // who is looking at each channel now (channels.go)
 	calls   calls            // the channels each agent was called in by a subscription (channels.go)
 	// channelsSeq: the state "channels", up by one at each change of a channel's members.
 	channelsSeq atomic.Int64
@@ -430,7 +431,7 @@ func (s *Server) release(w http.ResponseWriter, r *http.Request) {
 	s.done(w, s.m.Release(ctx, r.PathValue("id"), req.ToolUseID, req.Dismiss))
 }
 
-var stateKey = regexp.MustCompile(`^(list|quota|guilds|needs|pairing|update|terminals|machines|notes|channels|(session|context):[0-9a-zA-Z_-]{1,128})$`)
+var stateKey = regexp.MustCompile(`^(list|quota|guilds|needs|pairing|update|terminals|machines|notes|channels|(session|context|reads|viewers):[0-9a-zA-Z_-]{1,128})$`)
 
 // stateKeys splits the states a WATCH asks for into those it carries and those it leaves
 // out (unknown, or not this caller's: needs, pairing and notes are a person's on ir_web or at
@@ -464,6 +465,12 @@ func (s *Server) watchStates(ctx context.Context, c caller, keys []string, emit 
 		b, _ := json.Marshal(e)
 		if err := emit("state", b); err != nil {
 			return err
+		}
+	}
+	// Whoever watches who is looking at a channel is looking at it (channels.go "viewers").
+	for _, k := range carried {
+		if ch, ok := strings.CutPrefix(k, "viewers:"); ok && !c.agent && c.session == "" {
+			defer s.viewing(c, ch)()
 		}
 	}
 	sub := s.hub.Subscribe(carried)

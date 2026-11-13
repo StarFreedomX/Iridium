@@ -263,7 +263,7 @@ func (s *Server) stateFilter(c caller) func(key string, v []byte) []byte {
 			}
 			b, _ := json.Marshal(s.filterSessions(p, l))
 			return b
-		case strings.HasPrefix(key, "session:"), strings.HasPrefix(key, "context:"), strings.HasPrefix(key, "reads:"):
+		case strings.HasPrefix(key, "session:"), strings.HasPrefix(key, "context:"), strings.HasPrefix(key, "reads:"), strings.HasPrefix(key, "viewers:"):
 			_, id, _ := strings.Cut(key, ":")
 			if st, err := s.m.State(id); err == nil && !s.sees(p, st.Session) {
 				return []byte("null")
