@@ -647,15 +647,16 @@ func (s *Server) agentChoices(w http.ResponseWriter, r *http.Request) {
 		if tried++; tried > choicesTried {
 			break
 		}
-		if st, err := s.m.State(ss.ID); err == nil && len(st.Models)+len(st.Efforts) > 0 {
+		// One that says its models (pi says them only while it runs: an idle one has its
+		// efforts alone, and is passed over).
+		if st, err := s.m.State(ss.ID); err == nil && len(st.Models) > 0 {
 			out.Models, out.Efforts = append(out.Models, st.Models...), append(out.Efforts, st.Efforts...)
 			s.keepChoices(st)
 			break
 		}
 	}
-	// Some harnesses say their models only while they run: what one said last is kept
-	// (keepChoices), for when none of the kind runs.
-	if len(out.Models)+len(out.Efforts) == 0 {
+	// Else what one said last, kept (keepChoices), for when none of the kind says them now.
+	if len(out.Models) == 0 {
 		if kept := s.st.Kept(choicesKey(kind, machine)); kept != "" {
 			_ = json.Unmarshal([]byte(kept), &out)
 		}
@@ -670,7 +671,8 @@ func choicesKey(kind api.Agent, machine string) string {
 // keepChoices keeps the models and efforts session st says its kind has where it runs, if it
 // says any and they are not those kept.
 func (s *Server) keepChoices(st *api.SessionState) {
-	if len(st.Models)+len(st.Efforts) == 0 {
+	// Without its models (an idle pi says its efforts alone) it would put over what has them.
+	if len(st.Models) == 0 {
 		return
 	}
 	b, err := json.Marshal(api.AgentChoices{Models: append([]api.Model{}, st.Models...), Efforts: append([]string{}, st.Efforts...)})
