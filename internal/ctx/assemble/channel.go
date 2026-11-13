@@ -104,7 +104,9 @@ func channelPieces(c Channel, seq int64, said, input string) []piece {
 		}
 		agents = append(agents, s)
 	}
-	if c.ID != "" {
+	if c.ID != "" && !c.Pull {
+		ps = append(ps, text(idChannelGuestBare, "you", c.You, "name", cmp.Or(c.Name, c.ID), "agents", strings.Join(agents, ", ")))
+	} else if c.ID != "" {
 		ps = append(ps, text(idChannelGuest, "you", c.You, "channel", c.ID, "name", cmp.Or(c.Name, c.ID), "agents", strings.Join(agents, ", ")))
 	} else {
 		ps = append(ps, text(idChannelMembers, "you", c.You, "agents", strings.Join(agents, ", ")))

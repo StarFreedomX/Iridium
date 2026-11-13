@@ -49,6 +49,21 @@ func (m *Manager) found(id string) (api.Session, *transcript.File, bool) {
 	return api.Session{}, nil, false
 }
 
+// HasIR: session id's agent has an ir that reaches Iridium: here always; at another machine,
+// if its executor gives it one (wire.Hello.IRClient).
+func (m *Manager) HasIR(id string) bool {
+	h, err := m.get(id)
+	if err != nil {
+		return false
+	}
+	mc := h.machine()
+	if mc == nil {
+		return true
+	}
+	hi, _ := mc.Hello()
+	return hi != nil && hi.IRClient
+}
+
 // SetBare has f list the channels that are no session's (docs/channels.md), each as a session
 // with no agent: listed, named, pinned, grouped and archived as the sessions found on disk are.
 func (m *Manager) SetBare(f func() []api.Session) { m.bare.Store(&f) }

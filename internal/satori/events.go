@@ -179,6 +179,9 @@ func (s *Service) handle(n session.Notice, at time.Time) {
 			s.hear(n.Session, n.Text, origin)
 		}
 		s.flush(n.Session, "reply", origin, n.Denied)
+		if s.onTurnEnd != nil {
+			s.onTurnEnd(n.Session, n.Text)
+		}
 	case session.NoticeAsk:
 		st, err := s.b.Session(n.Session)
 		if err != nil || n.Ask == nil {

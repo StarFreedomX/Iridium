@@ -159,6 +159,8 @@ func TestChannelOfSeveral(t *testing.T) {
 			t.Errorf("the second agent's turn was said in the channel: %s", m)
 		}
 	}
+	// Its turn ended with nothing said in the channel: the channel says so.
+	l.waitSaid("web", ch, "iridium", "@claude2 被叫起", "未在频道发话")
 	// What it was given is not a message of its own channel: only what it said is.
 	for _, m := range l.said("web", second) {
 		if !strings.Contains(m, " @claude2 ") {

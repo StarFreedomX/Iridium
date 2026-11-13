@@ -85,6 +85,7 @@ type Server struct {
 	sat   *satori.Service  // /v1/: Satori with ir (satori.go)
 	ch    *channel.Service // what is said in the channels (docs/channels.md)
 	chain chains           // the chain each agent's turn is in (channels.go)
+	calls calls            // the channels each agent was called in by a subscription (channels.go)
 	// channelsSeq: the state "channels", up by one at each change of a channel's members.
 	channelsSeq atomic.Int64
 	// stopList stops giving Satori the session list (its channel events).
@@ -109,6 +110,7 @@ func New(cfg config.Config, m *session.Manager, h *hub.Hub, logf func(string, ..
 	s.sat = satori.New(satoriBackend{s}, logf)
 	s.sat.Channels(s.ch)
 	s.sat.OnSaid(s.routeSaid)
+	s.sat.OnTurnEnd(func(id, reply string) { go s.turnEnded(id, reply) })
 	m.SetInChannel(s.multi)
 	m.SetChannelOf(s.channelOf)
 	m.SetSpawned(s.spawnedOf)

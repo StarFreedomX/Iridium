@@ -79,6 +79,78 @@ func (c *chains) set(session string, ch chain) {
 	c.of[session] = ch
 }
 
+// called is a channel an agent was called in by a subscription: for message seq; spoke, it has
+// said something there since.
+type called struct {
+	channel string
+	seq     int64
+	spoke   bool
+}
+
+// calls are the calls each session's agent has open: made as it is given a channel's message,
+// closed as its turn ends (turnEnded).
+type calls struct {
+	mu sync.Mutex
+	of map[string][]called
+}
+
+func (k *calls) add(session string, c called) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if k.of == nil {
+		k.of = map[string][]called{}
+	}
+	k.of[session] = append(k.of[session], c)
+}
+
+// spoke: session's agent said something in channel.
+func (k *calls) spoke(session, channel string) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	for i := range k.of[session] {
+		if k.of[session][i].channel == channel {
+			k.of[session][i].spoke = true
+		}
+	}
+}
+
+// take are session's open calls, which are then closed.
+func (k *calls) take(session string) []called {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	out := k.of[session]
+	delete(k.of, session)
+	return out
+}
+
+// turnEnded: a turn of session's agent ended with reply. In each channel it was called in by a
+// subscription and said nothing: where it has no ir to speak with (another machine's, without
+// one), its reply is said there for it; else the channel is told it said nothing.
+func (s *Server) turnEnded(id, reply string) {
+	open := s.calls.take(id)
+	if len(open) == 0 {
+		return
+	}
+	done := map[string]bool{}
+	for _, c := range open {
+		if c.spoke || done[c.channel] || !s.ch.Speaks(c.channel, id) {
+			continue
+		}
+		done[c.channel] = true
+		if !s.m.HasIR(id) && strings.TrimSpace(reply) != "" {
+			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			_, err := s.sendChannel(ctx, caller{Identity: localIdentity, socket: true, agent: true, session: id}, session.From(gate.HostID, "@"+s.ch.Nick(id)), c.channel, api.Send{Text: reply})
+			cancel()
+			if err == nil {
+				continue
+			}
+			s.logf("server: channel %s: saying %s's reply: %v", c.channel, id, err)
+		}
+		nick := s.ch.Nick(id)
+		s.sat.Note(c.channel, fmt.Sprintf("@%s 被叫起（#%d），未在频道发话", nick, c.seq), "", &channel.Event{Type: "silent", Member: store.AgentMember(id), Nick: nick, Seq: c.seq})
+	}
+}
+
 func (s *Server) channelRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/internal/channels/{id}/members", s.membersGet)
 	mux.HandleFunc("POST /v1/internal/channels/{id}/members", s.memberAdd)
@@ -732,6 +804,7 @@ func (s *Server) sendChannel(ctx context.Context, c caller, from, ch string, req
 	if s.ch.Speaks(ch, c.session) {
 		sender, link = c.session, s.chain.get(c.session)
 		link.origin = cmp.Or(link.origin, c.ID())
+		s.calls.spoke(sender, ch)
 	}
 	d := deliver.Route(req.Text, sender, link.hop, list)
 	if d.TooFar {
@@ -844,8 +917,9 @@ func (s *Server) deliverTo(ctx context.Context, ch, to string, seq int64, said, 
 	}
 	cc := assemble.Channel{You: me.Nick, Plan: strategy.Fold(unseen, strategy.Default), Pull: true, Zone: time.Local, Did: did}
 	if !me.Direct() {
-		// In it by a subscription: told which channel this is of, and that it speaks there with ir.
-		cc.ID, cc.Name = ch, s.channelName(ch)
+		// In it by a subscription: told which channel this is of, and that it speaks there with
+		// ir; without one, that its reply is said there for it.
+		cc.ID, cc.Name, cc.Pull = ch, s.channelName(ch), s.m.HasIR(to)
 	}
 	for _, a := range list {
 		if a.Session == to {
@@ -868,8 +942,8 @@ func (s *Server) deliverTo(ctx context.Context, ch, to string, seq int64, said, 
 		}
 		cc.Work = append(cc.Work, assemble.Work{Who: a.Nick, Did: sum})
 	}
-	if st, err := s.m.State(to); err == nil && st.Machine != "" {
-		cc.Pull = false // at another machine: no ir of the host's to read the channel with
+	if st, err := s.m.State(to); err == nil && st.Machine != "" && !s.m.HasIR(to) {
+		cc.Pull = false // at another machine, with no ir to read the channel with
 	}
 	for _, a := range list {
 		ca := assemble.ChannelAgent{Nick: a.Nick}
@@ -894,6 +968,9 @@ func (s *Server) deliverTo(ctx context.Context, ch, to string, seq int64, said, 
 		return false, err
 	}
 	s.ch.Seen(ch, to, seq)
+	if !me.Direct() {
+		s.calls.add(to, called{channel: ch, seq: seq})
+	}
 	// Only a person speaking begins a chain anew: what agents pass on never shortens the one
 	// its receiver is in (two chains crossing would else go on past the limit).
 	if cur := s.chain.get(to); link.hop > 0 && cur.hop > link.hop {

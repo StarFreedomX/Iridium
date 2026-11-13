@@ -164,7 +164,8 @@ type Service struct {
 	ch  channels
 	log *channel.Service // what was said in the channels (Channels)
 	// onSaid is told each message an agent said, as it is sent out (OnSaid).
-	onSaid func(channel.Message)
+	onSaid    func(channel.Message)
+	onTurnEnd func(session, reply string)
 
 	mu      sync.Mutex
 	held    map[string]channel.Message  // session: the agent's last message this turn, not sent yet
@@ -178,6 +179,10 @@ type Service struct {
 // OnSaid has f told each thing an agent says in a channel, after the event of it is kept; f
 // must not wait.
 func (s *Service) OnSaid(f func(channel.Message)) { s.onSaid = f }
+
+// OnTurnEnd has f told each turn of a session that ends, after its reply was said: the
+// session, and the reply's words ("" if it said none).
+func (s *Service) OnTurnEnd(f func(session, reply string)) { s.onTurnEnd = f }
 
 // Note writes a line of Iridium's own into channel ch and tells those who see it (_data.kind
 // "note"). ev: what it tells of, for a page to say in its own words (the message's _data.event).
