@@ -47,9 +47,10 @@ function At({ anchor, open, onOpenChange, children, className, bare }: { anchor:
 }
 
 /** An agent's face beside what it said (the user, 2026-11-13): its harness's logo on a disc, its
- *  lamp on the corner. A press calls it (@nick in the composer); the mouse resting on it shows
+ *  lamp on the corner. A press calls it (@nick in the composer; with no call, in its own chat,
+ *  shows its detail); the mouse resting on it shows
  *  what it runs as and its context; the right button, or a finger held down, its menu. */
-export function AgentFace({ channel, a, call, record, may, size = 28 }: { channel: string; a: AgentRow; call: (nick: string) => void; record: (session: string) => void; may: boolean; size?: number }) {
+export function AgentFace({ channel, a, call, record, may, size = 28 }: { channel: string; a: AgentRow; call?: (nick: string) => void; record?: (session: string) => void; may: boolean; size?: number }) {
   const real = useSession(a.session);
   const row = useList()?.find((x) => x.id === a.session);
   const s = real ?? (row && ghostOf(row));
@@ -78,7 +79,7 @@ export function AgentFace({ channel, a, call, record, may, size = 28 }: { channe
         ref={face}
         type="button"
         aria-label={label}
-        onClick={() => (clearTimeout(rest.current), setDetail(false), call(a.nick))}
+        onClick={() => (clearTimeout(rest.current), call ? (setDetail(false), call(a.nick)) : setDetail(!detail))}
         {...lp}
         onPointerEnter={(e) => e.pointerType === "mouse" && hover(true, 350)}
         onPointerLeave={(e) => e.pointerType === "mouse" && hover(false, 150)}
@@ -120,7 +121,7 @@ export function AgentFace({ channel, a, call, record, may, size = 28 }: { channe
           close={() => setMenuAt(null)}
           detail={ctx?.max ? () => setDetail(true) : undefined}
           rename={() => setNaming(true)}
-          record={() => record(a.session)}
+          record={record && (() => record(a.session))}
           given={() => setGiven(true)}
           remove={a.session === channel || !may ? undefined : () => setSure(true)}
         />
@@ -173,7 +174,7 @@ function Pick({ icon, label, now, value, options, set, i }: { icon: ReactNode; l
 /** A member's menu, at a point. Its model, effort and mode are its session's own, set as the
  *  one-agent chat's keys set them. remove: none for the session the channel is. */
 /** may: the one looking is of the channel's people; else only what reads is offered. */
-function MemberMenu({ channel, a, s, may, at, close, detail, rename, record, given, remove }: { channel: string; a: AgentRow; s: LiveSession; may: boolean; at: { x: number; y: number } | null; close: () => void; detail?: () => void; rename: () => void; record: () => void; given: () => void; remove?: () => void }) {
+function MemberMenu({ channel, a, s, may, at, close, detail, rename, record, given, remove }: { channel: string; a: AgentRow; s: LiveSession; may: boolean; at: { x: number; y: number } | null; close: () => void; detail?: () => void; rename: () => void; record?: () => void; given: () => void; remove?: () => void }) {
   const qc = useQueryClient();
   const mode = useMode(s);
   const v = modelView(s);
@@ -244,7 +245,7 @@ function MemberMenu({ channel, a, s, may, at, close, detail, rename, record, giv
               {detail && item(<ChartPie size={15} />, t("ctx.title"), later(detail))}
               {item(<BarChart3 size={15} />, t("usage.title"), later(() => openUsage(at ? { x: at.x, y: at.y } : undefined, s.machine)))}
               {may && item(<ImagePlus size={15} />, t("me.avatar"), later(() => pickFace(a.session)))}
-              {item(<ScrollText size={15} />, t("channel.session"), record)}
+              {record && item(<ScrollText size={15} />, t("channel.session"), record)}
               {item(<Inbox size={15} />, t("channel.given"), later(given))}
               {remove && item(<UserMinus size={15} />, t("channel.remove"), later(remove), "text-err")}
             </div>

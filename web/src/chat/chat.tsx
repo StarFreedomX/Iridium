@@ -24,7 +24,8 @@ import { drafts, opened } from "../stream";
 import { errText } from "../toast";
 import { groupPath } from "../tree";
 import { agentName, cn, Lamp, lampOf, LogoLamp, LogoStack, sessionStatusText, tilde, Tip, titleOf, untitled } from "../ui";
-import { isMulti } from "./channel/lib";
+import { givenTurn, isMulti, type AgentRow, type GivenTurn } from "./channel/lib";
+import { AgentFace } from "./channel/members";
 import { mayAct, useMembers } from "./channel/gate";
 // 群聊配置's key in the composer's foot, and the line in the composer's place for one not joined.
 const InviteLead = lazy(() => import("./channel/invite"));
@@ -49,7 +50,8 @@ import { placesIn, PLACE_DRAG, SESSION_DRAG, sourceOf, yours } from "./refs";
 import { placeDropped, type NamedPlace } from "./at";
 import { PlaceIcon, placeOf } from "./mention";
 import { spotsOf, type Spot } from "./where";
-import { Compaction, Pending, Running, Said } from "./said";
+import { Compaction, Pending, Running, Said, WorksIn } from "./said";
+import { turnsOf, type Row } from "./turns";
 import { Stick, toEnd } from "./stick";
 
 const BUSY = new Set(["running", "compacting", "starting", "waiting"]);
@@ -131,7 +133,8 @@ function OneChat({ id, sheet = 0, onSheet, onMe, back }: { id: string; sheet?: n
   const confirms = useConfirms();
   // Its channel's members (docs/channels.md): their key in the composer's foot; one not of its
   // people reads, and neither speaks nor answers.
-  const may = mayAct(useMembers(id));
+  const members = useMembers(id);
+  const may = mayAct(members);
 
   // The newest page, or what was kept; then what came since.
   useEffect(() => {
@@ -310,6 +313,46 @@ function OneChat({ id, sheet = 0, onSheet, onMe, back }: { id: string; sheet?: n
     );
   }
   const elsewhere = s.status === "elsewhere";
+  // The agent as its face shows it (the user, 2026-11-13: both sides have a face from the start,
+  // not only once a second agent is in): its nick and what it runs as from the members.
+  const mine = members?.members.find((m) => m.session === id);
+  const face: AgentRow = { session: id, member: `agent:${id}`, agent: s.agent, nick: mine?.nick ?? "", name: mine?.name ?? agentName(s.agent), status: lampOf(s), recv: mine?.recv ?? "all" };
+  // Its lamp only on the face of the turn that is on.
+  const resting: AgentRow = { ...face, status: "idle" };
+  const rows: Row<ReactNode, Works>[] = (busy ? shown.filter((b) => b.kind !== "running") : shown).map((b) => {
+    // A call from another channel it is in (chat/channel/lib givenTurn): what follows is its
+    // work there, folded under one line.
+    const given = b.kind === "user" ? givenTurn(b.text ?? "") : null;
+    const time = b.kind === "user" ? b.time : undefined;
+    return {
+      key: b.at,
+      agent: b.kind === "assistant" || b.kind === "fold" || b.kind === "running",
+      ...(given?.channel ? { works: { given, time } } : {}),
+      node: <Said key={b.at} b={b} session={id} cwd={cwd} source={source} onJump={openChat} />,
+    };
+  });
+  for (const d of log.drafts) {
+    if (d.tool && (busy || renamesDraft(d))) continue;
+    const key = `${d.proc}.${d.n}`;
+    rows.push({
+      key,
+      agent: true,
+      node: d.tool ? (
+        <ToolDraft key={key} name={d.tool.name} input={d.text} whole />
+      ) : (
+        <div key={key} className="g-fade min-w-0 pr-6">
+          <Draft text={d.text} live={!d.whole && busy} />
+        </div>
+      ),
+    });
+  }
+  const turns = turnsOf(rows);
+  // The channel as the list names it now: what the agent was given may be its id (not named
+  // then) or an older name.
+  const nameOf = (g: GivenTurn) => {
+    const ch = list?.find((x) => x.id === g.channel?.id);
+    return ch ? titleOf(ch) : (g.channel?.name ?? "");
+  };
   // What changes as the conversation grows: it keeps to the bottom, the dots wait again.
   const grew = `${log.blocks.at(-1)?.at} ${log.drafts.length} ${log.drafts.at(-1)?.text.length} ${log.drafts.at(-1)?.whole} ${log.sent.length}`;
   return (
@@ -319,20 +362,23 @@ function OneChat({ id, sheet = 0, onSheet, onMe, back }: { id: string; sheet?: n
           {/* In a turn, the calls being written or run and the dots share one row at the end, as
               high whatever it shows: the conversation does not jump as a call is drafted, runs and
               folds into the line above (the user, 2026-11-06). */}
-          {(busy ? shown.filter((b) => b.kind !== "running") : shown).map((b) => (
-            <Said key={b.at} b={b} session={id} cwd={cwd} source={source} onJump={openChat} />
-          ))}
-          {log.drafts
-            .filter((d) => !d.tool || (!busy && !renamesDraft(d)))
-            .map((d) =>
-              d.tool ? (
-                <ToolDraft key={`${d.proc}.${d.n}`} name={d.tool.name} input={d.text} whole />
-              ) : (
-                <div key={`${d.proc}.${d.n}`} className="g-fade min-w-0 pr-6">
-                  <Draft text={d.text} live={!d.whole && busy} />
-                </div>
-              ),
-            )}
+          {turns.map((x, i) =>
+            x.kind === "one" ? (
+              x.node
+            ) : x.kind === "agent" ? (
+              <AgentTurn key={x.key} channel={id} a={i === turns.length - 1 ? face : resting} may={may}>
+                {x.rows.map((r) => r.node)}
+              </AgentTurn>
+            ) : (
+              <WorksIn key={x.key} given={x.works.given} name={nameOf(x.works.given)} time={x.works.time} onJump={openChat}>
+                {x.rows.length > 0 && (
+                  <AgentTurn channel={id} a={resting} may={may}>
+                    {x.rows.map((r) => r.node)}
+                  </AgentTurn>
+                )}
+              </WorksIn>
+            ),
+          )}
           {log.sent.filter((x) => x.failed !== undefined || !compactSent(x)).map((x) => (
             <Pending
               key={x.key}
@@ -616,6 +662,25 @@ function Where({ spots, asked }: { spots: Spot[]; asked: { session?: string }[] 
 }
 
 
+type Works = { given: GivenTurn; time?: number };
+
+/** What the agent did and said on end, under its face: the face at the left, its nick and what
+ *  it runs as over the rest, as in a channel of several (chat/channel/page GroupView). */
+function AgentTurn({ channel, a, may, children }: { channel: string; a: AgentRow; may: boolean; children: ReactNode }) {
+  return (
+    <div className="flex min-w-0 items-start gap-2.5">
+      <AgentFace channel={channel} a={a} may={may} />
+      <div className="flex min-w-0 flex-1 flex-col gap-5">
+        <div className="-mb-3.5 flex h-4 min-w-0 items-baseline gap-1.5">
+          {a.nick && <span className="shrink-0 text-xs font-medium text-ink-2">{a.nick}</span>}
+          <span className={cn("min-w-0 truncate text-xs", a.nick ? "text-ink-4" : "font-medium text-ink-2")}>{a.name}</span>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
 /** A call being written that only names the session (ir rename): left out, as its block is. */
 const renamesDraft = (d: Drafted) => !!d.tool && renameOnly({ name: d.tool.name, input: d.text });
 
@@ -626,7 +691,7 @@ function Activity({ calls, running, cwd, quiet, grew }: { calls: Drafted[]; runn
   const writing = calls.at(-1);
   const run = running.at(-1);
   return (
-    <div className="-mt-3 flex h-7 min-w-0 items-center pointer-coarse:h-9">
+    <div className="-mt-3 flex h-7 min-w-0 items-center pl-[38px] pointer-coarse:h-9">
       {writing?.tool ? (
         <div key={writing.tool.id} className="min-w-0 flex-1">
           <ToolDraft name={writing.tool.name} input={writing.text} whole={writing.whole} />

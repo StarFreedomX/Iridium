@@ -288,26 +288,35 @@ export const Assistant = memo(function Assistant({ b, session }: { b: Block; ses
   );
 });
 
-/** 在某频道中工作: where an agent's work for another channel begins in its own record. Folded:
- *  the channel's name, a key to it; opened, the words that called it. */
-function WorksIn({ given, time, onJump }: { given: GivenTurn; time?: number; onJump: (id: string) => void }) {
+/** 在某频道中工作: the agent's work for another channel that called it, in its own record, from
+ *  the call to the next message (the user, 2026-11-13). Folded: one line, the channel's name and
+ *  a key to it; opened, the words that called it and, under them, what it did and said here,
+ *  its closing words too: those are no one's to read but its own record's. */
+export function WorksIn({ given, name, time, onJump, children }: { given: GivenTurn; name: string; time?: number; onJump: (id: string) => void; children?: ReactNode }) {
   const [open, setOpen] = useState(false);
-  const ch = given.channel!;
+  const ch = { ...given.channel!, name };
   return (
-    <div className="flex flex-col items-center gap-1">
-      <Line icon={<Hash size={12} />} title={time ? clock(time) : undefined}>
-        <span className="inline-flex items-center gap-1">
-          <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="rounded-sm hover:text-ink-2">
+    <div className="flex min-w-0 flex-col gap-3">
+      <div className="flex items-center justify-center gap-1 py-1 text-xs text-ink-3" title={time ? clock(time) : undefined}>
+        <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="flex min-w-0 items-center gap-1.5 rounded-sm hover:text-ink-2">
+          <Hash size={12} className="shrink-0" />
+          <span className="min-w-0 truncate">
             {t("channel.worksIn", { name: ch.name })} · #{given.seq}
+          </span>
+          <ChevronRight size={12} className={cn("shrink-0 transition-transform duration-(--dur-2)", open && "rotate-90")} />
+        </button>
+        {ch.id && (
+          <button type="button" aria-label={t("msg.jump", { name: ch.name })} onClick={() => onJump(ch.id)} className="grid shrink-0 rounded-sm hover:text-ink-2">
+            <ArrowUpRight size={12} />
           </button>
-          {ch.id && (
-            <button type="button" aria-label={t("msg.jump", { name: ch.name })} onClick={() => onJump(ch.id)} className="grid rounded-sm hover:text-ink-2">
-              <ArrowUpRight size={12} />
-            </button>
-          )}
-        </span>
-      </Line>
-      {open && <p className="g-fade m-0 max-w-[min(560px,100%)] rounded-lg bg-fill px-3 py-1.5 text-sm whitespace-pre-wrap text-ink-2 [overflow-wrap:anywhere]">{given.words}</p>}
+        )}
+      </div>
+      {open && (
+        <div className="g-fade flex min-w-0 flex-col gap-5">
+          <p className="m-0 max-w-[min(560px,100%)] self-center rounded-lg bg-fill px-3 py-1.5 text-sm whitespace-pre-wrap text-ink-2 [overflow-wrap:anywhere]">{given.words}</p>
+          {children}
+        </div>
+      )}
     </div>
   );
 }
@@ -320,10 +329,8 @@ export function Said({ b, session, cwd, source, onJump }: { b: Shown; session: s
       if (src.kind === "iridium") return <Line icon={<RotateCcw size={12} />}>{text}</Line>;
       // The server writes each attachment as a line "[附件] `path`" (absolute): the file shows as itself instead.
       // A channel's message as the agent was given it (chat/channel/lib givenTurn): its words
-      // alone; one of a channel it is in beside its own, a line that it works there, which
-      // opens to the words and goes to that channel (the user, 2026-11-13).
+      // alone (one of a channel it is in beside its own is WorksIn's, chat.tsx).
       const given = givenTurn(text);
-      if (given?.channel) return <WorksIn given={given} time={b.time} onJump={onJump} />;
       const paths = new Set(b.files?.map((f) => f.path));
       const words = given ? given.words : paths.size ? withoutFiles(text, paths) : text;
       if (src.kind === "letter")
