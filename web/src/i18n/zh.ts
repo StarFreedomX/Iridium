@@ -269,7 +269,6 @@ export const zh = {
   "channel.session": "查看会话",
   "channel.readBy": "已读：{names}",
   "channel.worksIn": "在「{name}」中工作",
-  "channel.spawnedBy": "由「{name}」拉起",
   "channel.avatar": "换频道头像",
   "channel.back": "返回频道",
   "queue.title": "待发队列",
@@ -410,6 +409,7 @@ export const zh = {
   "new.folder": "目录",
   "new.local": "主机",
   "new.gone": "已移除的应用",
+  "new.noAgent": "不带 agent",
   "new.noAgents": "无可用的 agent",
   "new.subFolder": "新建子文件夹",
 

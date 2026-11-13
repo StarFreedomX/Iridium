@@ -49,9 +49,9 @@ function useStates(ids: string[]): (LiveSession | undefined)[] {
   return ids.map((id) => getCarried<LiveSession>(`session:${id}`));
 }
 
-/** bar: the chat's top bar (chat.tsx Bar), the agents' quotas in it. record: an agent's own
+/** bar: the chat's top bar (chat.tsx Bar). The agents' quotas are at the composer's foot (the user, 2026-11-13). record: an agent's own
  *  record asked for (the channel's own session's: shown in its place). */
-export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?: number; bar: (s: Session | undefined, under: ReactNode) => ReactNode; record: (session: string) => void }) {
+export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?: number; bar: (s: Session | undefined) => ReactNode; record: (session: string) => void }) {
   useLang();
   const list = useList();
   const row = list?.find((x) => x.id === id);
@@ -233,7 +233,7 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
   const grew = `${log.end} ${sent.length} ${working.map((a) => a.session).join(" ")}`;
   const padTop = 64; // the bar's 48px, a gap
 
-  if (!s) return <div className="relative h-full">{bar(row, null)}</div>;
+  if (!s) return <div className="relative h-full">{bar(row)}</div>;
   return (
     <Nicks.Provider value={nicks}>
       <div className="relative h-full" data-chat-drop={id} onDragOver={(e) => files(e) || session(e) || place(e)} onDrop={drop}>
@@ -271,7 +271,7 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
             )}
           </div>
         </Stick>
-        {bar(s, <Quotas agents={agents} states={states} />)}
+        {bar(s)}
         <div ref={stack} {...{ [PULL]: "" }} data-covered={sheet > 0 || undefined} data-sunk={(sheet > 0 && stackH > sheet - 16) || undefined} inert={sheet > 0} className="g-turn-stay g-sink vt-stack absolute inset-x-0 bottom-0 z-10 px-2.5 pb-[max(10px,calc(env(safe-area-inset-bottom)+6px))] sm:px-5">
           <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-[calc(64px+max(10px,calc(env(safe-area-inset-bottom)+6px)))] bg-[linear-gradient(to_bottom,transparent,var(--paper)_14px)]" />
           <div className="relative mx-auto max-w-[760px]">
@@ -293,7 +293,7 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
               ) : null;
             })}
             {!may ? <NotJoined ctl={ctl} /> : null}
-            {may && <Composer ref={composer} s={s} turn={false} nicks={agents} lead={<InviteLead id={id} />} onSent={onSent} onSentDone={changed} cycleMode={() => {}} openModel={() => {}} openMode={() => {}} openUsage={() => {}} openContext={() => false} cleared={openChat} />}
+            {may && <Composer ref={composer} s={s} turn={false} nicks={agents} lead={<InviteLead id={id} />} tools={<Quotas agents={agents} states={states} />} onSent={onSent} onSentDone={changed} cycleMode={() => {}} openModel={() => {}} openMode={() => {}} openUsage={() => {}} openContext={() => false} cleared={openChat} />}
           </div>
         </div>
       </div>

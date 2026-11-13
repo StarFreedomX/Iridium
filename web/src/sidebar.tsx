@@ -9,7 +9,7 @@
 // and at its foot the colour tags (colors.ts); a group's: rename, its path, 通知. The mouse resting
 // on a row fetches its chat ahead.
 import { Menu } from "@base-ui/react/menu";
-import { CornerDownRight, Archive, ArchiveRestore, ArrowDown, ArrowUp, Bot, Check, ChevronRight, Copy, Ellipsis, Ungroup, Folder, FolderOpen, ListIndentDecrease, Pencil, Pin, PinOff, Plus, RefreshCw, Square, Workflow as WorkflowIcon } from "lucide-react";
+import { Archive, ArchiveRestore, ArrowDown, ArrowUp, Bot, Check, ChevronRight, Copy, Ellipsis, Ungroup, Folder, FolderOpen, ListIndentDecrease, Pencil, Pin, PinOff, Plus, RefreshCw, Square, Workflow as WorkflowIcon } from "lucide-react";
 import { ConfirmIcon, confirmName, confirmTitle } from "./confirmname";
 import { Fragment, lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactElement, type ReactNode, type RefObject } from "react";
 import { api } from "./api/client";
@@ -900,10 +900,7 @@ const SessionRow = memo(function SessionRow({ s, where, depth, flip, selected, o
   // A confirmation its agent asked for waits on you too, while it is not at work.
   // A channel of several agents (chat/channel): their logos one over the next, their nicks on a
   // second line, its lamp theirs: lit while any of them works.
-  const all = useCarried<Session[]>(s.agents?.length || s.spawned ? "list" : null);
-  // Started for a channel (docs/channels.md "拉起"): a row as any, marked with who started it
-  // (an agent's session, else the channel it was started for).
-  const from = s.spawned && all?.find((x) => x.id === (s.spawned!.by || s.spawned!.channel));
+  const all = useCarried<Session[]>(s.agents?.length ? "list" : null);
   const multi = isMulti(s) ? s.agents! : undefined;
   const members = multi?.map((a) => all?.find((x) => x.id === a.session));
   const base = working ? "running" : members ? channelLamp(lampOf(s), members.flatMap((m) => (m && m.id !== s.id ? [lampOf(m)] : []))) : lampOf(s);
@@ -1050,14 +1047,6 @@ const SessionRow = memo(function SessionRow({ s, where, depth, flip, selected, o
               <Marked color={s.color}>{untitled(s) ? <span className="text-ink-3">{title}</span> : title}</Marked>
               {/* Lifted to the middle of the name's glyphs (the user, 2026-11-10). */}
               {remote && machine && <MachineFace m={machine} size={14} className={cn("ml-1.5 -translate-y-[1.5px] self-center", !machine.online && "opacity-50 grayscale")} />}
-              {from && (
-                <Tip label={t("channel.spawnedBy", { name: titleOf(from) })} side="bottom">
-                  <span aria-label={t("channel.spawnedBy", { name: titleOf(from) })} className="ml-1.5 flex shrink-0 items-center gap-0.5 self-center text-ink-4">
-                    <CornerDownRight size={11} />
-                    <Logo agent={from.agent} size={11} className="opacity-70" />
-                  </span>
-                </Tip>
-              )}
               {where && (
                 <Tip label={tilde(s.cwd)} side="bottom">
                   <span className="ml-1.5 max-w-[35%] shrink-0 truncate text-xs font-normal text-ink-3">{where.startsWith("/") ? tilde(where) : shownPath(where, machines).label}</span>

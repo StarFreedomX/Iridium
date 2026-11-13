@@ -269,7 +269,6 @@ export const en: Dict = {
   "channel.session": "Open session",
   "channel.readBy": "Read by {names}",
   "channel.worksIn": "Working in {name}",
-  "channel.spawnedBy": "Started by {name}",
   "channel.avatar": "Change channel avatar",
   "channel.back": "Back to channel",
   "queue.title": "Queue",
@@ -410,6 +409,7 @@ export const en: Dict = {
   "new.folder": "Folder",
   "new.local": "Host",
   "new.gone": "Removed app",
+  "new.noAgent": "No agent",
   "new.noAgents": "No agents available",
   "new.subFolder": "New subfolder",
 

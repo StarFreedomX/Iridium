@@ -344,7 +344,7 @@ export function NewSession({ ws, folder, onFolder, onPick, busy, onMake }: { ws:
         </div>
       )}
       {!there ? (
-        <div role="group" aria-label={t("new.agent")} className="g-stagger grid grid-cols-4 gap-1">
+        <div role="group" aria-label={t("new.agent")} className="g-stagger grid grid-cols-5 gap-1">
           {agents.map((a) => (
             <Tip key={a} label={missing(a) ? t("new.notInstalled", { name: agentName(a) }) : agentName(a)}>
               <button type="button" aria-label={agentName(a)} disabled={busy !== null} onClick={() => pick(a)} style={{ "--i": i++ } as CSSProperties} className="g-press grid h-14 place-items-center rounded-md hover:bg-fill disabled:opacity-50">
@@ -352,6 +352,12 @@ export function NewSession({ ws, folder, onFolder, onPick, busy, onMake }: { ws:
               </button>
             </Tip>
           ))}
+          {/* Last, a channel with no agent (docs/channels.md; the user, 2026-11-13). */}
+          <Tip label={t("new.noAgent")}>
+            <button type="button" aria-label={t("new.noAgent")} disabled={busy !== null} onClick={() => onPick("" as Agent)} style={{ "--i": i++ } as CSSProperties} className="g-press grid h-14 place-items-center rounded-md hover:bg-fill disabled:opacity-50">
+              {busy === "" ? <LoaderCircle size={20} className="animate-spin text-ink-3" /> : <Logo agent={"" as Agent} size={22} />}
+            </button>
+          </Tip>
         </div>
       ) : (
         <MachineAgents m={there.m} busy={busy} onPick={(a) => (!there.m.online ? toast(t("new.offline", { name: there.m.name }), { error: true }) : onPick(a, { m: there.m, cwd: there.cwd }))} />
