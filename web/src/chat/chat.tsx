@@ -235,6 +235,8 @@ function OneChat({ id, sheet = 0, onSheet, onMe, back }: { id: string; sheet?: n
   }, []);
   const [modelOpen, setModelOpen] = useState(false);
   const [modeOpen, setModeOpen] = useState(false);
+  // The context's popover, at the ring after the latest turn's model name (/context opens it).
+  const [ctxOpen, setCtxOpen] = useState(false);
   const shown = folded(log.blocks);
   const cwd = s?.cwd ?? row?.cwd ?? "";
   // 在哪干活 under the title (plan, 2026-11-10): the places this one sent sessions to, and those its
@@ -350,7 +352,15 @@ function OneChat({ id, sheet = 0, onSheet, onMe, back }: { id: string; sheet?: n
     });
   }
   const turns = turnsOf(rows);
-  const bars = s && <QuotaBars agent={s.agent} machine={s.machine} live={s.live} using={[s.model, s.pick, modelView(s).name]} compact />;
+  // Its usage after its model's name, a strip of its own as small as a phone's (the user,
+  // 2026-11-13): the context's ring, the quota's bars; each pressed, its popover.
+  const bars = (last: boolean) =>
+    s && (
+      <span className="flex shrink-0 items-center">
+        <ContextRing session={s.id} summary={s.context} tokens={s.tokens} compact {...(last ? { open: ctxOpen, onOpenChange: setCtxOpen } : {})} />
+        <QuotaBars agent={s.agent} machine={s.machine} live={s.live} using={[s.model, s.pick, modelView(s).name]} compact />
+      </span>
+    );
   // The channel as the list names it now: what the agent was given may be its id (not named
   // then) or an older name.
   const nameOf = (g: GivenTurn) => {
@@ -370,13 +380,13 @@ function OneChat({ id, sheet = 0, onSheet, onMe, back }: { id: string; sheet?: n
             x.kind === "one" ? (
               x.node
             ) : x.kind === "agent" ? (
-              <AgentTurn key={x.key} channel={id} a={i === turns.length - 1 ? face : resting} may={may} bars={bars}>
+              <AgentTurn key={x.key} channel={id} a={i === turns.length - 1 ? face : resting} may={may} bars={bars(i === turns.length - 1)}>
                 {x.rows.map((r) => r.node)}
               </AgentTurn>
             ) : (
               <Relayed key={x.key} given={x.works.given} relay={x.works.relay} name={nameOf(x.works.given)} time={x.works.time} onJump={openChat}>
                 {x.rows.length > 0 && (
-                  <AgentTurn channel={id} a={resting} may={may} bars={bars}>
+                  <AgentTurn channel={id} a={resting} may={may} bars={bars(i === turns.length - 1)}>
                     {x.rows.map((r) => r.node)}
                   </AgentTurn>
                 )}
@@ -433,7 +443,7 @@ function OneChat({ id, sheet = 0, onSheet, onMe, back }: { id: string; sheet?: n
               <NotJoinedOf id={id} />
             </Suspense>
           ) : (
-            <Under s={s} ghost={ghost} composer={composer} onSent={onSent} onSentDone={sentDone} modelOpen={modelOpen} setModelOpen={setModelOpen} modeOpen={modeOpen} setModeOpen={setModeOpen} />
+            <Under s={s} ghost={ghost} composer={composer} onSent={onSent} onSentDone={sentDone} modelOpen={modelOpen} setModelOpen={setModelOpen} modeOpen={modeOpen} setModeOpen={setModeOpen} setCtxOpen={setCtxOpen} />
           )}
         </div>
       </div>
@@ -442,11 +452,11 @@ function OneChat({ id, sheet = 0, onSheet, onMe, back }: { id: string; sheet?: n
 }
 
 /** The composer, with in its foot the approval-mode key (back, its name alone, the user,
- *  2026-11-08), the model key, the quota bars, and at the right the context ring, then send. */
-function Under({ s, ghost, composer, onSent, onSentDone, modelOpen, setModelOpen, modeOpen, setModeOpen }: { s: LiveSession; ghost: boolean; composer: React.RefObject<ComposerHandle | null>; onSent: (x: Sent) => void; onSentDone: (x: Sent) => void; modelOpen: boolean; setModelOpen: (o: boolean) => void; modeOpen: boolean; setModeOpen: (o: boolean) => void }) {
+ *  2026-11-08) and the model key, then send. Its usage (the context's ring, the quota's bars) is
+ *  after the agent's model name over its turns (the user, 2026-11-13), not here. */
+function Under({ s, ghost, composer, onSent, onSentDone, modelOpen, setModelOpen, modeOpen, setModeOpen, setCtxOpen }: { s: LiveSession; ghost: boolean; composer: React.RefObject<ComposerHandle | null>; onSent: (x: Sent) => void; onSentDone: (x: Sent) => void; modelOpen: boolean; setModelOpen: (o: boolean) => void; modeOpen: boolean; setModeOpen: (o: boolean) => void; setCtxOpen: (o: boolean) => void }) {
   const mode = useMode(s);
   const agentInfo = useAgent(s.agent);
-  const [ctxOpen, setCtxOpen] = useState(false);
   // Made here just now (create.tsx useStart): its keys fade in, not the chat before's swapped for them.
   const [fresh] = useState(() => born.has(s.id));
   useEffect(() => void born.delete(s.id), [s.id]);
@@ -479,7 +489,6 @@ function Under({ s, ghost, composer, onSent, onSentDone, modelOpen, setModelOpen
             {agentInfo?.presets ? <PresetKey s={s} /> : null}
           </>
         }
-        end={<ContextRing session={s.id} summary={s.context} tokens={s.tokens} open={ctxOpen} onOpenChange={setCtxOpen} />}
       />
     </>
   );

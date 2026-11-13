@@ -25,7 +25,7 @@ import { placeDropped } from "../at";
 import { Composer, type ComposerHandle } from "../composer";
 import { Copyable } from "../copyable";
 import { Waiting } from "../live";
-import { modelView, QuotaBars } from "../meters";
+import { ContextRing, modelView, QuotaBars } from "../meters";
 import { Queue } from "../queue";
 import { fromSatori, PLACE_DRAG, SESSION_DRAG, sourceOf, yours } from "../refs";
 import { Assistant, Attached, Line, Pending, Said, YouBubble } from "../said";
@@ -232,12 +232,18 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
     }
     return out;
   }, [apps, members]);
-  // Each agent's usage after its model's name, as small as a phone's (the user, 2026-11-13).
+  // Each agent's usage after its model's name, a strip of its own as small as a phone's (the
+  // user, 2026-11-13): its context's ring, its quota's bars; each pressed, its popover.
   const bars = (session: string) => {
     const i = agents.findIndex((a) => a.session === session);
     const st = states[i];
     const a = agents[i];
-    return a ? <QuotaBars agent={a.agent} machine={st?.machine} live={st?.live ?? false} using={st ? [st.model, st.pick, modelView(st).name] : []} compact /> : null;
+    return a ? (
+      <span className="flex shrink-0 items-center">
+        <ContextRing session={a.session} summary={st?.context} tokens={st?.tokens} compact />
+        <QuotaBars agent={a.agent} machine={st?.machine} live={st?.live ?? false} using={st ? [st.model, st.pick, modelView(st).name] : []} compact />
+      </span>
+    ) : null;
   };
   // The message being answered (<quote>), over the composer till it is sent.
   const [quote, setQuote] = useState<Msg | null>(null);

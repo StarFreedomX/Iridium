@@ -112,9 +112,10 @@ export function ContextMark({ session, summary, size = 14 }: { session: string; 
 
 /** tokens: the session's input so far, its cache's hit rate under the parts (the user, 2026-11-10:
  *  the total, in the popover only, never in the row). */
-export function ContextRing({ session, summary, tokens, open, onOpenChange }: { session: string; summary?: Context; tokens?: InputTokens; open?: boolean; onOpenChange?: (o: boolean) => void }) {
+/** compact: the ring alone, as on a phone, small (after an agent's model name). */
+export function ContextRing({ session, summary, tokens, open, onOpenChange, compact }: { session: string; summary?: Context; tokens?: InputTokens; open?: boolean; onOpenChange?: (o: boolean) => void; compact?: boolean }) {
   useLang();
-  const phone = useMedia(PHONE);
+  const phone = useMedia(PHONE) || !!compact;
   // The breakdown when the stream carries one; the total the session's state has, else.
   const c = useContextState(session) ?? summary;
   if (!c || !c.max) return null;
@@ -125,14 +126,14 @@ export function ContextRing({ session, summary, tokens, open, onOpenChange }: { 
       <Tip label={label}>
         <Popover.Trigger
           render={
-            <button type="button" aria-label={label} className="g-press flex h-7 shrink-0 items-center gap-1.5 rounded-md px-1.5 text-xs text-ink-3 tabular-nums hover:bg-fill hover:text-ink-2 data-popup-open:bg-fill pointer-coarse:h-9">
-              <Ring pct={pct} />
+            <button type="button" aria-label={label} className={cn("g-press flex shrink-0 items-center gap-1.5 rounded-md text-xs text-ink-3 tabular-nums hover:bg-fill hover:text-ink-2 data-popup-open:bg-fill", compact ? "-my-1 h-6 px-1 pointer-coarse:h-8" : "h-7 px-1.5 pointer-coarse:h-9")}>
+              <Ring pct={pct} size={compact ? 13 : 16} />
               {!phone && `${pct}%`}
             </button>
           }
         />
       </Tip>
-      <PopSurface side="top" align="end" className="w-[min(300px,calc(100vw-16px))] p-3.5">
+      <PopSurface side={compact ? "bottom" : "top"} align={compact ? "start" : "end"} className="w-[min(300px,calc(100vw-16px))] p-3.5">
         <ContextDetail c={c} tokens={tokens} />
       </PopSurface>
     </Popover.Root>
