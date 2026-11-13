@@ -104,6 +104,7 @@ func New(cfg config.Config, m *session.Manager, h *hub.Hub, logf func(string, ..
 		logf = log.Printf
 	}
 	s := &Server{cfg: cfg, m: m, hub: h, st: m.Store(), files: newFiles(cfg, m, logf), logf: logf}
+	s.calls.st = s.st
 	s.asks = newNeeds(h)
 	s.pairs = newPairs()
 	s.publishPairing()

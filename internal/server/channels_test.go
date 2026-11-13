@@ -772,3 +772,21 @@ func TestDirect(t *testing.T) {
 	}
 	l.want(400, "socket", "POST", "/v1/internal/dm", map[string]string{"user": "local"}, nil)
 }
+
+// An agent's open calls outlive a restart: kept in the store, read back by a new server's.
+func TestCallsKept(t *testing.T) {
+	t.Parallel()
+	l := start(t)
+	l.s.calls.add("s1", called{Channel: "c1", Seq: 4, From: 10})
+	again := calls{st: l.s.st}
+	if from := again.spoke("s1", "c1", 20); from != 10 {
+		t.Errorf("spoke after a restart: from %d", from)
+	}
+	fresh := calls{st: l.s.st}
+	if got := fresh.take("s1"); len(got) != 1 || !got[0].Spoke || got[0].From != 20 {
+		t.Errorf("taken: %+v", got)
+	}
+	if got := (&calls{st: l.s.st}).take("s1"); len(got) != 0 {
+		t.Errorf("taken twice: %+v", got)
+	}
+}

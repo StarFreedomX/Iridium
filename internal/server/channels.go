@@ -88,28 +88,63 @@ func (c *chains) set(session string, ch chain) {
 // called is a channel an agent was called in by a subscription: for message seq; spoke, it has
 // said something there since.
 type called struct {
-	channel string
-	seq     int64
-	spoke   bool
-	// from: the line its own record was at when it was called: where what it does for the call
+	Channel string `json:"channel"`
+	Seq     int64  `json:"seq"`
+	Spoke   bool   `json:"spoke,omitempty"`
+	// From: the line its own record was at when it was called: where what it does for the call
 	// begins.
-	from int64
+	From int64 `json:"from,omitempty"`
 }
 
 // calls are the calls each session's agent has open: made as it is given a channel's message,
-// closed as its turn ends (turnEnded).
+// closed as its turn ends (turnEnded). Kept in the store too (callsKey), so that a turn going on
+// across a restart still has its reply said where it was called (the user, 2026-11-13).
 type calls struct {
 	mu sync.Mutex
 	of map[string][]called
+	st *store.Store
+}
+
+func callsKey(session string) string { return "calls:" + session }
+
+// load is session's calls, from the store if not had yet; with k.mu held.
+func (k *calls) load(session string) []called {
+	if k.of == nil {
+		k.of = map[string][]called{}
+	}
+	if cs, ok := k.of[session]; ok || k.st == nil {
+		return cs
+	}
+	var cs []called
+	if kept := k.st.Kept(callsKey(session)); kept != "" {
+		_ = json.Unmarshal([]byte(kept), &cs)
+	}
+	k.of[session] = cs
+	return cs
+}
+
+// save keeps session's calls as they are now; with k.mu held.
+func (k *calls) save(session string) {
+	cs := k.of[session]
+	if len(cs) == 0 {
+		delete(k.of, session)
+	}
+	if k.st == nil {
+		return
+	}
+	v := ""
+	if len(cs) > 0 {
+		b, _ := json.Marshal(cs)
+		v = string(b)
+	}
+	_ = k.st.Keep(callsKey(session), v)
 }
 
 func (k *calls) add(session string, c called) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	if k.of == nil {
-		k.of = map[string][]called{}
-	}
-	k.of[session] = append(k.of[session], c)
+	k.of[session] = append(k.load(session), c)
+	k.save(session)
 }
 
 // spoke: session's agent said something in channel, its record at line to by then. It gives
@@ -117,14 +152,16 @@ func (k *calls) add(session string, c called) {
 func (k *calls) spoke(session, channel string, to int64) (from int64) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	for i := range k.of[session] {
-		if c := &k.of[session][i]; c.channel == channel {
-			if from == 0 || c.from < from {
-				from = c.from
+	cs := k.load(session)
+	for i := range cs {
+		if c := &cs[i]; c.Channel == channel {
+			if from == 0 || c.From < from {
+				from = c.From
 			}
-			c.spoke, c.from = true, to
+			c.Spoke, c.From = true, to
 		}
 	}
+	k.save(session)
 	return from
 }
 
@@ -132,18 +169,17 @@ func (k *calls) spoke(session, channel string, to int64) (from int64) {
 func (k *calls) forget(session string, c called) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	k.of[session] = slices.DeleteFunc(k.of[session], func(x called) bool { return x.channel == c.channel && x.seq == c.seq })
-	if len(k.of[session]) == 0 {
-		delete(k.of, session)
-	}
+	k.of[session] = slices.DeleteFunc(k.load(session), func(x called) bool { return x.Channel == c.Channel && x.Seq == c.Seq })
+	k.save(session)
 }
 
 // take are session's open calls, which are then closed.
 func (k *calls) take(session string) []called {
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	out := k.of[session]
-	delete(k.of, session)
+	out := k.load(session)
+	k.of[session] = nil
+	k.save(session)
 	return out
 }
 
@@ -157,30 +193,30 @@ func (s *Server) turnEnded(id, reply string) {
 	}
 	done := map[string]bool{}
 	for _, c := range open {
-		if c.spoke || done[c.channel] || !s.ch.Speaks(c.channel, id) {
+		if c.Spoke || done[c.Channel] || !s.ch.Speaks(c.Channel, id) {
 			continue
 		}
-		done[c.channel] = true
+		done[c.Channel] = true
 		if strings.TrimSpace(reply) != "" {
 			// Its pointer the stretch of its record since it was called, as ir's would be.
 			s.calls.add(id, c)
 			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-			_, err := s.sendChannelAs(ctx, caller{Identity: localIdentity, socket: true, agent: true, session: id}, session.From(gate.HostID, "@"+s.ch.Nick(id)), c.channel, api.Send{Text: reply}, false)
+			_, err := s.sendChannelAs(ctx, caller{Identity: localIdentity, socket: true, agent: true, session: id}, session.From(gate.HostID, "@"+s.ch.Nick(id)), c.Channel, api.Send{Text: reply}, false)
 			cancel()
 			s.calls.forget(id, c)
 			if err == nil {
 				continue
 			}
-			s.logf("server: channel %s: saying %s's reply: %v", c.channel, id, err)
+			s.logf("server: channel %s: saying %s's reply: %v", c.Channel, id, err)
 		}
 		nick := s.ch.Nick(id)
-		s.sat.Note(c.channel, fmt.Sprintf("@%s 被叫起（#%d），未在频道发话", nick, c.seq), "", &channel.Event{Type: "silent", Member: store.AgentMember(id), Nick: nick, Seq: c.seq})
+		s.sat.Note(c.Channel, fmt.Sprintf("@%s 被叫起（#%d），未在频道发话", nick, c.Seq), "", &channel.Event{Type: "silent", Member: store.AgentMember(id), Nick: nick, Seq: c.Seq})
 		// Started by another agent for this channel: that one is told too.
-		if sp := s.spawnedOf(id); sp != nil && sp.By != "" && sp.By != id && sp.Channel == c.channel {
-			if in, err := assemble.ChannelSilent(nick, cmp.Or(s.channelName(c.channel), c.channel), c.seq); err == nil {
+		if sp := s.spawnedOf(id); sp != nil && sp.By != "" && sp.By != id && sp.Channel == c.Channel {
+			if in, err := assemble.ChannelSilent(nick, cmp.Or(s.channelName(c.Channel), c.Channel), c.Seq); err == nil {
 				ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 				if _, _, err := s.m.SendAs(ctx, sp.By, session.NewInputID(), in.String(), session.From(gate.HostID, "Iridium"), true); err != nil {
-					s.logf("server: channel %s: telling %s that %s said nothing: %v", c.channel, sp.By, id, err)
+					s.logf("server: channel %s: telling %s that %s said nothing: %v", c.Channel, sp.By, id, err)
 				}
 				cancel()
 			}
@@ -1570,7 +1606,7 @@ func (s *Server) deliverTo(ctx context.Context, ch, to string, seq int64, said, 
 	}
 	s.seen(ch, to, seq)
 	if !me.Direct() {
-		s.calls.add(to, called{channel: ch, seq: seq, from: before})
+		s.calls.add(to, called{Channel: ch, Seq: seq, From: before})
 	}
 	// Only a person speaking begins a chain anew: what agents pass on never shortens the one
 	// its receiver is in (two chains crossing would else go on past the limit).
