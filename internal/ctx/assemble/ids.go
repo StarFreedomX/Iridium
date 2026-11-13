@@ -21,6 +21,7 @@ const (
 	// A channel of several agents (channel.go).
 	idChannelSystem   = "channel.system"           // in place of title: one agent of several
 	idChannelMessage  = "channel.message"          // before the words: the message's number
+	idChannelGuest    = "channel.context.guest"    // who it is in a channel it is in by a subscription, and how it speaks there
 	idChannelOpen     = "channel.context.open"     // the block of what the channel said
 	idChannelMembers  = "channel.context.members"  // who the agent is there, who else, how to call
 	idChannelSkipped  = "channel.context.skipped"  // the earliest messages, not shown

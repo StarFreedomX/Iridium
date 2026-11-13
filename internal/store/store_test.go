@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -251,5 +252,41 @@ func must(t *testing.T, err error) {
 	t.Helper()
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+// The members' nicks become the sessions' (migration 37): each agent keeps the first it had,
+// with a number after it where another has it; the channel's own agent speaks directly, the
+// others with ir.
+func TestNicksOfSessions(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "iridium.db")
+	full := schema
+	t.Cleanup(func() { schema = full })
+	schema = full[:36]
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, r := range [][3]string{{"a", "*", ""}, {"a", "agent:a", "claude"}, {"a", "agent:b", "helper"}, {"x", "agent:x", "Claude"}, {"x", "agent:y", "pi"}} {
+		if _, err := s.db.Exec(`INSERT INTO channel_members (channel, member, nick, recv, joined_at) VALUES (?, ?, ?, 'all', ?)`, r[0], r[1], r[2], i+1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s.Close()
+	schema = full
+	if s, err = Open(path); err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	nicks, err := s.Nicks()
+	if err != nil || len(nicks) != 4 || nicks["a"] != "claude" || nicks["b"] != "helper" || nicks["x"] != "Claude2" || nicks["y"] != "pi" {
+		t.Fatalf("nicks: %v %v", nicks, err)
+	}
+	ms, err := s.ChannelMembers("a")
+	if err != nil || len(ms) != 3 || ms[0].Send != "" || ms[1].Send != SendDirect || ms[2].Send != SendIR {
+		t.Fatalf("members: %+v %v", ms, err)
+	}
+	if err := s.SetNick("z", "HELPER"); !errors.Is(err, ErrNickTaken) {
+		t.Errorf("another's nick: %v", err)
 	}
 }

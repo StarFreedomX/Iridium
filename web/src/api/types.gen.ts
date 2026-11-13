@@ -136,12 +136,13 @@ export interface Session {
   subagent?: boolean;
   parent?: string;
   /**
-   * Channel: the channel it is an agent of, when that is another session's (docs/channels.md):
-   * it is shown there, not as a session of its own. Agents: of a channel with several, all of
-   * them in the order they joined, itself first.
+   * Agents: of a session whose channel has several agents (docs/channels.md), all of them in
+   * the order they joined, itself first. In: the channels it is in beside its own. Spawned:
+   * where it was started, if for a channel.
    */
-  channel?: string;
   agents?: ChannelAgent[];
+  in?: string[];
+  spawned?: Spawned;
   /**
    * Done: a subagent that has finished (Claude: its transcript ends with its final answer, or it was stopped); the
    * sidebar shows a subagent only while it works.
@@ -1131,9 +1132,11 @@ export interface PublicState {
  * ChannelMember is a member of a channel (docs/channels.md). Member: "agent:<session>", an
  * app's login "<app>/<login>", or all of an app's "<app>/*". An agent's: Session, the session
  * it is; Agent, its harness; Name, what it runs as now ("Claude Opus 5.5 High"); Nick, what it is
- * called by in the channel (@nick); Status, its lamp. Recv: an agent's "all" (what people say)
- * or "at" (only what names it); a person's "all" or "mine". Seen: the number of the last
- * message the agent was given.
+ * called by, in every channel (@nick); Status, its lamp; Cwd, Machine, where it runs. Recv: an
+ * agent's "all" (what people say) or "at" (only what names it); a person's "all" or "mine".
+ * Send: how an agent speaks in the channel: "direct" (its turns are said there: the channel is
+ * its own) or "ir" (only what it sends with ir). Seen: the number of the last message the agent
+ * was given.
  */
 export interface ChannelMember {
   member: string;
@@ -1142,8 +1145,11 @@ export interface ChannelMember {
   name?: string;
   nick?: string;
   recv: string;
+  send?: string;
   seen?: number /* int64 */;
   status?: Status;
+  cwd?: string;
+  machine?: string;
 }
 /**
  * ChannelMembers are a channel's members: Channel, its id; Multi, it has more than one agent
@@ -1161,12 +1167,16 @@ export interface ChannelMembers {
   me?: string;
 }
 /**
- * NewMember adds an agent to a channel: a new session of Agent started in the channel's folder
- * (Model, Mode, Effort, Preset as NewSession's), under Nick ("": one made), receiving Recv
- * ("": "at").
+ * NewMember adds an agent to a channel: Session, a session there is; else a new session of
+ * Agent (Model, Mode, Effort, Preset as NewSession's) started in Cwd at Machine (none: the
+ * channel's folder), listed there as any session. Nick: what it is called by ("": the one it
+ * has, else one made); Recv: what it receives ("": "at").
  */
 export interface NewMember {
-  agent: Agent;
+  session?: string;
+  agent?: Agent;
+  cwd?: string;
+  machine?: string;
   model?: string;
   mode?: string;
   effort?: string;
@@ -1203,8 +1213,16 @@ export interface ChannelAgent {
   nick?: string;
 }
 /**
+ * Spawned is where a session was started for a channel: Channel, the channel; By, the session
+ * whose agent started it ("": a person did).
+ */
+export interface Spawned {
+  by?: string;
+  channel: string;
+}
+/**
  * ChannelSetup is who a new session's channel has beside its own agent. Agents: more agents,
- * each a new session in the same folder. People: who may speak in it ("*" everyone, "<app>/*",
+ * each a session of its own (NewMember). People: who may speak in it ("*" everyone, "<app>/*",
  * "<app>/<login>"); none: everyone. The one who makes it is always one of them.
  */
 export interface ChannelSetup {

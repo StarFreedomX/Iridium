@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+
+	"github.com/kumoSleeping/iridium/internal/store"
 	"strconv"
 	"strings"
 
@@ -418,6 +420,7 @@ const MaxDataURL = 20 << 20
 // sendOne sends one message's elements.
 func (s *Service) sendOne(ctx context.Context, c Caller, st *api.SessionState, els []Element, o SendOpts) ([]Message, error) {
 	var refs []string
+	els = s.atNicks(els)
 	text := Plain(els, func(e Element) string {
 		src := e.Attr("src")
 		if app, login, path, ok := parseInternal(src); ok && app == c.App && login == c.Login {
@@ -626,7 +629,7 @@ func (s *Service) queued(c Caller, channel, id string, text *string) (any, error
 		return nil, err
 	}
 	// By its number: the input it is.
-	ch := s.log.Of(st.ID)
+	ch := st.ID
 	m, logged := s.logged(ch, id)
 	if logged && m.Kind == channel_.KindUser && m.Ref != "" {
 		id = m.Ref
@@ -648,4 +651,29 @@ func (s *Service) queued(c Caller, channel, id string, text *string) (any, error
 		}
 	}
 	return struct{}{}, nil
+}
+
+// atNicks is els with each <at id="agent:<session>"/> named by the agent's nick: as text it is
+// then "@nick", which is how a channel's agents are called (docs/channels.md "叫起谁"). So an
+// app that names a member the way Satori has it (the user's id) calls it as one who types the
+// nick does.
+func (s *Service) atNicks(els []Element) []Element {
+	if s.log == nil {
+		return els
+	}
+	out := make([]Element, len(els))
+	for i, e := range els {
+		if e.Type == "at" {
+			if id, ok := store.SessionOfMember(e.Attr("id")); ok {
+				if nick := s.log.Nick(id); nick != "" {
+					e.Attrs = append([]Attr{{Key: "name", Value: nick}}, slices.DeleteFunc(slices.Clone(e.Attrs), func(a Attr) bool { return a.Key == "name" })...)
+				}
+			}
+		}
+		if len(e.Children) > 0 {
+			e.Children = s.atNicks(e.Children)
+		}
+		out[i] = e
+	}
+	return out
 }

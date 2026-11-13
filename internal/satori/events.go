@@ -213,14 +213,12 @@ func (s *Service) handle(n session.Notice, at time.Time) {
 	}
 }
 
-// channelSession is the session that is the channel session talks in: whose events an agent's
-// asks and errors are, for those who see the channel.
+// channelSession is session as the channel its agent's asks and errors are told in: its own.
 func (s *Service) channelSession(session string) api.Session {
-	ch := s.log.Of(session)
-	if st, err := s.b.Session(ch); err == nil {
+	if st, err := s.b.Session(session); err == nil {
 		return st.Session
 	}
-	return api.Session{ID: ch}
+	return api.Session{ID: session}
 }
 
 // emit keeps an event of session ss in the outbox, for the connections to send.

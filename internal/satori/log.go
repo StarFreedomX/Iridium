@@ -22,7 +22,7 @@ import (
 // added to it. An agent's record (thinking, tool calls) is not here: internal/block.list.
 
 // agentOf is the agent of session as a user: its id the member it is ("agent:<session>"), its
-// name what it runs as now (the harness, the model, the effort), its nick its name in the channel.
+// name what it runs as now (the harness, the model, the effort), its nick what it is called by.
 func (s *Service) agentOf(session string) *User {
 	u := User{ID: store.AgentMember(session), IsBot: true}
 	st, err := s.b.Session(session)
@@ -31,13 +31,7 @@ func (s *Service) agentOf(session string) *User {
 	}
 	info, _ := agents.Get(st.Agent)
 	u.Name = AgentName(cmp.Or(info.Name, string(st.Agent)), *st)
-	if ms, err := s.log.Members(s.log.Of(session)); err == nil {
-		for _, m := range ms {
-			if m.Session == session {
-				u.Nick = m.Nick
-			}
-		}
-	}
+	u.Nick = s.log.Nick(session)
 	return &u
 }
 
@@ -251,26 +245,13 @@ func (s *Service) flush(session, kind, origin string, denied int) {
 
 // note writes a line that is not words into session's channel: an ask (ref its card), an error.
 func (s *Service) note(session, kind, text, ref, origin string) (channel.Message, bool) {
-	m, isNew, err := s.log.Say(channel.Message{ChannelMessage: store.ChannelMessage{Channel: s.log.Of(session), Author: store.AgentMember(session),
+	m, isNew, err := s.log.Say(channel.Message{ChannelMessage: store.ChannelMessage{Channel: session, Author: store.AgentMember(session),
 		Kind: kind, Text: text, Ref: ref, Origin: origin}, D: channel.Data{Session: session, Card: ref}})
 	if err != nil {
 		s.logf("satori: channel of %s: %v", session, err)
 		return channel.Message{}, false
 	}
 	return m, isNew
-}
-
-// channelFor is the channel id names for c, as its session's state: the channel a member
-// session talks in, else the session itself.
-func (s *Service) channelFor(c Caller, id string) (*api.SessionState, error) {
-	st, err := s.channel(c, id)
-	if err != nil {
-		return nil, err
-	}
-	if ch := s.log.Of(st.ID); ch != st.ID {
-		return s.channel(c, ch)
-	}
-	return st, nil
 }
 
 var errNoMessage = func(id string) error {
@@ -285,7 +266,7 @@ func (s *Service) messageGet(_ context.Context, c Caller, body []byte) (any, err
 	if err := decode(body, &req); err != nil {
 		return nil, err
 	}
-	st, err := s.channelFor(c, req.ChannelID)
+	st, err := s.channel(c, req.ChannelID)
 	if err != nil {
 		return nil, err
 	}
@@ -297,15 +278,9 @@ func (s *Service) messageGet(_ context.Context, c Caller, body []byte) (any, err
 			m.Channel, m.Guild = ev.Channel, ev.Guild
 			return m, nil
 		}
-		for _, id := range s.log.Agents(st.ID) {
-			ast, err := s.b.Session(id)
-			if err != nil {
-				continue
-			}
-			for _, a := range ast.Asks {
-				if cardID(id, a.RequestID) == req.MessageID {
-					return s.askMessage(ast.Session, a), nil
-				}
+		for _, a := range st.Asks {
+			if cardID(st.ID, a.RequestID) == req.MessageID {
+				return s.askMessage(st.Session, a), nil
 			}
 		}
 		return nil, errNoMessage(req.MessageID)
@@ -341,7 +316,7 @@ func (s *Service) messageList(_ context.Context, c Caller, body []byte) (any, er
 	if err := decode(body, &req); err != nil {
 		return nil, err
 	}
-	st, err := s.channelFor(c, req.ChannelID)
+	st, err := s.channel(c, req.ChannelID)
 	if err != nil {
 		return nil, err
 	}

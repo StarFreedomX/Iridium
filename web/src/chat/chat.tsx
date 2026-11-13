@@ -24,7 +24,7 @@ import { drafts, opened } from "../stream";
 import { errText } from "../toast";
 import { groupPath } from "../tree";
 import { agentName, cn, Lamp, lampOf, LogoLamp, LogoStack, sessionStatusText, tilde, Tip, titleOf, untitled } from "../ui";
-import { isMember, isMulti } from "./channel/lib";
+import { isMulti } from "./channel/lib";
 import { mayAct, useMembers } from "./channel/gate";
 // 群聊配置's key in the composer's foot, and the line in the composer's place for one not joined.
 const ChannelKey = lazy(() => import("./channel/key").then((m) => ({ default: m.ChannelKey })));
@@ -98,9 +98,7 @@ export function ChatPage({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?:
         />
       </Suspense>
     );
-  // An agent's own record: back to the channel it is in.
-  const of = row && isMember(row) ? list?.find((x) => x.id === row.channel) : undefined;
-  const back = multi && row ? { label: titleOf(row), run: () => setSolo(false) } : of ? { label: titleOf(of), run: () => openChat(of.id) } : undefined;
+  const back = multi && row ? { label: titleOf(row), run: () => setSolo(false) } : undefined;
   return <OneChat key="one" id={id} sheet={sheet} onSheet={onSheet} onMe={onMe} back={back} />;
 }
 

@@ -109,8 +109,9 @@ func New(cfg config.Config, m *session.Manager, h *hub.Hub, logf func(string, ..
 	s.sat = satori.New(satoriBackend{s}, logf)
 	s.sat.Channels(s.ch)
 	s.sat.OnSaid(s.routeSaid)
-	m.SetInChannel(s.inMulti)
+	m.SetInChannel(s.multi)
 	m.SetChannelOf(s.channelOf)
+	m.SetSpawned(s.spawnedOf)
 	s.sat.Keep(satoriKeeper{s.st})
 	m.Watch(s.sat.Notice)
 	lctx, lstop := context.WithCancel(context.Background())
@@ -333,8 +334,8 @@ func (s *Server) sendAs(ctx context.Context, c caller, from, id string, req api.
 	// A channel of several agents: said there, given to those it wakes (channels.go). A command
 	// is the agent's own that it is sent to, as ever.
 	command := strings.HasPrefix(strings.TrimSpace(req.Text), "/")
-	if ch := s.ch.Of(id); !command && s.multi(ch) {
-		return s.sendChannel(ctx, c, from, ch, id, req)
+	if !command && s.multi(id) {
+		return s.sendChannel(ctx, c, from, id, req)
 	}
 	if err := s.checkSend(c, id); err != nil {
 		return api.SendReply{}, err
@@ -377,7 +378,7 @@ func (s *Server) sendAs(ctx context.Context, c caller, from, id string, req api.
 	input, queued, err := s.m.SendAs(ctx, id, req.ID, text, from, req.Steer, images...)
 	if err != nil {
 		if seq != 0 {
-			s.ch.Unsay(s.ch.Of(id), seq) // not sent: not said
+			s.ch.Unsay(id, seq) // not sent: not said
 		}
 		return api.SendReply{}, err
 	}

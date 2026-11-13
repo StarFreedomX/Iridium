@@ -149,7 +149,7 @@ func (s *Service) Input(ss api.Session, id, text string, from User, origin strin
 	if id == "" {
 		return 0
 	}
-	m, isNew, err := s.log.Say(channel.Message{ChannelMessage: store.ChannelMessage{Channel: s.log.Of(ss.ID), Author: from.ID, Name: from.Name,
+	m, isNew, err := s.log.Say(channel.Message{ChannelMessage: store.ChannelMessage{Channel: ss.ID, Author: from.ID, Name: from.Name,
 		Kind: channel.KindUser, Text: text, Ref: id, Origin: origin}})
 	if err != nil {
 		s.logf("satori: channel %s: %v", ss.ID, err)

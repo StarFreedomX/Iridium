@@ -11,21 +11,26 @@ import (
 )
 
 var (
-	ErrNick     = errors.New("a nick is letters, digits, _ and -, at most 32, and one member's alone")
+	ErrNick     = errors.New("a nick is letters, digits, _ and -, at most 32, and one agent's alone")
 	ErrNoMember = errors.New("no such member")
-	ErrMember   = errors.New("already a member of a channel")
+	ErrMember   = errors.New("already in the channel")
 	ErrRecv     = errors.New("recv: all or at")
+	ErrChannel  = errors.New("no such channel")
 )
 
-// written makes channel's default members rows of their own, once someone changes them: the
-// web's logins and the session the channel is, which has seen everything said so far and keeps
-// receiving everything. base names an agent's harness, for its nick.
+// written makes channel's default members rows of their own, once someone changes them:
+// everyone and, in a session's channel, the session it is, which has seen everything said so
+// far, keeps receiving everything and speaks directly. base names an agent's harness, for its
+// nick.
 func (s *Service) written(channel string, base func(session string) string) error {
 	rows, err := s.st.ChannelMembers(channel)
 	if err != nil || len(rows) > 0 {
 		return err
 	}
-	s.Touch(channel)
+	_, own := s.Own(channel)
+	if !own {
+		s.Touch(channel)
+	}
 	end, err := s.st.ChannelEnd(channel)
 	if err != nil {
 		return err
@@ -34,50 +39,61 @@ func (s *Service) written(channel string, base func(session string) string) erro
 	if err := s.st.PutChannelMember(store.ChannelMember{Channel: channel, Member: Everyone, Recv: RecvAll}); err != nil {
 		return err
 	}
-	return s.st.PutChannelMember(store.ChannelMember{Channel: channel, Member: store.AgentMember(channel), Nick: s.freeNick(channel, base(channel)), Recv: RecvAll, Seen: end})
+	if own {
+		return nil
+	}
+	if _, err := s.nickOf(channel, base); err != nil {
+		return err
+	}
+	return s.st.PutChannelMember(store.ChannelMember{Channel: channel, Member: store.AgentMember(channel), Recv: RecvAll, Send: store.SendDirect, Seen: end})
 }
 
-// freeNick is a nick no member of channel has: base, else base2, base3…
-func (s *Service) freeNick(channel, base string) string {
-	base = strings.Map(func(r rune) rune {
+// nickOf is session's nick: the one it has, else one made from its harness's name (base,
+// base2, base3…: the first no agent has) and kept.
+func (s *Service) nickOf(session string, base func(session string) string) (string, error) {
+	if n := s.Nick(session); n != "" {
+		return n, nil
+	}
+	stem := strings.Map(func(r rune) rune {
 		if deliver.ValidNick(string(r)) {
 			return r
 		}
 		return -1
-	}, strings.ToLower(base))
-	if base == "" {
-		base = "agent"
+	}, strings.ToLower(base(session)))
+	if stem == "" {
+		stem = "agent"
 	}
 	taken := map[string]bool{}
-	rows, _ := s.st.ChannelMembers(channel)
-	for _, r := range rows {
-		taken[strings.ToLower(r.Nick)] = true
+	for _, n := range s.members().nicks {
+		taken[strings.ToLower(n)] = true
 	}
-	nick := base
+	nick := stem
 	for i := 2; taken[nick]; i++ {
-		nick = fmt.Sprintf("%s%d", base, i)
+		nick = fmt.Sprintf("%s%d", stem, i)
 	}
-	return nick
+	defer s.changed()
+	return nick, s.st.SetNick(session, nick)
 }
 
-func (s *Service) nickFree(channel, member, nick string) bool {
+// SetNick makes nick what session's agent is called by, in every channel.
+func (s *Service) SetNick(session, nick string) error {
 	if !deliver.ValidNick(nick) {
-		return false
+		return ErrNick
 	}
-	rows, _ := s.st.ChannelMembers(channel)
-	for _, r := range rows {
-		if r.Member != member && strings.EqualFold(r.Nick, nick) {
-			return false
-		}
+	defer s.changed()
+	if err := s.st.SetNick(session, nick); errors.Is(err, store.ErrNickTaken) {
+		return ErrNick
+	} else if err != nil {
+		return err
 	}
-	return true
+	return nil
 }
 
-// Join puts session's agent in channel: under nick ("": one made from its harness's name),
-// receiving recv ("": only what names it). It has seen nothing of the channel yet. base names a
-// session's harness.
-func (s *Service) Join(channel, session, nick, recv string, base func(session string) string) (Member, error) {
-	if session == channel || s.Of(session) != session || len(s.Agents(session)) > 1 {
+// Join puts session's agent in channel, receiving recv ("": only what names it): a
+// subscription. There it sees what is said and speaks with ir; it has seen nothing of the
+// channel yet. base names a session's harness.
+func (s *Service) Join(channel, session, recv string, base func(session string) string) (Member, error) {
+	if s.Speaks(channel, session) {
 		return Member{}, ErrMember
 	}
 	if recv == "" {
@@ -89,30 +105,21 @@ func (s *Service) Join(channel, session, nick, recv string, base func(session st
 	if err := s.written(channel, base); err != nil {
 		return Member{}, err
 	}
-	member := store.AgentMember(session)
-	if nick == "" {
-		nick = s.freeNick(channel, base(session))
-	} else if !s.nickFree(channel, member, nick) {
-		return Member{}, ErrNick
+	nick, err := s.nickOf(session, base)
+	if err != nil {
+		return Member{}, err
 	}
-	// What its record holds by now is its own, from before it joined: not the channel's.
-	if off, _, _, err := s.st.ChannelSync(session); err == nil {
-		if p, err := s.ss.Messages(session, -1, off); err == nil {
-			off = max(off, p.End)
-		}
-		_ = s.st.SetChannelSync(session, off, "")
-	}
-	row := store.ChannelMember{Channel: channel, Member: member, Nick: nick, Recv: recv}
+	row := store.ChannelMember{Channel: channel, Member: store.AgentMember(session), Recv: recv, Send: store.SendIR}
 	defer s.changed()
 	if err := s.st.PutChannelMember(row); err != nil {
 		return Member{}, err
 	}
-	return Member{ChannelMember: row, Session: session}, nil
+	return Member{ChannelMember: row, Session: session, Nick: nick}, nil
 }
 
-// Leave takes member out of channel. The session the channel is stays in it.
+// Leave takes member out of channel. The session a channel is its own stays in it.
 func (s *Service) Leave(channel, member string) error {
-	if member == store.AgentMember(channel) {
+	if _, own := s.Own(channel); !own && member == store.AgentMember(channel) {
 		return fmt.Errorf("%w: the channel is this session's", ErrNoMember)
 	}
 	defer s.changed()
@@ -123,7 +130,7 @@ func (s *Service) Leave(channel, member string) error {
 	return err
 }
 
-// Change sets a member's nick and what it receives (nil: as it is).
+// Change sets a member's nick (an agent's, in every channel) and what it receives (nil: as it is).
 func (s *Service) Change(channel, member string, nick, recv *string, base func(session string) string) (Member, error) {
 	if err := s.written(channel, base); err != nil {
 		return Member{}, err
@@ -137,8 +144,11 @@ func (s *Service) Change(channel, member string, nick, recv *string, base func(s
 			continue
 		}
 		if nick != nil {
-			if !m.Agent() || !s.nickFree(channel, member, *nick) {
+			if !m.Agent() {
 				return Member{}, ErrNick
+			}
+			if err := s.SetNick(m.Session, *nick); err != nil {
+				return Member{}, err
 			}
 			m.Nick = *nick
 		}
@@ -153,6 +163,36 @@ func (s *Service) Change(channel, member string, nick, recv *string, base func(s
 		return m, s.st.PutChannelMember(m.ChannelMember)
 	}
 	return Member{}, ErrNoMember
+}
+
+// Create makes a channel of its own: no session's, listed in cwd at machine. Its people are
+// everyone until chosen; it has no agent until one joins.
+func (s *Service) Create(c store.Channel) error {
+	if c.ID == "" {
+		return ErrChannel
+	}
+	defer s.changed()
+	return s.st.PutChannel(c)
+}
+
+// Rename names a channel of its own.
+func (s *Service) Rename(id, name string) error {
+	c, ok := s.Own(id)
+	if !ok {
+		return ErrChannel
+	}
+	c.Name = name
+	defer s.changed()
+	return s.st.PutChannel(c)
+}
+
+// Remove takes a channel of its own away, its members with it; what was said in it stays.
+func (s *Service) Remove(id string) error {
+	if _, ok := s.Own(id); !ok {
+		return ErrChannel
+	}
+	defer s.changed()
+	return s.st.DeleteChannel(id)
 }
 
 // Seen moves session's read position in its channel up to seq.

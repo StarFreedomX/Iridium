@@ -2,7 +2,7 @@
 import { describe, expect, test } from "vitest";
 import type { ChannelMessage, ChannelPage } from "../src/api/client";
 import type { Session } from "../src/api/types.gen";
-import { eventParts, personName, type EventWords, channelLamp, givenParts, groupMessages, insertNick, isMember, isMulti, linkNicks, matchAgents, merge, msgOf, nickOfURL, nickParts, nickSpans, quotaKinds, stillWaiting, validNick, watchExtra, withoutMembers } from "../src/chat/channel/lib";
+import { eventParts, personName, type EventWords, channelLamp, givenParts, groupMessages, insertNick, isMulti, linkNicks, matchAgents, merge, msgOf, nickOfURL, nickParts, nickSpans, quotaKinds, stillWaiting, validNick, watchExtra } from "../src/chat/channel/lib";
 import { ChannelLog } from "../src/chat/channel/log";
 import { buildTree, standing } from "../src/tree";
 
@@ -127,23 +127,23 @@ describe("@nick", () => {
 
 describe("the list", () => {
   const s = (id: string, more: Partial<Session> = {}): Session => ({ id, agent: "pi", cwd: "/w", status: "idle", hosted: true, live: false, updatedAt: 1, ...more }) as Session;
-  const list = [s("c", { agents: [{ session: "c", nick: "pi" }, { session: "m", nick: "pi2" }], own: true }), s("m", { channel: "c", launcher: "c" }), s("o", { channel: "o", own: true })];
-  test("an agent of another's channel is no row of its own, nor hung under the channel", () => {
-    expect(isMember(list[1]!)).toBe(true);
-    expect(isMember(list[2]!)).toBe(false);
+  const list = [s("c", { agents: [{ session: "c", nick: "pi" }, { session: "m", nick: "pi2" }], own: true }), s("m", { in: ["c"], spawned: { channel: "c" }, own: true, live: true }), s("o", { own: true })];
+  test("an agent in another's channel is a session as any: a row of its own, not hung under the channel", () => {
     expect(isMulti(list[0])).toBe(true);
-    expect(isMulti(list[2])).toBe(false);
-    expect(withoutMembers(list).map((x) => x.id)).toEqual(["c", "o"]);
-    const plain = [list[2]!];
-    expect(withoutMembers(plain)).toBe(plain);
+    expect(isMulti(list[1])).toBe(false);
     const st = standing(list);
-    expect([...st.rows].sort()).toEqual(["c", "o"]);
+    expect([...st.rows].sort()).toEqual(["c", "m", "o"]);
     expect(st.hung.size).toBe(0);
-    const tree = buildTree([...list, s("sub", { subagent: true, parent: "m", updatedAt: 100 }), s("m", { channel: "c", live: true })].filter((x, i, a) => a.findLastIndex((y) => y.id === x.id) === i), [], "未归类", 100);
-    expect(tree.workspaces.flatMap((w) => w.rows).map((r) => (r.kind === "session" ? r.s.id : r.f.sessions.map((x) => x.id).join())).join()).toBe("c,o");
-    // What a member started shows under its channel's row.
-    expect(tree.kids.get("c")?.map((x) => x.id)).toEqual(["sub"]);
-    expect(tree.unlisted.has("m")).toBe(false);
+    const tree = buildTree([...list, s("sub", { subagent: true, parent: "m", updatedAt: 100 })], [], "未归类", 100);
+    expect(
+      tree.workspaces
+        .flatMap((w) => w.rows)
+        .flatMap((r) => (r.kind === "session" ? [r.s.id] : r.f.sessions.map((x) => x.id)))
+        .sort()
+        .join(),
+    ).toBe("c,m,o");
+    // What it started shows under its own row.
+    expect(tree.kids.get("m")?.map((x) => x.id)).toEqual(["sub"]);
   });
   test("a channel's lamp: amber while one waits, else lit while any works", () => {
     expect(channelLamp("idle", ["idle", "running"])).toBe("running");

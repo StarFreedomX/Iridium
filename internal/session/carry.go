@@ -56,7 +56,7 @@ func (h *Hosted) updateTail(f *transcript.File, old, size int64) {
 // Annotate fills in blocks' Files (files.Service.AnnotateBlocks): what they name that exists.
 type Annotate func(session, cwd string, blocks []api.Block)
 
-// SetInChannel has f say whether a session is one agent of several in a channel
+// SetInChannel has f say whether a session's channel has other agents in it
 // (docs/channels.md): its system prompt says so, in place of the line about titling.
 func (m *Manager) SetInChannel(f func(id string) bool) { m.inChan.Store(&f) }
 
@@ -67,14 +67,23 @@ func (m *Manager) inChannel(id string) bool {
 	return false
 }
 
-// SetChannelOf has f say the channel a session is an agent of and, for a channel of several
-// agents, who they are (session and nick); List marks the sessions with it.
-func (m *Manager) SetChannelOf(f func(id string) (channel string, agents []api.ChannelAgent)) {
+// SetChannelOf has f say, of a session, the agents of its channel where it has several
+// (session and nick) and the channels it is in beside its own; List marks the sessions with it.
+func (m *Manager) SetChannelOf(f func(id string) (agents []api.ChannelAgent, in []string)) {
 	m.chanOf.Store(&f)
 }
 
-// markChannels writes each session's channel and a channel's agents into list.
+// SetSpawned has f say where a session was started, if for a channel; List marks them with it.
+func (m *Manager) SetSpawned(f func(id string) *api.Spawned) { m.spawned.Store(&f) }
+
+// markChannels writes each session's agents, the channels it is in and where it was started
+// into list.
 func (m *Manager) markChannels(list []api.Session) {
+	if f := m.spawned.Load(); f != nil {
+		for i := range list {
+			list[i].Spawned = (*f)(list[i].ID)
+		}
+	}
 	f := m.chanOf.Load()
 	if f == nil {
 		return
@@ -84,17 +93,11 @@ func (m *Manager) markChannels(list []api.Session) {
 		kind[s.ID] = s.Agent
 	}
 	for i := range list {
-		ch, agents := (*f)(list[i].ID)
-		if ch != "" && ch != list[i].ID {
-			list[i].Channel = ch
-			continue
+		agents, in := (*f)(list[i].ID)
+		for j := range agents {
+			agents[j].Agent = kind[agents[j].Session]
 		}
-		if len(agents) > 1 {
-			for j := range agents {
-				agents[j].Agent = kind[agents[j].Session]
-			}
-			list[i].Agents = agents
-		}
+		list[i].Agents, list[i].In = agents, in
 	}
 }
 

@@ -5,9 +5,11 @@ import "encoding/json"
 // ChannelMember is a member of a channel (docs/channels.md). Member: "agent:<session>", an
 // app's login "<app>/<login>", or all of an app's "<app>/*". An agent's: Session, the session
 // it is; Agent, its harness; Name, what it runs as now ("Claude Opus 5.5 High"); Nick, what it is
-// called by in the channel (@nick); Status, its lamp. Recv: an agent's "all" (what people say)
-// or "at" (only what names it); a person's "all" or "mine". Seen: the number of the last
-// message the agent was given.
+// called by, in every channel (@nick); Status, its lamp; Cwd, Machine, where it runs. Recv: an
+// agent's "all" (what people say) or "at" (only what names it); a person's "all" or "mine".
+// Send: how an agent speaks in the channel: "direct" (its turns are said there: the channel is
+// its own) or "ir" (only what it sends with ir). Seen: the number of the last message the agent
+// was given.
 type ChannelMember struct {
 	Member  string `json:"member"`
 	Session string `json:"session,omitempty"`
@@ -15,8 +17,11 @@ type ChannelMember struct {
 	Name    string `json:"name,omitempty"`
 	Nick    string `json:"nick,omitempty"`
 	Recv    string `json:"recv"`
+	Send    string `json:"send,omitempty"`
 	Seen    int64  `json:"seen,omitempty"`
 	Status  Status `json:"status,omitempty"`
+	Cwd     string `json:"cwd,omitempty"`
+	Machine string `json:"machine,omitempty"`
 }
 
 // ChannelMembers are a channel's members: Channel, its id; Multi, it has more than one agent
@@ -31,17 +36,21 @@ type ChannelMembers struct {
 	Me     string `json:"me,omitempty"`
 }
 
-// NewMember adds an agent to a channel: a new session of Agent started in the channel's folder
-// (Model, Mode, Effort, Preset as NewSession's), under Nick ("": one made), receiving Recv
-// ("": "at").
+// NewMember adds an agent to a channel: Session, a session there is; else a new session of
+// Agent (Model, Mode, Effort, Preset as NewSession's) started in Cwd at Machine (none: the
+// channel's folder), listed there as any session. Nick: what it is called by ("": the one it
+// has, else one made); Recv: what it receives ("": "at").
 type NewMember struct {
-	Agent  Agent  `json:"agent"`
-	Model  string `json:"model,omitempty"`
-	Mode   string `json:"mode,omitempty"`
-	Effort string `json:"effort,omitempty"`
-	Preset string `json:"preset,omitempty"`
-	Nick   string `json:"nick,omitempty"`
-	Recv   string `json:"recv,omitempty"`
+	Session string `json:"session,omitempty"`
+	Agent   Agent  `json:"agent,omitempty"`
+	Cwd     string `json:"cwd,omitempty"`
+	Machine string `json:"machine,omitempty"`
+	Model   string `json:"model,omitempty"`
+	Mode    string `json:"mode,omitempty"`
+	Effort  string `json:"effort,omitempty"`
+	Preset  string `json:"preset,omitempty"`
+	Nick    string `json:"nick,omitempty"`
+	Recv    string `json:"recv,omitempty"`
 }
 
 // MemberPatch changes a member: its nick, what it receives.
@@ -69,8 +78,15 @@ type ChannelAgent struct {
 	Nick    string `json:"nick,omitempty"`
 }
 
+// Spawned is where a session was started for a channel: Channel, the channel; By, the session
+// whose agent started it ("": a person did).
+type Spawned struct {
+	By      string `json:"by,omitempty"`
+	Channel string `json:"channel"`
+}
+
 // ChannelSetup is who a new session's channel has beside its own agent. Agents: more agents,
-// each a new session in the same folder. People: who may speak in it ("*" everyone, "<app>/*",
+// each a session of its own (NewMember). People: who may speak in it ("*" everyone, "<app>/*",
 // "<app>/<login>"); none: everyone. The one who makes it is always one of them.
 type ChannelSetup struct {
 	Agents []NewMember `json:"agents,omitempty"`

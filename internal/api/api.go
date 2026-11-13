@@ -111,11 +111,12 @@ type Session struct {
 	// session of its own, read-only; Parent: the session that started it.
 	Subagent bool   `json:"subagent,omitempty"`
 	Parent   string `json:"parent,omitempty"`
-	// Channel: the channel it is an agent of, when that is another session's (docs/channels.md):
-	// it is shown there, not as a session of its own. Agents: of a channel with several, all of
-	// them in the order they joined, itself first.
-	Channel string         `json:"channel,omitempty"`
+	// Agents: of a session whose channel has several agents (docs/channels.md), all of them in
+	// the order they joined, itself first. In: the channels it is in beside its own. Spawned:
+	// where it was started, if for a channel.
 	Agents  []ChannelAgent `json:"agents,omitempty"`
+	In      []string       `json:"in,omitempty"`
+	Spawned *Spawned       `json:"spawned,omitempty"`
 	// Done: a subagent that has finished (Claude: its transcript ends with its final answer, or it was stopped); the
 	// sidebar shows a subagent only while it works.
 	Done bool `json:"done,omitempty"`

@@ -200,3 +200,88 @@ func TestSearch(t *testing.T) {
 		t.Errorf("found what was taken back: %s", texts(ms))
 	}
 }
+
+// A session is in other channels by subscription: its nick is its own and the same in each, no
+// two agents' alike; what its record has is said in its own channel only. A channel may be no
+// session's: then it has no agent until one joins.
+func TestSubscriptions(t *testing.T) {
+	s, r, st := rig(t)
+	base := func(string) string { return "Claude" }
+	for _, id := range []string{"a", "b", "c"} {
+		r.blocks[id] = nil
+	}
+	if s.Speaks("a", "b") || !s.Speaks("a", "a") || len(s.In("b")) != 0 {
+		t.Fatalf("before anyone joined")
+	}
+	m, err := s.Join("a", "b", "", base)
+	if err != nil || m.Nick != "claude2" || m.Recv != RecvAt || m.Direct() {
+		t.Fatalf("join: %+v %v", m, err)
+	}
+	if _, err := s.Join("a", "b", "", base); !errors.Is(err, ErrMember) {
+		t.Errorf("joining twice: %v", err)
+	}
+	if _, err := s.Join("a", "a", "", base); !errors.Is(err, ErrMember) {
+		t.Errorf("joining its own: %v", err)
+	}
+	ms, _ := s.Members("a")
+	if len(ms) != 3 || ms[1].Nick != "claude" || !ms[1].Direct() || ms[2].Session != "b" {
+		t.Fatalf("members: %+v", ms)
+	}
+	// The same nick in another channel; a third agent's is its own.
+	if m, err := s.Join("c", "b", RecvAll, base); err != nil || m.Nick != "claude2" {
+		t.Fatalf("join another: %+v %v", m, err)
+	}
+	if s.Nick("c") != "claude3" || fmt.Sprint(s.In("b")) != "[a c]" || !s.Speaks("c", "b") {
+		t.Errorf("nicks and channels: %q %v", s.Nick("c"), s.In("b"))
+	}
+	if err := s.SetNick("c", "CLAUDE2"); !errors.Is(err, ErrNick) {
+		t.Errorf("another's nick, in other case: %v", err)
+	}
+	if err := s.SetNick("c", "lead"); err != nil || s.Nick("c") != "lead" {
+		t.Errorf("a new nick: %v %q", err, s.Nick("c"))
+	}
+	// What b says in its turn is its own channel's, not a's.
+	r.add("b", api.Block{Kind: api.BlockKindUser, Text: "#3: hello\n\n<channel-context>\nYou are claude2\n</channel-context>", From: "web"})
+	r.add("b", api.Block{Kind: api.BlockKindAssistant, Text: "working on it"})
+	added, err := s.Sync("b")
+	if err != nil || texts(added) != "1:said:working on it " || added[0].Channel != "b" {
+		t.Fatalf("sync: %q %v", texts(added), err)
+	}
+	if n := s.End("a"); n != 0 {
+		t.Errorf("said in the channel it is in: %d", n)
+	}
+	if err := s.Leave("a", store.AgentMember("b")); err != nil || s.Speaks("a", "b") {
+		t.Errorf("leave: %v", err)
+	}
+	if err := s.Leave("a", store.AgentMember("a")); !errors.Is(err, ErrNoMember) {
+		t.Errorf("its own agent leaving: %v", err)
+	}
+
+	// A channel of its own.
+	if err := s.Create(store.Channel{ID: "room", Name: "Room", Cwd: "/w"}); err != nil {
+		t.Fatal(err)
+	}
+	if c, ok := s.Own("room"); !ok || c.Name != "Room" || s.Speaks("room", "room") {
+		t.Fatalf("own: %+v %v", c, ok)
+	}
+	if ms, _ := s.Members("room"); len(ms) != 1 || ms[0].Member != Everyone || len(s.Agents("room")) != 0 {
+		t.Errorf("a new channel's members: %+v", ms)
+	}
+	if _, err := s.Join("room", "a", "", base); err != nil || fmt.Sprint(s.Agents("room")) != "[a]" {
+		t.Errorf("joining a channel of its own: %v %v", err, s.Agents("room"))
+	}
+	if _, _, err := s.Say(Message{ChannelMessage: store.ChannelMessage{Channel: "room", Author: "web", Kind: KindUser, Text: "hi"}}); err != nil || s.End("room") != 1 {
+		t.Errorf("say: %v", err)
+	}
+	if err := s.Remove("room"); err != nil || len(s.In("a")) != 0 {
+		t.Errorf("remove: %v %v", err, s.In("a"))
+	}
+	if _, ok := s.Own("room"); ok {
+		t.Errorf("still there")
+	}
+	// Reading the store anew gives the same.
+	s2 := New(st, r, t.Logf)
+	if s2.Nick("b") != "claude2" || fmt.Sprint(s2.In("b")) != "[c]" {
+		t.Errorf("read anew: %q %v", s2.Nick("b"), s2.In("b"))
+	}
+}

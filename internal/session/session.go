@@ -99,7 +99,8 @@ type Manager struct {
 	tune     atomic.Pointer[Tunables] // tune.go
 	annotate atomic.Pointer[Annotate] // carry.go
 	inChan   atomic.Pointer[func(string) bool]
-	chanOf   atomic.Pointer[func(string) (string, []api.ChannelAgent)]
+	chanOf   atomic.Pointer[func(string) ([]api.ChannelAgent, []string)]
+	spawned  atomic.Pointer[func(string) *api.Spawned]
 }
 
 func New(o Options) (*Manager, error) {

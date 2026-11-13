@@ -250,12 +250,6 @@ export function matchAgents<T extends { nick: string; name: string }>(rows: T[],
     .map(([, r]) => r);
 }
 
-/** A session that is an agent of another session's channel: shown there, no row of its own. */
-export const isMember = (s: Pick<Session, "id" | "channel">) => !!s.channel && s.channel !== s.id;
-
-/** The sessions that are rows of their own: not the agents of another's channel. */
-export const withoutMembers = <T extends Pick<Session, "id" | "channel">>(list: T[]): T[] => (list.some(isMember) ? list.filter((s) => !isMember(s)) : list);
-
 /** Whether a session is a channel of several agents. */
 export const isMulti = (s?: Pick<Session, "agents">) => (s?.agents?.length ?? 0) > 1;
 

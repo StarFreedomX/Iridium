@@ -249,10 +249,31 @@ var schema = []string{
 	// 36: a channel's people are everyone ("*") unless chosen; what was written as the web's
 	// logins was that default.
 	`UPDATE OR REPLACE channel_members SET member = '*' WHERE member = 'ir_web/*';`,
+	// 37: a channel is its own (channels.go): one that is no session's has a row here; a session
+	// is in a channel by a row of channel_members (a subscription), speaking in it directly (its
+	// own channel, whose id is the session's) or through ir; an agent's nick is the session's, one
+	// in all of Iridium (the step below takes them from the members' rows).
+	`CREATE TABLE IF NOT EXISTS channels (
+		id         TEXT PRIMARY KEY,
+		name       TEXT NOT NULL DEFAULT '',
+		cwd        TEXT NOT NULL DEFAULT '',
+		machine    TEXT NOT NULL DEFAULT '',
+		creator    TEXT NOT NULL DEFAULT '',
+		created_at INTEGER NOT NULL
+	);
+	CREATE TABLE IF NOT EXISTS agent_nicks (
+		session TEXT PRIMARY KEY,
+		nick    TEXT NOT NULL
+	);
+	CREATE UNIQUE INDEX IF NOT EXISTS agent_nicks_nick ON agent_nicks (nick COLLATE NOCASE);
+	ALTER TABLE channel_members ADD COLUMN send TEXT NOT NULL DEFAULT '';
+	UPDATE channel_members SET send = CASE WHEN member = 'agent:' || channel THEN 'direct' ELSE 'ir' END WHERE member LIKE 'agent:%';`,
+	// 38: the nicks are the sessions' now.
+	`ALTER TABLE channel_members DROP COLUMN nick;`,
 }
 
 // steps run in Go after the migration of their version, in the same transaction.
-var steps = map[int]func(*sql.Tx) error{5: claudeForFirstPanel, 35: indexChannelMessages}
+var steps = map[int]func(*sql.Tx) error{5: claudeForFirstPanel, 35: indexChannelMessages, 37: nicksOfSessions}
 
 type Store struct {
 	db *sql.DB

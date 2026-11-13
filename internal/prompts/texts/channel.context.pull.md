@@ -1,1 +1,1 @@
-More of the channel: ir api message.list channel_id=self [next=<number> limit=<n>]; by words: ir api message.list channel_id=self _data.q="<words>"; one message whole: ir api message.get channel_id=self message_id=<number>.
+More of the channel: ir api message.list channel_id={{channel}} [next=<number> limit=<n>]; by words: ir api message.list channel_id={{channel}} _data.q="<words>"; one message whole: ir api message.get channel_id={{channel}} message_id=<number>.

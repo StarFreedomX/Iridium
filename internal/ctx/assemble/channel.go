@@ -1,6 +1,7 @@
 package assemble
 
 import (
+	"cmp"
 	"strconv"
 	"strings"
 	"time"
@@ -16,10 +17,14 @@ import (
 // ChannelAgent is an agent of the channel: the nick it is called by, the name it goes by.
 type ChannelAgent struct{ Nick, Name string }
 
-// Channel is what the agent called is told of its channel. You: its own nick; Agents: all of
+// Channel is what the agent called is told of the channel. You: its own nick; Agents: all of
 // them, itself too; Plan: what it has not seen; Pull: it has ir to read more with; Zone: the
-// zone times are written in (nil: UTC).
+// zone times are written in (nil: UTC). ID, Name: the channel, for an agent that is in it by a
+// subscription (docs/channels.md "订阅"): what it says in its turn stays in its own session, and
+// it speaks in the channel with ir; none: the channel is the agent's own.
 type Channel struct {
+	ID     string
+	Name   string
 	You    string
 	Agents []ChannelAgent
 	Plan   strategy.Plan
@@ -88,6 +93,8 @@ func channelPieces(c Channel, seq int64, said, input string) []piece {
 	if input != "" {
 		refs = []Ref{{Kind: "input", ID: input}}
 	}
+	// The channel as ir takes it: the agent's own is "self".
+	self := cmp.Or(c.ID, "self")
 	ps := []piece{text(idChannelMessage, "seq", n(seq)), words(said, append(refs, Ref{Kind: "message", ID: n(seq)})...), text(idChannelOpen)}
 	var agents []string
 	for _, a := range c.Agents {
@@ -97,7 +104,11 @@ func channelPieces(c Channel, seq int64, said, input string) []piece {
 		}
 		agents = append(agents, s)
 	}
-	ps = append(ps, text(idChannelMembers, "you", c.You, "agents", strings.Join(agents, ", ")))
+	if c.ID != "" {
+		ps = append(ps, text(idChannelGuest, "you", c.You, "channel", c.ID, "name", cmp.Or(c.Name, c.ID), "agents", strings.Join(agents, ", ")))
+	} else {
+		ps = append(ps, text(idChannelMembers, "you", c.You, "agents", strings.Join(agents, ", ")))
+	}
 	p := c.Plan
 	if k := p.Skipped; k.Count > 0 {
 		sk := text(idChannelSkipped, "from", n(k.From), "to", n(k.To), "count", strconv.Itoa(k.Count))
@@ -129,7 +140,7 @@ func channelPieces(c Channel, seq int64, said, input string) []piece {
 			}
 			ps = append(ps, text(idChannelLineEnd), words(m.Text, Ref{Kind: "message", ID: n(m.Seq)}))
 			if m.Left > 0 {
-				ps = append(ps, text(idChannelCut, "left", strconv.Itoa(m.Left), "seq", n(m.Seq)))
+				ps = append(ps, text(idChannelCut, "left", strconv.Itoa(m.Left), "seq", n(m.Seq), "channel", self))
 			}
 			ps = append(ps, text(idNL))
 		}
@@ -157,7 +168,7 @@ func channelPieces(c Channel, seq int64, said, input string) []piece {
 		ps = append(ps, text(idNL))
 	}
 	if c.Pull {
-		ps = append(ps, text(idChannelPull))
+		ps = append(ps, text(idChannelPull, "channel", self))
 	}
 	return append(ps, text(idChannelClose))
 }

@@ -80,7 +80,7 @@ export function draftNicks(d: Draft): string[] {
   for (const n of given) if (n) taken.add(n.toLowerCase());
   return [d.first, ...d.more].map((a, i) => {
     if (given[i]) return given[i]!;
-    const base = a.agent.toLowerCase().replace(/[^\p{L}\p{N}_-]/gu, "") || "agent";
+    const base = (a.agent ?? "").toLowerCase().replace(/[^\p{L}\p{N}_-]/gu, "") || "agent";
     let nick = base;
     for (let k = 2; taken.has(nick); k++) nick = `${base}${k}`;
     taken.add(nick);

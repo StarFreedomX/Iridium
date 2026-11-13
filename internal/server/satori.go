@@ -204,7 +204,7 @@ func (b satoriBackend) Patch(ctx context.Context, c satori.Caller, id string, p 
 	if p.Name != nil && (cl.agent || cl.session != "") {
 		p.ByAgent = true
 		// A channel of several agents is named by people: an agent's title for it is let be.
-		if b.s.inMulti(id) {
+		if b.s.multi(id) {
 			p.Name = nil
 		}
 	}
@@ -419,15 +419,9 @@ func (b satoriBackend) ServeFile(w http.ResponseWriter, r *http.Request, path st
 	b.s.files.ServeFile(w, r, path)
 }
 
-// MayReadRecord: an agent reads its own record, and those of sessions it shares no channel of
-// several with; a person, any they see.
-func (b satoriBackend) MayReadRecord(c satori.Caller, id string) bool {
-	cl := callerAs(c)
-	if !cl.agent || cl.session == "" || cl.session == id {
-		return true
-	}
-	return !b.s.inMulti(id)
-}
+// MayReadRecord: whoever sees a session reads its record, an agent too (docs/channels.md
+// "读记录"): read only, its secrets masked as everywhere.
+func (b satoriBackend) MayReadRecord(c satori.Caller, id string) bool { return true }
 
 func (b satoriBackend) Mask(text string) string { return b.s.MaskText(text) }
 

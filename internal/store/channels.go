@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 
 	"github.com/kumoSleeping/iridium/internal/search"
@@ -46,18 +47,26 @@ const channelsSchema = `CREATE TABLE IF NOT EXISTS channel_members (
 		offset  INTEGER NOT NULL DEFAULT 0
 	);`
 
-// ChannelMember is one member of a channel. Member: "agent:<session>", an app's login
-// "<app>/<login>", or all of an app's "<app>/*". Recv: what wakes an agent ("all": what people
-// say; "at": only what names it), what a person is shown ("all", "mine"). Seen: the number of the
-// last message it has been given.
+// ChannelMember is one member of a channel: a subscription. Member: "agent:<session>", an app's
+// login "<app>/<login>", all of an app's "<app>/*", or everyone "*". Recv: what wakes an agent
+// ("all": what people say; "at": only what names it), what a person is shown ("all", "mine").
+// Send: how an agent speaks there: "direct", what it says in its turn is the channel's (its own
+// channel, at most one); "ir", only what it sends with ir. Seen: the number of the last message
+// it has been given (an agent) or has read (a person).
 type ChannelMember struct {
 	Channel string
 	Member  string
-	Nick    string
 	Recv    string
+	Send    string
 	Seen    int64
 	Joined  int64
 }
+
+// How an agent speaks in a channel.
+const (
+	SendDirect = "direct"
+	SendIR     = "ir"
+)
 
 // ChannelMessage is one message of a channel. Kind: "user" (a person's), "said" (an agent's
 // words), "ask", "error", "note" (Iridium's own line). Data: JSON, the kind's own (files, who is
@@ -351,25 +360,17 @@ func (s *Store) ForgetChannelMessage(channel string, seq int64) error {
 
 // ---- members ----
 
+const memberCols = `channel, member, recv, send, seen, joined_at`
+
 // ChannelMembers are channel's members as written down, in the order they joined; none for a
 // channel nobody has changed (its members are then the default: channel.Service.Members).
 func (s *Store) ChannelMembers(channel string) ([]ChannelMember, error) {
-	return s.members(`SELECT channel, member, nick, recv, seen, joined_at FROM channel_members WHERE channel = ? ORDER BY joined_at, rowid`, channel)
+	return s.members(`SELECT `+memberCols+` FROM channel_members WHERE channel = ? ORDER BY joined_at, rowid`, channel)
 }
 
 // AllChannelMembers are every channel's members as written.
 func (s *Store) AllChannelMembers() ([]ChannelMember, error) {
-	return s.members(`SELECT channel, member, nick, recv, seen, joined_at FROM channel_members ORDER BY joined_at, rowid`)
-}
-
-// ChannelsOf are the memberships of member, in every channel.
-func (s *Store) ChannelsOf(member string) ([]ChannelMember, error) {
-	return s.members(`SELECT channel, member, nick, recv, seen, joined_at FROM channel_members WHERE member = ? ORDER BY joined_at, rowid`, member)
-}
-
-// AgentMemberships are all the agents' memberships: which channel each session talks in.
-func (s *Store) AgentMemberships() ([]ChannelMember, error) {
-	return s.members(`SELECT channel, member, nick, recv, seen, joined_at FROM channel_members WHERE member LIKE 'agent:%' ORDER BY joined_at, rowid`)
+	return s.members(`SELECT ` + memberCols + ` FROM channel_members ORDER BY joined_at, rowid`)
 }
 
 func (s *Store) members(q string, args ...any) ([]ChannelMember, error) {
@@ -381,7 +382,7 @@ func (s *Store) members(q string, args ...any) ([]ChannelMember, error) {
 	var out []ChannelMember
 	for rows.Next() {
 		var m ChannelMember
-		if err := rows.Scan(&m.Channel, &m.Member, &m.Nick, &m.Recv, &m.Seen, &m.Joined); err != nil {
+		if err := rows.Scan(&m.Channel, &m.Member, &m.Recv, &m.Send, &m.Seen, &m.Joined); err != nil {
 			return nil, err
 		}
 		out = append(out, m)
@@ -389,14 +390,14 @@ func (s *Store) members(q string, args ...any) ([]ChannelMember, error) {
 	return out, rows.Err()
 }
 
-// PutChannelMember adds m to its channel, or changes its nick and what it receives.
+// PutChannelMember adds m to its channel, or changes what it receives and how it speaks.
 func (s *Store) PutChannelMember(m ChannelMember) error {
 	if m.Joined == 0 {
 		m.Joined = now()
 	}
-	_, err := s.db.Exec(`INSERT INTO channel_members (channel, member, nick, recv, seen, joined_at) VALUES (?, ?, ?, ?, ?, ?)
-		ON CONFLICT (channel, member) DO UPDATE SET nick = excluded.nick, recv = excluded.recv`,
-		m.Channel, m.Member, m.Nick, m.Recv, m.Seen, m.Joined)
+	_, err := s.db.Exec(`INSERT INTO channel_members (channel, member, recv, send, seen, joined_at) VALUES (?, ?, ?, ?, ?, ?)
+		ON CONFLICT (channel, member) DO UPDATE SET recv = excluded.recv, send = excluded.send`,
+		m.Channel, m.Member, m.Recv, m.Send, m.Seen, m.Joined)
 	return err
 }
 
@@ -413,6 +414,133 @@ func (s *Store) RemoveChannelMember(channel, member string) (bool, error) {
 // SetChannelSeen moves member's read position in channel up to seq (never back).
 func (s *Store) SetChannelSeen(channel, member string, seq int64) error {
 	_, err := s.db.Exec(`UPDATE channel_members SET seen = MAX(seen, ?) WHERE channel = ? AND member = ?`, seq, channel, member)
+	return err
+}
+
+// ---- the agents' nicks ----
+
+// ErrNickTaken: another session has the nick.
+var ErrNickTaken = errors.New("the nick is another agent's")
+
+// Nicks are the nicks of the sessions that have one: what an agent is called by (@nick), the
+// same in every channel, no two alike whatever their case.
+func (s *Store) Nicks() (map[string]string, error) {
+	rows, err := s.db.Query(`SELECT session, nick FROM agent_nicks`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]string{}
+	for rows.Next() {
+		var id, nick string
+		if err := rows.Scan(&id, &nick); err != nil {
+			return nil, err
+		}
+		out[id] = nick
+	}
+	return out, rows.Err()
+}
+
+// SetNick makes nick session's; ErrNickTaken if another session has it.
+func (s *Store) SetNick(session, nick string) error {
+	var other string
+	err := s.db.QueryRow(`SELECT session FROM agent_nicks WHERE nick = ? COLLATE NOCASE AND session != ?`, nick, session).Scan(&other)
+	if err == nil {
+		return ErrNickTaken
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	_, err = s.db.Exec(`INSERT INTO agent_nicks (session, nick) VALUES (?, ?) ON CONFLICT (session) DO UPDATE SET nick = excluded.nick`, session, nick)
+	return err
+}
+
+// nicksOfSessions gives each agent the nick it had as a member (the migration that made the
+// nicks the sessions'): the first it had, with a number after it where another has it.
+func nicksOfSessions(tx *sql.Tx) error {
+	rows, err := tx.Query(`SELECT member, nick FROM channel_members WHERE member LIKE 'agent:%' AND nick != '' ORDER BY joined_at, rowid`)
+	if err != nil {
+		return err
+	}
+	type row struct{ session, nick string }
+	var all []row
+	for rows.Next() {
+		var member, nick string
+		if err := rows.Scan(&member, &nick); err != nil {
+			rows.Close()
+			return err
+		}
+		all = append(all, row{strings.TrimPrefix(member, "agent:"), nick})
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	taken, has := map[string]bool{}, map[string]bool{}
+	for _, r := range all {
+		if has[r.session] {
+			continue
+		}
+		nick := r.nick
+		for i := 2; taken[strings.ToLower(nick)]; i++ {
+			nick = r.nick + strconv.Itoa(i)
+		}
+		taken[strings.ToLower(nick)], has[r.session] = true, true
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO agent_nicks (session, nick) VALUES (?, ?)`, r.session, nick); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ---- channels that are no session's ----
+
+// Channel is a channel of its own: not a session's (whose channel has the session's id and
+// needs no row). Cwd, Machine: the folder it is listed in. Creator: who made it.
+type Channel struct {
+	ID      string
+	Name    string
+	Cwd     string
+	Machine string
+	Creator string
+	Created int64
+}
+
+// PutChannel writes c, in place of the one with its id.
+func (s *Store) PutChannel(c Channel) error {
+	if c.Created == 0 {
+		c.Created = now()
+	}
+	_, err := s.db.Exec(`INSERT INTO channels (id, name, cwd, machine, creator, created_at) VALUES (?, ?, ?, ?, ?, ?)
+		ON CONFLICT (id) DO UPDATE SET name = excluded.name, cwd = excluded.cwd, machine = excluded.machine`,
+		c.ID, c.Name, c.Cwd, c.Machine, c.Creator, c.Created)
+	return err
+}
+
+// Channels are the channels of their own, oldest first.
+func (s *Store) Channels() ([]Channel, error) {
+	rows, err := s.db.Query(`SELECT id, name, cwd, machine, creator, created_at FROM channels ORDER BY created_at, rowid`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Channel
+	for rows.Next() {
+		var c Channel
+		if err := rows.Scan(&c.ID, &c.Name, &c.Cwd, &c.Machine, &c.Creator, &c.Created); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// DeleteChannel removes channel id's row and its members; what was said in it stays.
+func (s *Store) DeleteChannel(id string) error {
+	if _, err := s.db.Exec(`DELETE FROM channel_members WHERE channel = ?`, id); err != nil {
+		return err
+	}
+	_, err := s.db.Exec(`DELETE FROM channels WHERE id = ?`, id)
 	return err
 }
 

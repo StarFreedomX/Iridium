@@ -1,13 +1,16 @@
 // Package channel is the channels (docs/channels.md): where people and agents talk. A channel
 // keeps what was said in it, a message a number, and who is in it; an agent's own record (its
 // thinking, its tool calls) stays the agent's. What an agent said is read in from that record
-// (Sync), what a person said is written as it is sent (Say). A session nobody put elsewhere is a
-// channel by itself, under its own id: the people of the web and its agent.
+// (Sync), what a person said is written as it is sent (Say). A session has a channel of its own,
+// under the session's id: what its agent says in its turns is said there. A session may also be
+// in other channels (a subscription, members.go): there it sees only what is said and speaks
+// with ir. A channel may be no session's (store.Channel): then all its agents are such.
 package channel
 
 import (
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -108,13 +111,18 @@ func (d Data) encode() string {
 	return string(b)
 }
 
-// Member is a member of a channel. Session: the agent's session, if it is one.
+// Member is a member of a channel. Session: the agent's session, if it is one; Nick, what that
+// agent is called by, in every channel.
 type Member struct {
 	store.ChannelMember
 	Session string
+	Nick    string
 }
 
 func (m Member) Agent() bool { return m.Session != "" }
+
+// Direct: the agent's turns are said in the channel (it is the session's own).
+func (m Member) Direct() bool { return m.Send == store.SendDirect }
 
 type Service struct {
 	st   *store.Store
@@ -129,10 +137,13 @@ type Service struct {
 	index *index
 }
 
-// index is every membership written: a channel's rows, and the channel each agent is in.
+// index is every membership written: a channel's rows, the channels each session is in beside
+// its own, the agents' nicks, and the channels that are no session's.
 type index struct {
-	rows map[string][]store.ChannelMember
-	of   map[string]string
+	rows  map[string][]store.ChannelMember
+	in    map[string][]string
+	nicks map[string]string
+	own   map[string]store.Channel
 }
 
 func (s *Service) members() *index {
@@ -141,7 +152,7 @@ func (s *Service) members() *index {
 	if s.index != nil {
 		return s.index
 	}
-	ix := &index{rows: map[string][]store.ChannelMember{}, of: map[string]string{}}
+	ix := &index{rows: map[string][]store.ChannelMember{}, in: map[string][]string{}, nicks: map[string]string{}, own: map[string]store.Channel{}}
 	all, err := s.st.AllChannelMembers()
 	if err != nil {
 		s.logf("channel: the members: %v", err)
@@ -149,9 +160,22 @@ func (s *Service) members() *index {
 	}
 	for _, r := range all {
 		ix.rows[r.Channel] = append(ix.rows[r.Channel], r)
-		if id, ok := store.SessionOfMember(r.Member); ok {
-			ix.of[id] = r.Channel
+		if id, ok := store.SessionOfMember(r.Member); ok && id != r.Channel {
+			ix.in[id] = append(ix.in[id], r.Channel)
 		}
+	}
+	if ix.nicks, err = s.st.Nicks(); err != nil {
+		s.logf("channel: the nicks: %v", err)
+		ix.nicks = map[string]string{}
+		return ix
+	}
+	chs, err := s.st.Channels()
+	if err != nil {
+		s.logf("channel: the channels: %v", err)
+		return ix
+	}
+	for _, c := range chs {
+		ix.own[c.ID] = c
 	}
 	s.index = ix
 	return ix
@@ -183,29 +207,47 @@ func (s *Service) lock(session string) func() {
 	return l.Unlock
 }
 
-// Of is the channel session talks in: the one it was put in, else itself.
-func (s *Service) Of(session string) string {
-	if ch, ok := s.members().of[session]; ok {
-		return ch
-	}
-	return session
+// Own is channel id, if it is one of its own (no session's).
+func (s *Service) Own(id string) (store.Channel, bool) {
+	c, ok := s.members().own[id]
+	return c, ok
 }
 
-// Members are channel's members. One nobody has changed has the default: the web's logins, all
-// of them, and the session it is, which receives everything.
+// In are the channels session is in beside its own, in the order it joined them.
+func (s *Service) In(session string) []string { return s.members().in[session] }
+
+// Speaks: session's agent is one of channel's: the channel is its own, or it is in it.
+func (s *Service) Speaks(channel, session string) bool {
+	if session == "" {
+		return false
+	}
+	if channel == session {
+		_, own := s.Own(channel)
+		return !own
+	}
+	return slices.Contains(s.In(session), channel)
+}
+
+// Nick is what session's agent is called by; "" if it has none yet (it is in no channel with
+// another agent).
+func (s *Service) Nick(session string) string { return s.members().nicks[session] }
+
+// Members are channel's members. One nobody has changed has the default: everyone, and (a
+// session's) the session it is, which receives everything and speaks in it directly.
 func (s *Service) Members(channel string) ([]Member, error) {
-	rows := s.members().rows[channel]
+	ix := s.members()
+	rows := ix.rows[channel]
 	if len(rows) == 0 {
-		rows = []store.ChannelMember{
-			{Channel: channel, Member: Everyone, Recv: RecvAll},
-			{Channel: channel, Member: store.AgentMember(channel), Recv: RecvAll},
+		rows = []store.ChannelMember{{Channel: channel, Member: Everyone, Recv: RecvAll}}
+		if _, own := ix.own[channel]; !own {
+			rows = append(rows, store.ChannelMember{Channel: channel, Member: store.AgentMember(channel), Recv: RecvAll, Send: store.SendDirect})
 		}
 	}
 	out := make([]Member, len(rows))
 	for i, r := range rows {
 		out[i] = Member{ChannelMember: r}
 		if id, ok := store.SessionOfMember(r.Member); ok {
-			out[i].Session = id
+			out[i].Session, out[i].Nick = id, ix.nicks[id]
 		}
 	}
 	return out, nil
@@ -250,22 +292,23 @@ func (s *Service) add(m Message) (Message, bool, error) {
 	return m, true, nil
 }
 
-// Touch reads the records of channel's agents in, as far as they are written. What it finds is
+// Touch reads the record of channel's own agent in, as far as it is written. What it finds is
 // not news (nobody is told): it was said before anyone looked.
 func (s *Service) Touch(channel string) {
-	for _, id := range s.Agents(channel) {
-		if _, err := s.Sync(id); err != nil {
-			s.logf("channel %s: reading %s in: %v", channel, id, err)
-		}
+	if _, own := s.Own(channel); own {
+		return
+	}
+	if _, err := s.Sync(channel); err != nil {
+		s.logf("channel %s: reading its record in: %v", channel, err)
 	}
 }
 
-// Sync reads what session's record has past where it was read to into the session's channel:
-// what its agent said, and what a person typed to it outside Iridium. It returns the messages
-// that are new to the channel, in order.
+// Sync reads what session's record has past where it was read to into the session's own
+// channel: what its agent said, and what a person typed to it outside Iridium. It returns the
+// messages that are new to the channel, in order.
 func (s *Service) Sync(session string) ([]Message, error) {
 	defer s.lock(session)()
-	ch := s.Of(session)
+	ch := session
 	off, pending, had, err := s.st.ChannelSync(session)
 	if err != nil {
 		return nil, err
@@ -276,9 +319,9 @@ func (s *Service) Sync(session string) ([]Message, error) {
 	if pending != "" {
 		_ = json.Unmarshal([]byte(pending), &did)
 	}
-	// Alone: the channel is this session and no other agent's, so what Iridium wrote into its
-	// record is what was said in the channel. With others in it, that is each agent's delivery.
-	alone := ch == session && len(s.Agents(ch)) == 1
+	// Alone: no other agent is in the channel, so what Iridium wrote into the session's record
+	// is what was said in the channel. With others in it, that is what the agent was given.
+	alone := len(s.Agents(ch)) == 1
 	author := store.AgentMember(session)
 	var added []Message
 	again := false
@@ -402,6 +445,10 @@ func (s *Service) syncUser(ch, session string, b api.Block, alone, first bool) (
 	if strings.TrimSpace(text) == "" {
 		return Message{}, false, nil
 	}
+	// What the agent was given of another channel it is in: said there, not here.
+	if ours && Given(text) {
+		return Message{}, false, nil
+	}
 	ref := b.ID
 	if ref == "" {
 		ref = blockRef(session, b.At)
@@ -432,6 +479,12 @@ func (s *Service) syncUser(ch, session string, b api.Block, alone, first bool) (
 	return s.add(m)
 }
 
+// Given: text is what an agent was given of a channel (assemble.ChannelTurn): the words under
+// their number, then the channel's context.
+func Given(text string) bool {
+	return strings.HasPrefix(text, "#") && strings.Contains(text, "\n<channel-context")
+}
+
 // HostTerminal is the author of what was typed to an agent in its own terminal, outside Iridium.
 const HostTerminal = "terminal"
 
@@ -440,7 +493,7 @@ const HostTerminal = "terminal"
 // is said (written from text itself where the record has not got it yet), and what else came in
 // with it is others, in order.
 func (s *Service) Heard(session, text string, after, since int64) (others []Message, said Message, err error) {
-	ch := s.Of(session)
+	ch := session
 	author := store.AgentMember(session)
 	// Never read in before: what the record has is from before anyone listened, not news.
 	if _, _, had, err := s.st.ChannelSync(session); err == nil && !had {

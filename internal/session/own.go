@@ -58,8 +58,7 @@ func standOf(list []api.Session, roots map[int64]string) standing {
 	var live []*api.Session
 	byID := map[string]*api.Session{}
 	for i := range list {
-		// An agent of another session's channel is shown there, not as a session of its own.
-		if s := &list[i]; !s.Subagent && !s.Archived && s.Channel == "" {
+		if s := &list[i]; !s.Subagent && !s.Archived {
 			live = append(live, s)
 			byID[s.ID] = s
 		}
