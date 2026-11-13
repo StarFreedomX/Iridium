@@ -858,6 +858,14 @@ func (s *Server) deliverTo(ctx context.Context, ch, to string, seq int64, said, 
 			w.Sum(sum)
 			sum = *w
 		}
+		// At another machine: its files are there.
+		if st, err := s.m.State(a.Session); err == nil && st.Machine != "" {
+			place := st.Machine
+			if info, ok := s.gate().Endpoint(st.Machine); ok && info.Name != "" {
+				place = info.Name
+			}
+			sum = sum.At(place)
+		}
 		cc.Work = append(cc.Work, assemble.Work{Who: a.Nick, Did: sum})
 	}
 	if st, err := s.m.State(to); err == nil && st.Machine != "" {

@@ -38,6 +38,21 @@ type Activity struct {
 	First int64 `json:"first,omitempty"`
 }
 
+// At is a with its files written as at place ("<place>:<path>"): what an agent at another
+// machine changed is there, not here. "" leaves it as it is.
+func (a Activity) At(place string) Activity {
+	if place == "" || len(a.Files) == 0 {
+		return a
+	}
+	files := make([]File, len(a.Files))
+	for i, f := range a.Files {
+		f.Path = place + ":" + f.Path
+		files[i] = f
+	}
+	a.Files = files
+	return a
+}
+
 // Empty: nothing was done.
 func (a Activity) Empty() bool {
 	return a.Bash+a.Read+a.Search+a.Fetch+a.Agents+a.Other+len(a.Files) == 0

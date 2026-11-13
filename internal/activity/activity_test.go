@@ -63,3 +63,13 @@ func TestActivity(t *testing.T) {
 		t.Error("empty")
 	}
 }
+
+func TestAt(t *testing.T) {
+	a := Activity{Files: []File{{Path: "/w/a.go", Add: 2}}}
+	if got := a.At("pc"); got.Files[0].Path != "pc:/w/a.go" || a.Files[0].Path != "/w/a.go" {
+		t.Errorf("at: %+v, the one it was made of %+v", got.Files, a.Files)
+	}
+	if got := a.At(""); got.Files[0].Path != "/w/a.go" {
+		t.Errorf("at nowhere: %+v", got.Files)
+	}
+}

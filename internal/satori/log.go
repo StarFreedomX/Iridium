@@ -92,8 +92,27 @@ func (s *Service) logMessage(c Caller, m channel.Message, ch *Channel, guild *Gu
 		out.Content += fileElements(c.App, c.Login, m.D.Session, m.D.Files)
 	}
 	// The files' paths only for the pages (ir_web, the host): an app gets the counts.
-	out.Content += activityElement(m.D.Activity, c.Only)
+	out.Content += activityElement(s.placed(m), c.Only)
 	return out
+}
+
+// placed is what m's agent did before saying it, its files written as at the machine the agent
+// runs at ("<machine's name>:<path>"), where that is not Iridium's own.
+func (s *Service) placed(m channel.Message) *activity.Activity {
+	a := m.D.Activity
+	if a == nil || len(a.Files) == 0 || m.D.Session == "" {
+		return a
+	}
+	st, err := s.b.Session(m.D.Session)
+	if err != nil || st.Machine == "" {
+		return a
+	}
+	place := st.Machine
+	if u, ok := s.b.User(st.Machine); ok && u.Name != "" {
+		place = u.Name
+	}
+	at := a.At(place)
+	return &at
 }
 
 // activityElement is what an agent did before it said a message, as an element after the
