@@ -47,7 +47,8 @@ function At({ anchor, open, onOpenChange, children, className, bare }: { anchor:
 
 /** An agent's face beside what it said (the user, 2026-11-13): its harness's logo on a disc, its
  *  lamp on the corner. A press opens its card; the right button, or a finger held down, its menu. */
-export function AgentFace({ channel, a, call, record, may, size = 28 }: { channel: string; a: AgentRow; call?: (nick: string) => void; record?: (session: string) => void; may: boolean; size?: number }) {
+/** talk: 发消息 for the channel's own agent, here already (its composer). */
+export function AgentFace({ channel, a, call, record, may, talk, size = 28 }: { channel: string; a: AgentRow; call?: (nick: string) => void; record?: (session: string) => void; may: boolean; talk?: () => void; size?: number }) {
   const real = useSession(a.session);
   const row = useList()?.find((x) => x.id === a.session);
   const s = real ?? (row && ghostOf(row));
@@ -90,7 +91,7 @@ export function AgentFace({ channel, a, call, record, may, size = 28 }: { channe
         </span>
       </button>
       <At anchor={face} open={detail} onOpenChange={setDetail} className="w-[min(300px,calc(100vw-16px))] p-3.5">
-        <Card channel={channel} a={a} s={s} ctx={ctx} call={call} record={record} may={may} done={() => setDetail(false)} />
+        <Card channel={channel} a={a} s={s} ctx={ctx} call={call} record={record} may={may} talk={talk} done={() => setDetail(false)} />
       </At>
       {s && (
         <MemberMenu
@@ -122,7 +123,7 @@ export function AgentFace({ channel, a, call, record, may, size = 28 }: { channe
 /** An agent's card (the user, 2026-11-13, as QQ's): its face, nick, what it runs as, its state
  *  and context; keys to talk to it in its own channel (its session: one channel bound to it),
  *  to call it here (@nick); in its own channel, to change its face and see its record. */
-function Card({ channel, a, s, ctx, call, record, may, done }: { channel: string; a: AgentRow; s?: LiveSession; ctx?: Parameters<typeof ContextDetail>[0]["c"]; call?: (nick: string) => void; record?: (session: string) => void; may: boolean; done: () => void }) {
+function Card({ channel, a, s, ctx, call, record, may, talk, done }: { channel: string; a: AgentRow; s?: LiveSession; ctx?: Parameters<typeof ContextDetail>[0]["c"]; call?: (nick: string) => void; record?: (session: string) => void; may: boolean; talk?: () => void; done: () => void }) {
   const mine = a.session === channel;
   const key = "g-press flex h-8 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md bg-fill px-2 text-sm text-ink hover:bg-fill-2 pointer-coarse:h-10";
   return (
@@ -142,8 +143,8 @@ function Card({ channel, a, s, ctx, call, record, may, done }: { channel: string
       </div>
       {!!ctx?.max && <ContextDetail c={ctx} tokens={s?.tokens} />}
       <div className="flex gap-1.5">
-        {!mine && (
-          <button type="button" onClick={() => (done(), openChat(a.session))} className={key}>
+        {(!mine || (talk && may)) && (
+          <button type="button" onClick={() => (done(), mine ? talk?.() : openChat(a.session))} className={key}>
             <MessageCircle size={14} className="shrink-0" />
             <span className="truncate">{t("channel.talk")}</span>
           </button>

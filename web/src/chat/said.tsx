@@ -380,7 +380,8 @@ export function Relayed({ given, relay, name, time, onJump, children }: { given:
   );
 }
 
-export function Said({ b, session, cwd, source, onJump }: { b: Shown; session: string; cwd: string; source: (b: { from?: string; fromTerminal?: string }) => Source; onJump: (id: string) => void }) {
+/** card: what a person's face opens (their card, chat.tsx), for one not the one looking. */
+export function Said({ b, session, cwd, source, onJump, card }: { b: Shown; session: string; cwd: string; source: (b: { from?: string; fromTerminal?: string }) => Source; onJump: (id: string) => void; card?: (b: Block) => ReactNode }) {
   switch (b.kind) {
     case "user": {
       const src = source(b);
@@ -399,7 +400,7 @@ export function Said({ b, session, cwd, source, onJump }: { b: Shown; session: s
           </Letter>
         );
       return (
-        <YouBubble text={words} who={src} time={b.time} >
+        <YouBubble text={words} who={src} time={b.time} card={card?.(b)}>
           {b.files?.map((f) => <Attached key={f.ref} session={session} f={f} />)}
         </YouBubble>
       );

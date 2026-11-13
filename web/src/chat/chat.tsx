@@ -5,7 +5,7 @@
 // drafts from the stream. Loaded only once a chat opens or the page is idle.
 import { Menu } from "@base-ui/react/menu";
 import { ArrowLeft, BarChart3, Ellipsis, Globe, ListTree, Plus, Settings } from "lucide-react";
-import type { Status } from "../api/types.gen";
+import type { Block, Status } from "../api/types.gen";
 import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
 import type { SessionState as LiveSession } from "../api/types.gen";
 import { api } from "../api/client";
@@ -27,6 +27,7 @@ import { agentName, cn, Lamp, lampOf, LogoLamp, LogoStack, sessionStatusText, ti
 import { givenTurn, isMulti, type AgentRow, type GivenTurn } from "./channel/lib";
 import { relays, type Relay } from "../satori";
 import { AgentFace } from "./channel/members";
+import { PersonCard } from "./channel/person";
 import { Face, pickFace } from "./channel/face";
 import { mayAct, useMembers } from "./channel/gate";
 // 群聊配置's key in the composer's foot, and the line in the composer's place for one not joined.
@@ -322,6 +323,16 @@ function OneChat({ id, sheet = 0, onSheet, onMe, back }: { id: string; sheet?: n
   const face: AgentRow = { session: id, member: `agent:${id}`, agent: s.agent, nick: mine?.nick ?? "", name: mine?.name ?? agentName(s.agent), status: lampOf(s), recv: mine?.recv ?? "all" };
   // Its lamp only on the face of the turn that is on.
   const resting: AgentRow = { ...face, status: "idle" };
+  // Another person's face opens their card (people and agents are peers, the user, 2026-11-13):
+  // their Satori user id, a login's (an app's) or the panel login's.
+  // 发消息 on its own agent's card: the composer here.
+  const talk = () => composer.current?.focus();
+  const personCard = (b: Block) => {
+    const user = b.fromLogin || b.fromTerminal;
+    if (!user || user === self.id || (self.host && user === "local")) return undefined;
+    const src = source(b);
+    return <PersonCard user={user} name={b.from || user} avatar={src.kind === "you" ? src.avatar : undefined} call={may ? (name) => composer.current?.insert(`@${name}`) : undefined} />;
+  };
   const rows: Row<ReactNode, Works>[] = (busy ? shown.filter((b) => b.kind !== "running") : shown).map((b) => {
     // A call from another channel it is in (chat/channel/lib givenTurn): Iridium's message on
     // the left, what follows its work there (Relayed).
@@ -333,7 +344,7 @@ function OneChat({ id, sheet = 0, onSheet, onMe, back }: { id: string; sheet?: n
       key: b.at,
       agent: b.kind === "assistant" || b.kind === "fold" || b.kind === "running",
       ...(given?.channel ? { works: { given, relay, time } } : {}),
-      node: <Said key={b.at} b={b} session={id} cwd={cwd} source={source} onJump={openChat} />,
+      node: <Said key={b.at} b={b} session={id} cwd={cwd} source={source} onJump={openChat} card={personCard} />,
     };
   });
   for (const d of log.drafts) {
@@ -380,13 +391,13 @@ function OneChat({ id, sheet = 0, onSheet, onMe, back }: { id: string; sheet?: n
             x.kind === "one" ? (
               x.node
             ) : x.kind === "agent" ? (
-              <AgentTurn key={x.key} channel={id} a={i === turns.length - 1 ? face : resting} may={may} bars={bars(i === turns.length - 1)}>
+              <AgentTurn key={x.key} channel={id} a={i === turns.length - 1 ? face : resting} may={may} bars={bars(i === turns.length - 1)} talk={talk}>
                 {x.rows.map((r) => r.node)}
               </AgentTurn>
             ) : (
               <Relayed key={x.key} given={x.works.given} relay={x.works.relay} name={nameOf(x.works.given)} time={x.works.time} onJump={openChat}>
                 {x.rows.length > 0 && (
-                  <AgentTurn channel={id} a={resting} may={may} bars={bars(i === turns.length - 1)}>
+                  <AgentTurn channel={id} a={resting} may={may} bars={bars(i === turns.length - 1)} talk={talk}>
                     {x.rows.map((r) => r.node)}
                   </AgentTurn>
                 )}
@@ -677,10 +688,10 @@ type Works = { given: GivenTurn; relay?: Relay; time?: number };
  *  it runs as over the rest, as in a channel of several (chat/channel/page GroupView). */
 /** bars: its usage, after its model's name (the user, 2026-11-13: as the composer's foot had it,
  *  as small as a phone's). */
-function AgentTurn({ channel, a, may, bars, children }: { channel: string; a: AgentRow; may: boolean; bars?: ReactNode; children: ReactNode }) {
+function AgentTurn({ channel, a, may, bars, talk, children }: { channel: string; a: AgentRow; may: boolean; bars?: ReactNode; talk?: () => void; children: ReactNode }) {
   return (
     <div className="flex min-w-0 items-start gap-2.5">
-      <AgentFace channel={channel} a={a} may={may} />
+      <AgentFace channel={channel} a={a} may={may} talk={talk} />
       <div className="flex min-w-0 flex-1 flex-col gap-5">
         <div className="-mb-3.5 flex h-4 min-w-0 items-center gap-1.5">
           {a.nick && <span className="shrink-0 text-xs font-medium text-ink-2">{a.nick}</span>}
