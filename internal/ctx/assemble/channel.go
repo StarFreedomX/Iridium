@@ -8,6 +8,7 @@ import (
 
 	"github.com/kumoSleeping/iridium/internal/activity"
 	"github.com/kumoSleeping/iridium/internal/ctx/strategy"
+	"github.com/kumoSleeping/iridium/internal/prompts"
 )
 
 // A channel of several agents (docs/channels.md "上下文"): what an agent called there is given.
@@ -36,6 +37,50 @@ type Channel struct {
 	Work []Work
 	// Quote: the message the one given answers, if any.
 	Quote *Quote
+	// Brief: the channel's standing words (who it is there, the agents, how to answer and read
+	// more) were given before and hold still (docs/channels.md "增量"): not again, a line in
+	// their place.
+	Brief bool
+}
+
+// ChannelStaticKey is the hash of ChannelStatic(c): what a channel's injection record keeps.
+func ChannelStaticKey(c Channel) string { return prompts.Hash(ChannelStatic(c)) }
+
+// ChannelStatic is the channel's standing words as c would give them: what Brief leaves out.
+// Their hash tells whether they changed since they were last given.
+func ChannelStatic(c Channel) string {
+	in, err := build(KindTurnPrefix, staticPieces(c)...)
+	if err != nil {
+		return ""
+	}
+	return in.String()
+}
+
+// staticPieces are the standing words: who the agent is there and the agents, how it answers;
+// how it reads more.
+func staticPieces(c Channel) []piece {
+	self := cmp.Or(c.ID, "self")
+	var agents []string
+	for _, a := range c.Agents {
+		s := a.Nick // without @: the agent echoing the list calls nobody
+		if a.Name != "" {
+			s += " (" + a.Name + ")"
+		}
+		agents = append(agents, s)
+	}
+	var ps []piece
+	switch {
+	case c.ID != "" && !c.Pull:
+		ps = append(ps, text(idChannelGuestBare, "you", c.You, "name", cmp.Or(c.Name, c.ID), "agents", strings.Join(agents, ", ")))
+	case c.ID != "":
+		ps = append(ps, text(idChannelGuest, "you", c.You, "channel", c.ID, "name", cmp.Or(c.Name, c.ID), "agents", strings.Join(agents, ", ")))
+	default:
+		ps = append(ps, text(idChannelMembers, "you", c.You, "agents", strings.Join(agents, ", ")))
+	}
+	if c.Pull {
+		ps = append(ps, text(idChannelPull, "channel", self))
+	}
+	return ps
 }
 
 // Quote is a message answered: its number, who said it, its words (cut short here).
@@ -116,20 +161,12 @@ func channelPieces(c Channel, seq int64, said, input string) []piece {
 		ps = append(ps, text(idChannelQuote, "seq", n(q.Seq), "who", q.Who), words(w, Ref{Kind: "message", ID: n(q.Seq)}), text(idChannelQuoteEnd))
 	}
 	ps = append(ps, words(said, append(refs, Ref{Kind: "message", ID: n(seq)})...), text(idChannelOpen))
-	var agents []string
-	for _, a := range c.Agents {
-		s := a.Nick // without @: the agent echoing the list calls nobody
-		if a.Name != "" {
-			s += " (" + a.Name + ")"
-		}
-		agents = append(agents, s)
-	}
-	if c.ID != "" && !c.Pull {
-		ps = append(ps, text(idChannelGuestBare, "you", c.You, "name", cmp.Or(c.Name, c.ID), "agents", strings.Join(agents, ", ")))
-	} else if c.ID != "" {
-		ps = append(ps, text(idChannelGuest, "you", c.You, "channel", c.ID, "name", cmp.Or(c.Name, c.ID), "agents", strings.Join(agents, ", ")))
-	} else {
-		ps = append(ps, text(idChannelMembers, "you", c.You, "agents", strings.Join(agents, ", ")))
+	static := staticPieces(c)
+	switch {
+	case !c.Brief:
+		ps = append(ps, static[0])
+	case c.ID != "":
+		ps = append(ps, text(idChannelAgain, "name", cmp.Or(c.Name, c.ID), "channel", c.ID))
 	}
 	ps = append(ps, unseenPieces(c, self)...)
 	work := false
@@ -154,8 +191,8 @@ func channelPieces(c Channel, seq int64, said, input string) []piece {
 		}
 		ps = append(ps, text(idNL))
 	}
-	if c.Pull {
-		ps = append(ps, text(idChannelPull, "channel", self))
+	if !c.Brief && len(static) > 1 {
+		ps = append(ps, static[1])
 	}
 	return append(ps, text(idChannelClose))
 }

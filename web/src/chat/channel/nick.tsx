@@ -2,6 +2,7 @@
 // as a session named is (mention.tsx NamedLink), the @ kept in front (the user, 2026-11-12), its harness's logo and its nick, underlined;
 // pressed, the composer calls it too. One form, in a person's words and in an agent's Markdown
 // (chat/markdown.tsx, by the link lib.ts linkNicks makes of it).
+import { fromSatori } from "../refs";
 import { createContext, useContext } from "react";
 import { Logo, sessionStatusText, Tip } from "../../ui";
 import { Worded } from "../mention";
@@ -30,6 +31,8 @@ export function NickLink({ nick }: { nick: string }) {
 /** A person's words in a channel: what they name drawn in place (Worded), the nicks they call too. */
 export function NickWords({ text }: { text: string }) {
   const ch = useContext(Nicks);
-  const parts = nickParts(text, ch?.agents.map((a) => a.nick) ?? []);
+  // An <at> written in them reads as "@nick" (Satori's elements and Markdown mixed).
+  const words = fromSatori(text, (session) => ch?.agents.find((a) => a.session === session)?.nick);
+  const parts = nickParts(words, ch?.agents.map((a) => a.nick) ?? []);
   return <>{parts.map((p, i) => (typeof p === "string" ? <Worded key={i} text={p} /> : <NickLink key={i} nick={p.nick} />))}</>;
 }

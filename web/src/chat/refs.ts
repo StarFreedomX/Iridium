@@ -142,11 +142,46 @@ const unescape = (v: string) => v.replace(/&(lt|gt|quot|apos|amp);/g, (_, e: str
 const attrs = (s: string) => Object.fromEntries([...s.matchAll(ATTR)].map((m) => [m[1]!, unescape(m[2] ?? m[3] ?? "")]));
 const SATORI = /<(img|image|video|audio|file)\b([^<>]*?)\/?>(?:<\/\1>)?|<sharp\b([^<>]*?)(?:\/>|>([^<>]*)<\/sharp>)|<a\b([^<>]*?)>([^<>]*)<\/a>/g;
 
+/** Satori's elements Markdown has its own way for, or none (the user, 2026-11-13: either may be
+ *  written, Iridium reads both): <at> as "@name" (Markdown has no at; <at type="all"/>
+ *  @全体成员, <at role="agent"/> @全体Agent, an agent's by nick), <img src> (any src) a picture,
+ *  <a href> a link, <b> <strong> <i> <em> <s> <del> <code> <br/> and <quote> (with words) as
+ *  Markdown writes them, <quote id/> (what a message answers, shown apart) and <u> <spl> left
+ *  as their words. In code they stay as written. */
+const MORE = /<at\b([^<>]*?)(?:\/>|>([^<>]*)<\/at>)|<img\b([^<>]*?)\/?>(?:<\/img>)?|<a\b([^<>]*?)>([^<>]*)<\/a>|<(b|strong|i|em|s|del|code|u|ins|spl)>([^<>]*)<\/\6>|<br\s*\/?>|<quote\b[^<>]*\/>|<quote>([^<>]*)<\/quote>/g;
+const WRAP: Record<string, string> = { b: "**", strong: "**", i: "*", em: "*", s: "~~", del: "~~", code: "`" };
+
+function moreSatori(part: string, nick?: (session: string) => string | undefined): string {
+  return part.replace(MORE, (all, at?: string, atWords?: string, img?: string, aa?: string, ak?: string, tag?: string, inner?: string, quote?: string) => {
+    if (at !== undefined) {
+      const a = attrs(at);
+      if (a.type === "all") return "@全体成员";
+      if (a.role === "agent") return "@全体Agent";
+      const n = a.id?.startsWith("agent:") ? nick?.(a.id.slice(6)) : undefined;
+      return `@${n || a.name || unescape(atWords ?? "") || a.id || ""}`;
+    }
+    if (img !== undefined) {
+      const a = attrs(img);
+      return a.src ? `![${(a.title ?? a.alt ?? "").replace(/[[\]\n]/g, " ")}](${/[\s()]/.test(a.src) ? `<${a.src}>` : a.src})` : all;
+    }
+    if (aa !== undefined) {
+      const href = attrs(aa).href ?? "";
+      const words = unescape(ak ?? "").replace(/[[\]\n]/g, " ");
+      return href ? `[${words || href}](${/[\s()]/.test(href) ? `<${href}>` : href})` : words;
+    }
+    if (tag !== undefined) return `${WRAP[tag] ?? ""}${unescape(inner ?? "")}${WRAP[tag] ?? ""}`;
+    if (all.startsWith("<br")) return "\n";
+    if (quote !== undefined) return unescape(quote).split("\n").map((l) => `> ${l}`).join("\n") + "\n";
+    return ""; // <quote id/>
+  });
+}
+
 /** A reply's Satori elements of Iridium's as the Markdown they stand for (the system prompt lets an
  *  agent write either): <img src="ir:id"/> (image, video, audio) a picture's link, <file
- *  src="ir:id" title/> a file's, <sharp id name/> a session's, <a href="ir:…"> the link. Others,
- *  and any in code, stay as written. */
-export function fromSatori(text: string): string {
+ *  src="ir:id" title/> a file's, <sharp id name/> a session's, <a href="ir:…"> the link; then
+ *  the rest Markdown has a way for (moreSatori). Any in code stay as written. nick: an agent's
+ *  nick by its session, for <at id="agent:…"/>. */
+export function fromSatori(text: string, nick?: (session: string) => string | undefined): string {
   if (!text.includes("<")) return text;
   return text
     .split(/(```[\s\S]*?(?:```|$)|`[^`\n]*`)/)
@@ -171,6 +206,7 @@ export function fromSatori(text: string): string {
             return /[\s()]/.test(href) ? `[${words}](<${href}>)` : `[${words}](${href})`;
           }),
     )
+    .map((part, i) => (i % 2 ? part : moreSatori(part, nick)))
     .join("");
 }
 

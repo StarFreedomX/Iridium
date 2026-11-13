@@ -26,7 +26,7 @@ import { Copyable } from "../copyable";
 import { Waiting } from "../live";
 import { modelView, QuotaBars } from "../meters";
 import { Queue } from "../queue";
-import { PLACE_DRAG, SESSION_DRAG, sourceOf, yours } from "../refs";
+import { fromSatori, PLACE_DRAG, SESSION_DRAG, sourceOf, yours } from "../refs";
 import { Assistant, Attached, Line, Pending, Said, YouBubble } from "../said";
 import { folded } from "../fold";
 import { Stick, toEnd } from "../stick";
@@ -363,11 +363,14 @@ function Quotas({ agents, states }: { agents: AgentRow[]; states: (LiveSession |
 /** A message as the block an agent's words are drawn from, the nicks it calls links: kept per
  *  message, so one drawn is not drawn again. */
 const blocks = new WeakMap<Msg, { sig: string; b: Block }>();
-function blockFor(m: Msg, nicks: string[]): Block {
+function blockFor(m: Msg, agents: AgentRow[]): Block {
+  const nicks = agents.map((a) => a.nick);
   const sig = nicks.join(" ");
   const had = blocks.get(m);
   if (had?.sig === sig) return had.b;
-  const b: Block = { at: String(m.n), kind: "assistant", text: linkNicks(m.text, nicks), ...(m.files.length ? { files: m.files } : {}), ...(m.time ? { time: m.time } : {}) };
+  // Satori's elements in the words (an <at>) as Markdown writes them, then the nicks as links.
+  const words = fromSatori(m.text, (session) => agents.find((a) => a.session === session)?.nick);
+  const b: Block = { at: String(m.n), kind: "assistant", text: linkNicks(words, nicks), ...(m.files.length ? { files: m.files } : {}), ...(m.time ? { time: m.time } : {}) };
   blocks.set(m, { sig, b });
   return b;
 }
@@ -399,7 +402,6 @@ function GroupView({ g, channel, agents, who, record, call, may, quote, quoted }
     );
   }
   const now = agents.find((x) => x.session === a.session);
-  const nicks = agents.map((x) => x.nick);
   // One no longer in the channel: its harness as the list still has its session.
   const agent = now?.agent ?? list?.find((x) => x.id === a.session)?.agent;
   return (
@@ -419,7 +421,7 @@ function GroupView({ g, channel, agents, who, record, call, may, quote, quoted }
             {m.did && (m.src ? <Work src={m.src} did={m.did} /> : <DidLine did={m.did} />)}
             {m.quote !== undefined && <QuoteLine n={m.quote} q={quoted(m.quote)} />}
             <Copyable copy={m.text} quote={quote && (() => quote(m))}>
-              <Assistant b={blockFor(m, nicks)} session={a.session} />
+              <Assistant b={blockFor(m, agents)} session={a.session} />
             </Copyable>
           </div>
         ))}

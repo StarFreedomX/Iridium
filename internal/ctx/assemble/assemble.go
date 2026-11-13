@@ -97,6 +97,12 @@ func (in Injection) Parts() []Part {
 type Record struct {
 	Kind  Kind   `json:"kind"`
 	Parts []Part `json:"parts"`
+	// A channel's message (ChannelTurn): Static, the hash of its standing words as they were
+	// (ChannelStatic); Full, whether they were given (not Brief); Line, where the agent's record
+	// was then, so that a compaction since is seen.
+	Static string `json:"static,omitempty"`
+	Full   bool   `json:"full,omitempty"`
+	Line   int64  `json:"line,omitempty"`
 }
 
 // Record is what to keep of it.

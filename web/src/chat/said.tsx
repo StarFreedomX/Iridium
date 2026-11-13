@@ -5,10 +5,11 @@
 // peer sent; Iridium's own lines
 // centred and faint; the agent's words as Markdown with the files they name; tool calls and
 // thoughts folded to a line.
-import { Archive, ArchiveRestore, ArrowUpRight, BookOpen, Bot, BotMessageSquare, ChartColumn, Check, ChevronRight, CircleStop, CircleX, Clock, CloudDownload, CloudUpload, Copy, Cpu, Earth, FileCode, FileDiff, FilePen, Files as FilesIcon, FileText, FlaskConical, FolderGit2, FolderOpen, Folders, FoldVertical, GitBranch, GitCommitHorizontal, GitPullRequest, Globe, Hammer, History, Hourglass, KeyRound, Laptop, Link2, List, ListChecks, LoaderCircle, LockKeyhole, MessageCircleQuestionMark, MessageSquarePlus, Monitor, MonitorSmartphone, MousePointerClick, Network, Package, PencilLine, Plug, RotateCcw, RotateCw, Search, Send, ServerCog, SlidersHorizontal, Smartphone, SquareTerminal, StickyNote, Terminal, Trash2, type LucideIcon, UserRound, Workflow as WorkflowIcon, Wrench, X } from "lucide-react";
+import { Archive, ArchiveRestore, ArrowUpRight, BookOpen, Bot, BotMessageSquare, ChartColumn, Check, ChevronRight, CircleStop, CircleX, Clock, CloudDownload, CloudUpload, Copy, Cpu, Earth, FileCode, FileDiff, FilePen, Files as FilesIcon, FileText, FlaskConical, FolderGit2, FolderOpen, Folders, FoldVertical, GitBranch, GitCommitHorizontal, GitPullRequest, Globe, Hammer, History, Hourglass, KeyRound, Laptop, Link2, List, ListChecks, LoaderCircle, MessagesSquare, LockKeyhole, MessageCircleQuestionMark, MessageSquarePlus, Monitor, MonitorSmartphone, MousePointerClick, Network, Package, PencilLine, Plug, RotateCcw, RotateCw, Search, Send, ServerCog, SlidersHorizontal, Smartphone, SquareTerminal, StickyNote, Terminal, Trash2, type LucideIcon, UserRound, Workflow as WorkflowIcon, Wrench, X } from "lucide-react";
 import { Copyable } from "./copyable";
 import { Children, forwardRef, memo, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { givenTurn, type GivenTurn } from "./channel/lib";
+import type { Relay } from "../satori";
 import { Popover } from "@base-ui/react/popover";
 import { api } from "../api/client";
 import type { Block, FileRef, Result } from "../api/types.gen";
@@ -289,11 +290,15 @@ export const Assistant = memo(function Assistant({ b, session }: { b: Block; ses
 });
 
 /** A call from another channel the agent is in, in its own record (the user, 2026-11-13): not
- *  folded. On the left, as Iridium's: the channel and the message's number (a key to go there),
- *  the words that called it, and under them all that Iridium added (its context), marked as
- *  Iridium's own; then what the agent did and said, as any turn (children). */
-export function Relayed({ given, name, time, onJump, children }: { given: GivenTurn; name: string; time?: number; onJump: (id: string) => void; children?: ReactNode }) {
+ *  folded. On the left, as Iridium's: the channel and the message's number (a key to go there);
+ *  what it forwarded, as a card of messages (Satori's forward, satori.ts relays): those said
+ *  there since the agent last read it, the one that called it last; where the channel's standing
+ *  words were given this time, a key to read them. Without the record (relay), the words that
+ *  called it and all that was added, as written. Then what the agent did and said (children). */
+export function Relayed({ given, relay, name, time, onJump, children }: { given: GivenTurn; relay?: Relay; name: string; time?: number; onJump: (id: string) => void; children?: ReactNode }) {
   const ch = { ...given.channel!, name };
+  const [rules, setRules] = useState(false);
+  const head = `${t("channel.relayed", { name: ch.name })} · #${given.seq}`;
   return (
     <div className="flex min-w-0 flex-col gap-5">
       <div className="flex min-w-0 items-start gap-2.5">
@@ -305,23 +310,52 @@ export function Relayed({ given, name, time, onJump, children }: { given: GivenT
             <span className="shrink-0 font-medium text-ink-2">Iridium</span>
             {ch.id ? (
               <button type="button" onClick={() => onJump(ch.id)} className="flex min-w-0 items-baseline gap-1 text-ink-4 hover:text-ink-2">
-                <span className="min-w-0 truncate">{t("channel.relayed", { name: ch.name })} · #{given.seq}</span>
+                <span className="min-w-0 truncate">{head}</span>
                 <ArrowUpRight size={11} className="shrink-0 self-center" />
               </button>
             ) : (
-              <span className="min-w-0 truncate text-ink-4">
-                {t("channel.relayed", { name: ch.name })} · #{given.seq}
-              </span>
+              <span className="min-w-0 truncate text-ink-4">{head}</span>
             )}
           </div>
-          <p className="m-0 max-w-[min(560px,100%)] self-start rounded-xl rounded-tl-sm bg-fill px-3.5 py-2 text-md whitespace-pre-wrap [overflow-wrap:anywhere]">
-            <Worded text={given.words} />
-          </p>
-          {given.context && (
-            <div className="max-w-[min(640px,100%)] border-l-2 border-dashed border-edge pl-3">
-              <div className="mb-0.5 text-xs text-ink-4">{t("channel.supplement")}</div>
-              <p className="m-0 font-mono text-xs leading-5 whitespace-pre-wrap text-ink-3 [overflow-wrap:anywhere]">{given.context}</p>
+          {relay ? (
+            <div className="flex max-w-[min(560px,100%)] min-w-0 flex-col self-start rounded-xl rounded-tl-sm bg-fill px-3.5 py-2.5">
+              <div className="mb-1.5 flex items-center gap-1.5 text-xs text-ink-3">
+                <MessagesSquare size={12} className="shrink-0" />
+                <span className="min-w-0 flex-1 truncate">{t("channel.forward", { n: relay.msgs.length })}</span>
+                {relay.full && relay.context && (
+                  <button type="button" aria-expanded={rules} onClick={() => setRules(!rules)} className="flex shrink-0 items-center gap-0.5 rounded-sm text-ink-3 hover:text-ink-2">
+                    {t("channel.rules")}
+                    <ChevronRight size={12} className={cn("transition-transform duration-(--dur-2)", rules && "rotate-90")} />
+                  </button>
+                )}
+              </div>
+              {rules && <p className="g-fade m-0 mb-2 border-l-2 border-dashed border-edge pl-2.5 font-mono text-xs leading-5 whitespace-pre-wrap text-ink-3 [overflow-wrap:anywhere]">{relay.context}</p>}
+              <div className="flex min-w-0 flex-col gap-1">
+                {relay.msgs.map((m, i) => {
+                  const last = i === relay.msgs.length - 1;
+                  return (
+                    <div key={m.id} className={cn("flex min-w-0 gap-2 text-sm", !last && "text-ink-3")}>
+                      <span className={cn("shrink-0 font-medium", last ? "text-ink-2" : "text-ink-3")}>{m.who}</span>
+                      <span className={cn("min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere]", !last && "line-clamp-3", m.turn && "italic")}>
+                        {last ? <Worded text={m.text} /> : m.text}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
+          ) : (
+            <>
+              <p className="m-0 max-w-[min(560px,100%)] self-start rounded-xl rounded-tl-sm bg-fill px-3.5 py-2 text-md whitespace-pre-wrap [overflow-wrap:anywhere]">
+                <Worded text={given.words} />
+              </p>
+              {given.context && (
+                <div className="max-w-[min(640px,100%)] border-l-2 border-dashed border-edge pl-3">
+                  <div className="mb-0.5 text-xs text-ink-4">{t("channel.supplement")}</div>
+                  <p className="m-0 font-mono text-xs leading-5 whitespace-pre-wrap text-ink-3 [overflow-wrap:anywhere]">{given.context}</p>
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>

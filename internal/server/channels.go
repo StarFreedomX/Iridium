@@ -10,7 +10,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -202,7 +204,7 @@ func (s *Server) channelRoutes(mux *http.ServeMux) {
 }
 
 // channelOf is what the list of sessions marks session id with: the agents of its channel, where
-// it has several (its own first), and the channels it is in beside its own.
+// it has several (its own first) or is no session's, and the channels it is in beside its own.
 func (s *Server) channelOf(id string) (agents []api.ChannelAgent, in []string) {
 	ms, _ := s.ch.Members(id)
 	for _, m := range ms {
@@ -210,7 +212,8 @@ func (s *Server) channelOf(id string) (agents []api.ChannelAgent, in []string) {
 			agents = append(agents, api.ChannelAgent{Session: m.Session, Nick: m.Nick})
 		}
 	}
-	if len(agents) < 2 {
+	// A session's own channel lists them from two on; one that is no session's (bare), any.
+	if _, bare := s.ch.Own(id); len(agents) < 2 && !bare {
 		agents = nil
 	}
 	return agents, s.ch.In(id)
@@ -1245,6 +1248,8 @@ func (f *follows) take(ch, author, sender string) []string {
 // it ("": a person), whose chain is link. After too many agents in a row only those kin to the
 // sender get it; tooFar: it names someone and nobody gets it.
 func (s *Server) wakes(ch, text, author, sender string, link chain, list []deliver.Agent) (wake, named []string, tooFar bool) {
+	// <at> written in the words calls as "@nick" does (Markdown and Satori's elements mixed).
+	text = satori.AtWords(text, s.ch.Nick)
 	d := deliver.Route(text, sender, 0, list)
 	wake = d.Wake
 	for _, t := range s.follows.take(ch, author, sender) {
@@ -1418,6 +1423,44 @@ func quoted(text string) string {
 	return b.String() + "\n"
 }
 
+// lastInjection is the record of the last thing channel ch gave session's agent, if it is kept.
+func (s *Server) lastInjection(session, ch string) (assemble.Record, bool) {
+	rows, err := s.st.Injections(session, 0)
+	if err != nil {
+		return assemble.Record{}, false
+	}
+	for _, in := range rows {
+		if in.Channel != ch {
+			continue
+		}
+		var r assemble.Record
+		if json.Unmarshal([]byte(in.Record), &r) != nil {
+			return assemble.Record{}, false
+		}
+		return r, true
+	}
+	return assemble.Record{}, false
+}
+
+// compactedSince: session's agent compacted its context after line of its record.
+func (s *Server) compactedSince(session string, line int64) bool {
+	for at := line; ; {
+		p, err := s.m.Messages(session, -1, at)
+		if err != nil {
+			return true // not known: as if it had
+		}
+		for _, b := range p.Blocks {
+			if b.Kind == api.BlockKindSystem && b.Event == api.SystemEventCompact {
+				return true
+			}
+		}
+		if len(p.Blocks) == 0 || p.End <= at {
+			return false
+		}
+		at = p.End
+	}
+}
+
 // by0 is the agent of session id among list.
 func by0(list []deliver.Agent, id string) (deliver.Agent, bool) {
 	for _, a := range list {
@@ -1495,19 +1538,27 @@ func (s *Server) deliverTo(ctx context.Context, ch, to string, seq int64, said, 
 			cc.Quote = &assemble.Quote{Seq: q.Seq, Who: whoOf(q, by), Text: q.Text}
 		}
 	}
+	var before int64
+	if st, err := s.m.State(to); err == nil {
+		before = st.End
+	}
+	// The standing words again only when they changed, were never given here, or may be gone
+	// from the agent's context since (a compaction): docs/channels.md "增量".
+	static := assemble.ChannelStaticKey(cc)
+	if last, ok := s.lastInjection(to, ch); ok && last.Static == static && !s.compactedSince(to, last.Line) {
+		cc.Brief = true
+	}
 	in, err := assemble.ChannelTurn(cc, seq, said, input)
 	if err != nil {
 		return false, err
 	}
 	id := session.NewInputID()
-	if rec, err := json.Marshal(in.Record()); err == nil {
+	rec := in.Record()
+	rec.Static, rec.Full, rec.Line = static, !cc.Brief, before
+	if rec, err := json.Marshal(rec); err == nil {
 		if err := s.st.AddInjection(store.Injection{Session: to, Channel: ch, Input: id, Seq: seq, Record: string(rec)}); err != nil {
 			s.logf("server: channel %s: keeping what %s was given: %v", ch, to, err)
 		}
-	}
-	var before int64
-	if st, err := s.m.State(to); err == nil {
-		before = st.End
 	}
 	_, queued, err := s.m.SendAs(ctx, to, id, in.String(), from, steer, images...)
 	if err != nil {
@@ -1587,4 +1638,83 @@ func (s *Server) routeSaid(m channel.Message) {
 			}
 		}
 	}()
+}
+
+// relayHead is how a channel's message given to an agent begins ("#12: …"); relayGuest names
+// the channel it is of, where that is not the agent's own (assemble's guest and again lines).
+var (
+	relayHead  = regexp.MustCompile(`^#(\d+): `)
+	relayGuest = regexp.MustCompile(`(?:called in the channel|In the channel) "[^"\n]*" \(([0-9a-zA-Z_-]+)\)`)
+)
+
+// relayOf is what block b of session's record was given as by a channel (satori.Relayer): the
+// messages its injection record cites, in order, the one that called it last. None for a block
+// that is no such message or whose record is no longer kept.
+func (s *Server) relayOf(session string, b api.Block) (satori.Relay, bool) {
+	m := relayHead.FindStringSubmatch(b.Text)
+	ctxAt := strings.Index(b.Text, "\n\n<channel-context>\n")
+	if m == nil || ctxAt < 0 {
+		return satori.Relay{}, false
+	}
+	seq, _ := strconv.ParseInt(m[1], 10, 64)
+	ch := session
+	if g := relayGuest.FindStringSubmatch(b.Text); g != nil {
+		ch = g[1]
+	}
+	rows, err := s.st.Injections(session, 0)
+	if err != nil {
+		return satori.Relay{}, false
+	}
+	var rec assemble.Record
+	found := false
+	for _, in := range rows {
+		if in.Channel == ch && in.Seq == seq && json.Unmarshal([]byte(in.Record), &rec) == nil {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return satori.Relay{}, false
+	}
+	_, by := s.agentsOf(ch)
+	msg := func(n int64) (satori.RelayMsg, bool) {
+		cm, ok := s.ch.Get(ch, n)
+		if !ok {
+			return satori.RelayMsg{}, false
+		}
+		u := satori.User{ID: cm.Author, Name: whoOf(cm, by)}
+		return satori.RelayMsg{ID: strconv.FormatInt(n, 10), User: u, Text: cm.Text, Activity: cm.D.Activity}, true
+	}
+	out := satori.Relay{Channel: ch, Name: s.channelName(ch), Seq: seq, Full: rec.Full}
+	full := rec.Full || rec.Static == "" // a record from before: its words were all given
+	open := false
+	for _, p := range rec.Parts {
+		switch {
+		case p.Source == "prompts:channel.context.open":
+			open = true
+		case !open:
+		case p.Source == "prompts:channel.context.guest" || p.Source == "prompts:channel.context.members" || p.Source == "prompts:channel.context.guest-bare":
+			out.Full = full
+		case p.Source == "prompts:channel.context.turn":
+			out.Msgs = append(out.Msgs, satori.RelayMsg{ID: p.Values["from"] + "-" + p.Values["to"], User: satori.User{Name: p.Values["who"]}, Text: p.Values["head"], Turn: true})
+		case p.Source == "input":
+			for _, r := range p.Refs {
+				if r.Kind != "message" {
+					continue
+				}
+				if n, err := strconv.ParseInt(r.ID, 10, 64); err == nil && n != seq {
+					if rm, ok := msg(n); ok {
+						out.Msgs = append(out.Msgs, rm)
+					}
+				}
+			}
+		}
+	}
+	if rm, ok := msg(seq); ok {
+		out.Msgs = append(out.Msgs, rm)
+	}
+	if out.Full {
+		out.Context = strings.TrimSuffix(strings.TrimSpace(b.Text[ctxAt+len("\n\n<channel-context>\n"):]), "</channel-context>")
+	}
+	return out, true
 }

@@ -25,6 +25,7 @@ const (
 	idChannelQuoteEnd   = "channel.quote-end"
 	idChannelGuest      = "channel.context.guest"      // who it is in a channel it is in by a subscription, and how it speaks there
 	idChannelGuestBare  = "channel.context.guest-bare" // the same for an agent with no ir: its reply is said there for it
+	idChannelAgain      = "channel.context.again"      // in place of those, given before: which channel this is
 	idChannelSendUnseen = "channel.send.unseen"        // heads what an agent's ir is answered with: said since it last read
 	idChannelSendBehind = "channel.send.behind"        // its ir refused: too far behind
 	idChannelSendNamed  = "channel.send.named"         // its ir refused: something unseen names it

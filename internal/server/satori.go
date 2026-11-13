@@ -428,6 +428,10 @@ func (b satoriBackend) AgentAvatar(id string) string { return b.s.AgentAvatar(id
 
 func (b satoriBackend) Mask(text string) string { return b.s.MaskText(text) }
 
+func (b satoriBackend) Relay(session string, blk api.Block) (satori.Relay, bool) {
+	return b.s.relayOf(session, blk)
+}
+
 // Fault: decision 28, what is not there is 422 with its code; 404 is the routes'.
 func (b satoriBackend) Fault(err error) (int, string) {
 	switch {

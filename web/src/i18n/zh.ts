@@ -275,6 +275,8 @@ export const zh = {
   "channel.session": "查看会话",
   "channel.readBy": "已读：{names}",
   "channel.relayed": "转自「{name}」",
+  "channel.forward": "聊天记录 · {n} 条",
+  "channel.rules": "频道说明",
   "channel.supplement": "上下文补充",
   "channel.avatar": "换频道头像",
   "channel.back": "返回频道",

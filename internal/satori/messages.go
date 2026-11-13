@@ -95,6 +95,11 @@ func fileElements(app, login, id string, fs []api.FileRef) string {
 func (s *Service) messageOf(c Caller, ss api.Session, b api.Block, guild *Guild) Message {
 	login := c.Login
 	m := Message{ID: b.At, Content: blockContent(b, c.App, login, ss.ID, s.b.Mask), Channel: s.channelMasked(ss), Guild: guild, CreatedAt: b.Time}
+	if rl, ok := s.b.(Relayer); ok && b.Kind == api.BlockKindUser {
+		if r, ok := rl.Relay(ss.ID, b); ok {
+			m.Content = relayContent(b, r, s.b.Mask)
+		}
+	}
 	switch {
 	case b.FromLogin != "":
 		m.User = &User{ID: b.FromLogin, Name: b.From}

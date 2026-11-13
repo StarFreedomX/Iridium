@@ -704,4 +704,43 @@ func TestChannelQuoteAndAll(t *testing.T) {
 	}
 	l.waitSaid("web", second, "@claude2 ", fmt.Sprintf("#%d: @全体Agent roll call", r.Seq))
 	l.waitSaid("web", ch, "@claude ", fmt.Sprintf("#%d: @全体Agent roll call", r.Seq))
+
+	// Given again, the standing words are not: a line in their place (docs/channels.md "增量").
+	var ins []api.Injection
+	l.want(200, "web", "GET", "/v1/internal/sessions/"+second+"/injections", nil, &ins)
+	if len(ins) < 2 || !strings.Contains(string(ins[0].Record), `"static":"`) || strings.Contains(string(ins[0].Record), `"full":true`) || !strings.Contains(string(ins[len(ins)-1].Record), `"full":true`) ||
+		strings.Contains(string(ins[0].Record), "prompts:channel.context.guest\"") || !strings.Contains(string(ins[0].Record), "prompts:channel.context.again") {
+		t.Errorf("injections: %+v", ins)
+	}
+	p := l.page("web", second)
+	given := ""
+	for _, b := range p.Blocks {
+		if b.Kind == api.BlockKindUser && strings.HasPrefix(b.Text, fmt.Sprintf("#%d: ", r.Seq)) {
+			given = b.Text
+		}
+	}
+	// In its record, Satori's forward: the messages given, each with its author, the call last;
+	// the first time with the channel's standing words.
+	var rec satori.BidiList[satori.Message]
+	l.wantSat(200, "web", "internal/block.list", map[string]any{"channel_id": second}, &rec)
+	fwds := []string{}
+	for _, m := range rec.Data {
+		if strings.Contains(m.Content, "<message forward>") {
+			fwds = append(fwds, m.Content)
+		}
+	}
+	again := ""
+	for _, f := range fwds {
+		if strings.Contains(f, fmt.Sprintf(` seq="%d"`, r.Seq)) {
+			again = f
+		}
+	}
+	if len(fwds) < 2 || !strings.Contains(fwds[0], `<iridium:relay channel="`+ch+`"`) || !strings.Contains(fwds[0], " full>You are claude2") ||
+		!strings.Contains(fwds[0], `<author id="local" name="主机"/>tell me more</message></message>`) ||
+		again == "" || strings.Contains(again, " full") || !strings.HasSuffix(again, "@全体Agent roll call</message></message>") {
+		t.Errorf("forwards:\n%s", strings.Join(fwds, "\n"))
+	}
+	if !strings.Contains(given, `In the channel "`) || strings.Contains(given, "You are claude2") {
+		t.Errorf("given again with its standing words:\n%s\n%+v", given, p.Blocks)
+	}
 }

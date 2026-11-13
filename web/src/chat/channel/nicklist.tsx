@@ -1,6 +1,7 @@
 // The agents an @ may call in a channel of several, over the composer as what an @ names is
 // elsewhere (composer.tsx AtList): a row each, its logo, its nick, what it runs as faint at the
 // end, its lamp. ↑↓ and Enter or Tab on a keyboard, a tap on a phone.
+import { Bot, Users } from "lucide-react";
 import type { CSSProperties } from "react";
 import { t } from "../../i18n";
 import { cn, Lamp, Logo } from "../../ui";
@@ -23,7 +24,8 @@ export function NickList({ rows, at, pick, point }: { rows: AgentRow[]; at: numb
             style={{ "--i": i } as CSSProperties}
             className={cn("flex h-8 w-full shrink-0 cursor-default items-center gap-2.5 rounded-md px-2.5 text-left text-base outline-none select-none pointer-coarse:h-11", i === at && "bg-fill")}
           >
-            <Logo agent={r.agent} size={14} className="shrink-0" />
+            {/* The names that call more than one: a mark of their own, no logo (the user, 2026-11-13). */}
+            {r.member === "*" ? <Users size={14} className="shrink-0 text-ink-2" /> : r.member === "agent:*" ? <Bot size={14} className="shrink-0 text-ink-2" /> : <Logo agent={r.agent} size={14} className="shrink-0" />}
             <span className="shrink-0">{r.nick}</span>
             <span className="min-w-0 flex-1 truncate text-right text-xs text-ink-3">{r.name}</span>
             <Lamp status={r.status} />

@@ -106,6 +106,29 @@ function fileOf(e: El): FileRef | undefined {
 
 const KINDS = new Set(["user", "assistant", "thinking", "tool", "result", "system"]);
 
+/** A message of a relay's forward: its number ("3-5" a turn told in a line), who said it, its
+ *  words. */
+export type RelayMsg = { id: string; who: string; user: string; text: string; turn?: boolean };
+/** A channel's message as an agent of it was given it (internal/satori/relay.go): which channel,
+ *  the number that called it, the standing words where they were given (full), and the
+ *  messages forwarded, the one that called it last. */
+export type Relay = { channel: string; name: string; seq: number; full: boolean; context: string; msgs: RelayMsg[] };
+/** The relay a user block is, by the block blockOf made. */
+export const relays = new WeakMap<Block, Relay>();
+
+function relayOf(els: El[]): Relay | undefined {
+  const r = els.find((e) => e.type === "iridium:relay");
+  const fwd = els.find((e) => e.type === "message" && e.attrs.forward !== undefined);
+  if (!r || !fwd) return undefined;
+  const msgs = fwd.children
+    .filter((e) => e.type === "message")
+    .map((m) => {
+      const au = m.children.find((e) => e.type === "author");
+      return { id: str(m.attrs.id) ?? "", who: str(au?.attrs.name) ?? "", user: str(au?.attrs.id) ?? "", text: textOf(m.children), ...(m.children.some((e) => e.type === "iridium:turn") ? { turn: true } : {}) };
+    });
+  return { channel: str(r.attrs.channel) ?? "", name: str(r.attrs.name) ?? "", seq: int(r.attrs.seq) ?? 0, full: r.attrs.full === true, context: textOf(r.children), msgs };
+}
+
 /** Message m of a session's transcript (message.list) as its block. */
 export function blockOf(m: SatoriMessage): Block {
   const els = parse(m.content);
@@ -150,5 +173,13 @@ export function blockOf(m: SatoriMessage): Block {
   }
   const files = els.map(fileOf).filter((f): f is FileRef => !!f);
   if (files.length) b.files = files;
+  if (kind === "user") {
+    const r = relayOf(els);
+    if (r) {
+      relays.set(b, r);
+      // Its words, as other views read a message: those that called it.
+      put(b, "text", r.msgs.at(-1)?.text);
+    }
+  }
   return b;
 }

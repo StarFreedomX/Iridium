@@ -108,3 +108,12 @@ func TestParseLinear(t *testing.T) {
 		}
 	}
 }
+
+func TestAtWords(t *testing.T) {
+	nick := func(id string) string { return map[string]string{"s1": "pi9"}[id] }
+	got := AtWords("hi <at id=\"agent:s1\"/>, <at type=\"all\"/> and <at role=\"agent\"/>; `<at id=\"agent:s1\"/>` stays\n```\n<at type=\"all\"/>\n```\n<at id=\"u\" name=\"kumo\"/>", nick)
+	want := "hi @pi9, @全体成员 and @全体Agent; `<at id=\"agent:s1\"/>` stays\n```\n<at type=\"all\"/>\n```\n@kumo"
+	if got != want {
+		t.Errorf("AtWords:\n%s\nwant\n%s", got, want)
+	}
+}

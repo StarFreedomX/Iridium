@@ -25,6 +25,7 @@ import { errText } from "../toast";
 import { groupPath } from "../tree";
 import { agentName, cn, Lamp, lampOf, LogoLamp, LogoStack, sessionStatusText, tilde, Tip, titleOf, untitled } from "../ui";
 import { givenTurn, isMulti, type AgentRow, type GivenTurn } from "./channel/lib";
+import { relays, type Relay } from "../satori";
 import { AgentFace } from "./channel/members";
 import { Face, pickFace } from "./channel/face";
 import { mayAct, useMembers } from "./channel/gate";
@@ -324,12 +325,14 @@ function OneChat({ id, sheet = 0, onSheet, onMe, back }: { id: string; sheet?: n
   const rows: Row<ReactNode, Works>[] = (busy ? shown.filter((b) => b.kind !== "running") : shown).map((b) => {
     // A call from another channel it is in (chat/channel/lib givenTurn): Iridium's message on
     // the left, what follows its work there (Relayed).
-    const given = b.kind === "user" ? givenTurn(b.text ?? "") : null;
+    // As the record says it, a Satori forward (satori.ts relays); else read from its words.
+    const relay = b.kind === "user" ? relays.get(b) : undefined;
+    const given: GivenTurn | null = relay ? { seq: relay.seq, words: relay.msgs.at(-1)?.text ?? "", context: relay.context, ...(relay.channel !== id ? { channel: { id: relay.channel, name: relay.name } } : {}) } : b.kind === "user" ? givenTurn(b.text ?? "") : null;
     const time = b.kind === "user" ? b.time : undefined;
     return {
       key: b.at,
       agent: b.kind === "assistant" || b.kind === "fold" || b.kind === "running",
-      ...(given?.channel ? { works: { given, time } } : {}),
+      ...(given?.channel ? { works: { given, relay, time } } : {}),
       node: <Said key={b.at} b={b} session={id} cwd={cwd} source={source} onJump={openChat} />,
     };
   });
@@ -372,7 +375,7 @@ function OneChat({ id, sheet = 0, onSheet, onMe, back }: { id: string; sheet?: n
                 {x.rows.map((r) => r.node)}
               </AgentTurn>
             ) : (
-              <Relayed key={x.key} given={x.works.given} name={nameOf(x.works.given)} time={x.works.time} onJump={openChat}>
+              <Relayed key={x.key} given={x.works.given} relay={x.works.relay} name={nameOf(x.works.given)} time={x.works.time} onJump={openChat}>
                 {x.rows.length > 0 && (
                   <AgentTurn channel={id} a={resting} may={may}>
                     {x.rows.map((r) => r.node)}
@@ -668,7 +671,7 @@ function Where({ spots, asked }: { spots: Spot[]; asked: { session?: string }[] 
 }
 
 
-type Works = { given: GivenTurn; time?: number };
+type Works = { given: GivenTurn; relay?: Relay; time?: number };
 
 /** What the agent did and said on end, under its face: the face at the left, its nick and what
  *  it runs as over the rest, as in a channel of several (chat/channel/page GroupView). */

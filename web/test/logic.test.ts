@@ -656,9 +656,16 @@ describe("mentions", () => {
   test("Satori elements of Iridium's read as their links", () => {
     expect(fromSatori('see <img src="ir:abcdefghij" title="plot"/> and <file src="ir:bcdefghijk" title="a.csv"/>')).toBe("see ![plot](ir:abcdefghij) and [a.csv](ir:bcdefghijk)");
     expect(fromSatori('ask <sharp id="ca5187d2" name="Fix &amp; go"/> or <sharp id="1a2b3c4d">B</sharp>')).toBe("ask [Fix & go](ir:session/ca5187d2) or [B](ir:session/1a2b3c4d)");
-    expect(fromSatori('<a href="ir:folder//x y">x</a> <a href="https://a.b">web</a>')).toBe('[x](<ir:folder//x y>) <a href="https://a.b">web</a>');
+    expect(fromSatori('<a href="ir:folder//x y">x</a> <a href="https://a.b">web</a>')).toBe("[x](<ir:folder//x y>) [web](https://a.b)");
     expect(fromSatori('`<img src="ir:abcdefghij"/>`\n```\n<sharp id="ca5187d2"/>\n```')).toBe('`<img src="ir:abcdefghij"/>`\n```\n<sharp id="ca5187d2"/>\n```');
-    expect(fromSatori('<img src="https://x/y.png"/>')).toBe('<img src="https://x/y.png"/>');
+    expect(fromSatori('<img src="https://x/y.png"/>')).toBe("![](https://x/y.png)");
+  });
+  test("what Markdown has no way for, or its own, as Markdown writes it (the user, 2026-11-13)", () => {
+    const nick = (id: string) => (id === "s1" ? "pi9" : undefined);
+    expect(fromSatori('<at id="agent:s1"/> <at type="all"/> <at role="agent"/> <at id="u" name="kumo"/> <at id="x">bob</at>', nick)).toBe("@pi9 @全体成员 @全体Agent @kumo @bob");
+    expect(fromSatori("<b>bold</b> <i>it</i> <s>gone</s> <code>x</code>a<br/>b")).toBe("**bold** *it* ~~gone~~ `x`a\nb");
+    expect(fromSatori('<quote id="3"/>answer <quote>said\nthere</quote>')).toBe("answer > said\n> there\n");
+    expect(fromSatori("`<at type=\"all\"/>` ![a](x.png)")).toBe("`<at type=\"all\"/>` ![a](x.png)");
   });
 });
 
