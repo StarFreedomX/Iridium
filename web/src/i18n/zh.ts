@@ -269,6 +269,7 @@ export const zh = {
   "channel.invite": "邀请",
   "channel.direct": "直出",
   "channel.app": "应用",
+  "channel.read": "已读",
   "channel.dm": "私聊",
   "channel.talk": "发消息",
   "channel.call": "提及",

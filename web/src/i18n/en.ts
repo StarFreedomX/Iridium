@@ -269,6 +269,7 @@ export const en: Dict = {
   "channel.invite": "Invite",
   "channel.direct": "Direct",
   "channel.app": "App",
+  "channel.read": "Read",
   "channel.dm": "Direct message",
   "channel.talk": "Message",
   "channel.call": "Mention",

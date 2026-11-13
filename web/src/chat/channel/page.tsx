@@ -5,6 +5,7 @@
 // (its thinking, its tool calls) is its session's chat. Under it: each agent's queue and asks,
 // under its nick; a composer whose @ calls an agent; the quota of each kind of agent.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
+import { Popover } from "@base-ui/react/popover";
 import { useQuery } from "@tanstack/react-query";
 import { Reply } from "lucide-react";
 import { api } from "../../api/client";
@@ -18,7 +19,7 @@ import { PULL } from "../../sheet";
 import { getCarried, onCarried, setCarried, useCarried, useConfirms, useList, useSession } from "../../store";
 import { also, carries, events, opened, type SatoriEvent } from "../../stream";
 import { errText } from "../../toast";
-import { agentName, Avatar, cn, lampOf, Logo, Tip } from "../../ui";
+import { agentName, Avatar, cn, lampOf, Logo, PopSurface } from "../../ui";
 import { Asks } from "../asks";
 import { placeDropped } from "../at";
 import { Composer, type ComposerHandle } from "../composer";
@@ -275,8 +276,9 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
         <Stick scroller={scroller} tail={grew} older={() => log.older().then((any) => (changed(), any))} place={entry.place} bottom={stackH} quiet={asking} style={{ paddingTop: padTop, paddingBottom: stackH + 20 }}>
           <div className="mx-auto flex max-w-[760px] flex-col gap-5 px-4 sm:px-6">
             {groups.map((g) => (
-              <div key={g.key} className="flex min-w-0 flex-col gap-1">
+              <div key={g.key} className="relative flex min-w-0 flex-col">
                 <GroupView g={g} channel={id} agents={agents} who={who} record={record} call={call} may={may} quote={may ? quoting : undefined} quoted={quoted} bars={bars} />
+                {/* In the gap under it, over nothing: coming late, it moves nothing (docs/前端设计规范.md). */}
                 {marks.has(g.key) && <ReadMarks readers={marks.get(g.key)!} agents={agents} />}
               </div>
             ))}
@@ -339,15 +341,34 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
 /** Who has read up to here: small faces at the right, under what they last read. */
 function ReadMarks({ readers, agents }: { readers: Reader[]; agents: AgentRow[] }) {
   const names = readers.map((r) => r.nick || r.name || r.member).join(t("channel.event.sep"));
+  const face = (r: Reader, size: number) => {
+    const a = r.agent ?? agents.find((x) => x.member === r.member)?.agent;
+    return a ? <Logo agent={a} size={size - 2} className="opacity-70" /> : <Avatar name={r.name} size={size} />;
+  };
   return (
-    <Tip label={t("channel.readBy", { names })}>
-      <div role="group" aria-label={t("channel.readBy", { names })} className="g-fade flex h-4 items-center justify-end gap-0.5 self-end">
-        {readers.slice(0, 8).map((r) => {
-          const a = r.agent ?? agents.find((x) => x.member === r.member)?.agent;
-          return a ? <Logo key={r.member} agent={a} size={12} className="opacity-70" /> : <Avatar key={r.member} name={r.name} size={14} />;
-        })}
-      </div>
-    </Tip>
+    <Popover.Root>
+      <Popover.Trigger
+        render={
+          <button type="button" aria-label={t("channel.readBy", { names })} className="g-fade absolute top-full right-0 mt-0.5 flex h-4 items-center gap-1 rounded-sm text-xs text-ink-4 hover:text-ink-3">
+            <span>{t("channel.read")}</span>
+            {readers.slice(0, 8).map((r) => (
+              <span key={r.member} className="grid">
+                {face(r, 14)}
+              </span>
+            ))}
+          </button>
+        }
+      />
+      <PopSurface align="end" className="no-bar max-h-[min(360px,var(--available-height))] min-w-44 overflow-y-auto p-1.5">
+        <div className="truncate px-2.5 pt-1 pb-0.5 text-xs text-ink-3">{t("channel.read")}</div>
+        {readers.map((r) => (
+          <div key={r.member} className="flex h-8 items-center gap-2.5 px-2.5 text-base pointer-coarse:h-11">
+            {face(r, 16)}
+            <span className="min-w-0 flex-1 truncate">{r.nick || r.name || r.member}</span>
+          </div>
+        ))}
+      </PopSurface>
+    </Popover.Root>
   );
 }
 
