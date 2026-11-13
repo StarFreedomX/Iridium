@@ -158,7 +158,10 @@ func Claude() int {
 		say(map[string]any{"type": "system", "subtype": "session_state_changed", "state": "idle"})
 	}
 	finish := func(f map[string]any, steered []map[string]any) {
-		assistant("ok: " + unprefixed(textOf(f)))
+		// "(say nothing)" in the first line of what it was given: a turn that ends with no words.
+		if first, _, _ := strings.Cut(textOf(f), "\n"); !strings.Contains(first, "(say nothing)") {
+			assistant("ok: " + unprefixed(textOf(f)))
+		}
 		for _, s := range steered {
 			assistant("ok: " + unprefixed(textOf(s)))
 			say(map[string]any{"type": "command_lifecycle", "command_uuid": s["uuid"], "state": "completed"})

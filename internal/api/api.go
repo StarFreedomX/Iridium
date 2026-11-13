@@ -460,6 +460,9 @@ type Send struct {
 	// ID is the input id the sender chose (a lowercase UUID): sent again, the same message, not
 	// written twice. None: one is made.
 	ID string `json:"id,omitempty"`
+	// Quote: the number of the channel's message it answers (Satori's <quote id/>). In a channel
+	// of several agents, one whose message it is is called as if named.
+	Quote int64 `json:"quote,omitempty"`
 }
 
 type SendReply struct {

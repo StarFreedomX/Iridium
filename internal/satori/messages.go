@@ -421,6 +421,17 @@ const MaxDataURL = 20 << 20
 func (s *Service) sendOne(ctx context.Context, c Caller, st *api.SessionState, els []Element, o SendOpts) ([]Message, error) {
 	var refs []string
 	els = s.atNicks(els)
+	// A <quote id="…"/> answers the channel's message of that number: kept apart, not written
+	// as words (one with words in it is quoted as written).
+	els = slices.DeleteFunc(slices.Clone(els), func(e Element) bool {
+		if e.Type != "quote" || len(e.Children) > 0 {
+			return false
+		}
+		if n, err := strconv.ParseInt(e.Attr("id"), 10, 64); err == nil && n > 0 {
+			o.Quote = n
+		}
+		return true
+	})
 	text := Plain(els, func(e Element) string {
 		src := e.Attr("src")
 		if app, login, path, ok := parseInternal(src); ok && app == c.App && login == c.Login {

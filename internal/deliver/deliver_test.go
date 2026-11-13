@@ -54,4 +54,17 @@ func TestRoute(t *testing.T) {
 	if d := Route("no names", "s1", MaxHops, agents); d.TooFar {
 		t.Errorf("too far without a name: %+v", d)
 	}
+	// @全体成员 and @全体Agent: every agent but the one speaking, as if each were named.
+	if d := Route("@全体成员 look", "", 0, agents); wake(d) != "s1 s2 s3" || len(d.Named) != 3 {
+		t.Errorf("a person to all: %+v", d)
+	}
+	if d := Route("@全体agent look", "s1", 0, agents); wake(d) != "s2 s3" {
+		t.Errorf("an agent to all agents: %+v", d)
+	}
+	if d := Route("`@全体成员`", "", 0, agents); wake(d) != "s1 s3" {
+		t.Errorf("in code: %+v", d)
+	}
+	if ValidNick("全体成员") || ValidNick("全体AGENT") {
+		t.Error("a reserved name taken as a nick")
+	}
 }

@@ -90,7 +90,7 @@ export function AgentFace({ channel, a, call, record, may, size = 28 }: { channe
         </span>
       </button>
       <At anchor={face} open={detail} onOpenChange={setDetail} className="w-[min(300px,calc(100vw-16px))] p-3.5">
-        <Card channel={channel} a={a} s={s} ctx={ctx} call={call} record={record} done={() => setDetail(false)} />
+        <Card channel={channel} a={a} s={s} ctx={ctx} call={call} record={record} may={may} done={() => setDetail(false)} />
       </At>
       {s && (
         <MemberMenu
@@ -100,6 +100,7 @@ export function AgentFace({ channel, a, call, record, may, size = 28 }: { channe
           may={may}
           at={menuAt}
           close={() => setMenuAt(null)}
+          call={call}
           detail={ctx?.max ? () => setDetail(true) : undefined}
           rename={() => setNaming(true)}
           record={record && (() => record(a.session))}
@@ -120,8 +121,8 @@ export function AgentFace({ channel, a, call, record, may, size = 28 }: { channe
 
 /** An agent's card (the user, 2026-11-13, as QQ's): its face, nick, what it runs as, its state
  *  and context; keys to talk to it in its own channel (its session: one channel bound to it),
- *  to call it here (@nick), to see its record. */
-function Card({ channel, a, s, ctx, call, record, done }: { channel: string; a: AgentRow; s?: LiveSession; ctx?: Parameters<typeof ContextDetail>[0]["c"]; call?: (nick: string) => void; record?: (session: string) => void; done: () => void }) {
+ *  to call it here (@nick); in its own channel, to change its face and see its record. */
+function Card({ channel, a, s, ctx, call, record, may, done }: { channel: string; a: AgentRow; s?: LiveSession; ctx?: Parameters<typeof ContextDetail>[0]["c"]; call?: (nick: string) => void; record?: (session: string) => void; may: boolean; done: () => void }) {
   const mine = a.session === channel;
   const key = "g-press flex h-8 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md bg-fill px-2 text-sm text-ink hover:bg-fill-2 pointer-coarse:h-10";
   return (
@@ -151,6 +152,12 @@ function Card({ channel, a, s, ctx, call, record, done }: { channel: string; a: 
           <button type="button" onClick={() => (done(), call(a.nick))} className={key}>
             <AtSign size={14} className="shrink-0" />
             <span className="truncate">{t("channel.call")}</span>
+          </button>
+        )}
+        {mine && may && (
+          <button type="button" onClick={() => (done(), requestAnimationFrame(() => pickFace(a.session)))} className={key}>
+            <ImagePlus size={14} className="shrink-0" />
+            <span className="truncate">{t("me.avatar")}</span>
           </button>
         )}
         {mine && record && (
@@ -201,7 +208,7 @@ function Pick({ icon, label, now, value, options, set, i }: { icon: ReactNode; l
 /** A member's menu, at a point. Its model, effort and mode are its session's own, set as the
  *  one-agent chat's keys set them. remove: none for the session the channel is. */
 /** may: the one looking is of the channel's people; else only what reads is offered. */
-function MemberMenu({ channel, a, s, may, at, close, detail, rename, record, given, remove }: { channel: string; a: AgentRow; s: LiveSession; may: boolean; at: { x: number; y: number } | null; close: () => void; detail?: () => void; rename: () => void; record?: () => void; given: () => void; remove?: () => void }) {
+function MemberMenu({ channel, a, s, may, at, close, call, detail, rename, record, given, remove }: { channel: string; a: AgentRow; s: LiveSession; may: boolean; at: { x: number; y: number } | null; close: () => void; call?: (nick: string) => void; detail?: () => void; rename: () => void; record?: () => void; given: () => void; remove?: () => void }) {
   const qc = useQueryClient();
   const mode = useMode(s);
   const v = modelView(s);
@@ -229,6 +236,7 @@ function MemberMenu({ channel, a, s, may, at, close, detail, rename, record, giv
         <Menu.Positioner anchor={anchor} side="bottom" align="start" sideOffset={4} collisionPadding={8} className="z-50">
           <Menu.Popup finalFocus={false} className={cn(POPUP, "min-w-52 p-1.5")}>
             <div className="g-stagger flex flex-col">
+              {call && a.nick && item(<AtSign size={15} />, t("channel.call"), later(() => call(a.nick)))}
               {may && item(<FoldVertical size={15} />, t("channel.compact"), act(() => api.send(a.session, "/compact"), t("err.action")))}
               {may && v.models.length > 0 && (
                 <Pick

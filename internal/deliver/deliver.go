@@ -27,6 +27,19 @@ type Decision struct {
 	TooFar bool
 }
 
+// The two names that call more than one (the user, 2026-11-13): "@全体成员", everyone in the
+// channel, and "@全体Agent", its agents. For the agents both are the same: each is woken as if
+// named. No nick may be one of them.
+const (
+	AllMembers = "全体成员"
+	AllAgents  = "全体Agent"
+)
+
+// Reserved: n is one of the names that call more than one, whatever its case.
+func Reserved(n string) bool {
+	return strings.EqualFold(n, AllMembers) || strings.EqualFold(n, AllAgents)
+}
+
 // Route decides for a message with words text. from: the session of the agent that said it,
 // "" for a person; hop: how many agents passed the chain on before it. A person's message wakes
 // the agents it names; one that names none, those that receive everything (they read the rest
@@ -41,6 +54,9 @@ func Route(text, from string, hop int, agents []Agent) Decision {
 	}
 	var d Decision
 	d.Named = Mentions(text, nicks)
+	if all := Mentions(text, []string{AllMembers, AllAgents}); len(all) > 0 {
+		d.Named = nicks // all of them, as if each were named
+	}
 	named := map[string]bool{}
 	for _, n := range d.Named {
 		named[strings.ToLower(n)] = true
@@ -61,9 +77,9 @@ func Route(text, from string, hop int, agents []Agent) Decision {
 }
 
 // ValidNick: a nick is letters, digits, "_" and "-", at most 32 of them, so that "@nick"
-// stands out of any words.
+// stands out of any words; not one of the names that call more than one.
 func ValidNick(n string) bool {
-	if n == "" || len([]rune(n)) > 32 {
+	if n == "" || len([]rune(n)) > 32 || Reserved(n) {
 		return false
 	}
 	for _, r := range n {

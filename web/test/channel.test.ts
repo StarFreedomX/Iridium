@@ -267,3 +267,12 @@ describe("workOf", () => {
     expect(workOf(bs, { session: "s", from: 10, to: 16 }).map((b) => b.at)).toEqual(["11.0", "12.0", "13.0", "14.0", "15.0"]);
   });
 });
+
+describe("a message that answers another", () => {
+  test("its <quote id/> is the number it answers", () => {
+    const m = msgOf({ id: "7", content: '<quote id="3"/>more please', user: { id: "u", name: "kumo" } });
+    expect(m?.quote).toBe(3);
+    expect(m?.text).toBe("more please");
+    expect(msgOf({ id: "8", content: "plain", user: { id: "u", name: "kumo" } })?.quote).toBeUndefined();
+  });
+});

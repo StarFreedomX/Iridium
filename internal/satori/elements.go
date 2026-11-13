@@ -474,8 +474,15 @@ func plain(b *strings.Builder, els []Element, ref func(e Element) string) {
 			if name == "" {
 				name = e.Attr("id")
 			}
-			if t := e.Attr("type"); name == "" && t != "" {
-				name = t
+			// Everyone (<at type="all"/>) and a channel's agents (<at role="agent"/>): the names
+			// that call them in a channel (docs/channels.md "叫起谁").
+			switch {
+			case name == "" && e.Attr("type") == "all":
+				name = "全体成员"
+			case name == "" && e.Attr("role") == "agent":
+				name = "全体Agent"
+			case name == "" && e.Attr("type") != "":
+				name = e.Attr("type")
 			}
 			b.WriteString("@" + name)
 		case "img", "image", "file", "audio", "video":

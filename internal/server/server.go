@@ -305,6 +305,11 @@ func (s *Server) createAs(ctx context.Context, c caller, req api.NewSession) (st
 	id, err := s.m.Create(ctx, req, s.fromOf(c, req.Caller))
 	if id != "" && err == nil && setup != nil {
 		err = s.setUp(ctx, c, id, *setup, first)
+	} else if id != "" && err == nil {
+		// Its people as any new channel's (DefaultPeople).
+		if err := s.setNewPeople(c, id, nil); err != nil {
+			s.logf("server: %s: its people: %v", id, err)
+		}
 	}
 	if id != "" {
 		via := c.session
@@ -350,6 +355,13 @@ func (s *Server) sendAs(ctx context.Context, c caller, from, id string, req api.
 	}
 	if !command && s.multi(id) {
 		return s.sendChannel(ctx, c, from, id, req)
+	}
+	// One agent: the message it answers as quoted lines before the words.
+	if req.Quote > 0 {
+		if q, ok := s.ch.Get(id, req.Quote); ok {
+			req.Text = quoted(q.Text) + req.Text
+		}
+		req.Quote = 0
 	}
 	if err := s.checkSend(c, id); err != nil {
 		return api.SendReply{}, err

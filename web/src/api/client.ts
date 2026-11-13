@@ -271,13 +271,13 @@ export const api = {
   /** A message: queued while a turn runs (queued in the reply), or joining it with steer.
    *  attachments: upload refs. input: its id, chosen here (a UUID): the transcript's block has it
    *  as it comes, before the answer; lost on the way, the send goes again under it, never twice. */
-  send: async (id: string, text: string, attachments?: string[], steer = false, input?: string): Promise<SendReply> => {
+  send: async (id: string, text: string, attachments?: string[], steer = false, input?: string, quote?: number): Promise<SendReply> => {
     // Satori's message.create (docs/satori.md), as every app sends; Iridium's _data says whether it
     // joins the turn and which uploads go with it, and answers what the send did.
     await whoKnown();
     const body = {
       channel_id: id,
-      content: escapeSatori(text),
+      content: (quote ? `<quote id="${quote}"/>` : "") + escapeSatori(text),
       _data: { ...(steer ? { steer } : {}), ...(attachments?.length ? { attachments } : {}), ...(input ? { id: input } : {}) },
     };
     for (let tries = 1; ; tries++) {

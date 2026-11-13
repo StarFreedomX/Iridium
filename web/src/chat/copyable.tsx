@@ -1,7 +1,8 @@
-// Something with a menu of its own at a right click or a long press (a reply, a file): 复制. A right
-// click on words chosen keeps the browser's menu.
+// Something with a menu of its own at a right click or a long press (a reply, a file): 引用 where
+// it may be answered (a channel's message), 复制. A right click on words chosen keeps the
+// browser's menu.
 import { Menu } from "@base-ui/react/menu";
-import { Copy } from "lucide-react";
+import { Copy, Reply } from "lucide-react";
 import { useRef, useState, type ReactNode } from "react";
 import { t } from "../i18n";
 import { toast } from "../toast";
@@ -10,8 +11,9 @@ import { own, useLongPress } from "../ui";
 const ITEM =
   "flex h-8 cursor-default items-center gap-2.5 rounded-md px-2.5 text-base outline-none select-none data-highlighted:bg-fill pointer-coarse:h-11";
 
-/** children with 复制 (copy) in a menu of their own; with nothing to copy, children alone. */
-export function Copyable({ copy, children, className }: { copy?: string; children: ReactNode; className?: string }) {
+/** children with 复制 (copy) in a menu of their own, and 引用 (quote) first given quote; with
+ *  nothing to copy, children alone. */
+export function Copyable({ copy, children, className, quote }: { copy?: string; children: ReactNode; className?: string; quote?: () => void }) {
   const [at, setAt] = useState<{ x: number; y: number } | null>(null);
   const down = useRef({ x: 0, y: 0 });
   const lp = useLongPress(() => setAt(down.current));
@@ -37,6 +39,14 @@ export function Copyable({ copy, children, className }: { copy?: string; childre
         <Menu.Portal>
           <Menu.Positioner anchor={anchor} side="bottom" align="start" sideOffset={4} collisionPadding={8} className="z-50">
             <Menu.Popup finalFocus={false} className="g-unfold glass thick float min-w-48 rounded-lg p-1.5 text-ink outline-none">
+              {quote && (
+                <Menu.Item onClick={quote} className={ITEM}>
+                  <span className="text-ink-2">
+                    <Reply size={15} />
+                  </span>
+                  {t("msg.quote")}
+                </Menu.Item>
+              )}
               <Menu.Item onClick={() => void navigator.clipboard.writeText(copy).then(() => toast(t("msg.copied")))} className={ITEM}>
                 <span className="text-ink-2">
                   <Copy size={15} />

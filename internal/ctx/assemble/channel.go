@@ -34,7 +34,19 @@ type Channel struct {
 	// agent did in all since this one last read the channel, what it has not spoken of yet too.
 	Did  map[int64]activity.Activity
 	Work []Work
+	// Quote: the message the one given answers, if any.
+	Quote *Quote
 }
+
+// Quote is a message answered: its number, who said it, its words (cut short here).
+type Quote struct {
+	Seq  int64
+	Who  string
+	Text string
+}
+
+// QuoteCut is how many characters of a message answered are given.
+const QuoteCut = 200
 
 // Work is what the agent Who did over a stretch.
 type Work struct {
@@ -95,7 +107,15 @@ func channelPieces(c Channel, seq int64, said, input string) []piece {
 	}
 	// The channel as ir takes it: the agent's own is "self".
 	self := cmp.Or(c.ID, "self")
-	ps := []piece{text(idChannelMessage, "seq", n(seq)), words(said, append(refs, Ref{Kind: "message", ID: n(seq)})...), text(idChannelOpen)}
+	ps := []piece{text(idChannelMessage, "seq", n(seq))}
+	if q := c.Quote; q != nil {
+		w := strings.Join(strings.Fields(q.Text), " ")
+		if r := []rune(w); len(r) > QuoteCut {
+			w = string(r[:QuoteCut]) + "…"
+		}
+		ps = append(ps, text(idChannelQuote, "seq", n(q.Seq), "who", q.Who), words(w, Ref{Kind: "message", ID: n(q.Seq)}), text(idChannelQuoteEnd))
+	}
+	ps = append(ps, words(said, append(refs, Ref{Kind: "message", ID: n(seq)})...), text(idChannelOpen))
 	var agents []string
 	for _, a := range c.Agents {
 		s := a.Nick // without @: the agent echoing the list calls nobody

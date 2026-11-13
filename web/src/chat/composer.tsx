@@ -10,7 +10,7 @@
 // granted. Shift+Tab cycles the approval mode; Esc stops the turn. The draft is kept on
 // this device; files pasted, dropped or attached go up in chunks while you type, a picture in its
 // own shape under a veil drawn back as it goes; nothing is sent till all are up.
-import { ArrowUp, Box, Brain, ChartPie, Eraser, FileCode2, FileText, FoldVertical, Gauge, LoaderCircle, Paperclip, ShieldCheck, Square, X, type LucideIcon } from "lucide-react";
+import { ArrowUp, Box, Brain, ChartPie, Eraser, FileCode2, FileText, FoldVertical, Gauge, LoaderCircle, Paperclip, Reply, ShieldCheck, Square, X, type LucideIcon } from "lucide-react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { forwardRef, Fragment, useEffect, useImperativeHandle, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { Agent, Command, SessionState as LiveSession } from "../api/types.gen";
@@ -111,9 +111,20 @@ type Props = {
   nicks?: AgentRow[];
   /** In the foot right after the attach key: the channel's members' key (chat/channel/key.tsx). */
   lead?: ReactNode;
+  /** The message being answered (Satori's <quote>): shown over the words, sent with them;
+   *  unquote: put it away (its ×, or once sent). */
+  quote?: { n: number; who: string; text: string };
+  unquote?: () => void;
 };
 
-export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s, turn, onSent, onSentDone, cycleMode, openModel, openMode, openUsage, openContext, cleared, tools, end, fresh, nicks, lead }, ref) {
+/** The names that call more than one in a channel (internal/deliver AllMembers, AllAgents), as
+ *  rows of the @ list. */
+const everyoneRows = (): AgentRow[] => [
+  { session: "", member: "*", agent: "" as Agent, nick: "全体成员", name: t("channel.atMembers"), status: "idle", recv: "" },
+  { session: "", member: "agent:*", agent: "" as Agent, nick: "全体Agent", name: t("channel.atAgents"), status: "idle", recv: "" },
+];
+
+export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s, turn, onSent, onSentDone, cycleMode, openModel, openMode, openUsage, openContext, cleared, tools, end, fresh, nicks, lead, quote, unquote }, ref) {
   const multi = !!nicks;
   const [text, setText] = useState(() => kept(draftKey(s.id)) ?? "");
   const [atts, setAtts] = useState<Att[]>([]);
@@ -227,11 +238,12 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
   const machines = useMachines();
   const workspaces = useWorkspaces().data ?? [];
   const home = useHome().data; // ~ typed after the @ is this; named, a whole path
-  const typedAt = caret !== null && text !== shut && !list.length ? atWord(text, caret) : null;
-  const word = multi ? null : typedAt;
-  // In a channel of several an @ calls one of its agents, by nick.
-  const nickWord = multi ? typedAt : null;
-  const nickOpts = nickWord ? matchAgents(nicks!, nickWord.q) : [];
+  // & names a session or a place; @ calls a member of a channel of several, by nick, or all of
+  // them (Satori's <at>; the user, 2026-11-13).
+  const open = caret !== null && text !== shut && !list.length;
+  const word = open ? atWord(text, caret, "&") : null;
+  const nickWord = multi && open ? atWord(text, caret) : null;
+  const nickOpts = nickWord ? matchAgents([...nicks!, ...everyoneRows()], nickWord.q) : [];
   const nickSel = nickOpts.length ? Math.min(at ?? 0, nickOpts.length - 1) : 0;
   const call = (r: AgentRow) => {
     if (!nickWord) return;
@@ -270,7 +282,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
   const enter = (r: AtRow) => {
     if (!word || r.kind !== "place") return;
     const end = caret ?? word.from;
-    const typed = `@${typedPath(r.p, machines)}`;
+    const typed = `&${typedPath(r.p, machines)}`;
     const next = text.slice(0, word.from) + typed + text.slice(end);
     type(next);
     const to = word.from + typed.length;
@@ -348,14 +360,15 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
     for (const a of atts) if (a.url && a.path) previews.set(a.path, a.url);
     const files = atts.map((a) => ({ ref: a.ref!, name: a.file.name, type: a.file.type, size: a.file.size, url: a.url }));
     // Its id chosen here: the transcript's block is found by it as it comes, whenever the answer does.
-    const sent: Sent = { key: crypto.randomUUID(), text: words, files, from: 0, input: crypto.randomUUID(), steer: mode === "steer" };
+    const sent: Sent = { key: crypto.randomUUID(), text: words, files, from: 0, input: crypto.randomUUID(), steer: mode === "steer", ...(quote ? { quote: quote.n } : {}) };
     type("");
     setAtts([]);
+    unquote?.();
     // While a turn runs the server queues what is sent; steering joins the turn. Queued, the queue
     // shows it, not a bubble; turned away, the words go back where they were typed.
     if (mode === "queue" && queues) {
       try {
-        await api.send(s.id, words, files.map((f) => f.ref), false, sent.input);
+        await api.send(s.id, words, files.map((f) => f.ref), false, sent.input, sent.quote);
       } catch (e) {
         type([words, textNow.current].filter(Boolean).join("\n"));
         toast(t("err.queue"), { error: true, description: errText(e) });
@@ -364,7 +377,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
     }
     onSent(sent);
     try {
-      const r = await api.send(s.id, words, files.map((f) => f.ref), mode === "steer", sent.input);
+      const r = await api.send(s.id, words, files.map((f) => f.ref), mode === "steer", sent.input, sent.quote);
       sent.input = r.input || sent.input;
       // A turn began meanwhile: it waits in the queue, which shows it. A command the agent runs
       // itself (Codex's /compact) never comes in the transcript: the turn's lamp says it.
@@ -403,6 +416,16 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
         />
       )}
     <div className="glass float rest relative @container rounded-[20px]">
+      {quote && (
+        <div className="g-fade flex min-w-0 items-center gap-2 px-3.5 pt-2.5 text-xs text-ink-3">
+          <Reply size={13} className="shrink-0" />
+          <span className="shrink-0 font-medium text-ink-2">{quote.who}</span>
+          <span className="min-w-0 flex-1 truncate">{quote.text}</span>
+          <IconKey label={t("msg.unquote")} onClick={() => unquote?.()} className="size-6 pointer-coarse:size-8">
+            <X size={13} />
+          </IconKey>
+        </div>
+      )}
       <div aria-hidden={!row || undefined} className={cn("grid transition-[grid-template-rows,opacity] duration-(--dur-3) ease-(--ease-out)", row ? "grid-rows-[1fr]" : "grid-rows-[0fr] opacity-0")}>
         <div className="min-h-0 overflow-hidden">
         <ul data-attachments className="m-0 flex list-none gap-2 overflow-x-auto px-3.5 pt-3 pb-0">

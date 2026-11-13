@@ -72,6 +72,9 @@ func TestPlain(t *testing.T) {
 	if got := Plain(Parse("a<br/>b"), nil); got != "a\nb" {
 		t.Errorf("br: %q", got)
 	}
+	if got := Plain(Parse(`<at type="all"/> <at role="agent"/> <at type="here"/>`), nil); got != "@全体成员 @全体Agent @here" {
+		t.Errorf("at many: %q", got)
+	}
 }
 
 func FuzzParse(f *testing.F) {

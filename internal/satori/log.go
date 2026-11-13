@@ -85,7 +85,12 @@ func (s *Service) authorOf(m channel.Message, agentsSeen map[string]*User) *User
 
 // logContent is m's words as content, without its files.
 func (s *Service) logContent(m channel.Message) string {
-	return Escape(s.b.Mask(m.Text))
+	out := Escape(s.b.Mask(m.Text))
+	if m.D.Quote > 0 {
+		// The message it answers, as Satori has it.
+		out = `<quote id="` + strconv.FormatInt(m.D.Quote, 10) + `"/>` + out
+	}
+	return out
 }
 
 // logMessage is m as c reads it: its files as c's login may fetch them.
@@ -179,10 +184,12 @@ type LogData struct {
 	Card    string `json:"card,omitempty"`
 	// Event: what a note tells of (channel.Event).
 	Event *channel.Event `json:"event,omitempty"`
+	// Quote: the number of the message it answers (its content's <quote id/>).
+	Quote int64 `json:"quote,omitempty"`
 }
 
 func logData(m channel.Message) LogData {
-	d := LogData{Kind: m.Kind, Session: m.D.Session, Block: m.D.Block, From: m.D.From, To: m.D.To, Card: m.D.Card, Event: m.D.Event}
+	d := LogData{Kind: m.Kind, Session: m.D.Session, Block: m.D.Block, From: m.D.From, To: m.D.To, Card: m.D.Card, Event: m.D.Event, Quote: m.D.Quote}
 	switch m.Kind {
 	case channel.KindUser:
 		if !strings.HasPrefix(m.Ref, "b:") {

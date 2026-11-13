@@ -63,20 +63,22 @@ func TestChannelOfSeveral(t *testing.T) {
 	ch := l.create(200, "web", api.NewSession{Agent: api.AgentClaude, Cwd: l.work, Text: "first"})
 	l.waitReply("web", ch, "ok: first")
 
-	// One agent: the default members, nothing written.
+	// One agent: the default members, the panel's logins and the host's (no Bot's).
 	var ms api.ChannelMembers
 	l.want(200, "web", "GET", "/v1/internal/channels/"+ch+"/members", nil, &ms)
-	if ms.Multi || len(ms.Members) != 2 || ms.Members[0].Member != "*" || !ms.Joined || ms.Members[1].Session != ch || ms.Members[1].Recv != "all" || ms.Members[1].Send != "direct" {
+	if ms.Multi || len(ms.Members) != 3 || ms.Members[0].Session != ch || ms.Members[0].Recv != "all" || ms.Members[0].Send != "direct" ||
+		ms.Members[1].Member != "ir_web/*" || ms.Members[2].Member != "local/*" || !ms.Joined {
 		t.Fatalf("default members: %+v", ms)
 	}
 
 	// A second agent joins: a session of its own, a nick of its own, only what names it.
 	l.want(400, "web", "POST", "/v1/internal/channels/"+ch+"/members", api.NewMember{Agent: api.AgentClaude, Nick: "a b"}, nil)
 	l.want(200, "web", "POST", "/v1/internal/channels/"+ch+"/members", api.NewMember{Agent: api.AgentClaude}, &ms)
-	if !ms.Multi || len(ms.Members) != 3 || ms.Members[1].Nick != "claude" || ms.Members[2].Nick != "claude2" || ms.Members[2].Recv != "at" || ms.Members[2].Send != "ir" || ms.Members[2].Name == "" {
+	ms.Members = slices.DeleteFunc(ms.Members, func(m api.ChannelMember) bool { return m.Session == "" })
+	if !ms.Multi || len(ms.Members) != 2 || ms.Members[0].Nick != "claude" || ms.Members[1].Nick != "claude2" || ms.Members[1].Recv != "at" || ms.Members[1].Send != "ir" || ms.Members[1].Name == "" {
 		t.Fatalf("members: %+v", ms)
 	}
-	second := ms.Members[2].Session
+	second := ms.Members[1].Session
 	// The channel says who joined, and what happened with it.
 	var joined satori.BidiList[satori.Message]
 	l.wantSat(200, "web", "message.list", map[string]any{"channel_id": ch, "limit": 1}, &joined)
@@ -89,7 +91,7 @@ func TestChannelOfSeveral(t *testing.T) {
 	// It has a channel of its own, with itself alone; it is listed as any session, marked with
 	// the channel it is in and where it was started.
 	var own api.ChannelMembers
-	if l.want(200, "web", "GET", "/v1/internal/channels/"+second+"/members", nil, &own); own.Channel != second || own.Multi || len(own.Members) != 2 {
+	if l.want(200, "web", "GET", "/v1/internal/channels/"+second+"/members", nil, &own); own.Channel != second || own.Multi || len(own.Members) != 3 {
 		t.Errorf("the second agent's own channel: %+v", own)
 	}
 	found := false
@@ -158,13 +160,8 @@ func TestChannelOfSeveral(t *testing.T) {
 	if strings.Count(got, "plain words") != 2 { // the words, and the first agent's echo of them
 		t.Errorf("given twice:\n%s", got)
 	}
-	for _, m := range l.said("web", ch) {
-		if strings.Contains(m, " @claude2 ok:") {
-			t.Errorf("the second agent's turn was said in the channel: %s", m)
-		}
-	}
-	// Its turn ended with nothing said in the channel: the channel says so.
-	l.waitSaid("web", ch, "iridium", "@claude2 被叫起", "未在频道发话")
+	// Its turn ended with nothing said in the channel with ir: its reply is said there for it.
+	l.waitSaid("web", ch, " @claude2 ", fmt.Sprintf("ok: #%d: now @claude2 look", r.Seq))
 	// What it was given is not a message of its own channel: only what it said is.
 	for _, m := range l.said("web", second) {
 		if !strings.Contains(m, " @claude2 ") {
@@ -179,12 +176,13 @@ func TestChannelOfSeveral(t *testing.T) {
 		t.Errorf("injections: %+v", ins)
 	}
 
-	// How far each has read: the channel's own agent all of it, the second what it was given;
+	// How far each has read: the channel's own agent all of it, the second what it was given
+	// (and its reply, said for it);
 	// a person as they say, never back, and not an agent by hand.
 	var reads api.ChannelReads
 	l.want(200, "web", "GET", "/v1/internal/channels/"+ch+"/reads", nil, &reads)
 	if reads.End < r.Seq || len(reads.Readers) != 2 || reads.Readers[0].Member != "agent:"+ch || reads.Readers[0].Seq != reads.End ||
-		reads.Readers[1].Nick != "claude2" || reads.Readers[1].Seq != r.Seq || reads.Readers[1].Name == "" {
+		reads.Readers[1].Nick != "claude2" || reads.Readers[1].Seq < r.Seq || reads.Readers[1].Name == "" {
 		t.Errorf("reads: %+v, the message named %d", reads, r.Seq)
 	}
 	l.want(400, "web", "POST", "/v1/internal/channels/"+ch+"/read", api.Read{}, nil)
@@ -308,8 +306,9 @@ func TestChannelOfSeveral(t *testing.T) {
 		t.Errorf("an agent reading a channel it is in: %d", code)
 	}
 	// An agent leaves: the channel one agent's again; its session stays as it is.
+	ms = api.ChannelMembers{}
 	l.want(200, "web", "DELETE", "/v1/internal/channels/"+ch+"/members/agent:"+second, nil, &ms)
-	if ms.Multi || len(ms.Members) != 2 {
+	if ms.Multi || len(ms.Members) != 3 {
 		t.Fatalf("after it left: %+v", ms)
 	}
 	var st api.SessionState
@@ -325,7 +324,7 @@ func TestChannelOfSeveral(t *testing.T) {
 
 	// A session there is joins as it is, under the nick it had; it keeps its own channel.
 	l.want(200, "web", "POST", "/v1/internal/channels/"+ch+"/members", api.NewMember{Session: second, Recv: "all"}, &ms)
-	if !ms.Multi || len(ms.Members) != 3 || ms.Members[2].Session != second || ms.Members[2].Nick != "claude2" || ms.Members[2].Recv != "all" {
+	if last := ms.Members[len(ms.Members)-1]; !ms.Multi || len(ms.Members) != 4 || last.Session != second || last.Nick != "claude2" || last.Recv != "all" {
 		t.Fatalf("a session there is, joined: %+v", ms)
 	}
 	// Receiving everything: what a person says with no name wakes it too.
@@ -345,6 +344,11 @@ func TestChannelPeople(t *testing.T) {
 	ch := l.create(200, "web", api.NewSession{Agent: api.AgentClaude, Cwd: l.work, Text: "first"})
 	l.waitReply("web", ch, "ok: first")
 	bot := l.newApp("bot", true).Token
+	// New: the panel's and the host's, no Bot's (the user, 2026-11-13); everyone, once chosen.
+	if code, _ := l.send(bot, ch, api.Send{Text: "from the bot"}); code != 403 {
+		t.Fatalf("a Bot speaks in a new channel: %d", code)
+	}
+	l.want(200, "web", "PUT", "/v1/internal/channels/"+ch+"/people", api.People{People: []string{"*"}}, nil)
 	if code, _ := l.send(bot, ch, api.Send{Text: "from the bot"}); code != 200 {
 		t.Fatalf("everyone speaks: %d", code)
 	}
@@ -401,17 +405,18 @@ func TestChannelCreatedWhole(t *testing.T) {
 		Members: &api.ChannelSetup{Nick: "lead", Agents: []api.NewMember{{Agent: api.AgentClaude, Nick: "helper"}, {Agent: api.AgentClaude}}}})
 	var ms api.ChannelMembers
 	l.want(200, "web", "GET", "/v1/internal/channels/"+ch+"/members", nil, &ms)
-	if !ms.Multi || len(ms.Members) != 4 || ms.Members[1].Nick != "lead" || ms.Members[2].Nick != "helper" || ms.Members[3].Nick != "claude" {
+	ms.Members = slices.DeleteFunc(ms.Members, func(m api.ChannelMember) bool { return m.Session == "" })
+	if !ms.Multi || len(ms.Members) != 3 || ms.Members[0].Nick != "lead" || ms.Members[1].Nick != "helper" || ms.Members[2].Nick != "claude" {
 		t.Fatalf("members: %+v", ms)
 	}
-	// The one named answers, in its own channel; the others were given nothing.
-	l.waitSaid("web", ms.Members[2].Session, "@helper ", "ok: #1: @helper begin")
+	// The one named answers, in its own channel and, said for it, here; the others were given nothing.
+	l.waitSaid("web", ms.Members[1].Session, "@helper ", "ok: #1: @helper begin")
 	for _, m := range l.said("web", ch) {
-		if strings.Contains(m, "@lead ") || strings.Contains(m, "@claude ") || strings.Contains(m, "@helper ok") {
+		if strings.Contains(m, "@lead ") || strings.Contains(m, "@claude ") {
 			t.Errorf("another answered: %s", m)
 		}
 	}
-	if p := l.page("web", ms.Members[3].Session); len(p.Blocks) != 0 {
+	if p := l.page("web", ms.Members[2].Session); len(p.Blocks) != 0 {
 		t.Errorf("one not named was given: %+v", p.Blocks)
 	}
 	l.create(400, "web", api.NewSession{Agent: api.AgentClaude, Cwd: l.work, Members: &api.ChannelSetup{Agents: []api.NewMember{{Agent: api.AgentClaude, Nick: "a b"}}}})
@@ -440,7 +445,7 @@ func TestChannelBare(t *testing.T) {
 	}
 	var ms api.ChannelMembers
 	l.want(200, "web", "GET", "/v1/internal/channels/"+ch+"/members", nil, &ms)
-	if len(ms.Members) != 1 || ms.Members[0].Member != "*" || !ms.Joined {
+	if len(ms.Members) != 2 || ms.Members[0].Member != "ir_web/*" || ms.Members[1].Member != "local/*" || !ms.Joined {
 		t.Fatalf("members: %+v", ms)
 	}
 	// Words with nobody to wake are said all the same; a slash is words too.
@@ -457,11 +462,12 @@ func TestChannelBare(t *testing.T) {
 	// An agent joins: a session of its own in the channel's folder; it is given what names it,
 	// with what it has not seen, and answers with ir.
 	l.want(200, "web", "POST", "/v1/internal/channels/"+ch+"/members", api.NewMember{Agent: api.AgentClaude}, &ms)
-	if len(ms.Members) != 2 || ms.Members[1].Send != "ir" || ms.Members[1].Cwd != l.work {
+	if len(ms.Members) != 3 || ms.Members[2].Send != "ir" || ms.Members[2].Cwd != l.work {
 		t.Fatalf("members with an agent: %+v", ms)
 	}
-	agent, nick := ms.Members[1].Session, ms.Members[1].Nick
+	agent, nick := ms.Members[2].Session, ms.Members[2].Nick
 	bot := l.newApp("bot", true).Token
+	l.want(200, "web", "PUT", "/v1/internal/channels/"+ch+"/people", api.People{People: []string{"*"}}, nil)
 	var sent []satori.Message
 	l.wantSat(200, bot, "message.create", map[string]any{"channel_id": ch, "content": `<at id="agent:` + agent + `"/> look at this`}, &sent)
 	l.waitSaid("web", agent, "@"+nick+" look at this")
@@ -506,7 +512,7 @@ func TestChannelSendCheckAndFollows(t *testing.T) {
 	l.waitReply("web", ch, "ok: first")
 	var ms api.ChannelMembers
 	l.want(200, "web", "POST", "/v1/internal/channels/"+ch+"/members", api.NewMember{Agent: api.AgentClaude, Nick: "guest"}, &ms)
-	guest := ms.Members[2].Session
+	guest := ms.Members[len(ms.Members)-1].Session
 	say := func(as, to, words string) (int, api.SendReply, string) {
 		t.Helper()
 		var raw string
@@ -593,7 +599,7 @@ func TestChannelSendCheckAndFollows(t *testing.T) {
 	// An agent the channel's own agent started: kin. They pass a chain on without end, and the
 	// one that started it is told when the other was called and said nothing.
 	l.want(200, "agent-in:"+ch, "POST", "/v1/internal/channels/"+ch+"/members", api.NewMember{Agent: api.AgentClaude, Nick: "kid"}, &ms)
-	kid := ms.Members[3].Session
+	kid := ms.Members[len(ms.Members)-1].Session
 	found := false
 	for _, ss := range l.sessions("web") {
 		if ss.ID == kid {
@@ -603,8 +609,7 @@ func TestChannelSendCheckAndFollows(t *testing.T) {
 	if !found {
 		t.Errorf("the one it started is not marked so")
 	}
-	_, sr = l.send("web", ch, api.Send{Text: "@kid begin"})
-	l.waitSaid("web", kid, fmt.Sprintf("ok: #%d: @kid begin", sr.Seq))
+	l.send("web", ch, api.Send{Text: "@kid begin (say nothing)"})
 	l.waitSaid("web", ch, "iridium", "@kid 被叫起", "未在频道发话")
 	l.waitSaid("web", ch, "@claude ", "kid, which you started, was called in the channel")
 	for i := range 7 {
@@ -655,4 +660,48 @@ func TestChannelAvatar(t *testing.T) {
 	}
 	l.want(200, "web", "DELETE", "/v1/internal/channels/"+a+"/avatar", nil, nil)
 	l.want(200, "web", "GET", "/v1/internal/channels/"+a+"/avatar", nil, nil)
+}
+
+// Answering a message (<quote id/>) calls its agent as if named, and the agent is given a line
+// of it; @全体Agent calls every agent. In a session of one agent the quote is quoted lines.
+func TestChannelQuoteAndAll(t *testing.T) {
+	t.Parallel()
+	l := start(t)
+	ch := l.create(200, "web", api.NewSession{Agent: api.AgentClaude, Cwd: l.work, Text: "first"})
+	l.waitReply("web", ch, "ok: first")
+	var ms api.ChannelMembers
+	l.want(200, "web", "POST", "/v1/internal/channels/"+ch+"/members", api.NewMember{Agent: api.AgentClaude}, &ms)
+	second := ms.Members[len(ms.Members)-1].Session
+
+	// The second speaks with ir; a person answers it without naming it.
+	var sent []satori.Message
+	l.wantSat(200, "agent-in:"+second, "message.create", map[string]any{"channel_id": ch, "content": "a thought of mine"}, &sent)
+	if len(sent) != 1 {
+		t.Fatalf("sent: %+v", sent)
+	}
+	l.wantSat(200, "web", "message.create", map[string]any{"channel_id": ch, "content": `<quote id="` + sent[0].ID + `"/>tell me more`}, nil)
+	l.waitSaid("web", second, "@claude2 ", "tell me more")
+	if p := l.page("web", second); !strings.Contains(p.Blocks[len(p.Blocks)-2].Text+p.Blocks[len(p.Blocks)-1].Text, "[answering #"+sent[0].ID+" claude2: a thought of mine] tell me more") {
+		t.Errorf("the second was not given the quote: %+v", p.Blocks)
+	}
+	var page satori.BidiList[satori.Message]
+	l.wantSat(200, "web", "message.list", map[string]any{"channel_id": ch, "limit": 3}, &page)
+	quotes := 0
+	for _, m := range page.Data {
+		if strings.HasPrefix(m.Content, `<quote id="`+sent[0].ID+`"/>tell me more`) {
+			quotes++
+		}
+	}
+	if quotes != 1 {
+		t.Errorf("the answer as listed: %+v", page.Data)
+	}
+	l.wantSat(400, "web", "message.create", map[string]any{"channel_id": ch, "content": `<quote id="99999"/>no such`}, nil)
+
+	// @全体Agent: both, though the second takes only what names it.
+	code, r := l.send("web", ch, api.Send{Text: "@全体Agent roll call"})
+	if code != 200 {
+		t.Fatalf("send to all: %d %+v", code, r)
+	}
+	l.waitSaid("web", second, "@claude2 ", fmt.Sprintf("#%d: @全体Agent roll call", r.Seq))
+	l.waitSaid("web", ch, "@claude ", fmt.Sprintf("#%d: @全体Agent roll call", r.Seq))
 }

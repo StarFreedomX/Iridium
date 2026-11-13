@@ -12,7 +12,7 @@ export function NickList({ rows, at, pick, point }: { rows: AgentRow[]; at: numb
       <div className="g-stagger flex flex-col">
         {rows.map((r, i) => (
           <button
-            key={r.session}
+            key={r.session || r.member}
             type="button"
             role="option"
             aria-selected={i === at}

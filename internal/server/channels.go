@@ -125,6 +125,16 @@ func (k *calls) spoke(session, channel string, to int64) (from int64) {
 	return from
 }
 
+// forget closes session's call c (the one its reply was said for).
+func (k *calls) forget(session string, c called) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.of[session] = slices.DeleteFunc(k.of[session], func(x called) bool { return x.channel == c.channel && x.seq == c.seq })
+	if len(k.of[session]) == 0 {
+		delete(k.of, session)
+	}
+}
+
 // take are session's open calls, which are then closed.
 func (k *calls) take(session string) []called {
 	k.mu.Lock()
@@ -135,8 +145,8 @@ func (k *calls) take(session string) []called {
 }
 
 // turnEnded: a turn of session's agent ended with reply. In each channel it was called in by a
-// subscription and said nothing: where it has no ir to speak with (another machine's, without
-// one), its reply is said there for it; else the channel is told it said nothing.
+// subscription and said nothing there with ir, its reply is said there for it (the user,
+// 2026-11-13: an agent may simply answer); with no reply, the channel is told it said nothing.
 func (s *Server) turnEnded(id, reply string) {
 	open := s.calls.take(id)
 	if len(open) == 0 {
@@ -148,10 +158,13 @@ func (s *Server) turnEnded(id, reply string) {
 			continue
 		}
 		done[c.channel] = true
-		if !s.m.HasIR(id) && strings.TrimSpace(reply) != "" {
+		if strings.TrimSpace(reply) != "" {
+			// Its pointer the stretch of its record since it was called, as ir's would be.
+			s.calls.add(id, c)
 			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 			_, err := s.sendChannelAs(ctx, caller{Identity: localIdentity, socket: true, agent: true, session: id}, session.From(gate.HostID, "@"+s.ch.Nick(id)), c.channel, api.Send{Text: reply}, false)
 			cancel()
+			s.calls.forget(id, c)
 			if err == nil {
 				continue
 			}
@@ -569,7 +582,7 @@ func (s *Server) setUp(ctx context.Context, c caller, id string, setup api.Chann
 	if err != nil {
 		return err
 	}
-	if err := s.setPeople(c, id, setup.People); err != nil {
+	if err := s.setNewPeople(c, id, setup.People); err != nil {
 		return fmt.Errorf("%w: %w", session.ErrBadRequest, err)
 	}
 	var failed error
@@ -693,6 +706,11 @@ func (s *Server) tellMembers(c caller, ch, text string, ev channel.Event) {
 	s.sat.Note(ch, text, c.ID(), &ev)
 }
 
+// DefaultPeople are a new channel's people when its maker names none (the user, 2026-11-13):
+// the panel's logins and the host's own (its terminal, its ir), no Bot's; the one that makes it
+// is one too (setPeople).
+var DefaultPeople = []string{channel.AppMember(api.WebApp), channel.AppMember(gate.HostID)}
+
 // setPeople makes people channel ch's, c with them (the host is one always).
 func (s *Server) setPeople(c caller, ch string, people []string) error {
 	if len(people) > 0 && !slices.Contains(people, channel.Everyone) && !c.Host() {
@@ -701,6 +719,18 @@ func (s *Server) setPeople(c caller, ch string, people []string) error {
 		}
 	}
 	return s.ch.SetPeople(ch, people, s.harnessOf)
+}
+
+// setNewPeople makes the people of channel ch, just made by c, people; none named, the
+// DefaultPeople and c's app (a Bot that makes one speaks in it, as any of its logins).
+func (s *Server) setNewPeople(c caller, ch string, people []string) error {
+	if len(people) == 0 {
+		people = slices.Clone(DefaultPeople)
+		if app := channel.AppMember(c.App); !c.Host() && c.App != "" && !slices.Contains(people, app) {
+			people = append(people, app)
+		}
+	}
+	return s.setPeople(c, ch, people)
 }
 
 func (s *Server) memberPatch(w http.ResponseWriter, r *http.Request) {
@@ -1291,7 +1321,22 @@ func (s *Server) sendChannelAs(ctx context.Context, c caller, from, ch string, r
 			unseen = in.String()
 		}
 	}
-	routed, namedNicks, tooFar := s.wakes(ch, req.Text, u.ID, sender, link, list)
+	// Answering a message (<quote>): its agent is called as if named (docs/channels.md "叫起谁").
+	route := req.Text
+	var quote int64
+	if req.Quote > 0 {
+		q, ok := s.ch.Get(ch, req.Quote)
+		if !ok {
+			return api.SendReply{}, fmt.Errorf("%w: quote: no message %d in the channel", session.ErrBadRequest, req.Quote)
+		}
+		quote = q.Seq
+		if id, ok := store.SessionOfMember(q.Author); ok && id != sender {
+			if m, ok := by0(list, id); ok {
+				route += "\n@" + m.Nick
+			}
+		}
+	}
+	routed, namedNicks, tooFar := s.wakes(ch, route, u.ID, sender, link, list)
 	if tooFar {
 		return api.SendReply{}, fmt.Errorf("%w: more than %d agents in a row passed this on; a person goes on from here", session.ErrBadRequest, deliver.MaxHops)
 	}
@@ -1308,7 +1353,7 @@ func (s *Server) sendChannelAs(ctx context.Context, c caller, from, ch string, r
 	if req.ID == "" {
 		req.ID = session.NewInputID()
 	}
-	var of channel.Data
+	of := channel.Data{Quote: quote}
 	if sender != "" && sender != ch {
 		// Where it is from: the stretch of the agent's own record since it was called here.
 		of.Session = sender
@@ -1359,6 +1404,28 @@ func (s *Server) channelName(ch string) string {
 		return ""
 	}
 	return s.MaskText(cmp.Or(st.Name, st.Title))
+}
+
+// quoted is text as Markdown quoted lines (the first 400 characters), then a blank line.
+func quoted(text string) string {
+	if r := []rune(strings.TrimSpace(text)); len(r) > 400 {
+		text = string(r[:400]) + "…"
+	}
+	var b strings.Builder
+	for _, l := range strings.Split(strings.TrimSpace(text), "\n") {
+		b.WriteString("> " + l + "\n")
+	}
+	return b.String() + "\n"
+}
+
+// by0 is the agent of session id among list.
+func by0(list []deliver.Agent, id string) (deliver.Agent, bool) {
+	for _, a := range list {
+		if a.Session == id {
+			return a, true
+		}
+	}
+	return deliver.Agent{}, false
 }
 
 // whoOf is the name a message's author goes by in the channel: an agent's nick, a person's tag.
@@ -1421,6 +1488,12 @@ func (s *Server) deliverTo(ctx context.Context, ch, to string, seq int64, said, 
 			ca.Name = satori.AgentName(cmp.Or(info.Name, string(st.Agent)), *st)
 		}
 		cc.Agents = append(cc.Agents, ca)
+	}
+	// The message it answers, if it answers one: a line of it before its words.
+	if m, ok := s.ch.Get(ch, seq); ok && m.D.Quote > 0 {
+		if q, ok := s.ch.Get(ch, m.D.Quote); ok {
+			cc.Quote = &assemble.Quote{Seq: q.Seq, Who: whoOf(q, by), Text: q.Text}
+		}
 	}
 	in, err := assemble.ChannelTurn(cc, seq, said, input)
 	if err != nil {

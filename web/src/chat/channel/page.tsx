@@ -6,6 +6,7 @@
 // under its nick; a composer whose @ calls an agent; the quota of each kind of agent.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Reply } from "lucide-react";
 import { api } from "../../api/client";
 import type { Block, ChannelReads, Reader, SessionState as LiveSession, Session } from "../../api/types.gen";
 import { stateAhead, type Sent } from "../../chats";
@@ -154,7 +155,7 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
     x.failed = undefined;
     changed();
     try {
-      const r = await api.send(id, x.text, x.files.map((f) => f.ref), false, x.input);
+      const r = await api.send(id, x.text, x.files.map((f) => f.ref), false, x.input, x.quote);
       x.seq = r.seq;
     } catch (e) {
       x.failed = errText(e);
@@ -213,6 +214,14 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
     return { who: yours(known ? { ...known, name: m.name || known.name } : { id: m.id, name: m.name, device: "none" }), mine };
   };
   const groups = useMemo(() => groupMessages(log.msgs), [log.msgs]);
+  // The message being answered (<quote>), over the composer till it is sent.
+  const [quote, setQuote] = useState<Msg | null>(null);
+  const nameOf = (m: Msg) => (m.author.kind === "agent" ? m.author.nick || m.author.name : m.author.kind === "person" ? m.author.name : "Iridium");
+  const quoting = (m: Msg) => (setQuote(m), composer.current?.focus());
+  const quoted = (n: number) => {
+    const m = log.msgs.find((x) => x.n === n);
+    return m ? { who: nameOf(m), text: m.text } : undefined;
+  };
 
   // How far each member has read (docs/channels.md "已读"): asked once, then as the stream
   // brings it. This page has read what it shows: said as the log's end moves, while it is seen.
@@ -243,7 +252,7 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
           <div className="mx-auto flex max-w-[760px] flex-col gap-5 px-4 sm:px-6">
             {groups.map((g) => (
               <div key={g.key} className="flex min-w-0 flex-col gap-1">
-                <GroupView g={g} channel={id} agents={agents} who={who} record={record} call={call} may={may} />
+                <GroupView g={g} channel={id} agents={agents} who={who} record={record} call={call} may={may} quote={may ? quoting : undefined} quoted={quoted} />
                 {marks.has(g.key) && <ReadMarks readers={marks.get(g.key)!} agents={agents} />}
               </div>
             ))}
@@ -295,7 +304,7 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
               ) : null;
             })}
             {!may ? <NotJoined ctl={ctl} /> : null}
-            {may && <Composer ref={composer} s={s} turn={false} nicks={agents} lead={<InviteLead id={id} />} tools={<Quotas agents={agents} states={states} />} onSent={onSent} onSentDone={changed} cycleMode={() => {}} openModel={() => {}} openMode={() => {}} openUsage={() => {}} openContext={() => false} cleared={openChat} />}
+            {may && <Composer ref={composer} s={s} turn={false} nicks={agents} lead={<InviteLead id={id} />} quote={quote ? { n: quote.n, who: nameOf(quote), text: quote.text } : undefined} unquote={() => setQuote(null)} tools={<Quotas agents={agents} states={states} />} onSent={onSent} onSentDone={changed} cycleMode={() => {}} openModel={() => {}} openMode={() => {}} openUsage={() => {}} openContext={() => false} cleared={openChat} />}
           </div>
         </div>
       </div>
@@ -364,7 +373,7 @@ function blockFor(m: Msg, nicks: string[]): Block {
 }
 
 /** One speaker's messages: a person's bubble; an agent's words under its head; Iridium's line. */
-function GroupView({ g, channel, agents, who, record, call, may }: { g: Group; channel: string; agents: AgentRow[]; who: (a: Extract<Msg["author"], { kind: "person" }>) => { who: ReturnType<typeof yours>; mine: boolean }; record: (session: string) => void; call: (nick: string) => void; may: boolean }) {
+function GroupView({ g, channel, agents, who, record, call, may, quote, quoted }: { g: Group; channel: string; agents: AgentRow[]; who: (a: Extract<Msg["author"], { kind: "person" }>) => { who: ReturnType<typeof yours>; mine: boolean }; record: (session: string) => void; call: (nick: string) => void; may: boolean; quote?: (m: Msg) => void; quoted: (n: number) => { who: string; text: string } | undefined }) {
   const list = useList();
   const a = g.author;
   if (a.kind === "iridium")
@@ -379,11 +388,14 @@ function GroupView({ g, channel, agents, who, record, call, may }: { g: Group; c
     const m = g.msgs[0]!;
     const by = who(a);
     return (
-      <YouBubble text={m.text} who={by.who} left={!by.mine} time={m.time} words={<NickWords text={m.text} />}>
-        {m.files.map((f) => (
-          <Attached key={f.ref} session={channel} f={f} />
-        ))}
-      </YouBubble>
+      <Copyable copy={m.text} quote={quote && (() => quote(m))}>
+        {m.quote !== undefined && <QuoteLine n={m.quote} q={quoted(m.quote)} right={by.mine} />}
+        <YouBubble text={m.text} who={by.who} left={!by.mine} time={m.time} words={<NickWords text={m.text} />}>
+          {m.files.map((f) => (
+            <Attached key={f.ref} session={channel} f={f} />
+          ))}
+        </YouBubble>
+      </Copyable>
     );
   }
   const now = agents.find((x) => x.session === a.session);
@@ -405,12 +417,25 @@ function GroupView({ g, channel, agents, who, record, call, may }: { g: Group; c
         {g.msgs.map((m) => (
           <div key={m.n} className={cn(m.kind === "error" && "text-err")}>
             {m.did && (m.src ? <Work src={m.src} did={m.did} /> : <DidLine did={m.did} />)}
-            <Copyable copy={m.text}>
+            {m.quote !== undefined && <QuoteLine n={m.quote} q={quoted(m.quote)} />}
+            <Copyable copy={m.text} quote={quote && (() => quote(m))}>
               <Assistant b={blockFor(m, nicks)} session={a.session} />
             </Copyable>
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+/** The message one answers, a quiet line over it: who said it, its first words. */
+function QuoteLine({ n, q, right }: { n: number; q?: { who: string; text: string }; right?: boolean }) {
+  return (
+    <div className={cn("mb-1 flex min-w-0 items-center gap-1.5 text-xs text-ink-3", right && "justify-end")}>
+      <Reply size={12} className="shrink-0" />
+      <span className="shrink-0">#{n}</span>
+      {q && <span className="shrink-0 font-medium text-ink-2">{q.who}</span>}
+      {q && <span className="max-w-[60%] min-w-0 truncate">{q.text}</span>}
     </div>
   );
 }

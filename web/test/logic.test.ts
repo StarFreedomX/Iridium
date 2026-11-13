@@ -696,6 +696,10 @@ describe("@ in the composer", () => {
     expect(atWord("mail a@b", 8)).toBeNull();
     expect(atWord("ask @sid more", 13)).toBeNull();
     expect(atWord("ask @si d", 7)).toEqual({ from: 4, q: "si" });
+    // & names a session or a place; @ calls a member (the user, 2026-11-13).
+    expect(atWord("ask &sid", 8, "&")).toEqual({ from: 4, q: "sid" });
+    expect(atWord("ask @sid", 8, "&")).toBeNull();
+    expect(atWord("a&b", 3, "&")).toBeNull();
   });
   test("the sessions it may name", () => {
     const s = (id: string, title: string, updatedAt: number, more: Partial<Session> = {}) => ({ id, agent: "claude", cwd: "/home/k/" + id, title, status: "idle", hosted: true, live: false, updatedAt, ...more }) as Session;

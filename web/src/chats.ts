@@ -12,7 +12,7 @@ import { getCarried, setCarried } from "./store";
  *  it (Claude's uuid, which the user block carries); text, as typed; files, upload refs with their
  *  names; from, where the transcript ended as it was sent. failed: why it did not go. seq: its
  *  number in its channel, once the server said it. */
-export type Sent = { key: string; text: string; files: { ref: string; name: string; type: string; size?: number; url?: string }[]; from: number; input?: string; failed?: string; queued?: boolean; steer?: boolean; seq?: number };
+export type Sent = { key: string; text: string; files: { ref: string; name: string; type: string; size?: number; url?: string }[]; from: number; input?: string; failed?: string; queued?: boolean; steer?: boolean; seq?: number; quote?: number };
 
 /** Where a block's transcript line begins: its at up to the dot. */
 export const lineOf = (b: { at: string }) => parseInt(b.at);

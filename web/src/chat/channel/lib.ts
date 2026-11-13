@@ -17,7 +17,7 @@ export type Author = { kind: "agent"; session: string; nick: string; name: strin
  *  out, the block; with ir, the lines from (where it was called) to to (where it spoke). */
 export type Src = { session: string; block?: string; from?: number; to?: number };
 
-export type Msg = { n: number; text: string; files: FileRef[]; time?: number; author: Author; kind?: string; did?: Did; event?: ChEvent; src?: Src };
+export type Msg = { n: number; text: string; files: FileRef[]; time?: number; author: Author; kind?: string; did?: Did; event?: ChEvent; src?: Src; quote?: number };
 
 /** The line of a block's at ("<line>.<n>"). */
 export const lineOf = (at: string) => Number.parseInt(at, 10);
@@ -143,7 +143,9 @@ export function msgOf(m: ChannelMessage): Msg | undefined {
   const b = blockOf({ id: m.id, content: m.content, created_at: m.created_at });
   const u = m.user;
   const author: Author = u?.id.startsWith(AGENT) ? { kind: "agent", session: u.id.slice(AGENT.length), nick: u.nick ?? "", name: u.name ?? "" } : !u || u.id === "iridium" ? { kind: "iridium" } : { kind: "person", id: u.id, name: u.name ?? "" };
-  return { n, text: b.text ?? "", files: b.files ?? [], author, ...(m.created_at ? { time: m.created_at } : {}), ...(m._data?.kind ? { kind: m._data.kind } : {}), ...(author.kind === "agent" && didOf(m.content) ? { did: didOf(m.content)! } : {}), ...(m._data?.event && typeof m._data.event === "object" ? { event: m._data.event as ChEvent } : {}), ...(author.kind === "agent" && m._data?.session ? { src: { session: m._data.session, ...(m._data.block ? { block: m._data.block } : {}), ...(m._data.from ? { from: m._data.from } : {}), ...(m._data.to ? { to: m._data.to } : {}) } } : {}) };
+  // The message it answers: Satori's <quote id/> at its start.
+  const q = /^<quote id="(\d+)"\s*\/>/.exec(m.content);
+  return { n, text: b.text ?? "", files: b.files ?? [], author, ...(q ? { quote: Number(q[1]) } : {}), ...(m.created_at ? { time: m.created_at } : {}), ...(m._data?.kind ? { kind: m._data.kind } : {}), ...(author.kind === "agent" && didOf(m.content) ? { did: didOf(m.content)! } : {}), ...(m._data?.event && typeof m._data.event === "object" ? { event: m._data.event as ChEvent } : {}), ...(author.kind === "agent" && m._data?.session ? { src: { session: m._data.session, ...(m._data.block ? { block: m._data.block } : {}), ...(m._data.from ? { from: m._data.from } : {}), ...(m._data.to ? { to: m._data.to } : {}) } } : {}) };
 }
 
 /** have with more put in: each number once (the later one wins: a message read again, changed),
@@ -154,7 +156,7 @@ export function merge(have: Msg[], more: Msg[]): Msg[] {
   let changed = false;
   for (const m of more) {
     const was = by.get(m.n);
-    if (was && was.text === m.text && was.files.length === m.files.length && was.kind === (m.kind ?? was.kind) && !was.did === !m.did && !was.event === !m.event) continue;
+    if (was && was.text === m.text && was.files.length === m.files.length && was.kind === (m.kind ?? was.kind) && !was.did === !m.did && !was.event === !m.event && was.quote === m.quote) continue;
     by.set(m.n, was && !m.kind && was.kind ? { ...m, kind: was.kind } : m);
     changed = true;
   }

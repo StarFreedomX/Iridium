@@ -21,6 +21,8 @@ const (
 	// A channel of several agents (channel.go).
 	idChannelSystem     = "channel.system"             // in place of title: one agent of several
 	idChannelMessage    = "channel.message"            // before the words: the message's number
+	idChannelQuote      = "channel.quote"              // then the message it answers: its number, who said it
+	idChannelQuoteEnd   = "channel.quote-end"
 	idChannelGuest      = "channel.context.guest"      // who it is in a channel it is in by a subscription, and how it speaks there
 	idChannelGuestBare  = "channel.context.guest-bare" // the same for an agent with no ir: its reply is said there for it
 	idChannelSendUnseen = "channel.send.unseen"        // heads what an agent's ir is answered with: said since it last read

@@ -355,8 +355,8 @@ export function draftWords(text: string, live: boolean): string {
 
 /** The @word the caret ends, to name a session by (the composer's @ list): where its @ is and what
  *  follows it; none unless the @ starts the words or follows a space. */
-export function atWord(text: string, caret: number): { from: number; q: string } | null {
-  const m = /(?:^|\s)@([^\s@]*)$/.exec(text.slice(0, caret));
+export function atWord(text: string, caret: number, mark: "@" | "&" = "@"): { from: number; q: string } | null {
+  const m = (mark === "@" ? /(?:^|\s)@([^\s@]*)$/ : /(?:^|\s)&([^\s&]*)$/).exec(text.slice(0, caret));
   return m ? { from: caret - m[1]!.length - 1, q: m[1]! } : null;
 }
 
