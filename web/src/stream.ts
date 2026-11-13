@@ -43,7 +43,7 @@ let extra: string[] = [];
 const lastRaw = new Map<string, string>();
 /** The keys the daemon said it does not carry, and why ("unknown", "forbidden"). */
 export const ignored = new Map<string, string>();
-export const keysFor = (s: string | null, more: string[] = []) => [...new Set([...ALWAYS, ...(s ? [`session:${s}`, `context:${s}`] : []), ...more])].slice(0, MAX_KEYS);
+export const keysFor = (s: string | null, more: string[] = []) => [...new Set([...ALWAYS, ...(s ? [`session:${s}`, `context:${s}`] : []), ...more, ...(s ? [`viewers:${s}`, `reads:${s}`] : [])])].slice(0, MAX_KEYS);
 /** Whether the stream carries key now. */
 export const carries = (key: string) => keysFor(session, extra).includes(key);
 /** Satori's event stream, at this page's own address. */

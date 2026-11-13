@@ -4,8 +4,7 @@
 import { Popover } from "@base-ui/react/popover";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronRight, Folder, FolderPlus, LoaderCircle } from "lucide-react";
-import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
-import type { Extra } from "./chat/channel/draft";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactElement, type ReactNode } from "react";
 import type { Workspace } from "./api/types.gen";
 import { api, missing } from "./api/client";
 import { born } from "./chats";
@@ -13,10 +12,10 @@ import { openChat } from "./route";
 import type { Agent } from "./api/types.gen";
 import { t } from "./i18n";
 import { agentsQ, useHome, useMachines } from "./data";
-import { agentsAt, atMachine, homeAt, MachineFace, pageAt, type Machine } from "./machines";
+import { agentsAt, atMachine, homeAt, MachineBadge, MachineFace, pageAt, type Machine } from "./machines";
 import { onCreateAt } from "./places";
 import { errText, toast } from "./toast";
-import { AGENTS, cn, homeOf, IconKey, Logo, PopSurface, tilde } from "./ui";
+import { AGENTS, agentName, cn, homeOf, IconKey, Logo, PopSurface, tilde, Tip } from "./ui";
 
 const join = (dir: string, name: string) => (dir.endsWith("/") ? dir + name : `${dir}/${name}`);
 /** One folder's listing; prefetched before it is shown (the popover opening, a row hovered), so the
@@ -262,15 +261,13 @@ export const subName = (v: string) => {
  *  gone) offers none. A pick of this machine's comes with no Target. onMake: a subfolder of the
  *  folder made (at its machine too), the folder then; its key beside the folder's line (the user,
  *  2026-11-10). */
-/** The agents and the people, and 完成 (chat/channel/draft.tsx): its code comes as the "+" opens. */
-const NewChannel = lazy(() => import("./chat/channel/draft"));
-
-export function NewSession({ ws, folder, onFolder, onPick, busy, onMake }: { ws: string; folder: string; onFolder: () => void; onPick: (a: Agent, to?: Target, extra?: Extra) => void; busy: string | null; onMake?: (name: string) => Promise<boolean> }) {
+export function NewSession({ ws, folder, onFolder, onPick, busy, onMake }: { ws: string; folder: string; onFolder: () => void; onPick: (a: Agent, to?: Target) => void; busy: string | null; onMake?: (name: string) => Promise<boolean> }) {
   // The agents the daemon can host (GET /v1/internal/agents); all four before it says. One not installed
   // is shown faded: picking it says so, no session is made.
   const info = useQuery({ ...agentsQ, refetchOnMount: "always" }).data; // installed since: the next open knows
   const agents = info?.map((a) => a.agent) ?? AGENTS;
   const missing = (a: Agent) => !!info?.find((x) => x.agent === a)?.missing;
+  const pick = (a: Agent) => (missing(a) ? toast(t("new.notInstalled", { name: agentName(a) }), { error: true }) : onPick(a));
   const machines = useMachines();
   const whose = agentsAt(folder, machines);
   const there = typeof whose === "object" ? whose : undefined;
@@ -294,13 +291,7 @@ export function NewSession({ ws, folder, onFolder, onPick, busy, onMake }: { ws:
     if (n) void onMake(n).then((ok) => ok && box.current?.querySelector<HTMLButtonElement>("[role=group] button:not(:disabled)")?.focus());
   };
   const path = there ? tilde(pageAt(folder, machines)?.path ?? there.cwd, homeAt(there.m)) : tilde(folder);
-  // The agents this folder's machine offers, or those the daemon hosts.
-  const kinds = there ? there.m.agents.map((x) => x.agent as Agent) : agents;
-  const begin = (first: Agent, extra: Extra) => {
-    if (!there) return onPick(first, undefined, extra);
-    if (!there.m.online) return void toast(t("new.offline", { name: there.m.name }), { error: true });
-    onPick(first, { m: there.m, cwd: there.cwd }, extra);
-  };
+  let i = 0;
   if (whose === "gone")
     return (
       <div className="flex w-[min(288px,calc(100vw-16px))] p-1.5">
@@ -312,7 +303,7 @@ export function NewSession({ ws, folder, onFolder, onPick, busy, onMake }: { ws:
       </div>
     );
   return (
-    <div ref={box} tabIndex={-1} className="flex w-[min(320px,calc(100vw-16px))] flex-col gap-1 p-1.5 outline-none">
+    <div ref={box} tabIndex={-1} className="flex w-[min(288px,calc(100vw-16px))] flex-col gap-1 p-1.5 outline-none">
       {naming !== null ? (
         <div className="g-fade flex h-9 items-center gap-2 rounded-md bg-fill px-2 pointer-coarse:h-11">
           <FolderPlus size={16} className="shrink-0 text-ink-3" />
@@ -352,20 +343,54 @@ export function NewSession({ ws, folder, onFolder, onPick, busy, onMake }: { ws:
           )}
         </div>
       )}
-      {there && (
-        <div className={cn("flex items-center gap-1.5 px-2 pt-1 text-xs", there.m.online ? "text-ink-2" : "text-ink-4")}>
-          <MachineFace m={there.m} size={14} className={cn(!there.m.online && "opacity-50")} />
-          <span className="truncate font-medium">{there.m.name}</span>
-          {!there.m.online && <span className="shrink-0">{t("status.offline")}</span>}
+      {!there ? (
+        <div role="group" aria-label={t("new.agent")} className="g-stagger grid grid-cols-4 gap-1">
+          {agents.map((a) => (
+            <Tip key={a} label={missing(a) ? t("new.notInstalled", { name: agentName(a) }) : agentName(a)}>
+              <button type="button" aria-label={agentName(a)} disabled={busy !== null} onClick={() => pick(a)} style={{ "--i": i++ } as CSSProperties} className="g-press grid h-14 place-items-center rounded-md hover:bg-fill disabled:opacity-50">
+                {busy === a ? <LoaderCircle size={20} className="animate-spin text-ink-3" /> : <Logo agent={a} size={24} className={cn(missing(a) && "opacity-30 grayscale")} />}
+              </button>
+            </Tip>
+          ))}
         </div>
-      )}
-      {there && !kinds.length ? (
-        <p className="m-0 flex h-9 items-center px-2 text-sm text-ink-3">{t("new.noAgents")}</p>
       ) : (
-        <Suspense fallback={<div className="h-[6.5rem]" />}>
-          <NewChannel agents={kinds} missing={there ? () => false : missing} m={there?.m} busy={busy !== null} start={begin} />
-        </Suspense>
+        <MachineAgents m={there.m} busy={busy} onPick={(a) => (!there.m.online ? toast(t("new.offline", { name: there.m.name }), { error: true }) : onPick(a, { m: there.m, cwd: there.cwd }))} />
       )}
+    </div>
+  );
+}
+
+/** Another machine's agents, under its face and name. */
+function MachineAgents({ m, busy, onPick }: { m: Machine; busy: string | null; onPick: (a: Agent) => void }) {
+  return (
+    <div role="group" aria-label={m.name} className="flex flex-col gap-1">
+      <div className={cn("flex items-center gap-1.5 px-2 pt-1 text-xs", m.online ? "text-ink-2" : "text-ink-4")}>
+        <MachineFace m={m} size={14} className={cn(!m.online && "opacity-50")} />
+        <span className="truncate font-medium">{m.name}</span>
+        {!m.online && <span className="shrink-0">{t("status.offline")}</span>}
+      </div>
+      {!m.agents.length && <p className="m-0 flex h-9 items-center px-2 text-sm text-ink-3">{t("new.noAgents")}</p>}
+      <div className="g-stagger grid grid-cols-4 gap-1">
+        {m.agents.map(({ agent }, i) => {
+          const a = agent as Agent;
+          const key = `${m.id}/${a}`;
+          const label = m.online ? `${agentName(a)} · ${m.name}` : t("new.offline", { name: m.name });
+          return (
+            <Tip key={key} label={label}>
+              <button type="button" aria-label={label} disabled={busy !== null} onClick={() => onPick(a)} style={{ "--i": i } as CSSProperties} className="g-press grid h-14 place-items-center rounded-md hover:bg-fill disabled:opacity-50">
+                {busy === key ? (
+                  <LoaderCircle size={20} className="animate-spin text-ink-3" />
+                ) : (
+                  <span className={cn("relative grid", !m.online && "opacity-30 grayscale")}>
+                    <Logo agent={a} size={24} />
+                    <MachineBadge m={m} size={13} />
+                  </span>
+                )}
+              </button>
+            </Tip>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -374,10 +399,10 @@ export function NewSession({ ws, folder, onFolder, onPick, busy, onMake }: { ws:
  *  ("<machine>/<agent>" at another machine). */
 export function useStart(opened: (id: string) => void) {
   const [busy, setBusy] = useState<string | null>(null);
-  const start = async (agent: Agent, cwd: string, workspace?: number, machine?: string, extra?: Extra) => {
+  const start = async (agent: Agent, cwd: string, workspace?: number, machine?: string) => {
     setBusy(machine ? `${machine}/${agent}` : agent);
     try {
-      const { id } = await api.create({ agent, cwd, ...(workspace ? { workspace } : {}), ...(machine ? { machine } : {}), ...extra });
+      const { id } = await api.create({ agent, cwd, ...(workspace ? { workspace } : {}), ...(machine ? { machine } : {}) });
       born.add(id);
       opened(id);
     } catch (e) {
@@ -503,7 +528,7 @@ export function CreatePopover({ trigger }: { trigger: ReactElement }) {
               />
             </>
           ) : (
-            <NewSession ws="" folder={here} busy={busy} onFolder={() => setPage("folder")} onMake={sub.make} onPick={(a, to, extra) => void sub.settled(to).then((p) => p && start(a, p.to?.cwd ?? p.folder, undefined, p.to?.m.id, extra))} />
+            <NewSession ws="" folder={here} busy={busy} onFolder={() => setPage("folder")} onMake={sub.make} onPick={(a, to) => void sub.settled(to).then((p) => p && start(a, p.to?.cwd ?? p.folder, undefined, p.to?.m.id))} />
           )}
         </div>
       </PopSurface>
@@ -542,7 +567,7 @@ export function WsPlus({ w, trigger, open, setOpen, opened }: { w: Workspace; tr
         {/* Page to page, sliding the way you went: into the folder, back to the agents (the user, 2026-11-06). */}
         <div key={page} data-dir={page === "session" ? "back" : undefined} className={page !== "session" || stepped ? "g-slide" : ""}>
           {page === "session" ? (
-            <NewSession ws={w.name} folder={folder} busy={busy} onFolder={() => (setStepped(true), setPage("folder"))} onMake={sub.make} onPick={(a, to, extra) => void sub.settled(to).then((at) => at && start(a, at.to?.cwd ?? at.folder, w.id, at.to?.m.id, extra))} />
+            <NewSession ws={w.name} folder={folder} busy={busy} onFolder={() => (setStepped(true), setPage("folder"))} onMake={sub.make} onPick={(a, to) => void sub.settled(to).then((at) => at && start(a, at.to?.cwd ?? at.folder, w.id, at.to?.m.id))} />
           ) : (
             <FolderPicker
               machine={there?.m}

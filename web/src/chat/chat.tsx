@@ -27,7 +27,8 @@ import { agentName, cn, Lamp, lampOf, LogoLamp, LogoStack, sessionStatusText, ti
 import { isMulti } from "./channel/lib";
 import { mayAct, useMembers } from "./channel/gate";
 // 群聊配置's key in the composer's foot, and the line in the composer's place for one not joined.
-const ChannelKey = lazy(() => import("./channel/key").then((m) => ({ default: m.ChannelKey })));
+const InviteLead = lazy(() => import("./channel/invite"));
+const ChannelMenu = lazy(() => import("./channel/top"));
 const NotJoinedOf = lazy(() => import("./channel/key").then((m) => ({ default: m.NotJoinedOf })));
 // A channel of several agents: its own code, fetched as one is first opened.
 const ChannelPage = lazy(() => import("./channel/page").then((m) => ({ default: m.ChannelPage })));
@@ -73,7 +74,8 @@ export function ChatPage({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?:
   // A channel of several agents (docs/channels.md) is its own view (chat/channel), taken as its
   // members become several and left as they are one again. solo: its own session's record asked
   // for from there, the one-agent chat in its place; a key in the bar goes back.
-  const multi = isMulti(row);
+  // Several agents, or a channel that is no session's: the channel's own page.
+  const multi = isMulti(row) || !!row?.bare;
   const [solo, setSolo] = useState(false);
   if (solo && !multi) setSolo(false);
   if (multi && !solo)
@@ -90,11 +92,7 @@ export function ChatPage({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?:
           id={id}
           sheet={sheet}
           record={(session) => (session === id ? setSolo(true) : openChat(session))}
-          bar={(s, under) => (
-            <Bar s={s} onSheet={onSheet} onMe={onMe}>
-              {under}
-            </Bar>
-          )}
+          bar={(s, usage) => <Bar s={s} onSheet={onSheet} onMe={onMe} usage={usage} />}
         />
       </Suspense>
     );
@@ -356,7 +354,7 @@ function OneChat({ id, sheet = 0, onSheet, onMe, back }: { id: string; sheet?: n
           {s.status === "error" && s.error && <Crash error={s.error} />}
         </div>
       </Stick>
-      <Bar s={s} onSheet={onSheet} onMe={onMe} spots={spots} asked={confirms} back={back} />
+      <Bar s={s} onSheet={onSheet} onMe={onMe} spots={spots} asked={confirms} back={back} usage={<QuotaBars agent={s.agent} machine={s.machine} live={s.live} using={[s.model, s.pick, modelView(s).name]} open={usageOpen} onOpenChange={setUsageOpen} />} />
       {/* Under the phone's sheet the stack stays where it is, covered, and is hidden once the sheet is
           up (its glass not drawn again as the chat moves under it); only one taller than the sheet,
           which would show over it or at its round corners, sinks (the user, 2026-11-06). */}
@@ -385,7 +383,7 @@ function OneChat({ id, sheet = 0, onSheet, onMe, back }: { id: string; sheet?: n
               <NotJoinedOf id={id} />
             </Suspense>
           ) : (
-            <Under s={s} ghost={ghost} composer={composer} onSent={onSent} onSentDone={sentDone} modelOpen={modelOpen} setModelOpen={setModelOpen} modeOpen={modeOpen} setModeOpen={setModeOpen} usageOpen={usageOpen} setUsageOpen={setUsageOpen} />
+            <Under s={s} ghost={ghost} composer={composer} onSent={onSent} onSentDone={sentDone} modelOpen={modelOpen} setModelOpen={setModelOpen} modeOpen={modeOpen} setModeOpen={setModeOpen} setUsageOpen={setUsageOpen} />
           )}
         </div>
       </div>
@@ -395,7 +393,7 @@ function OneChat({ id, sheet = 0, onSheet, onMe, back }: { id: string; sheet?: n
 
 /** The composer, with in its foot the approval-mode key (back, its name alone, the user,
  *  2026-11-08), the model key, the quota bars, and at the right the context ring, then send. */
-function Under({ s, ghost, composer, onSent, onSentDone, modelOpen, setModelOpen, modeOpen, setModeOpen, usageOpen, setUsageOpen }: { s: LiveSession; ghost: boolean; composer: React.RefObject<ComposerHandle | null>; onSent: (x: Sent) => void; onSentDone: (x: Sent) => void; modelOpen: boolean; setModelOpen: (o: boolean) => void; modeOpen: boolean; setModeOpen: (o: boolean) => void; usageOpen: boolean; setUsageOpen: (o: boolean) => void }) {
+function Under({ s, ghost, composer, onSent, onSentDone, modelOpen, setModelOpen, modeOpen, setModeOpen, setUsageOpen }: { s: LiveSession; ghost: boolean; composer: React.RefObject<ComposerHandle | null>; onSent: (x: Sent) => void; onSentDone: (x: Sent) => void; modelOpen: boolean; setModelOpen: (o: boolean) => void; modeOpen: boolean; setModeOpen: (o: boolean) => void; setUsageOpen: (o: boolean) => void }) {
   const mode = useMode(s);
   const agentInfo = useAgent(s.agent);
   const [ctxOpen, setCtxOpen] = useState(false);
@@ -423,9 +421,11 @@ function Under({ s, ghost, composer, onSent, onSentDone, modelOpen, setModelOpen
         openContext={() => !!s.context?.max && (setCtxOpen(true), true)}
         cleared={openChat}
         lead={
-          <Suspense fallback={null}>
-            <ChannelKey id={s.id} />
-          </Suspense>
+          !ghost && (
+            <Suspense fallback={null}>
+              <InviteLead id={s.id} />
+            </Suspense>
+          )
         }
         tools={
           <>
@@ -434,7 +434,6 @@ function Under({ s, ghost, composer, onSent, onSentDone, modelOpen, setModelOpen
             {!ghost && modelKnown && <ModelKey s={s} open={modelOpen} onOpenChange={setModelOpen} />}
             {/* dsh: its preset, then its balance where the bars would be (the user, 2026-11-08). */}
             {agentInfo?.presets ? <PresetKey s={s} /> : null}
-            <QuotaBars agent={s.agent} machine={s.machine} live={s.live} using={[s.model, s.pick, modelView(s).name]} open={usageOpen} onOpenChange={setUsageOpen} />
           </>
         }
         end={<ContextRing session={s.id} summary={s.context} tokens={s.tokens} open={ctxOpen} onOpenChange={setCtxOpen} />}
@@ -462,10 +461,12 @@ function useWaited(ready: boolean, ms: number): boolean {
  *  there are any, the places it works in (spots, Where). */
 /** back: the channel this one is an agent of (shown by itself), a key under the title to go
  *  there. children: a channel of several's row of members, under the title (chat/channel). */
-function Bar({ s, onSheet, onMe, spots, asked, back, children }: { s?: Session; onSheet?: () => void; onMe?: () => void; spots?: Spot[]; asked?: { session?: string }[]; back?: Back; children?: ReactNode }) {
+/** usage: the quota of the session's agent (a channel of several: of each kind in it), at the
+ *  top on a phone and a computer alike (the user, 2026-11-13). */
+function Bar({ s, onSheet, onMe, spots, asked, back, usage }: { s?: Session; onSheet?: () => void; onMe?: () => void; spots?: Spot[]; asked?: { session?: string }[]; back?: Back; usage?: ReactNode }) {
   const list = useList();
   // A channel of several: its agents' logos, as its row in the list has them.
-  const stack = s && children && isMulti(s) ? s.agents!.map((a) => list?.find((x) => x.id === a.session)?.agent ?? a.agent ?? s.agent) : undefined;
+  const stack = s && isMulti(s) ? s.agents!.map((a) => list?.find((x) => x.id === a.session)?.agent ?? a.agent ?? s.agent) : undefined;
   const ws = useWorkspaces().data ?? [];
   const machines = useMachines();
   const [renaming, setRenaming] = useState(false);
@@ -516,6 +517,7 @@ function Bar({ s, onSheet, onMe, spots, asked, back, children }: { s?: Session; 
             </>
           )}
         </div>
+        {s && usage && <span className="flex min-w-0 shrink items-center overflow-hidden">{usage}</span>}
         {/* With the sidebar shown, the link's dot is at its top (sidebar.tsx). */}
         {onSheet && <LinkDot />}
         {/* ⋯'s place kept while the session comes: the dot beside it does not move as it does. */}
@@ -543,7 +545,11 @@ function Bar({ s, onSheet, onMe, spots, asked, back, children }: { s?: Session; 
               </Tip>
               <Menu.Portal>
                 <Menu.Positioner side="bottom" align="end" sideOffset={6} collisionPadding={8} className="z-50">
-                  <MenuItems lead={lead} items={acts} tags={sessionTags(s)} />
+                  <MenuItems lead={lead} items={acts} tags={sessionTags(s)}>
+                    <Suspense fallback={null}>
+                      <ChannelMenu id={s.id} from={lead.length} />
+                    </Suspense>
+                  </MenuItems>
                 </Menu.Positioner>
               </Menu.Portal>
             </Menu.Root>
@@ -562,7 +568,6 @@ function Bar({ s, onSheet, onMe, spots, asked, back, children }: { s?: Session; 
         </div>
       )}
       {!!spots?.length && <Where spots={spots} asked={asked ?? []} />}
-      {children}
     </header>
   );
 }

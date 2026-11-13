@@ -30,8 +30,8 @@ import { Stick, toEnd } from "../stick";
 import { groupMessages, linkNicks, quotaKinds, stillWaiting, watchExtra, type AgentRow, type Did, type Group, type Msg, eventParts, personName, type EventWords } from "./lib";
 import { channelLog } from "./log";
 import { useMembers } from "./gate";
-import { MembersKey, NotJoined, useChannelCtl } from "./key";
-import { MemberBar } from "./members";
+import InviteLead from "./invite";
+import { NotJoined, useChannelCtl } from "./key";
 import { NickLink, Nicks, NickWords } from "./nick";
 
 const WORKING = new Set(["running", "compacting", "starting"]);
@@ -48,7 +48,7 @@ function useStates(ids: string[]): (LiveSession | undefined)[] {
   return ids.map((id) => getCarried<LiveSession>(`session:${id}`));
 }
 
-/** bar: the chat's top bar (chat.tsx Bar), the member bar its children. record: an agent's own
+/** bar: the chat's top bar (chat.tsx Bar), the agents' quotas in it. record: an agent's own
  *  record asked for (the channel's own session's: shown in its place). */
 export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?: number; bar: (s: Session | undefined, under: ReactNode) => ReactNode; record: (session: string) => void }) {
   useLang();
@@ -207,7 +207,7 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
   const working = agents.filter((a) => WORKING.has(a.status));
   const asking = agents.some((_, i) => states[i]?.asks.length);
   const grew = `${log.end} ${sent.length} ${working.map((a) => a.session).join(" ")}`;
-  const padTop = 104; // the bar's 48px, the members' 40px, a gap
+  const padTop = 64; // the bar's 48px, a gap
 
   if (!s) return <div className="relative h-full">{bar(row, null)}</div>;
   return (
@@ -216,7 +216,7 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
         <Stick scroller={scroller} tail={grew} older={() => log.older().then((any) => (changed(), any))} place={entry.place} bottom={stackH} quiet={asking} style={{ paddingTop: padTop, paddingBottom: stackH + 20 }}>
           <div className="mx-auto flex max-w-[760px] flex-col gap-5 px-4 sm:px-6">
             {groups.map((g) => (
-              <GroupView key={g.key} g={g} channel={id} agents={agents} who={who} />
+              <GroupView key={g.key} g={g} channel={id} agents={agents} who={who} record={record} />
             ))}
             {sent.map((x) => (
               <Pending
@@ -244,7 +244,7 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
             )}
           </div>
         </Stick>
-        {bar(s, <MemberBar channel={id} agents={agents} call={call} record={record} ctl={ctl} />)}
+        {bar(s, <Quotas agents={agents} states={states} />)}
         <div ref={stack} {...{ [PULL]: "" }} data-covered={sheet > 0 || undefined} data-sunk={(sheet > 0 && stackH > sheet - 16) || undefined} inert={sheet > 0} className="g-turn-stay g-sink vt-stack absolute inset-x-0 bottom-0 z-10 px-2.5 pb-[max(10px,calc(env(safe-area-inset-bottom)+6px))] sm:px-5">
           <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-[calc(64px+max(10px,calc(env(safe-area-inset-bottom)+6px)))] bg-[linear-gradient(to_bottom,transparent,var(--paper)_14px)]" />
           <div className="relative mx-auto max-w-[760px]">
@@ -266,8 +266,7 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
               ) : null;
             })}
             {!may ? <NotJoined ctl={ctl} /> : null}
-            {may && <Composer ref={composer} s={s} turn={false} nicks={agents} lead={<MembersKey ctl={ctl} />} onSent={onSent} onSentDone={changed} cycleMode={() => {}} openModel={() => {}} openMode={() => {}} openUsage={() => {}} openContext={() => false} cleared={openChat} />}
-            <Quotas agents={agents} states={states} />
+            {may && <Composer ref={composer} s={s} turn={false} nicks={agents} lead={<InviteLead id={id} />} onSent={onSent} onSentDone={changed} cycleMode={() => {}} openModel={() => {}} openMode={() => {}} openUsage={() => {}} openContext={() => false} cleared={openChat} />}
           </div>
         </div>
       </div>
@@ -297,7 +296,7 @@ function Quotas({ agents, states }: { agents: AgentRow[]; states: (LiveSession |
   const shown = kinds.filter((k) => quota?.agents.some((q) => q.agent === k.agent && (q.machine ?? "") === (k.machine ?? "") && (q.windows?.length || q.balance?.length)));
   if (!shown.length) return null;
   return (
-    <div className="@container flex min-w-0 items-center gap-3 overflow-x-auto px-1.5 pt-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+    <div className="@container flex min-w-0 items-center gap-3 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
       {shown.map((k) => (
         <span key={`${k.agent}:${k.machine ?? ""}`} className="flex shrink-0 items-center">
           <Logo agent={k.agent} size={12} className="mr-0.5" />
@@ -321,7 +320,7 @@ function blockFor(m: Msg, nicks: string[]): Block {
 }
 
 /** One speaker's messages: a person's bubble; an agent's words under its head; Iridium's line. */
-function GroupView({ g, channel, agents, who }: { g: Group; channel: string; agents: AgentRow[]; who: (a: Extract<Msg["author"], { kind: "person" }>) => ReturnType<typeof yours> }) {
+function GroupView({ g, channel, agents, who, record }: { g: Group; channel: string; agents: AgentRow[]; who: (a: Extract<Msg["author"], { kind: "person" }>) => ReturnType<typeof yours>; record: (session: string) => void }) {
   const list = useList();
   const a = g.author;
   if (a.kind === "iridium")
@@ -348,11 +347,11 @@ function GroupView({ g, channel, agents, who }: { g: Group; channel: string; age
   const agent = now?.agent ?? list?.find((x) => x.id === a.session)?.agent;
   return (
     <div className="flex min-w-0 flex-col gap-2">
-      <div className="flex min-w-0 items-center gap-1.5">
+      <button type="button" onClick={() => record(a.session)} aria-label={`${now?.nick || a.nick} · ${t("channel.session")}`} className="g-press -mx-1 flex min-w-0 items-center gap-1.5 self-start rounded-md px-1 text-left hover:bg-fill">
         {agent && <Logo agent={agent} size={16} />}
         <span className="shrink-0 text-sm font-medium">{now?.nick || a.nick}</span>
         <span className="min-w-0 truncate text-xs text-ink-3">{now?.name || a.name}</span>
-      </div>
+      </button>
       {g.msgs.map((m) => (
         <div key={m.n} className={cn(m.kind === "error" && "text-err")}>
           {m.did && <DidLine did={m.did} />}
