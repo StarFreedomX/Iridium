@@ -11,7 +11,7 @@
 import { Menu } from "@base-ui/react/menu";
 import { Archive, ArchiveRestore, ArrowDown, ArrowUp, Bot, Check, ChevronRight, Copy, Ellipsis, Ungroup, Folder, FolderOpen, ListIndentDecrease, Pencil, Pin, PinOff, Plus, RefreshCw, Square, Workflow as WorkflowIcon } from "lucide-react";
 import { ConfirmIcon, confirmName, confirmTitle } from "./confirmname";
-import { Fragment, lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactElement, type ReactNode, type RefObject } from "react";
+import { Fragment, lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactElement, type ReactNode, type RefObject } from "react";
 import { api } from "./api/client";
 import type { Color, Guilds, Need, Session, Status } from "./api/types.gen";
 import { NO_GUILDS, placesOf, withGroupOrder, withMark, type Places } from "./guilds";
@@ -135,6 +135,8 @@ export function Sidebar(p: Props) {
   // A confirmation an agent's ir asked for lights its session's lamp (one hung under its launcher
   // too); one of no session listed here is a row of its own at the top (no 需要你 group: the user,
   // 2026-11-08).
+  const all = useCarried<Session[]>("list");
+  const byId = useMemo(() => new Map((all ?? []).map((x) => [x.id, x])), [all]);
   const listed = new Set([...p.tree.workspaces.flatMap((w) => w.rows.flatMap((r) => (r.kind === "session" ? [r.s.id] : folderSessions(r.f).map((s) => s.id)))), ...[...p.tree.hung.values()].flat().map((s) => s.id)]);
   const asked = new Set(p.confirms.flatMap((c) => (c.session && listed.has(c.session) ? [c.session] : [])));
   const loose = p.confirms.filter((c) => !c.session || !listed.has(c.session));
@@ -250,8 +252,17 @@ export function Sidebar(p: Props) {
   // lane: the rows it may be dragged among (reorder.ts), none out of its place.
   // pinLine: at a group's root, a folder dropped on it is pinned, the line at the top of the first.
   // top: the launcher it hangs under, for one hung; its rows and those under it are that one's.
-  const row = (s: Session, depth: number, shown = false, flip = `s:${s.id}`, lane?: string, pinLine?: string, top?: string) => {
-    const hung = top ? undefined : p.tree.hung.get(s.id);
+  // invited: the agents of its channel beside its own (the user, 2026-11-13): an entry each
+  // under it with those it started, wherever else they are listed; archiving it leaves them be.
+  const invitedOf = (s: Session, started?: Session[]) =>
+    (s.agents ?? []).flatMap((a) => {
+      const x = a.session !== s.id && !started?.some((h) => h.id === a.session) ? byId.get(a.session) : undefined;
+      return x && !x.archived ? [x] : [];
+    });
+  const row = (s: Session, depth: number, shown = false, flip = `s:${s.id}`, lane?: string, pinLine?: string, top?: string, invited = false) => {
+    const started = top ? undefined : p.tree.hung.get(s.id);
+    const guests = top ? [] : invitedOf(s, started);
+    const hung = started || guests.length ? [...(started ?? []), ...guests] : undefined;
     const open = !!hung && p.expanded(`hung:${s.id}`);
     const under = top ?? (hung ? s.id : undefined);
     return (
@@ -272,14 +283,14 @@ export function Sidebar(p: Props) {
           pinFolder={pinFolderAt}
           under={under}
           hungFrom={top}
-          detach={top ? detach : undefined}
+          detach={top && !invited ? detach : undefined}
           hungN={hung?.length}
           hungOpen={open}
           hungLamp={hung && summary(hung, asked)}
           toggle={hung && p.toggle}
         />
         {row2(s, depth, flip, under)}
-        {open && hung!.map((h) => row(h, depth + 1, false, `${flip}>${h.id}`, undefined, undefined, s.id))}
+        {open && hung!.map((h) => row(h, depth + 1, false, `${flip}>${h.id}`, undefined, undefined, s.id, guests.includes(h)))}
       </Fragment>
     );
   };
