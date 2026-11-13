@@ -31,7 +31,7 @@ export const zh = {
   "status.offline": "已断开",
   "machine.latency": "延迟 {ms} ms",
   "machine.reconnecting": "重新连接中",
-  "status.unread": "有新消息",
+  "status.unreadCount": "{n} 条新消息",
 
   "top.online": "已连接 · 往返 {ms} ms",
   "top.connecting": "连接中",
@@ -56,6 +56,8 @@ export const zh = {
   "nav.hungCount": "{n} 个派出的会话",
   "menu.pin": "置顶",
   "menu.unpin": "取消置顶",
+  "menu.quiet": "免打扰",
+  "menu.unquiet": "取消免打扰",
   "menu.pinned": "已置顶",
   "menu.archive": "归档",
   "menu.unarchive": "恢复",

@@ -13,7 +13,7 @@ import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo,
 import { queryClient } from "./api/client";
 import { watchTurns } from "./chats";
 import { CreatePopover, WsPlus } from "./create";
-import { agentsQ, pushQ, useApps, useHome, useMe, useSettings, useUpdate, useWorkspaces } from "./data";
+import { agentsQ, LOCAL_ME, pushQ, useApps, useHome, useMe, useSettings, useUpdate, useWorkspaces } from "./data";
 import { t, useLang } from "./i18n";
 import { applyTheme, initialTheme, keepTheme, MeKey, useTellLang, type ThemePref } from "./me";
 import { motion, pageTurn } from "./motion";
@@ -147,6 +147,7 @@ export function App() {
 
   useEffect(() => follow(open), [open]);
   // Unread, and the chats of turns that end off screen.
+  const meNow = useMe().data;
   const unread = useRef<ReturnType<typeof watchUnread>>(undefined);
   useEffect(() => {
     unread.current = watchUnread();
@@ -156,9 +157,9 @@ export function App() {
   useEffect(() => {
     if (!list) return;
     // Not those the list leaves out (a group at another machine no one opened): no count for them.
-    unread.current?.take(list.filter((s) => !tree.unlisted.has(s.id)));
+    unread.current?.take(list.filter((s) => !tree.unlisted.has(s.id)), meNow ?? LOCAL_ME);
     watchTurns(list, turns.current, open);
-  }, [list]);
+  }, [list, meNow?.id]);
   // The chats you may open next, warmed (src/warm.ts).
   useEffect(() => warmUp(list, tree, open), [tree, open]);
 

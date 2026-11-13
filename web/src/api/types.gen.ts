@@ -122,6 +122,11 @@ export interface Session {
    */
   launcher?: string;
   /**
+   * Opener: the app or login that opened it through Iridium (its terminal ID, "local" the
+   * host); empty for one Iridium did not open. The page's list tells yours from another's by it.
+   */
+  opener?: string;
+  /**
    * Own: a person opened it (docs/exec.md "远端工作区"): with a Launcher, it was taken out from
    * under it (its placement is by hand, SessionPatch.Detach); without, Iridium opened it through
    * a create (the page's "+", ir new in a shell, a Bot's, /clear). Never a subagent. A session
@@ -572,6 +577,11 @@ export interface Send {
    * written twice. None: one is made.
    */
   id?: string;
+  /**
+   * Quote: the number of the channel's message it answers (Satori's <quote id/>). In a channel
+   * of several agents, one whose message it is is called as if named.
+   */
+  quote?: number /* int64 */;
 }
 export interface SendReply {
   input: string; // the message's id (Claude: its uuid)

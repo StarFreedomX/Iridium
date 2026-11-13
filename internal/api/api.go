@@ -101,6 +101,9 @@ type Session struct {
 	Order float64 `json:"order,omitempty"`
 	// Launcher: the session that started this one (its ir new), if known.
 	Launcher string `json:"launcher,omitempty"`
+	// Opener: the app or login that opened it through Iridium (its terminal ID, "local" the
+	// host); empty for one Iridium did not open. The page's list tells yours from another's by it.
+	Opener string `json:"opener,omitempty"`
 	// Own: a person opened it (docs/exec.md "远端工作区"): with a Launcher, it was taken out from
 	// under it (its placement is by hand, SessionPatch.Detach); without, Iridium opened it through
 	// a create (the page's "+", ir new in a shell, a Bot's, /clear). Never a subagent. A session

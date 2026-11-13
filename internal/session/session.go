@@ -508,6 +508,12 @@ func (m *Manager) List(ctx context.Context) ([]api.Session, error) {
 		return cmp.Compare(sortKey(b), sortKey(a))
 	})
 	m.markChannels(out)
+	// Who opened each (store "openers"): none recorded, none said.
+	if openers, err := m.o.Store.Openers(); err == nil {
+		for i := range out {
+			out[i].Opener = openers[out[i].ID]
+		}
+	}
 	return out, nil
 }
 

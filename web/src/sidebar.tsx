@@ -9,11 +9,11 @@
 // and at its foot the colour tags (colors.ts); a group's: rename, its path, 通知. The mouse resting
 // on a row fetches its chat ahead.
 import { Menu } from "@base-ui/react/menu";
-import { Archive, ArchiveRestore, ArrowDown, ArrowUp, Bot, Check, ChevronRight, Copy, Ellipsis, Ungroup, Folder, FolderOpen, ListIndentDecrease, Pencil, Pin, PinOff, Plus, RefreshCw, Square, Workflow as WorkflowIcon } from "lucide-react";
+import { Archive, ArchiveRestore, ArrowDown, ArrowUp, Bot, Check, ChevronRight, Copy, Ellipsis, Ungroup, Folder, FolderOpen, ListIndentDecrease, Moon, Pencil, Pin, PinOff, Plus, RefreshCw, Square, Workflow as WorkflowIcon } from "lucide-react";
 import { ConfirmIcon, confirmName, confirmTitle } from "./confirmname";
 import { Fragment, lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactElement, type ReactNode, type RefObject } from "react";
 import { api } from "./api/client";
-import type { Color, Guilds, Need, Session, Status } from "./api/types.gen";
+import type { Agent, Color, Guilds, Need, Session, Status } from "./api/types.gen";
 import { NO_GUILDS, placesOf, withGroupOrder, withMark, type Places } from "./guilds";
 import { colorVar, COLORS, useFolderColors } from "./colors";
 import { ahead, behind } from "./chats";
@@ -24,11 +24,12 @@ import { allFolders, folderSessions, foldersHolding, foldRest, groupHolding, mac
 import { createAt, onOpenPlace, type Place } from "./places";
 import { LinkDot } from "./link";
 import { errText, toast } from "./toast";
-import { manages, useMachines, useMe, useUpdate } from "./data";
+import { manages, useMachines, useMe, useSaidLine, useUpdate } from "./data";
 import { agentName, ago, cn, fine, IconKey, IrMark, keep, kept, Lamp, lampOf, Logo, LogoStack, own, sessionStatusText, statusText, tilde, Tip, titleOf, untitled, useLongPress, useMenuAt, useMinute } from "./ui";
 import { PLACE_DRAG, SESSION_DRAG } from "./chat/refs";
 import { NoteMark, NotesAt, useNotes } from "./notekey";
-import { useUnread } from "./unread";
+import { badge, isQuiet, setQuiet, useQuiet, useUnread } from "./unread";
+import { Face } from "./chat/channel/face";
 import { CloudBadge, MachineFace, shownPath, useLate, useMachine, type Machine } from "./machines";
 import { getCarried, setCarried, useCarried } from "./store";
 import { channelLamp, isMulti } from "./chat/channel/lib";
@@ -128,6 +129,7 @@ function Divider({ width, setWidth }: { width: number; setWidth: (w: number) => 
 
 export function Sidebar(p: Props) {
   const machines = useMachines();
+  saidNow = useSaidLine();
   const list = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(() => clampWidth(Number(kept(WIDTH_KEY)) || WIDTH.start));
   useLayoutEffect(() => void document.documentElement.style.setProperty("--sidebar-w", `${p.phone ? 0 : width}px`), [width, p.phone]);
@@ -645,9 +647,11 @@ type RowProps = {
   dim?: boolean;
   /** The chevron a key of its own (→ ← on the keyboard too). */
   onChevron?: () => void;
+  /** A session's row (the user, 2026-11-13): its icon a face as tall as its two lines. */
+  face?: boolean;
 };
 
-function Row({ depth, flip, chevron, expanded, icon, label, end, selected, onClick, aria, extra, faded, sub, reveal, head, dim, onChevron }: RowProps) {
+function Row({ depth, flip, chevron, expanded, icon, label, end, selected, onClick, aria, extra, faded, sub, reveal, head, dim, onChevron, face }: RowProps) {
   const two = sub !== undefined;
   const top = reveal || head;
   return (
@@ -666,7 +670,7 @@ function Row({ depth, flip, chevron, expanded, icon, label, end, selected, onCli
       }}
       className={cn(
         "group relative flex cursor-default rounded-md pr-2 transition-opacity duration-(--dur-2) select-none hover:bg-fill hover:[--row-bg:var(--fill)]",
-        two ? "items-start py-[5px] pointer-coarse:py-2" : "h-[30px] items-center pointer-coarse:h-10",
+        face ? "items-center py-1.5 pointer-coarse:py-2" : two ? "items-start py-[5px] pointer-coarse:py-2" : "h-[30px] items-center pointer-coarse:h-10",
         faded && "opacity-60",
         dim && "opacity-40",
       )}
@@ -675,7 +679,7 @@ function Row({ depth, flip, chevron, expanded, icon, label, end, selected, onCli
       {...extra}
     >
       {!top && <Chevron state={chevron} onClick={onChevron} />}
-      {icon && <span className={cn("grid shrink-0 place-items-center", top ? "mr-2 w-[18px]" : "mr-2 w-4", two && "h-5 pointer-coarse:h-[23px]")}>{icon}</span>}
+      {icon && <span className={cn("grid shrink-0 place-items-center", face ? "mr-2.5 size-9" : top ? "mr-2 w-[18px]" : "mr-2 w-4", !face && two && "h-5 pointer-coarse:h-[23px]")}>{icon}</span>}
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-center">
           <span
@@ -894,6 +898,30 @@ function WsRename({ id, name, done }: { id: number; name: string; done: () => vo
 
 /** A session's row: its logo and lamp, its name, unread or pinned at the end. The mouse resting on
  *  it 0.1 s, counted from its last move, or a press, fetches its chat ahead. */
+/** The last thing said in a session as a row writes it (data.ts useSaidLine), as the list last
+ *  drew it: read by the rows as they draw, so that a name changing elsewhere draws none of them. */
+let saidNow: ReturnType<typeof useSaidLine> = () => undefined;
+
+/** A session's face in the list (the user, 2026-11-13): its channel's picture, round, else its
+ *  agents' logos on a disc; what is unread of it a badge on its top right corner, red, or grey
+ *  while it is quiet (unread.ts), 99+ past 99. */
+function RowFace({ s, agents, unread, quiet }: { s: Session; agents?: Agent[]; unread: number; quiet: boolean }) {
+  const logo = agents ? <LogoStack agents={agents} size={22} /> : <Logo agent={s.agent} size={20} />;
+  return (
+    <span className="relative grid size-9 place-items-center rounded-full bg-fill">
+      <Face id={s.id} agent={s.agent} size={36} none={logo} className="place-items-center" />
+      {unread > 0 && (
+        <span
+          className={cn("g-pop absolute -top-1 -right-1.5 grid h-4 min-w-4 place-items-center rounded-full px-1 text-[10px] leading-none font-semibold tabular-nums", quiet ? "bg-ink-4" : "bg-err")}
+          style={{ color: "rgb(255 255 255 / 0.92)", boxShadow: "0 0 0 1.5px var(--row-bg, var(--paper))" }}
+        >
+          {badge(unread)}
+        </span>
+      )}
+    </span>
+  );
+}
+
 /** Drawn again only as its props change, not with every draw of the list: a page of the phone's
  *  sheet turned drew every row, its menu and its tip, again (the user, 2026-11-08). */
 /** under: the launcher whose rows it is among (itself, those hung under it, theirs): a dispatched
@@ -905,6 +933,7 @@ const SessionRow = memo(function SessionRow({ s, where, depth, flip, selected, o
   useLang();
   const machines = useMachines();
   const unread = useUnread(s.id);
+  const quiet = useQuiet(s.id);
   const now = useMinute();
   const title = titleOf(s);
   // A subagent shown is at work, whatever discovery says of its process.
@@ -919,7 +948,7 @@ const SessionRow = memo(function SessionRow({ s, where, depth, flip, selected, o
   const told = working ? statusText("running") : status !== base ? statusText("waiting") : base !== lampOf(s) ? statusText(base) : sessionStatusText(s);
   // How long ago it was last active (its turn ended, it was last written to), but in a turn. Unread,
   // it is in ink: no grey dot for it (the user, 2026-11-06).
-  const fresh = unread && status === "idle";
+  const fresh = unread > 0 && !quiet && status === "idle";
   // At work, its lamp stands in the time's place: the two cross-fade there (g-swap), the time still
   // drawn under it so the row keeps its width (the user, 2026-11-08).
   const busy = BUSY.has(status);
@@ -930,6 +959,11 @@ const SessionRow = memo(function SessionRow({ s, where, depth, flip, selected, o
       {ago(s.updatedAt, now, true)}
     </span>
   );
+  // Under its name, who last spoke and what (the user, 2026-11-13): you, a person by name, its
+  // agent by its nick, else its kind; nothing said yet, its agents.
+  const nicks = multi?.map((a) => a.nick).filter(Boolean).join(" · ");
+  const speaker = s.agents?.find((a) => a.session === s.id)?.nick || agentName(s.agent);
+  const line = s.last ? (s.last.role === "user" ? saidNow(s.last, s) : `${speaker}: ${s.last.text}`) : nicks || (s.bare ? "" : agentName(s.agent));
   const [menuAt, setMenuAt] = useMenuAt();
   const [renaming, setRenaming] = useState(false);
   const rest = useRef<number | undefined>(undefined);
@@ -1033,17 +1067,17 @@ const SessionRow = memo(function SessionRow({ s, where, depth, flip, selected, o
         selected={selected}
         onClick={() => !renaming && onSelect(s.id)}
         faded={s.archived}
-        aria={`${title}, ${told}${s.color ? `, ${t("color.tagged", { color: t(`color.${s.color}`) })}` : ""}${unread ? `, ${t("status.unread")}` : ""}`}
+        aria={`${title}, ${told}${s.color ? `, ${t("color.tagged", { color: t(`color.${s.color}`) })}` : ""}${unread ? `, ${t("status.unreadCount", { n: badge(unread) })}` : ""}${quiet ? `, ${t("menu.quiet")}` : ""}`}
         chevron={hungN ? (hungOpen ? "open" : "closed") : undefined}
         onChevron={hungN && toggle ? () => toggle(`hung:${s.id}`) : undefined}
         icon={
           <Tip label={[multi ? multi.map((a, i) => `${agentName(members?.[i]?.agent ?? a.agent ?? s.agent)} ${a.nick ?? ""}`.trim()).join(", ") : agentName(s.agent), machine?.name, s.subagent && t("row.subagent"), away ? t("status.offline") : status !== "idle" && told].filter(Boolean).join(" · ")} side="bottom">
             <span className="relative grid">
-              {multi ? <LogoStack agents={multi.map((a, i) => members?.[i]?.agent ?? a.agent ?? s.agent)} /> : <Logo agent={s.agent} />}
+              <RowFace s={s} agents={multi?.map((a, i) => members?.[i]?.agent ?? a.agent ?? s.agent)} unread={unread} quiet={quiet} />
               {remote && <CloudBadge label={machine?.name ?? t("nav.remoteFolder")} />}
               {/* A subagent: no word for it, a small agent badge on the logo's corner (the user, 2026-11-06). */}
               {s.subagent && (
-                <span role="img" aria-label={t("row.subagent")} className="absolute -right-1 -bottom-1 grid size-[11px] place-items-center rounded-full text-ink-2" style={{ background: "var(--row-bg, var(--paper))" }}>
+                <span role="img" aria-label={t("row.subagent")} className="absolute -right-0.5 -bottom-0.5 grid size-[13px] place-items-center rounded-full text-ink-2" style={{ background: "var(--row-bg, var(--paper))" }}>
                   <Bot size={9} strokeWidth={2.5} />
                 </span>
               )}
@@ -1067,7 +1101,8 @@ const SessionRow = memo(function SessionRow({ s, where, depth, flip, selected, o
           )
         }
         end={end}
-        sub={multi ? multi.map((a) => a.nick).filter(Boolean).join(" · ") : undefined}
+        sub={line}
+        face
         dim={dim}
         // data-session: a note may be dropped on it (notes.tsx).
         extra={{ ...lp, ...hover, ...drag, onClickCapture: lp.onClickCapture, "data-session": s.id, ...(under ? { "data-under": under } : {}) }}
@@ -1121,6 +1156,7 @@ export function sessionActions(s: Session, rename: () => void): { icon: ReactNod
       ? { icon: <ArchiveRestore size={15} />, label: t("menu.unarchive"), run: run(() => api.patch(s.id, { archived: false })) }
       : { icon: <Archive size={15} />, label: t("menu.archive"), run: run(() => api.patch(s.id, { archived: true }), t("toast.archived")) },
     s.pinned ? { icon: <PinOff size={15} />, label: t("menu.unpin"), run: run(() => api.patch(s.id, { pinned: false })) } : { icon: <Pin size={15} />, label: t("menu.pin"), run: run(() => api.patch(s.id, { pinned: true })) },
+    { icon: <Moon size={15} />, label: t(isQuiet(s.id) ? "menu.unquiet" : "menu.quiet"), run: () => setQuiet(s.id, !isQuiet(s.id)) },
     { icon: <Pencil size={15} />, label: t("menu.rename"), run: rename },
     { icon: <Copy size={15} />, label: t("menu.copyId"), run: run(() => navigator.clipboard.writeText(s.id), t("toast.copied")) },
     ...(s.live && WORKING.has(s.status) ? [{ icon: <Square size={14} />, label: t("menu.stop"), run: run(() => api.stop(s.id), t("toast.stopped")) }] : []),

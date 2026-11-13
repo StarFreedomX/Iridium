@@ -31,7 +31,7 @@ export const en: Dict = {
   "status.offline": "Disconnected",
   "machine.latency": "Latency {ms} ms",
   "machine.reconnecting": "Reconnecting",
-  "status.unread": "Unread",
+  "status.unreadCount": "{n} unread",
 
   "top.online": "Connected · {ms} ms round trip",
   "top.connecting": "Connecting",
@@ -56,6 +56,8 @@ export const en: Dict = {
   "menu.syncDsh": "Sync DSH",
   "menu.pin": "Pin",
   "menu.unpin": "Unpin",
+  "menu.quiet": "Mute",
+  "menu.unquiet": "Unmute",
   "menu.pinned": "Pinned",
   "menu.archive": "Archive",
   "menu.unarchive": "Restore",
