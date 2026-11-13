@@ -52,7 +52,7 @@ import { placesIn, PLACE_DRAG, SESSION_DRAG, sourceOf, yours } from "./refs";
 import { placeDropped, type NamedPlace } from "./at";
 import { PlaceIcon, placeOf } from "./mention";
 import { spotsOf, type Spot } from "./where";
-import { Compaction, Pending, Running, Said, WorksIn } from "./said";
+import { Compaction, Pending, Relayed, Running, Said } from "./said";
 import { turnsOf, type Row } from "./turns";
 import { Stick, toEnd } from "./stick";
 
@@ -322,8 +322,8 @@ function OneChat({ id, sheet = 0, onSheet, onMe, back }: { id: string; sheet?: n
   // Its lamp only on the face of the turn that is on.
   const resting: AgentRow = { ...face, status: "idle" };
   const rows: Row<ReactNode, Works>[] = (busy ? shown.filter((b) => b.kind !== "running") : shown).map((b) => {
-    // A call from another channel it is in (chat/channel/lib givenTurn): what follows is its
-    // work there, folded under one line.
+    // A call from another channel it is in (chat/channel/lib givenTurn): Iridium's message on
+    // the left, what follows its work there (Relayed).
     const given = b.kind === "user" ? givenTurn(b.text ?? "") : null;
     const time = b.kind === "user" ? b.time : undefined;
     return {
@@ -372,13 +372,13 @@ function OneChat({ id, sheet = 0, onSheet, onMe, back }: { id: string; sheet?: n
                 {x.rows.map((r) => r.node)}
               </AgentTurn>
             ) : (
-              <WorksIn key={x.key} given={x.works.given} name={nameOf(x.works.given)} time={x.works.time} onJump={openChat}>
+              <Relayed key={x.key} given={x.works.given} name={nameOf(x.works.given)} time={x.works.time} onJump={openChat}>
                 {x.rows.length > 0 && (
                   <AgentTurn channel={id} a={resting} may={may}>
                     {x.rows.map((r) => r.node)}
                   </AgentTurn>
                 )}
-              </WorksIn>
+              </Relayed>
             ),
           )}
           {log.sent.filter((x) => x.failed !== undefined || !compactSent(x)).map((x) => (

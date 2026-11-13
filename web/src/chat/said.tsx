@@ -5,7 +5,7 @@
 // peer sent; Iridium's own lines
 // centred and faint; the agent's words as Markdown with the files they name; tool calls and
 // thoughts folded to a line.
-import { Archive, ArchiveRestore, ArrowUpRight, BookOpen, Bot, BotMessageSquare, ChartColumn, Check, ChevronRight, CircleStop, CircleX, Clock, CloudDownload, CloudUpload, Copy, Cpu, Earth, FileCode, FileDiff, FilePen, Files as FilesIcon, FileText, FlaskConical, FolderGit2, FolderOpen, Folders, FoldVertical, GitBranch, GitCommitHorizontal, GitPullRequest, Globe, Hammer, Hash, History, Hourglass, KeyRound, Laptop, Link2, List, ListChecks, LoaderCircle, LockKeyhole, MessageCircleQuestionMark, MessageSquarePlus, Monitor, MonitorSmartphone, MousePointerClick, Network, Package, PencilLine, Plug, RotateCcw, RotateCw, Search, Send, ServerCog, SlidersHorizontal, Smartphone, SquareTerminal, StickyNote, Terminal, Trash2, type LucideIcon, UserRound, Workflow as WorkflowIcon, Wrench, X } from "lucide-react";
+import { Archive, ArchiveRestore, ArrowUpRight, BookOpen, Bot, BotMessageSquare, ChartColumn, Check, ChevronRight, CircleStop, CircleX, Clock, CloudDownload, CloudUpload, Copy, Cpu, Earth, FileCode, FileDiff, FilePen, Files as FilesIcon, FileText, FlaskConical, FolderGit2, FolderOpen, Folders, FoldVertical, GitBranch, GitCommitHorizontal, GitPullRequest, Globe, Hammer, History, Hourglass, KeyRound, Laptop, Link2, List, ListChecks, LoaderCircle, LockKeyhole, MessageCircleQuestionMark, MessageSquarePlus, Monitor, MonitorSmartphone, MousePointerClick, Network, Package, PencilLine, Plug, RotateCcw, RotateCw, Search, Send, ServerCog, SlidersHorizontal, Smartphone, SquareTerminal, StickyNote, Terminal, Trash2, type LucideIcon, UserRound, Workflow as WorkflowIcon, Wrench, X } from "lucide-react";
 import { Copyable } from "./copyable";
 import { Children, forwardRef, memo, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { givenTurn, type GivenTurn } from "./channel/lib";
@@ -14,7 +14,7 @@ import { api } from "../api/client";
 import type { Block, FileRef, Result } from "../api/types.gen";
 import type { Sent } from "../chats";
 import { t } from "../i18n";
-import { agentName, Avatar, Badge, cn, IconKey, Logo, tilde, Tip, titleOf } from "../ui";
+import { agentName, Avatar, Badge, cn, IconKey, IrMark, Logo, tilde, Tip, titleOf } from "../ui";
 import { useHome, useMachines } from "../data";
 import { LocalMark } from "../me";
 import { go } from "../route";
@@ -288,35 +288,44 @@ export const Assistant = memo(function Assistant({ b, session }: { b: Block; ses
   );
 });
 
-/** 在某频道中工作: the agent's work for another channel that called it, in its own record, from
- *  the call to the next message (the user, 2026-11-13). Folded: one line, the channel's name and
- *  a key to it; opened, the words that called it and, under them, what it did and said here,
- *  its closing words too: those are no one's to read but its own record's. */
-export function WorksIn({ given, name, time, onJump, children }: { given: GivenTurn; name: string; time?: number; onJump: (id: string) => void; children?: ReactNode }) {
-  const [open, setOpen] = useState(false);
+/** A call from another channel the agent is in, in its own record (the user, 2026-11-13): not
+ *  folded. On the left, as Iridium's: the channel and the message's number (a key to go there),
+ *  the words that called it, and under them all that Iridium added (its context), marked as
+ *  Iridium's own; then what the agent did and said, as any turn (children). */
+export function Relayed({ given, name, time, onJump, children }: { given: GivenTurn; name: string; time?: number; onJump: (id: string) => void; children?: ReactNode }) {
   const ch = { ...given.channel!, name };
   return (
-    <div className="flex min-w-0 flex-col gap-3">
-      <div className="flex items-center justify-center gap-1 py-1 text-xs text-ink-3" title={time ? clock(time) : undefined}>
-        <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="flex min-w-0 items-center gap-1.5 rounded-sm hover:text-ink-2">
-          <Hash size={12} className="shrink-0" />
-          <span className="min-w-0 truncate">
-            {t("channel.worksIn", { name: ch.name })} · #{given.seq}
-          </span>
-          <ChevronRight size={12} className={cn("shrink-0 transition-transform duration-(--dur-2)", open && "rotate-90")} />
-        </button>
-        {ch.id && (
-          <button type="button" aria-label={t("msg.jump", { name: ch.name })} onClick={() => onJump(ch.id)} className="grid shrink-0 rounded-sm hover:text-ink-2">
-            <ArrowUpRight size={12} />
-          </button>
-        )}
-      </div>
-      {open && (
-        <div className="g-fade flex min-w-0 flex-col gap-5">
-          <p className="m-0 max-w-[min(560px,100%)] self-center rounded-lg bg-fill px-3 py-1.5 text-sm whitespace-pre-wrap text-ink-2 [overflow-wrap:anywhere]">{given.words}</p>
-          {children}
+    <div className="flex min-w-0 flex-col gap-5">
+      <div className="flex min-w-0 items-start gap-2.5">
+        <span className="grid size-7 shrink-0 place-items-center rounded-full bg-fill text-ink">
+          <IrMark size={14} />
+        </span>
+        <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+          <div className="flex h-4 min-w-0 items-baseline gap-1.5 text-xs" title={time ? clock(time) : undefined}>
+            <span className="shrink-0 font-medium text-ink-2">Iridium</span>
+            {ch.id ? (
+              <button type="button" onClick={() => onJump(ch.id)} className="flex min-w-0 items-baseline gap-1 text-ink-4 hover:text-ink-2">
+                <span className="min-w-0 truncate">{t("channel.relayed", { name: ch.name })} · #{given.seq}</span>
+                <ArrowUpRight size={11} className="shrink-0 self-center" />
+              </button>
+            ) : (
+              <span className="min-w-0 truncate text-ink-4">
+                {t("channel.relayed", { name: ch.name })} · #{given.seq}
+              </span>
+            )}
+          </div>
+          <p className="m-0 max-w-[min(560px,100%)] self-start rounded-xl rounded-tl-sm bg-fill px-3.5 py-2 text-md whitespace-pre-wrap [overflow-wrap:anywhere]">
+            <Worded text={given.words} />
+          </p>
+          {given.context && (
+            <div className="max-w-[min(640px,100%)] border-l-2 border-dashed border-edge pl-3">
+              <div className="mb-0.5 text-xs text-ink-4">{t("channel.supplement")}</div>
+              <p className="m-0 font-mono text-xs leading-5 whitespace-pre-wrap text-ink-3 [overflow-wrap:anywhere]">{given.context}</p>
+            </div>
+          )}
         </div>
-      )}
+      </div>
+      {children}
     </div>
   );
 }
@@ -329,7 +338,7 @@ export function Said({ b, session, cwd, source, onJump }: { b: Shown; session: s
       if (src.kind === "iridium") return <Line icon={<RotateCcw size={12} />}>{text}</Line>;
       // The server writes each attachment as a line "[附件] `path`" (absolute): the file shows as itself instead.
       // A channel's message as the agent was given it (chat/channel/lib givenTurn): its words
-      // alone (one of a channel it is in beside its own is WorksIn's, chat.tsx).
+      // alone (one of a channel it is in beside its own is Relayed's, chat.tsx).
       const given = givenTurn(text);
       const paths = new Set(b.files?.map((f) => f.path));
       const words = given ? given.words : paths.size ? withoutFiles(text, paths) : text;

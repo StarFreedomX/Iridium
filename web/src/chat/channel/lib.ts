@@ -344,13 +344,15 @@ export const watchExtra = (channel: string, sessions: string[]) => {
  *  ChannelTurn: "#n: words", then a <channel-context> block): the message's number and its
  *  words alone; channel: the channel it was called in, when that is not its own (it is in it by a
  *  subscription, docs/channels.md). null: not such a message. */
-export type GivenTurn = { seq: number; words: string; channel?: { id: string; name: string } };
+export type GivenTurn = { seq: number; words: string; context: string; channel?: { id: string; name: string } };
 
 export function givenTurn(text: string): GivenTurn | null {
   const m = /^#(\d+): ([\s\S]*?)\n\n<channel-context>\n([\s\S]*)$/.exec(text);
   if (!m) return null;
   const c = /^You are \S+, called in the channel "([\s\S]*?)"(?: \(([0-9a-zA-Z_-]+)\))?, which people/.exec(m[3]!);
-  return { seq: Number(m[1]), words: m[2]!, ...(c ? { channel: { id: c[2] ?? "", name: c[1]! } } : {}) };
+  // What Iridium added: the block's lines, and what follows it (how to read more).
+  const context = m[3]!.replace(/\n?<\/channel-context>/, "").trim();
+  return { seq: Number(m[1]), words: m[2]!, context, ...(c ? { channel: { id: c[2] ?? "", name: c[1]! } } : {}) };
 }
 
 /** A part of what an agent was given (Injection.record): where it is from, the values its slots

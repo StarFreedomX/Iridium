@@ -128,8 +128,8 @@ describe("@nick", () => {
 describe("what an agent was given", () => {
   test("a channel's message: its number, its words, the channel it was called in", () => {
     expect(givenTurn("plain words")).toBeNull();
-    expect(givenTurn("#4: hello\nthere\n\n<channel-context>\nYou are claude in a channel shared with people.\n</channel-context>")).toEqual({ seq: 4, words: "hello\nthere" });
-    expect(givenTurn('#12: @pi look\n\n<channel-context>\nYou are pi, called in the channel "Room 1" (abc-123), which people and other agents share.\n</channel-context>')).toEqual({ seq: 12, words: "@pi look", channel: { id: "abc-123", name: "Room 1" } });
+    expect(givenTurn("#4: hello\nthere\n\n<channel-context>\nYou are claude in a channel shared with people.\n</channel-context>")).toEqual({ seq: 4, words: "hello\nthere", context: "You are claude in a channel shared with people." });
+    expect(givenTurn('#12: @pi look\n\n<channel-context>\nYou are pi, called in the channel "Room 1" (abc-123), which people and other agents share.\n</channel-context>')).toEqual({ seq: 12, words: "@pi look", context: 'You are pi, called in the channel "Room 1" (abc-123), which people and other agents share.', channel: { id: "abc-123", name: "Room 1" } });
     expect(givenTurn('#2: x\n\n<channel-context>\nYou are pi, called in the channel "R", which people and other agents share.')?.channel).toEqual({ id: "", name: "R" });
   });
 });
