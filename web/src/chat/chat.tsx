@@ -30,7 +30,6 @@ import { AgentFace } from "./channel/members";
 import { Face, pickFace } from "./channel/face";
 import { mayAct, useMembers } from "./channel/gate";
 // 群聊配置's key in the composer's foot, and the line in the composer's place for one not joined.
-const InviteLead = lazy(() => import("./channel/invite"));
 const ChannelMenu = lazy(() => import("./channel/top"));
 const TopRight = lazy(() => import("./channel/top").then((m) => ({ default: m.TopRight })));
 const NotJoinedOf = lazy(() => import("./channel/key").then((m) => ({ default: m.NotJoinedOf })));
@@ -471,13 +470,6 @@ function Under({ s, ghost, composer, onSent, onSentDone, modelOpen, setModelOpen
         openUsage={() => setUsageOpen(true)}
         openContext={() => !!s.context?.max && (setCtxOpen(true), true)}
         cleared={openChat}
-        lead={
-          !ghost && (
-            <Suspense fallback={null}>
-              <InviteLead id={s.id} />
-            </Suspense>
-          )
-        }
         tools={
           <>
             {/* Not guessed from the row: the mode and the model come with the state, gliding in. */}

@@ -85,6 +85,31 @@ export function hitRate(t?: InputTokens): string {
   return all > 0 ? `${(Math.floor((t!.cacheRead / all) * 1000) / 10).toFixed(1)}%` : "";
 }
 
+/** How full a context is, as a ring alone (no number): pct of it used. */
+export function Ring({ pct, size = 16 }: { pct: number; size?: number }) {
+  const r = 7;
+  const circ = 2 * Math.PI * r;
+  return (
+    <svg width={size} height={size} viewBox="0 0 18 18" className="shrink-0 -rotate-90" aria-hidden>
+      <circle cx="9" cy="9" r={r} fill="none" stroke="var(--fill-2)" strokeWidth="2.25" />
+      <circle cx="9" cy="9" r={r} fill="none" stroke={pct >= 90 ? "var(--need)" : "var(--ink-2)"} strokeWidth="2.25" strokeLinecap="round" strokeDasharray={`${(circ * pct) / 100} ${circ}`} />
+    </svg>
+  );
+}
+
+/** Session's context as a ring alone, before an agent's name (the user, 2026-11-13); none known,
+ *  nothing. */
+export function ContextMark({ session, summary, size = 14 }: { session: string; summary?: Context; size?: number }) {
+  const c = useContextState(session) ?? summary;
+  if (!c || !c.max) return null;
+  const pct = Math.min(100, Math.round((c.used / c.max) * 100));
+  return (
+    <span role="img" aria-label={`${t("ctx.title")} ${pct}%`} className="grid shrink-0">
+      <Ring pct={pct} size={size} />
+    </span>
+  );
+}
+
 /** tokens: the session's input so far, its cache's hit rate under the parts (the user, 2026-11-10:
  *  the total, in the popover only, never in the row). */
 export function ContextRing({ session, summary, tokens, open, onOpenChange }: { session: string; summary?: Context; tokens?: InputTokens; open?: boolean; onOpenChange?: (o: boolean) => void }) {
@@ -94,8 +119,6 @@ export function ContextRing({ session, summary, tokens, open, onOpenChange }: { 
   const c = useContextState(session) ?? summary;
   if (!c || !c.max) return null;
   const pct = Math.min(100, Math.round((c.used / c.max) * 100));
-  const r = 7;
-  const circ = 2 * Math.PI * r;
   const label = `${t("ctx.title")} · ${t("ctx.used", { used: k(c.used), total: k(c.max) })}`;
   return (
     <Popover.Root open={open} onOpenChange={onOpenChange}>
@@ -103,10 +126,7 @@ export function ContextRing({ session, summary, tokens, open, onOpenChange }: { 
         <Popover.Trigger
           render={
             <button type="button" aria-label={label} className="g-press flex h-7 shrink-0 items-center gap-1.5 rounded-md px-1.5 text-xs text-ink-3 tabular-nums hover:bg-fill hover:text-ink-2 data-popup-open:bg-fill pointer-coarse:h-9">
-              <svg width="16" height="16" viewBox="0 0 18 18" className="-rotate-90">
-                <circle cx="9" cy="9" r={r} fill="none" stroke="var(--fill-2)" strokeWidth="2.25" />
-                <circle cx="9" cy="9" r={r} fill="none" stroke={pct >= 90 ? "var(--need)" : "var(--ink-2)"} strokeWidth="2.25" strokeLinecap="round" strokeDasharray={`${(circ * pct) / 100} ${circ}`} />
-              </svg>
+              <Ring pct={pct} />
               {!phone && `${pct}%`}
             </button>
           }

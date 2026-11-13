@@ -1,11 +1,10 @@
-// Adding agents to a channel (docs/channels.md "邀请"; the user, 2026-11-13). 添加, in a
-// composer's foot: the kinds of agent, each opening the model and effort menu the chat's own
-// model key has; a model chosen there (or 添加, the kind's default), the agent joins the channel
-// as a session of its own, ready, and is listed after the key (已邀请). The same kind may be added again. The channel's "⋯" lists the
-// same kinds under 邀请 (top.tsx).
+// Adding agents to a channel (docs/channels.md "邀请"; the user, 2026-11-13), under 邀请 among
+// the members at the bar's right (top.tsx): the kinds of agent, each opening the model and effort
+// menu the chat's own model key has; a model chosen there (or 添加, the kind's default), the agent
+// joins the channel as a session of its own, ready. The same kind may be added again.
 import { Menu } from "@base-ui/react/menu";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronRight, LoaderCircle, Plus, UserPlus, X } from "lucide-react";
+import { ChevronRight, LoaderCircle, Plus } from "lucide-react";
 import { useState, type CSSProperties } from "react";
 import { api } from "../../api/client";
 import type { Agent, ChannelMembers } from "../../api/types.gen";
@@ -13,8 +12,7 @@ import { agentsQ } from "../../data";
 import { t, useLang } from "../../i18n";
 import { useList } from "../../store";
 import { toast } from "../../toast";
-import { AGENTS, agentName, cn, Logo, Tip } from "../../ui";
-import { mayAct, useMembers } from "./gate";
+import { AGENTS, agentName, cn, Logo } from "../../ui";
 import { memberError } from "./key";
 import { DraftModels } from "./pick";
 
@@ -75,61 +73,6 @@ export function AgentKinds({ id, from = 0 }: { id: string; from?: number }) {
           </Menu.SubmenuRoot>
         );
       })}
-    </>
-  );
-}
-
-/** 添加, and after it the agents invited so far: what a composer's foot leads with. */
-export default function InviteLead({ id }: { id: string }) {
-  useLang();
-  const qc = useQueryClient();
-  const members = useMembers(id);
-  const may = mayAct(members);
-  const guests = (members?.members ?? []).filter((m) => m.session && m.send === "ir");
-  const remove = async (member: string) => {
-    try {
-      qc.setQueryData<ChannelMembers>(["members", id], await api.removeMember(id, member));
-    } catch (e) {
-      toast(memberError(e), { error: true });
-    }
-  };
-  if (!may) return null;
-  return (
-    <>
-      <Menu.Root>
-        <Tip label={t("channel.add")} side="top">
-          <Menu.Trigger
-            render={
-              <button type="button" aria-label={t("channel.add")} className="g-press grid size-8 shrink-0 place-items-center rounded-md text-ink-2 hover:bg-fill hover:text-ink data-popup-open:bg-fill pointer-coarse:size-10">
-                <UserPlus size={16} />
-              </button>
-            }
-          />
-        </Tip>
-        <Menu.Portal>
-          <Menu.Positioner side="top" align="start" sideOffset={6} collisionPadding={8} className="z-50">
-            <Menu.Popup className={cn(POPUP, "min-w-44 p-1.5")}>
-              <div className="g-stagger flex flex-col">
-                <AgentKinds id={id} />
-              </div>
-            </Menu.Popup>
-          </Menu.Positioner>
-        </Menu.Portal>
-      </Menu.Root>
-      {guests.length > 0 && (
-        <div role="list" aria-label={t("channel.invited")} className="flex shrink-0 items-center gap-1">
-          <span className="shrink-0 text-xs text-ink-4">{t("channel.invited")}</span>
-          {guests.map((m) => (
-            <span key={m.member} role="listitem" className="group/inv g-fade flex h-6 shrink-0 items-center gap-1 rounded-full bg-fill pr-1 pl-1.5 text-xs text-ink-2 pointer-coarse:h-8">
-              {m.agent && <Logo agent={m.agent} size={12} />}
-              <span className="max-w-24 truncate">{m.nick}</span>
-              <button type="button" aria-label={t("channel.removeTitle", { nick: m.nick ?? "" })} onClick={() => void remove(m.member)} className="g-press grid size-4 place-items-center rounded-full text-ink-4 hover:bg-fill-2 hover:text-ink pointer-coarse:size-6">
-                <X size={11} />
-              </button>
-            </span>
-          ))}
-        </div>
-      )}
     </>
   );
 }
