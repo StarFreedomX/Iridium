@@ -744,3 +744,31 @@ func TestChannelQuoteAndAll(t *testing.T) {
 		t.Errorf("given again with its standing words:\n%s\n%+v", given, p.Blocks)
 	}
 }
+
+// Two people's channel: the same two, the same one; no agent; its people the two.
+func TestDirect(t *testing.T) {
+	t.Parallel()
+	l := start(t)
+	bot := l.newApp("bot", true).Token
+	var a, b struct {
+		Channel string `json:"channel"`
+	}
+	var e api.Error
+	if code := l.asLogin(bot, "", "POST", "/v1/internal/dm", map[string]string{"user": "local"}, &e); code != 200 {
+		t.Fatalf("dm: %d %+v", code, e)
+	}
+	l.asLogin(bot, "", "POST", "/v1/internal/dm", map[string]string{"user": "local"}, &a)
+	l.asLogin(bot, "", "POST", "/v1/internal/dm", map[string]string{"user": "local"}, &b)
+	if a.Channel == "" || a.Channel != b.Channel {
+		t.Fatalf("dm: %q then %q", a.Channel, b.Channel)
+	}
+	var ms api.ChannelMembers
+	l.want(200, "socket", "GET", "/v1/internal/channels/"+a.Channel+"/members", nil, &ms)
+	if len(ms.Members) != 2 || ms.Multi || ms.Members[0].Member == ms.Members[1].Member {
+		t.Errorf("members: %+v", ms)
+	}
+	if code := l.asLogin(bot, "", "POST", "/v1/internal/dm", map[string]string{"user": "nobody"}, nil); code != 422 {
+		t.Errorf("no such user: %d", code)
+	}
+	l.want(400, "socket", "POST", "/v1/internal/dm", map[string]string{"user": "local"}, nil)
+}

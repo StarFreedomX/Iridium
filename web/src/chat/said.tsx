@@ -15,7 +15,7 @@ import { api } from "../api/client";
 import type { Block, FileRef, Result } from "../api/types.gen";
 import type { Sent } from "../chats";
 import { t } from "../i18n";
-import { agentName, Avatar, Badge, cn, IconKey, IrMark, Logo, tilde, Tip, titleOf } from "../ui";
+import { agentName, Avatar, Badge, cn, IconKey, IrMark, Logo, PopSurface, tilde, Tip, titleOf } from "../ui";
 import { useHome, useMachines } from "../data";
 import { LocalMark } from "../me";
 import { go } from "../route";
@@ -89,7 +89,8 @@ function Face({ who }: { who: You | From }) {
  *  (the user, 2026-11-08). */
 /** left: another's words in a channel others speak in too, on the left: only yours are on the
  *  right there (the user, 2026-11-13). */
-const Sender = forwardRef<HTMLDivElement, { who: You | From; title?: string; jump?: () => void; left?: boolean; children: ReactNode }>(function Sender({ who, title, jump, left, children }, ref) {
+/** card: what its face opens, pressed (a person's card in a channel, chat/channel/person.tsx). */
+const Sender = forwardRef<HTMLDivElement, { who: You | From; title?: string; jump?: () => void; left?: boolean; card?: ReactNode; children: ReactNode }>(function Sender({ who, title, jump, left, card, children }, ref) {
   const mine = who.kind === "you";
   const name = mine ? youName(who) : who.name;
   // A session's letter: its folder too, in the tip; the name is its title alone.
@@ -101,6 +102,20 @@ const Sender = forwardRef<HTMLDivElement, { who: You | From; title?: string; jum
   // (the user, 2026-11-06).
   return (
     <div ref={ref} className={cn("flex items-start gap-2.5", left ? "pr-6 sm:pr-10" : "flex-row-reverse pl-6 sm:pl-10")} title={title}>
+      {card ? (
+        <Popover.Root>
+          <Popover.Trigger
+            render={
+              <button type="button" aria-label={tip} className="g-press grid shrink-0 rounded-full">
+                {face}
+              </button>
+            }
+          />
+          <PopSurface align={left ? "start" : "end"} className="w-[min(300px,calc(100vw-16px))] p-3.5">
+            {card}
+          </PopSurface>
+        </Popover.Root>
+      ) : (
       <Tip label={tip}>
         {press ? (
           <button type="button" onClick={press} aria-label={tip} className="g-press grid shrink-0 rounded-full">
@@ -112,6 +127,7 @@ const Sender = forwardRef<HTMLDivElement, { who: You | From; title?: string; jum
           </span>
         )}
       </Tip>
+      )}
       <div className={cn("flex min-w-0 flex-col gap-1", left ? "items-start" : "items-end")}>
         {jump ? (
           <button type="button" onClick={jump} className="group flex max-w-full items-center gap-0.5 rounded-sm px-0.5 text-xs leading-4 text-ink-3 hover:text-ink-2">
@@ -143,11 +159,11 @@ function SendState({ state }: { state: Going }) {
 }
 
 /** words: the text drawn another way than Worded's (a channel's, its nicks too: chat/channel). */
-export const YouBubble = forwardRef<HTMLDivElement, { text: string; who: You; failed?: boolean; children?: ReactNode; time?: number; going?: Going; words?: ReactNode; left?: boolean }>(function YouBubble({ text, who, failed, children, time, going, words, left }, ref) {
+export const YouBubble = forwardRef<HTMLDivElement, { text: string; who: You; failed?: boolean; children?: ReactNode; time?: number; going?: Going; words?: ReactNode; left?: boolean; card?: ReactNode }>(function YouBubble({ text, who, failed, children, time, going, words, left, card }, ref) {
   // What the words name, where they name it (Worded); the files in a row under them.
   const row = Children.count(children) > 0;
   return (
-    <Sender ref={ref} who={who} left={left} title={time ? clock(time) : undefined}>
+    <Sender ref={ref} who={who} left={left} card={card} title={time ? clock(time) : undefined}>
       <div className="relative max-w-[min(560px,100%)] px-3.5 py-2">
         {going && <SendState state={going} />}
         <span data-bubble-bg className={cn("absolute inset-0 rounded-xl bg-fill", left ? "rounded-tl-sm" : "rounded-tr-sm", failed && "shadow-[inset_0_0_0_1px_var(--err)]")} aria-hidden />

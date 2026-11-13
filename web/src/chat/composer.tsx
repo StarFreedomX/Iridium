@@ -115,6 +115,8 @@ type Props = {
    *  unquote: put it away (its ×, or once sent). */
   quote?: { n: number; who: string; text: string };
   unquote?: () => void;
+  /** The channel's people and apps, which @ names beside its agents (peers, the user, 2026-11-13). */
+  people?: AgentRow[];
 };
 
 /** The names that call more than one in a channel (internal/deliver AllMembers, AllAgents), as
@@ -124,7 +126,7 @@ const everyoneRows = (): AgentRow[] => [
   { session: "", member: "agent:*", agent: "" as Agent, nick: "全体Agent", name: t("channel.atAgents"), status: "idle", recv: "" },
 ];
 
-export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s, turn, onSent, onSentDone, cycleMode, openModel, openMode, openUsage, openContext, cleared, tools, end, fresh, nicks, lead, quote, unquote }, ref) {
+export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s, turn, onSent, onSentDone, cycleMode, openModel, openMode, openUsage, openContext, cleared, tools, end, fresh, nicks, lead, quote, unquote, people }, ref) {
   const multi = !!nicks;
   // The quote as last shown: its row keeps its words while it shuts.
   const lastQuote = useRef(quote);
@@ -247,7 +249,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
   const open = caret !== null && text !== shut && !list.length;
   const word = open ? atWord(text, caret, "&") : null;
   const nickWord = multi && open ? atWord(text, caret) : null;
-  const nickOpts = nickWord ? matchAgents([...nicks!, ...everyoneRows()], nickWord.q) : [];
+  const nickOpts = nickWord ? matchAgents([...nicks!, ...(people ?? []), ...everyoneRows()], nickWord.q) : [];
   const nickSel = nickOpts.length ? Math.min(at ?? 0, nickOpts.length - 1) : 0;
   const call = (r: AgentRow) => {
     if (!nickWord) return;

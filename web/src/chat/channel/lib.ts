@@ -280,7 +280,7 @@ export function insertNick(text: string, a: number, b: number, nick: string): { 
 }
 
 /** An agent as the @ list and the member bar show it. */
-export type AgentRow = { session: string; member: string; agent: Agent; nick: string; name: string; status: Status; recv: string };
+export type AgentRow = { session: string; member: string; agent: Agent; nick: string; name: string; status: Status; recv: string; avatar?: string; person?: boolean };
 
 /** The agents an @q may call: nicks that start with it first, then nicks and names that have it. */
 export function matchAgents<T extends { nick: string; name: string }>(rows: T[], q: string): T[] {

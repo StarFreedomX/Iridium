@@ -33,8 +33,10 @@ import { Stick, toEnd } from "../stick";
 import { groupMessages, readMarks, linkNicks, stillWaiting, watchExtra, type AgentRow, type Did, type Group, type Msg, type Src, lineOf, workOf, eventParts, personName, type EventWords } from "./lib";
 import { channelLog } from "./log";
 import { useMembers } from "./gate";
+import { hasApp, hasLogin, peopleOf } from "./setup";
 import { NotJoined, useChannelCtl } from "./key";
 import { AgentFace } from "./members";
+import { PersonCard } from "./person";
 import { NickLink, Nicks, NickWords } from "./nick";
 
 const WORKING = new Set(["running", "compacting", "starting"]);
@@ -213,6 +215,22 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
     return { who: yours(known ? { ...known, name: m.name || known.name } : { id: m.id, name: m.name, device: "none" }), mine };
   };
   const groups = useMemo(() => groupMessages(log.msgs), [log.msgs]);
+  // Its people and apps as @ names them (peers of its agents): each login among its people, each
+  // app whose all are; not the one looking.
+  const apps = useApps().data;
+  const peopleRows = useMemo<AgentRow[]>(() => {
+    const ps = peopleOf(members);
+    const out: AgentRow[] = [];
+    for (const a of apps?.apps ?? []) {
+      const appName = a.web ? t("term.panel") : a.name;
+      if (!a.host && hasApp(ps, a.id)) out.push({ session: "", member: `${a.id}/*`, agent: "" as AgentRow["agent"], nick: appName, name: t("channel.app"), status: "idle", recv: "", avatar: a.avatar, person: true });
+      for (const l of (apps?.logins ?? []).filter((x) => x.app === a.id)) {
+        const m = `${a.id}/${l.id}`;
+        if (m !== members?.me && hasLogin(ps, a.id, l.id)) out.push({ session: "", member: m, agent: "" as AgentRow["agent"], nick: l.name, name: appName, status: "idle", recv: "", avatar: l.avatar, person: true });
+      }
+    }
+    return out;
+  }, [apps, members]);
   // Each agent's usage after its model's name, as small as a phone's (the user, 2026-11-13).
   const bars = (session: string) => {
     const i = agents.findIndex((a) => a.session === session);
@@ -310,7 +328,7 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
               ) : null;
             })}
             {!may ? <NotJoined ctl={ctl} /> : null}
-            {may && <Composer ref={composer} s={s} turn={false} nicks={agents} quote={quote ? { n: quote.n, who: nameOf(quote), text: quote.text } : undefined} unquote={() => setQuote(null)} onSent={onSent} onSentDone={changed} cycleMode={() => {}} openModel={() => {}} openMode={() => {}} openUsage={() => {}} openContext={() => false} cleared={openChat} />}
+            {may && <Composer ref={composer} s={s} turn={false} nicks={agents} people={peopleRows} quote={quote ? { n: quote.n, who: nameOf(quote), text: quote.text } : undefined} unquote={() => setQuote(null)} onSent={onSent} onSentDone={changed} cycleMode={() => {}} openModel={() => {}} openMode={() => {}} openUsage={() => {}} openContext={() => false} cleared={openChat} />}
           </div>
         </div>
       </div>
@@ -380,7 +398,7 @@ function GroupView({ g, channel, agents, who, record, call, may, quote, quoted, 
     return (
       <Copyable copy={m.text} quote={quote && (() => quote(m))}>
         {m.quote !== undefined && <QuoteLine n={m.quote} q={quoted(m.quote)} right={by.mine} />}
-        <YouBubble text={m.text} who={by.who} left={!by.mine} time={m.time} words={<NickWords text={m.text} />}>
+        <YouBubble text={m.text} who={by.who} left={!by.mine} time={m.time} words={<NickWords text={m.text} />} card={!by.mine && <PersonCard user={a.id} name={a.name} avatar={"avatar" in by.who ? by.who.avatar : undefined} call={may ? call : undefined} />}>
           {m.files.map((f) => (
             <Attached key={f.ref} session={channel} f={f} />
           ))}

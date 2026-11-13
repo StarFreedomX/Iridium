@@ -255,6 +255,9 @@ export const api = {
   read: (id: string, seq: number) => write<ChannelReads>("POST", `/v1/internal/channels/${enc(id)}/read`, { seq }),
   /** A channel's people set ("*" everyone, "<app>/*", "<app>/<login>"); the caller stays one. */
   setPeople: (id: string, people: string[]) => write<ChannelMembers>("PUT", `/v1/internal/channels/${enc(id)}/people`, { people }),
+  /** The channel of the caller and the login whose Satori user id user is ("local": the host's):
+   *  the same two, the same one (docs/channels.md "私聊"). */
+  dm: (user: string) => write<{ channel: string }>("POST", "/v1/internal/dm", { user }),
   /** What the channel gave session id's agent, the newest first. */
   injections: (id: string) => get<Injection[]>(`${S(id)}/injections`),
   /** What a new agent of a kind may start with, where a channel runs or at a machine. */

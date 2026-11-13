@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"regexp"
 	"slices"
 	"strconv"
@@ -200,6 +201,7 @@ func (s *Server) channelRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/internal/channels/{id}/reads", s.readsGet)
 	mux.HandleFunc("POST /v1/internal/channels/{id}/read", s.readPost)
 	mux.HandleFunc("GET /v1/internal/agents/{agent}/choices", s.agentChoices)
+	mux.HandleFunc("POST /v1/internal/dm", s.dmPost)
 	mux.HandleFunc("GET /v1/internal/sessions/{id}/injections", s.use(s.injections))
 }
 
@@ -1719,4 +1721,69 @@ func (s *Server) relayOf(session string, b api.Block) (satori.Relay, bool) {
 		out.Context = strings.TrimSuffix(strings.TrimSpace(b.Text[ctxAt+len("\n\n<channel-context>\n"):]), "</channel-context>")
 	}
 	return out, true
+}
+
+// dmPost opens the channel of two people (POST /v1/internal/dm {user}): the caller and the login
+// whose Satori user id user is (the host's: "local"). The same two always have the same one,
+// made at first with no agent, its people the two, in the home folder (docs/channels.md "私聊").
+func (s *Server) dmPost(w http.ResponseWriter, r *http.Request) {
+	c := callerOf(r)
+	var req struct {
+		User string `json:"user"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.User == "" {
+		refuse(w, http.StatusBadRequest, "bad_request", "user: whom to talk to, by their user id")
+		return
+	}
+	them, name := "", ""
+	if req.User == gate.HostID {
+		them, name = channel.AppMember(gate.HostID), s.Tag(gate.HostID)
+	} else if ls, err := s.st.Logins(); err == nil {
+		for _, l := range ls {
+			if l.ID == req.User && !l.ApprovedAt.IsZero() {
+				them, name = channel.PersonMember(l.App, l.ID), l.Name
+				break
+			}
+		}
+	}
+	me := memberOf(c)
+	if c.Host() {
+		me = channel.AppMember(gate.HostID)
+	}
+	if them == "" {
+		refuse(w, http.StatusUnprocessableEntity, "no_such_user", "no login "+req.User)
+		return
+	}
+	if them == me {
+		refuse(w, http.StatusBadRequest, "bad_request", "talking to oneself")
+		return
+	}
+	pair := []string{me, them}
+	slices.Sort(pair)
+	key := "dm:" + strings.Join(pair, "|")
+	if id := s.st.Kept(key); id != "" {
+		if _, ok := s.ch.Own(id); ok {
+			reply(w, http.StatusOK, map[string]string{"channel": id})
+			return
+		}
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		s.fault(w, err)
+		return
+	}
+	// Made as the host: two people's channel is no folder's to allow (its people are the two).
+	id, err := s.createChannel(r.Context(), caller{Identity: localIdentity, socket: true}, api.NewSession{Cwd: home, Members: &api.ChannelSetup{People: pair}})
+	if err != nil {
+		s.error(w, err)
+		return
+	}
+	if err := s.ch.Rename(id, s.satoriUser(c).Name+" · "+name); err != nil {
+		s.logf("server: dm %s: naming it: %v", id, err)
+	}
+	if err := s.st.Keep(key, id); err != nil {
+		s.logf("server: dm %s: keeping it: %v", id, err)
+	}
+	s.membersChanged()
+	reply(w, http.StatusOK, map[string]string{"channel": id})
 }
