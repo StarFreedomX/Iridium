@@ -735,6 +735,7 @@ func (s *Server) memberPatch(w http.ResponseWriter, r *http.Request) {
 	if now.Agent() && was.Recv != "" && now.Recv != was.Recv {
 		what := map[string]string{channel.RecvAll: "全部", channel.RecvAt: "@我"}[now.Recv]
 		s.tellMembers(c, ch, fmt.Sprintf("@%s 接收：%s", now.Nick, what), channel.Event{Type: "recv", Member: now.Member, Nick: now.Nick, Recv: now.Recv})
+		s.readsChanged(ch) // the channel's own agent: how far it has read depends on it
 	}
 	s.membersChanged()
 	out, err := s.membersOf(c, ch)
@@ -931,8 +932,9 @@ func (s *Server) viewersOf(ch string) []api.Viewer {
 }
 
 // readsOf is how far each member has read channel ch: the people that opened it, as they said
-// (readPost); its agents, as far as each was given. The channel's own agent with no row of its
-// own has all of it: what is said there is its own record.
+// (readPost); its agents, as far as each was given. The channel's own agent taking all of it
+// has all of it (what is said there is its own record); taking only what names it, as far as it
+// was given or spoke.
 func (s *Server) readsOf(ch string) api.ChannelReads {
 	out := api.ChannelReads{Channel: ch, End: s.ch.End(ch), Readers: []api.Reader{}}
 	rows, err := s.st.ChannelReads(ch)
@@ -949,7 +951,13 @@ func (s *Server) readsOf(ch string) api.ChannelReads {
 		}
 		rd := api.Reader{Member: m.Member, Nick: m.Nick, Seq: m.Seen}
 		if m.Direct() {
-			rd.Seq = out.End
+			// Taking all, it has all: what is said there goes into its own record. Taking only
+			// what names it, it has read what it was given and what it said itself.
+			if m.Recv == channel.RecvAll {
+				rd.Seq = out.End
+			} else {
+				rd.Seq = min(max(m.Seen, s.st.ChannelLastBy(ch, m.Member)), out.End)
+			}
 		}
 		if st, err := s.m.State(m.Session); err == nil {
 			info, _ := agents.Get(st.Agent)

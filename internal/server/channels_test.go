@@ -198,6 +198,18 @@ func TestChannelOfSeveral(t *testing.T) {
 	if reads.Readers[0].Seq != reads.End {
 		t.Errorf("read past the end: %+v", reads)
 	}
+	// The channel's own agent taking only what names it has read what it said, not what came
+	// after: the message to the second was not given to it.
+	at := "at"
+	l.want(200, "web", "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+ch, api.MemberPatch{Recv: &at}, nil)
+	l.want(200, "web", "GET", "/v1/internal/channels/"+ch+"/reads", nil, &reads)
+	for _, rd := range reads.Readers {
+		if rd.Member == "agent:"+ch && (rd.Seq < 1 || rd.Seq >= r.Seq) {
+			t.Errorf("the own agent taking @ only read to %d, the message to the second %d", rd.Seq, r.Seq)
+		}
+	}
+	every := "all"
+	l.want(200, "web", "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+ch, api.MemberPatch{Recv: &every}, nil)
 
 	// It speaks in the channel with ir: said there under its nick, given to whom it names.
 	var sent []satori.Message

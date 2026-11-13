@@ -26,10 +26,12 @@ import { groupPath } from "../tree";
 import { agentName, cn, Lamp, lampOf, LogoLamp, LogoStack, sessionStatusText, tilde, Tip, titleOf, untitled } from "../ui";
 import { givenTurn, isMulti, type AgentRow, type GivenTurn } from "./channel/lib";
 import { AgentFace } from "./channel/members";
+import { Face, pickFace } from "./channel/face";
 import { mayAct, useMembers } from "./channel/gate";
 // 群聊配置's key in the composer's foot, and the line in the composer's place for one not joined.
 const InviteLead = lazy(() => import("./channel/invite"));
 const ChannelMenu = lazy(() => import("./channel/top"));
+const TopRight = lazy(() => import("./channel/top").then((m) => ({ default: m.TopRight })));
 const NotJoinedOf = lazy(() => import("./channel/key").then((m) => ({ default: m.NotJoinedOf })));
 // A channel of several agents: its own code, fetched as one is first opened.
 const ChannelPage = lazy(() => import("./channel/page").then((m) => ({ default: m.ChannelPage })));
@@ -546,9 +548,10 @@ function Bar({ s, onSheet, onMe, spots, asked, back, usage }: { s?: Session; onS
                     <LogoLamp agent={s.agent} status={lampOf(s)} size={18} ir />
                   </button>
                 ) : (
-                  <span className={cn("grid", late)}>
-                    {stack ? <LogoStack agents={stack} size={18} /> : <LogoLamp agent={s.agent} status={lampOf(s)} size={18} />}
-                  </span>
+                  // The channel's face, pressed: another (the user, 2026-11-13).
+                  <button type="button" aria-label={t("channel.avatar")} onClick={() => pickFace(s.id)} className={cn("g-press -m-1 grid place-items-center rounded-full p-1 hover:bg-fill", late)}>
+                    <LogoLamp agent={s.agent} status={lampOf(s)} size={18} mark={<Face key={s.id} id={s.id} agent={s.agent} size={18} none={stack && <LogoStack agents={stack} size={18} />} />} />
+                  </button>
                 )}
               </Tip>
               {renaming ? (
@@ -563,6 +566,11 @@ function Bar({ s, onSheet, onMe, spots, asked, back, usage }: { s?: Session; onS
             </>
           )}
         </div>
+        {s && (
+          <Suspense fallback={null}>
+            <TopRight id={s.id} />
+          </Suspense>
+        )}
         {s && usage && <span className="flex min-w-0 shrink items-center overflow-hidden">{usage}</span>}
         {/* With the sidebar shown, the link's dot is at its top (sidebar.tsx). */}
         {onSheet && <LinkDot />}
@@ -593,7 +601,7 @@ function Bar({ s, onSheet, onMe, spots, asked, back, usage }: { s?: Session; onS
                 <Menu.Positioner side="bottom" align="end" sideOffset={6} collisionPadding={8} className="z-50">
                   <MenuItems lead={lead} items={acts} tags={sessionTags(s)}>
                     <Suspense fallback={null}>
-                      <ChannelMenu id={s.id} from={lead.length} />
+                      <ChannelMenu id={s.id} from={lead.length} face={!!onSheet} />
                     </Suspense>
                   </MenuItems>
                 </Menu.Positioner>

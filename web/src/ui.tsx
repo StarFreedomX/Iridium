@@ -333,10 +333,10 @@ export function IrMark({ size = 16, className, ground = "currentColor" }: { size
 
 /** A logo with its status lamp on the bottom-right corner; idle has none. ir: Iridium's mark in
  *  the agent's place (the phone's key to the session list). */
-export function LogoLamp({ agent, status, size = 16, ir }: { agent: Agent; status: Status; size?: number; ir?: boolean }) {
+export function LogoLamp({ agent, status, size = 16, ir, mark }: { agent: Agent; status: Status; size?: number; ir?: boolean; mark?: ReactNode }) {
   return (
-    <span className="relative inline-grid shrink-0 place-items-center" style={{ width: size, height: size }}>
-      {ir ? <IrMark size={size} className="text-ink" /> : <Logo agent={agent} size={size} />}
+    <span className="relative inline-grid shrink-0 place-items-center" style={mark ? { minWidth: size, height: size } : { width: size, height: size }}>
+      {mark ?? (ir ? <IrMark size={size} className="text-ink" /> : <Logo agent={agent} size={size} />)}
       {status !== "idle" && (
         <span key={status} className="lamp g-pop" data-s={LAMP[status]} role="img" aria-label={statusText(status)}>
           <i />

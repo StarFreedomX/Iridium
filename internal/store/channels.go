@@ -294,6 +294,13 @@ func (s *Store) ChannelEnd(channel string) (int64, error) {
 	return n, err
 }
 
+// ChannelLastBy is the number of the last message author said in channel; 0 if none.
+func (s *Store) ChannelLastBy(channel, author string) int64 {
+	var n int64
+	_ = s.db.QueryRow(`SELECT COALESCE(MAX(seq), 0) FROM channel_messages WHERE channel = ? AND author = ?`, channel, author).Scan(&n)
+	return n
+}
+
 // UnanchoredMessages are channel's latest messages by author with no Ref, newest first: what
 // was said live and not yet found in the agent's record.
 func (s *Store) UnanchoredMessages(channel, author string, limit int) ([]ChannelMessage, error) {
