@@ -429,6 +429,8 @@ func (b satoriBackend) Mask(text string) string { return b.s.MaskText(text) }
 // Fault: decision 28, what is not there is 422 with its code; 404 is the routes'.
 func (b satoriBackend) Fault(err error) (int, string) {
 	switch {
+	case errors.As(err, new(*behindError)):
+		return http.StatusConflict, "behind" // an agent's ir, before it read the channel
 	case errors.Is(err, session.ErrNotFound):
 		return http.StatusUnprocessableEntity, "no_such_session"
 	case errors.Is(err, store.ErrNoInput):

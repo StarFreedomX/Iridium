@@ -1,14 +1,14 @@
 # METHOD internal/x is /v1/internal/x; a bare name (channel.list) is POST /v1/<name>. Errors: {code, message}.
 # {id}, channel_id: an id's unique start, or self (your session); guild_id=self: your group. person only: not an agent.
-# message.create: _data.text (plain words, escaped by the server) for content; _data.paths: local files (socket only).
+# message.create: _data.text (plain words, escaped by the server) for content; _data.text=@- takes them from the standard input (a quoted here-document: <<'IR' … IR); _data.paths: local files (socket only). In a channel of several agents: said there, given to whom it names (@nick); what you had not seen of it is printed; 409 behind: read what it prints, then send again.
 # A path or folder: ~/x, app:path at an app's computer, host:path; a relative one goes from your session's folder.
 
 # common
-channel.create {_data.agent, _data.cwd, _data.text?, _data.model?, _data.mode?, _data.effort?, _data.preset?, data.name?, data.parent_id?, guild_id?} -> Channel  start a session, a child of yours; _data.cwd=. your folder; --wait for its reply
+channel.create {_data.agent?, _data.cwd, _data.text?, _data.model?, _data.mode?, _data.effort?, _data.preset?, data.name?, data.parent_id?, guild_id?} -> Channel  start a session, a child of yours; _data.cwd=. your folder; --wait for its reply
   data.parent_id: the session it hangs under on the page (its launcher). Not given: the session your ir runs in, so one you start is your child: listed under you, archived with you. To start one of its own: channel.update data.parent_id:=null after.
   _data.cwd: . is your own folder and a relative path goes from it; ~ and ~/x the home; host:path here; app:path at that app's computer (GET internal/apps), where it then runs; an absolute path as it is.
   guild_id: a folder group's id (guild.list), self yours; not given: its folder's group, yours when yours holds its folder.
-  _data.agent: claude, codex, pi or dsh (GET internal/agents: those that can start here, their modes); _data.mode: one of them; model, effort, preset: the agent's own (SessionState.models, efforts; GET internal/sessions/{id}/presets).
+  _data.agent: not given: a channel with no agent of its own, listed in _data.cwd; agents join it (POST internal/channels/{id}/members) and people speak in it. Given: claude, codex, pi or dsh (GET internal/agents: those that can start here, their modes); _data.mode: one of them; model, effort, preset: the agent's own (SessionState.models, efforts; GET internal/sessions/{id}/presets).
   _data.text: its first message, from you: it reads [ir:<your session>] before it. ir prints the id, with text once the agent took it; --wait: once that turn ended, its reply too; later: GET internal/sessions/{id} --wait.
 channel.list {guild_id?, next?, _data.all?} -> List<Channel>  the folders (type 2), then the sessions; _data.all adds archived  view=id,name,_data.status,_data.agent,_data.cwd,_data.title
   parent_id: what it is under: the session it hangs under (its launcher, a subagent's session), else its folder (folder:<path>); --pick id,name,parent_id shows who is under whom.
@@ -24,11 +24,12 @@ guild.list {next?} -> List<Guild>  folder groups, then loose  view=id,name,_data
 message.list {channel_id, next?, direction?, limit?, order?, _data.q?} -> BidiList<Message>  what was said in the channel, each message under its number (its id); direction before|after|around, next a number  view=id,user.name,content
   _data.q="words": only the messages that have all these words (their text, the files their agent changed, the programs it ran), the latest limit of them.
 message.get {channel_id, message_id} -> Message  one message, whole
-GET internal/channels/{id}/members - -> ChannelMembers  who is in the channel (id: it, or a member session): its agents (nick, recv all|at, name, status), the people; multi: more than one agent  view=members.member,members.nick,members.recv,members.name
-POST internal/channels/{id}/members {agent, model?, mode?, effort?, preset?, nick?, recv?} -> ChannelMembers  start a new agent in the channel's folder as a member (id=self: your own channel); it gets only what names it (@nick) unless recv=all
+GET internal/channels/{id}/members - -> ChannelMembers  who is in the channel (id: a session's own channel, or one that is no session's): its agents (nick, recv all|at, send direct|ir, name, status, where they run), the people; multi: more than one agent  view=members.member,members.nick,members.recv,members.send,members.name
+POST internal/channels/{id}/members {session | agent, cwd?, machine?, model?, mode?, effort?, preset?, nick?, recv?} -> ChannelMembers  put an agent in the channel (id=self: your own): a session there is, or a new one (in the channel's folder unless cwd); it is a session as any, sees there only what is said, is given only what names it (@nick) unless recv=all, and speaks there with message.create
 PUT internal/channels/{id}/people {people} -> ChannelMembers  who may speak in the channel: ["*"] everyone (also none given), "<app>/*", "<app>/<login>"; whoever sets them stays one; the rest still read; person only
-PATCH internal/channels/{id}/members/{member} {nick?, recv?} -> ChannelMembers  rename a member (agent:<session>), change what it receives; person only
-DELETE internal/channels/{id}/members/{member} - -> ChannelMembers  take a member out, its session archived; person only
+PATCH internal/channels/{id}/members/{member} {nick?, recv?} -> ChannelMembers  rename a member (agent:<session>; its nick is the same in every channel), change what it receives (all: what people say; at: what names it); an agent: its own recv only
+POST internal/channels/{id}/follow {user, count?, seconds?} -> Follow  be given the next count (1) messages of user (a nick, a user id, * anyone) in the channel within seconds (600), named or not; an agent of the channel only
+DELETE internal/channels/{id}/members/{member} - -> ChannelMembers  take a member out; its session stays as it is; person only
 GET internal/sessions/{id}/injections - -> Injection[]  what the agent was given by the channel, newest first: where each part came from  view=id,seq,at
 POST internal/block.list {channel_id, next?, direction?, limit?, order?, _data.blocks?} -> BidiList<Message>  a session's own record, a message a block (thinking, tool calls too)  view=id,content
   _data.blocks:=true: the page's blocks as Iridium keeps them too, in _data.blocks (kind, text, from, tool calls).

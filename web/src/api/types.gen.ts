@@ -577,6 +577,13 @@ export interface SendReply {
    */
   seq?: number /* int64 */;
   /**
+   * Said: said in a channel of several agents (docs/channels.md), given to those it wakes: no
+   * input of the channel's own session to wait for. Unseen: for an agent that said it with ir,
+   * what was said there since it last read the channel, as text.
+   */
+  said?: boolean;
+  unseen?: string;
+  /**
    * Session: /clear went on in this session, the old one left as it was (no input then).
    */
   session?: string;
@@ -1238,6 +1245,16 @@ export interface ChannelSetup {
    */
   nick?: string;
   recv?: string;
+}
+/**
+ * Follow is what an agent asks to be given of a channel beside what names it (POST
+ * …/follow): the next Count messages (none: 1) of User (a nick, a user's id, "*" anyone) within
+ * Seconds (none: 600).
+ */
+export interface Follow {
+  user: string;
+  count?: number /* int */;
+  seconds?: number /* int */;
 }
 /**
  * People sets a channel's people (PUT …/people).

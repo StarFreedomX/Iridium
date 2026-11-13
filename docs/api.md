@@ -293,14 +293,15 @@ Web Push，总开关在配置 `push`，默认关。VAPID 密钥存在状态目�
 | --- | --- |
 | `GET /v1/internal/channels/{id}/members` | `ChannelMembers {channel, multi, members}`：成员（`member`、`session`、`agent`、`name`、`nick`、`recv`、`seen`、`status`）；`multi`：不止一个 agent |
 | `POST /v1/internal/channels/{id}/members` | `NewMember {session? | agent, cwd?, machine?, model?, mode?, effort?, preset?, nick?, recv?}`：邀请一个已有的会话（`session`，要能用它；已在里面 409 `member`），或新开一个会话再邀请（不给 `cwd` 就在频道的文件夹）。能起这个 agent 的调用方都行，频道里的 agent 也行。满 8 个回 409 `full` |
+| `POST /v1/internal/channels/{id}/follow` | `Follow {user, count?, seconds?}`：频道里的 agent（它的 `ir`）要接下来 `user` 说的 `count` 条，不点名也给它（`docs/channels.md`“收和发”） |
 | `PUT /v1/internal/channels/{id}/people` | `People {people}`：谁能在频道里说话，`["*"]` 或不给是所有人；只给人，要在群里 |
-| `PATCH /v1/internal/channels/{id}/members/{member}` | `MemberPatch {nick?, recv?}`；只给人 |
+| `PATCH /v1/internal/channels/{id}/members/{member}` | `MemberPatch {nick?, recv?}`；称呼在所有频道都改；agent 的 `ir` 只能改自己的 `recv` |
 | `DELETE /v1/internal/channels/{id}/members/{member}` | 移出（退订），它的会话照旧；频道自己的 agent 移不出（422 `no_such_member`）；只给人 |
 | `GET /v1/internal/sessions/{id}/injections` | 频道给过这个 agent 什么，新的在前：`Injection {id, seq, input, at, record}` |
 
 - 携带状态 `channels`：一个只增的数，任何频道的成员变了就加一；页面据此重读成员。
 - 会话列表里：几个 agent 的频道带 `agents`；订阅了别的频道的会话带 `in`；为频道新开的会话带 `spawned {by, channel}`；无 agent 的频道带 `bare`。
-- 发消息的回答多一个 `seq`：这条消息在频道里的编号。
+- 发消息的回答多一个 `seq`：这条消息在频道里的编号。几个 agent 的频道里还有 `said: true`（没有可等的输入）；agent 用 `ir` 发的带 `unseen`（它没读过的消息，文字）。落后太多回 409 `behind`。
 - `ChannelMembers.joined`：调用者在不在群里；`me`：调用者作为成员的写法。不在群里的只能读，写的接口回 403。
 - `channel.create` 的 `_data.members`：`ChannelSetup {agents, people, nick, recv}`，建的同时配好成员。
 

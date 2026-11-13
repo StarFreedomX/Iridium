@@ -139,7 +139,7 @@ func (s *Server) turnEnded(id, reply string) {
 		done[c.channel] = true
 		if !s.m.HasIR(id) && strings.TrimSpace(reply) != "" {
 			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-			_, err := s.sendChannel(ctx, caller{Identity: localIdentity, socket: true, agent: true, session: id}, session.From(gate.HostID, "@"+s.ch.Nick(id)), c.channel, api.Send{Text: reply})
+			_, err := s.sendChannelAs(ctx, caller{Identity: localIdentity, socket: true, agent: true, session: id}, session.From(gate.HostID, "@"+s.ch.Nick(id)), c.channel, api.Send{Text: reply}, false)
 			cancel()
 			if err == nil {
 				continue
@@ -148,6 +148,16 @@ func (s *Server) turnEnded(id, reply string) {
 		}
 		nick := s.ch.Nick(id)
 		s.sat.Note(c.channel, fmt.Sprintf("@%s 被叫起（#%d），未在频道发话", nick, c.seq), "", &channel.Event{Type: "silent", Member: store.AgentMember(id), Nick: nick, Seq: c.seq})
+		// Started by another agent for this channel: that one is told too.
+		if sp := s.spawnedOf(id); sp != nil && sp.By != "" && sp.By != id && sp.Channel == c.channel {
+			if in, err := assemble.ChannelSilent(nick, cmp.Or(s.channelName(c.channel), c.channel), c.seq); err == nil {
+				ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+				if _, _, err := s.m.SendAs(ctx, sp.By, session.NewInputID(), in.String(), session.From(gate.HostID, "Iridium"), true); err != nil {
+					s.logf("server: channel %s: telling %s that %s said nothing: %v", c.channel, sp.By, id, err)
+				}
+				cancel()
+			}
+		}
 	}
 }
 
@@ -157,6 +167,7 @@ func (s *Server) channelRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PATCH /v1/internal/channels/{id}/members/{member}", s.memberPatch)
 	mux.HandleFunc("DELETE /v1/internal/channels/{id}/members/{member}", s.memberRemove)
 	mux.HandleFunc("PUT /v1/internal/channels/{id}/people", s.peoplePut)
+	mux.HandleFunc("POST /v1/internal/channels/{id}/follow", s.followAdd)
 	mux.HandleFunc("GET /v1/internal/agents/{agent}/choices", s.agentChoices)
 	mux.HandleFunc("GET /v1/internal/sessions/{id}/injections", s.use(s.injections))
 }
@@ -682,12 +693,13 @@ func (s *Server) memberPatch(w http.ResponseWriter, r *http.Request) {
 		s.error(w, err)
 		return
 	}
-	if c.agent {
-		forbid(w, errors.New("an agent's ir may not change a channel's members"))
-		return
-	}
 	var p api.MemberPatch
 	if !readJSON(w, r, &p) {
+		return
+	}
+	// An agent's ir changes what the agent itself receives there, nothing else.
+	if c.agent && (r.PathValue("member") != store.AgentMember(c.session) || p.Nick != nil) {
+		forbid(w, errors.New("an agent's ir changes only what it receives itself (recv)"))
 		return
 	}
 	was, _ := s.memberRow(ch, r.PathValue("member"))
@@ -710,6 +722,51 @@ func (s *Server) memberPatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	reply(w, http.StatusOK, out)
+}
+
+// Follows: how many messages one may ask for, and for how long (seconds).
+const (
+	FollowCount   = 50
+	FollowSeconds = 3600
+)
+
+// followAdd: the agent that calls asks to be given the next messages of a user in the channel
+// (docs/channels.md "收"), named or not: Count of them (1), within Seconds (600).
+func (s *Server) followAdd(w http.ResponseWriter, r *http.Request) {
+	c := callerOf(r)
+	ch, _, err := s.seeingChannel(c, r.PathValue("id"))
+	if err != nil {
+		s.error(w, err)
+		return
+	}
+	if !s.ch.Speaks(ch, c.session) {
+		forbid(w, errors.New("only an agent of the channel follows someone in it, with its ir"))
+		return
+	}
+	var req api.Follow
+	if !readJSON(w, r, &req) {
+		return
+	}
+	user := strings.TrimPrefix(strings.TrimSpace(req.User), "@")
+	if user == "" {
+		refuse(w, http.StatusBadRequest, "bad_request", "user: a nick, a user's id, or * for anyone")
+		return
+	}
+	// An agent by its nick.
+	if _, by := s.agentsOf(ch); user != "*" {
+		for id, m := range by {
+			if strings.EqualFold(m.Nick, user) {
+				user = store.AgentMember(id)
+			}
+		}
+	}
+	count, secs := cmp.Or(req.Count, 1), cmp.Or(req.Seconds, 600)
+	if count < 1 || count > FollowCount || secs < 1 || secs > FollowSeconds {
+		refuse(w, http.StatusBadRequest, "bad_request", fmt.Sprintf("count: 1 to %d; seconds: 1 to %d", FollowCount, FollowSeconds))
+		return
+	}
+	s.follows.add(ch, follow{session: c.session, user: user, left: count, until: time.Now().Add(time.Duration(secs) * time.Second)})
+	reply(w, http.StatusOK, api.Follow{User: user, Count: count, Seconds: secs})
 }
 
 // memberRemove takes a member out; an agent's session stays, as any session.
@@ -784,6 +841,110 @@ func (s *Server) agentsOf(ch string) ([]deliver.Agent, map[string]channel.Member
 // A person needs the right to use each agent the message names (Claude: the owner's own); one
 // that would merely receive everything is passed over without it.
 func (s *Server) sendChannel(ctx context.Context, c caller, from, ch string, req api.Send) (api.SendReply, error) {
+	return s.sendChannelAs(ctx, c, from, ch, req, true)
+}
+
+// BehindMax is how many messages an agent may not have seen of a channel and still speak in it
+// with ir; with more, or with one that names it, it is told to read them first.
+const BehindMax = 12
+
+// behindError refuses an agent's ir: what it has not seen of the channel, as it is told.
+type behindError struct{ text string }
+
+func (e *behindError) Error() string { return e.text }
+
+// kin: one of sessions a and b started the other for a channel. What they say to each other
+// does not count toward the agents that may pass a chain on.
+func (s *Server) kin(a, b string) bool {
+	if sp := s.spawnedOf(a); sp != nil && sp.By == b {
+		return true
+	}
+	sp := s.spawnedOf(b)
+	return sp != nil && sp.By == a
+}
+
+// follow: session's agent asked to be given the next left messages of user in a channel, until
+// a time.
+type follow struct {
+	session, user string
+	left          int
+	until         time.Time
+}
+
+// follows are what the agents of each channel asked to be given beside what names them.
+type follows struct {
+	mu sync.Mutex
+	of map[string][]follow
+}
+
+func (f *follows) add(ch string, x follow) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.of == nil {
+		f.of = map[string][]follow{}
+	}
+	// One per agent and user: the new one in place of the old.
+	f.of[ch] = append(slices.DeleteFunc(f.of[ch], func(o follow) bool { return o.session == x.session && o.user == x.user }), x)
+}
+
+// take are the sessions that asked for a message of author in ch (not the one that said it),
+// each counted one message less.
+func (f *follows) take(ch, author, sender string) []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	now := time.Now()
+	var out []string
+	kept := f.of[ch][:0]
+	for _, x := range f.of[ch] {
+		if now.After(x.until) {
+			continue
+		}
+		if x.session != sender && (x.user == "*" || x.user == author) {
+			out = append(out, x.session)
+			x.left--
+		}
+		if x.left > 0 {
+			kept = append(kept, x)
+		}
+	}
+	if len(kept) == 0 {
+		delete(f.of, ch)
+	} else {
+		f.of[ch] = kept
+	}
+	return out
+}
+
+// wakes are the agents of ch a message with words text wakes: those the rules give it to
+// (deliver.Route) and those that asked for its author's (follows); sender, the agent that said
+// it ("": a person), whose chain is link. After too many agents in a row only those kin to the
+// sender get it; tooFar: it names someone and nobody gets it.
+func (s *Server) wakes(ch, text, author, sender string, link chain, list []deliver.Agent) (wake, named []string, tooFar bool) {
+	d := deliver.Route(text, sender, 0, list)
+	wake = d.Wake
+	for _, t := range s.follows.take(ch, author, sender) {
+		if !slices.Contains(wake, t) && s.ch.Speaks(ch, t) {
+			wake = append(wake, t)
+		}
+	}
+	if sender != "" && link.hop >= deliver.MaxHops {
+		wake = slices.DeleteFunc(wake, func(t string) bool { return !s.kin(sender, t) })
+		tooFar = len(d.Named) > 0 && len(wake) == 0
+	}
+	return wake, d.Named, tooFar
+}
+
+// hopTo is how many agents passed the chain on once sender's message reaches to.
+func (s *Server) hopTo(sender, to string, link chain) int {
+	if sender == "" || s.kin(sender, to) {
+		return link.hop
+	}
+	return link.hop + 1
+}
+
+// sendChannelAs is sendChannel; check: an agent that speaks is held to what it has seen of the
+// channel (docs/channels.md "发送检查").
+func (s *Server) sendChannelAs(ctx context.Context, c caller, from, ch string, req api.Send, check bool) (api.SendReply, error) {
 	st, err := s.m.State(ch)
 	if err != nil {
 		return api.SendReply{}, err
@@ -806,14 +967,44 @@ func (s *Server) sendChannel(ctx context.Context, c caller, from, ch string, req
 		link.origin = cmp.Or(link.origin, c.ID())
 		s.calls.spoke(sender, ch)
 	}
-	d := deliver.Route(req.Text, sender, link.hop, list)
-	if d.TooFar {
+	u := s.satoriUser(c)
+	if tag := s.m.SourceTag(from); tag != "" {
+		u.Name = tag
+	}
+	unseen := ""
+	if sender != "" {
+		u = satori.User{ID: store.AgentMember(sender)}
+		// What it has not seen is given to it now, sent or not.
+		_, by := s.agentsOf(ch)
+		me := by[sender]
+		msgs, did, _, named, err := s.unread(ch, me, 0, by)
+		if err != nil {
+			return api.SendReply{}, err
+		}
+		cc := assemble.Channel{Plan: strategy.Fold(msgs, strategy.Default), Zone: time.Local, Did: did}
+		if !me.Direct() {
+			cc.ID = ch
+		}
+		s.ch.Seen(ch, sender, s.ch.End(ch))
+		if check && (named || len(msgs) > BehindMax) {
+			in, err := assemble.ChannelBehind(cc, len(msgs), named)
+			if err != nil {
+				return api.SendReply{}, err
+			}
+			return api.SendReply{}, &behindError{in.String()}
+		}
+		if in, err := assemble.ChannelUnseen(cc); err == nil {
+			unseen = in.String()
+		}
+	}
+	routed, namedNicks, tooFar := s.wakes(ch, req.Text, u.ID, sender, link, list)
+	if tooFar {
 		return api.SendReply{}, fmt.Errorf("%w: more than %d agents in a row passed this on; a person goes on from here", session.ErrBadRequest, deliver.MaxHops)
 	}
 	var wake []string
-	for _, t := range d.Wake {
+	for _, t := range routed {
 		if _, err := s.using(c, t); err != nil && sender == "" {
-			if slices.ContainsFunc(list, func(a deliver.Agent) bool { return a.Session == t && slices.Contains(d.Named, a.Nick) }) {
+			if slices.ContainsFunc(list, func(a deliver.Agent) bool { return a.Session == t && slices.Contains(namedNicks, a.Nick) }) {
 				return api.SendReply{}, err
 			}
 			continue
@@ -823,28 +1014,20 @@ func (s *Server) sendChannel(ctx context.Context, c caller, from, ch string, req
 	if req.ID == "" {
 		req.ID = session.NewInputID()
 	}
-	u := s.satoriUser(c)
-	if tag := s.m.SourceTag(from); tag != "" {
-		u.Name = tag
-	}
-	if sender != "" {
-		u = satori.User{ID: store.AgentMember(sender)}
-	}
 	seq := s.sat.Input(st.Session, req.ID, req.Text, u, link.origin)
 	if seq == 0 {
 		return api.SendReply{}, errors.New("the channel did not take the message")
 	}
 	s.noteOrigin(c, ch, c.session)
-	out := api.SendReply{Input: req.ID, Seq: seq}
-	hop := link.hop
+	out := api.SendReply{Input: req.ID, Seq: seq, Said: true, Unseen: unseen}
 	if sender != "" {
-		hop++
+		s.ch.Seen(ch, sender, seq)
 	}
 	var firstErr error
 	var failed []string
 	sent := 0
 	for _, t := range wake {
-		queued, err := s.deliverTo(ctx, ch, t, seq, text, req.ID, from, req.Steer, images, chain{origin: link.origin, hop: hop})
+		queued, err := s.deliverTo(ctx, ch, t, seq, text, req.ID, from, req.Steer, images, chain{origin: link.origin, hop: s.hopTo(sender, t, link)})
 		if err != nil {
 			s.logf("server: channel %s: message %d to %s: %v", ch, seq, t, err)
 			firstErr = cmp.Or(firstErr, err)
@@ -894,26 +1077,9 @@ func (s *Server) deliverTo(ctx context.Context, ch, to string, seq int64, said, 
 	if !ok {
 		return false, channel.ErrNoMember
 	}
-	rows, err := s.ch.Between(ch, me.Seen, seq, 2000)
+	unseen, did, work, _, err := s.unread(ch, me, seq, by)
 	if err != nil {
 		return false, err
-	}
-	var unseen []strategy.Msg
-	did := map[int64]activity.Activity{}
-	work := map[string]*activity.Activity{} // by agent session: all it did over what was not seen
-	for _, m := range rows {
-		if m.Author == me.Member || (m.Kind != channel.KindUser && m.Kind != channel.KindSaid) {
-			continue
-		}
-		id, agent := store.SessionOfMember(m.Author)
-		unseen = append(unseen, strategy.Msg{Seq: m.Seq, Who: whoOf(m, by), Agent: agent, Text: m.Text, At: m.At})
-		if a := m.D.Activity; agent && a != nil {
-			did[m.Seq] = *a
-			if work[id] == nil {
-				work[id] = &activity.Activity{}
-			}
-			work[id].Sum(*a)
-		}
 	}
 	cc := assemble.Channel{You: me.Nick, Plan: strategy.Fold(unseen, strategy.Default), Pull: true, Zone: time.Local, Did: did}
 	if !me.Direct() {
@@ -980,6 +1146,35 @@ func (s *Server) deliverTo(ctx context.Context, ch, to string, seq int64, said, 
 	return queued, nil
 }
 
+// unread are the messages of ch that me has not seen, below number before (0: all there are),
+// others' only: as the plan of what to give takes them; did, what an agent did before saying
+// one, by its number; work, by agent session, all it did over them; named: one of them names me.
+func (s *Server) unread(ch string, me channel.Member, before int64, by map[string]channel.Member) (msgs []strategy.Msg, did map[int64]activity.Activity, work map[string]*activity.Activity, named bool, err error) {
+	rows, err := s.ch.Between(ch, me.Seen, before, 2000)
+	if err != nil {
+		return nil, nil, nil, false, err
+	}
+	did, work = map[int64]activity.Activity{}, map[string]*activity.Activity{}
+	for _, m := range rows {
+		if m.Author == me.Member || (m.Kind != channel.KindUser && m.Kind != channel.KindSaid) {
+			continue
+		}
+		id, agent := store.SessionOfMember(m.Author)
+		msgs = append(msgs, strategy.Msg{Seq: m.Seq, Who: whoOf(m, by), Agent: agent, Text: m.Text, At: m.At})
+		if me.Nick != "" && len(deliver.Mentions(m.Text, []string{me.Nick})) > 0 {
+			named = true
+		}
+		if a := m.D.Activity; agent && a != nil {
+			did[m.Seq] = *a
+			if work[id] == nil {
+				work[id] = &activity.Activity{}
+			}
+			work[id].Sum(*a)
+		}
+	}
+	return msgs, did, work, named, nil
+}
+
 // routeSaid: an agent said m in its channel. In a channel of several, the agents it names are
 // given it; after too many agents in a row, nobody is, and the channel says so.
 func (s *Server) routeSaid(m channel.Message) {
@@ -992,19 +1187,19 @@ func (s *Server) routeSaid(m channel.Message) {
 		return
 	}
 	link := s.chain.get(sender)
-	d := deliver.Route(m.Text, sender, link.hop, list)
-	if d.TooFar {
+	wake, _, tooFar := s.wakes(m.Channel, m.Text, m.Author, sender, link, list)
+	if tooFar {
 		s.sat.Note(m.Channel, fmt.Sprintf("未转交 #%d：Agent 已连续转交 %d 次", m.Seq, deliver.MaxHops), link.origin, &channel.Event{Type: "stopped", Seq: m.Seq})
 		return
 	}
-	if len(d.Wake) == 0 {
+	if len(wake) == 0 {
 		return
 	}
 	from := session.From(gate.HostID, "@"+by[sender].Nick)
 	go func() {
-		for _, t := range d.Wake {
+		for _, t := range wake {
 			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-			_, err := s.deliverTo(ctx, m.Channel, t, m.Seq, m.Text, "", from, true, nil, chain{origin: link.origin, hop: link.hop + 1})
+			_, err := s.deliverTo(ctx, m.Channel, t, m.Seq, m.Text, "", from, true, nil, chain{origin: link.origin, hop: s.hopTo(sender, t, link)})
 			cancel()
 			if err != nil {
 				s.logf("server: channel %s: message %d to %s: %v", m.Channel, m.Seq, t, err)

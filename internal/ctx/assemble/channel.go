@@ -111,6 +111,40 @@ func channelPieces(c Channel, seq int64, said, input string) []piece {
 	} else {
 		ps = append(ps, text(idChannelMembers, "you", c.You, "agents", strings.Join(agents, ", ")))
 	}
+	ps = append(ps, unseenPieces(c, self)...)
+	work := false
+	for _, w := range c.Work {
+		if w.Did.Empty() {
+			continue
+		}
+		if !work {
+			ps, work = append(ps, text(idChannelWork)), true
+		}
+		ps = append(append(ps, text(idChannelWorkLine, "who", w.Who)), didPieces(w.Did)...)
+		if len(w.Did.Files) > 0 {
+			var paths []string
+			for i, f := range w.Did.Files {
+				if i >= WorkFiles {
+					paths = append(paths, "…")
+					break
+				}
+				paths = append(paths, f.Path)
+			}
+			ps = append(ps, text(idChannelWorkFile, "files", strings.Join(paths, ", ")))
+		}
+		ps = append(ps, text(idNL))
+	}
+	if c.Pull {
+		ps = append(ps, text(idChannelPull, "channel", self))
+	}
+	return append(ps, text(idChannelClose))
+}
+
+// unseenPieces are what the agent has not seen of the channel, as c.Plan has it: how many early
+// ones are not shown, turns in a line each, then the latest in full. self: the channel as ir
+// takes it.
+func unseenPieces(c Channel, self string) []piece {
+	var ps []piece
 	p := c.Plan
 	if k := p.Skipped; k.Count > 0 {
 		sk := text(idChannelSkipped, "from", n(k.From), "to", n(k.To), "count", strconv.Itoa(k.Count))
@@ -147,30 +181,30 @@ func channelPieces(c Channel, seq int64, said, input string) []piece {
 			ps = append(ps, text(idNL))
 		}
 	}
-	work := false
-	for _, w := range c.Work {
-		if w.Did.Empty() {
-			continue
-		}
-		if !work {
-			ps, work = append(ps, text(idChannelWork)), true
-		}
-		ps = append(append(ps, text(idChannelWorkLine, "who", w.Who)), didPieces(w.Did)...)
-		if len(w.Did.Files) > 0 {
-			var paths []string
-			for i, f := range w.Did.Files {
-				if i >= WorkFiles {
-					paths = append(paths, "…")
-					break
-				}
-				paths = append(paths, f.Path)
-			}
-			ps = append(ps, text(idChannelWorkFile, "files", strings.Join(paths, ", ")))
-		}
-		ps = append(ps, text(idNL))
+	return ps
+}
+
+// ChannelUnseen is what comes back to an agent that said something in a channel with ir
+// (docs/channels.md "发送检查"): what was said there since it last read it. Empty when c.Plan is.
+func ChannelUnseen(c Channel) (Injection, error) {
+	if c.Plan.Skipped.Count == 0 && len(c.Plan.Turns) == 0 && len(c.Plan.Full) == 0 {
+		return Injection{}, nil
 	}
-	if c.Pull {
-		ps = append(ps, text(idChannelPull, "channel", self))
+	return build(KindToolResult, append([]piece{text(idChannelSendUnseen)}, unseenPieces(c, cmp.Or(c.ID, "self"))...)...)
+}
+
+// ChannelBehind is what an agent's ir is refused with when it is too far behind the channel, or
+// something it has not seen names it: count messages, and what they are; named: one names it.
+func ChannelBehind(c Channel, count int, named bool) (Injection, error) {
+	id := idChannelSendBehind
+	if named {
+		id = idChannelSendNamed
 	}
-	return append(ps, text(idChannelClose))
+	return build(KindToolResult, append([]piece{text(id, "count", strconv.Itoa(count))}, unseenPieces(c, cmp.Or(c.ID, "self"))...)...)
+}
+
+// ChannelSilent tells the agent that started another (nick) that it was called in channel name
+// for message seq and its turn ended with nothing said there.
+func ChannelSilent(nick, name string, seq int64) (Injection, error) {
+	return build(KindMessage, text(idChannelSilent, "nick", nick, "name", name, "seq", n(seq)))
 }

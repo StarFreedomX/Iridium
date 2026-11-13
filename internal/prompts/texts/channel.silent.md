@@ -1,0 +1,1 @@
+{{nick}}, which you started, was called in the channel "{{name}}" for #{{seq}}; its turn ended and it said nothing there.

@@ -189,7 +189,12 @@ func TestChannelOfSeveral(t *testing.T) {
 	stopped := false
 	for i := range 8 {
 		words := fmt.Sprintf("@claude tell @claude2 round%d", i)
-		if code := l.sat("agent-in:"+second, "message.create", map[string]any{"channel_id": ch, "content": words}, nil); code == 400 {
+		code := l.sat("agent-in:"+second, "message.create", map[string]any{"channel_id": ch, "content": words}, nil)
+		if code == 409 {
+			// Something it had not seen names it (the first's echo, on its way to it): read, again.
+			code = l.sat("agent-in:"+second, "message.create", map[string]any{"channel_id": ch, "content": words}, nil)
+		}
+		if code == 400 {
 			stopped = true
 			break
 		} else if code != 200 {
@@ -205,7 +210,7 @@ func TestChannelOfSeveral(t *testing.T) {
 		t.Fatalf("a person after the chain stopped: %d", code)
 	}
 	l.waitSaid("web", second, "@claude2 again")
-	if code := l.sat("agent-in:"+second, "message.create", map[string]any{"channel_id": ch, "content": "fine"}, nil); code != 200 {
+	if code := l.sat("agent-in:"+second, "message.create", map[string]any{"channel_id": ch, "content": "fine"}, nil); code != 200 && code != 409 {
 		t.Errorf("the second agent after a person spoke: %d", code)
 	}
 
@@ -404,5 +409,130 @@ func TestChannelBare(t *testing.T) {
 	var st api.SessionState
 	if l.want(200, "web", "GET", "/v1/internal/sessions/"+agent, nil, &st); st.Archived {
 		t.Errorf("the agent's session: %+v", st.Session)
+	}
+}
+
+// An agent that speaks in a channel with ir is held to what it has seen of it: what it had not
+// seen comes back with its send; too far behind, it is told to read first. It may ask for the
+// next messages of someone, or for everything people say. Agents one of which started the
+// other pass a chain on without end; the one that started is told when the other says nothing.
+func TestChannelSendCheckAndFollows(t *testing.T) {
+	t.Parallel()
+	l := start(t)
+	ch := l.create(200, "web", api.NewSession{Agent: api.AgentClaude, Cwd: l.work, Text: "first"})
+	l.waitReply("web", ch, "ok: first")
+	var ms api.ChannelMembers
+	l.want(200, "web", "POST", "/v1/internal/channels/"+ch+"/members", api.NewMember{Agent: api.AgentClaude, Nick: "guest"}, &ms)
+	guest := ms.Members[2].Session
+	say := func(as, to, words string) (int, api.SendReply, string) {
+		t.Helper()
+		var raw string
+		code := l.sat(as, "message.create", map[string]any{"channel_id": to, "content": words}, &raw)
+		var out []struct {
+			Data api.SendReply `json:"_data"`
+		}
+		if json.Unmarshal([]byte(raw), &out) == nil && len(out) > 0 {
+			return code, out[0].Data, raw
+		}
+		return code, api.SendReply{}, raw
+	}
+
+	// A little behind: sent, and what it had not seen comes back; then nothing more to see.
+	code, r, raw := say("agent-in:"+guest, ch, "hello all")
+	if code != 200 || !r.Said || !strings.Contains(r.Unseen, "Sent. Said in the channel since you last read it") || !strings.Contains(r.Unseen, "]: first\n") ||
+		!strings.Contains(r.Unseen, "message.get channel_id="+ch) && strings.Contains(r.Unseen, "channel_id=self") {
+		t.Fatalf("the first send: %d %+v %s", code, r, raw)
+	}
+	if code, r, _ = say("agent-in:"+guest, ch, "and again"); code != 200 || r.Unseen != "" {
+		t.Fatalf("with nothing unseen: %d %+v", code, r)
+	}
+	// Far behind: told to read first, with what there is to read; then it goes.
+	for i := range 7 {
+		code, sr := l.send("web", ch, api.Send{Text: fmt.Sprintf("plain %d", i)})
+		if code != 200 {
+			t.Fatalf("send %d: %d", i, code)
+		}
+		l.waitSaid("web", ch, "@claude ", fmt.Sprintf("ok: #%d: plain %d", sr.Seq, i))
+	}
+	if code, _, raw = say("agent-in:"+guest, ch, "late"); code != 409 || !strings.Contains(raw, `"behind"`) || !strings.Contains(raw, "Not sent: 14 messages") || !strings.Contains(raw, "plain 6") {
+		t.Fatalf("far behind: %d %s", code, raw)
+	}
+	if code, r, _ = say("agent-in:"+guest, ch, "late, having read"); code != 200 || r.Unseen != "" {
+		t.Fatalf("after reading: %d %+v", code, r)
+	}
+	for _, m := range l.said("web", ch) {
+		if strings.HasSuffix(m, " late") {
+			t.Errorf("what was refused was said: %s", m)
+		}
+	}
+
+	// The next message of anyone, once: given though it names nobody; the one after is not.
+	var f api.Follow
+	l.want(403, "web", "POST", "/v1/internal/channels/"+ch+"/follow", api.Follow{User: "*"}, nil)
+	l.want(400, "agent-in:"+guest, "POST", "/v1/internal/channels/"+ch+"/follow", api.Follow{User: "*", Count: 500}, nil)
+	l.want(200, "agent-in:"+guest, "POST", "/v1/internal/channels/"+ch+"/follow", api.Follow{User: "*"}, &f)
+	if f.Count != 1 || f.Seconds != 600 {
+		t.Errorf("follow: %+v", f)
+	}
+	_, sr := l.send("web", ch, api.Send{Text: "followed words"})
+	l.waitSaid("web", guest, fmt.Sprintf("ok: #%d: followed words", sr.Seq))
+	_, sr = l.send("web", ch, api.Send{Text: "not followed"})
+	l.waitSaid("web", ch, "@claude ", fmt.Sprintf("ok: #%d: not followed", sr.Seq))
+	notFollowed := sr.Seq
+	// An agent by its nick: what the channel's own agent says next (once what it said so far
+	// has been told).
+	time.Sleep(500 * time.Millisecond)
+	l.want(200, "agent-in:"+guest, "POST", "/v1/internal/channels/"+ch+"/follow", api.Follow{User: "@claude"}, &f)
+	if f.User != "agent:"+ch {
+		t.Errorf("follow by nick: %+v", f)
+	}
+	_, sr = l.send("web", ch, api.Send{Text: "for the first"})
+	l.waitSaid("web", guest, fmt.Sprintf("ok: #%d: for the first", sr.Seq), "ok: #") // the first's echo, echoed
+	time.Sleep(300 * time.Millisecond)
+	for _, m := range l.said("web", guest) {
+		if strings.Contains(m, fmt.Sprintf("@guest ok: #%d:", notFollowed)) || strings.Contains(m, fmt.Sprintf("@guest ok: #%d:", notFollowed+1)) {
+			t.Errorf("given after its count ran out: %s", m)
+		}
+	}
+
+	// Everything people say: an agent sets what it receives itself, nothing else.
+	all := "all"
+	l.want(403, "agent-in:"+guest, "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+ch, api.MemberPatch{Recv: &all}, nil)
+	nick := "other"
+	l.want(403, "agent-in:"+guest, "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+guest, api.MemberPatch{Nick: &nick}, nil)
+	l.want(200, "agent-in:"+guest, "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+guest, api.MemberPatch{Recv: &all}, &ms)
+	if ms.Members[2].Recv != "all" {
+		t.Fatalf("recv set by the agent: %+v", ms.Members[2])
+	}
+	at := "at"
+	l.want(200, "web", "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+guest, api.MemberPatch{Recv: &at}, nil)
+
+	// An agent the channel's own agent started: kin. They pass a chain on without end, and the
+	// one that started it is told when the other was called and said nothing.
+	l.want(200, "agent-in:"+ch, "POST", "/v1/internal/channels/"+ch+"/members", api.NewMember{Agent: api.AgentClaude, Nick: "kid"}, &ms)
+	kid := ms.Members[3].Session
+	found := false
+	for _, ss := range l.sessions("web") {
+		if ss.ID == kid {
+			found = ss.Spawned != nil && ss.Spawned.By == ch && ss.Spawned.Channel == ch
+		}
+	}
+	if !found {
+		t.Errorf("the one it started is not marked so")
+	}
+	_, sr = l.send("web", ch, api.Send{Text: "@kid begin"})
+	l.waitSaid("web", kid, fmt.Sprintf("ok: #%d: @kid begin", sr.Seq))
+	l.waitSaid("web", ch, "iridium", "@kid 被叫起", "未在频道发话")
+	l.waitSaid("web", ch, "@claude ", "kid, which you started, was called in the channel")
+	for i := range 7 {
+		words := fmt.Sprintf("@claude tell @kid turn%d", i)
+		code, _, raw := say("agent-in:"+kid, ch, words)
+		if code == 409 { // something on its way to it names it: read, again
+			code, _, raw = say("agent-in:"+kid, ch, words)
+		}
+		if code != 200 {
+			t.Fatalf("kin, turn %d: %d %s", i, code, raw)
+		}
+		l.waitSaid("web", kid, fmt.Sprintf("turn%d", i), "ok: #")
 	}
 }

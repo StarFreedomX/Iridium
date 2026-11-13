@@ -465,6 +465,11 @@ type SendReply struct {
 	Queued bool   `json:"queued,omitempty"` // it waits in the queue
 	// Seq: the message's number in its channel.
 	Seq int64 `json:"seq,omitempty"`
+	// Said: said in a channel of several agents (docs/channels.md), given to those it wakes: no
+	// input of the channel's own session to wait for. Unseen: for an agent that said it with ir,
+	// what was said there since it last read the channel, as text.
+	Said   bool   `json:"said,omitempty"`
+	Unseen string `json:"unseen,omitempty"`
 	// Session: /clear went on in this session, the old one left as it was (no input then).
 	Session string `json:"session,omitempty"`
 	// Command: the agent runs it as a command of its own (Codex's, pi's /compact): no words of

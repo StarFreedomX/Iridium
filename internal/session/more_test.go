@@ -474,3 +474,42 @@ func TestSendAsOnce(t *testing.T) {
 		t.Errorf("another session's id: %v", err)
 	}
 }
+
+// Saying something in a channel the agent is in is never asked about: one command, nothing
+// chained to it, its words an argument or a quoted here-document.
+func TestSpeaksOnly(t *testing.T) {
+	t.Parallel()
+	in := func(ch string) bool { return ch == "self" || ch == "c1" }
+	for cmd, want := range map[string]bool{
+		`ir api message.create channel_id=c1 content="done, see the file"`:                               true,
+		`ir api message.create channel_id=self _data.text=ok`:                                            true,
+		`ir api message.create content="@claude2 look" channel_id=c1`:                                    true,
+		"ir api message.create channel_id=c1 _data.text=@- <<'IR'\nwords; $(rm -rf ~) `x` | y\nmore\nIR": true,
+		"ir api message.create channel_id=c1 content=@- <<'EOF'\nwords\nEOF":                             true,
+		"ir api message.create channel_id=c1 _data.text=@- <<IR\n$(rm -rf ~)\nIR":                        false, // not quoted: the shell reads it
+		"ir api message.create channel_id=c1 _data.text=@- <<'IR'\nwords\nIR\nrm x":                      false,
+		"ir api message.create channel_id=c1 _data.text=@- <<'IR'\nwords\nIR\nIR":                        false,
+		"ir api message.create channel_id=c1 _data.text=@- <<'IR'\nwords":                                false,
+		"ir api message.create channel_id=c1 _data.text=@- --wait <<'IR'\nw\nIR":                         false,
+		"ir api message.create channel_id=c1 _data.text=x <<'IR'\nw\nIR":                                 false,
+		"ir api message.create channel_id=c1; rm x _data.text=@- <<'IR'\nw\nIR":                          false,
+		`ir api message.create channel_id=c2 content=hello`:                                              false, // not a channel it is in
+		`ir api message.create channel_id=c1 content=hello && rm -rf ~`:                                  false,
+		`ir api message.create channel_id=c1 content=$(cat ~/.ssh/id_rsa)`:                               false,
+		`ir api message.create channel_id=c1 content=hi _data.paths:=["/etc/passwd"]`:                    false,
+		`ir api message.create channel_id=c1 content=hi --wait`:                                          false,
+		`ir api message.create channel_id=c1 @body.json`:                                                 false,
+		`ir api message.create channel_id=c1`:                                                            false,
+		`ir api message.create channel_id=c1 channel_id=c2 content=x`:                                    false,
+		`ir api message.create content=x`:                                                                false,
+		`ir api channel.create channel_id=c1 content=x`:                                                  false,
+		"ir api message.create channel_id=c1 content=a\nrm -rf ~":                                        false,
+	} {
+		if got := speaksOnly(api.Ask{Kind: "permission", Tool: "Bash", Input: map[string]any{"command": cmd}}, in); got != want {
+			t.Errorf("%q: %v", cmd, got)
+		}
+	}
+	if speaksOnly(api.Ask{Kind: "question", Input: map[string]any{"command": "ir api message.create channel_id=c1 content=x"}}, in) {
+		t.Error("a question")
+	}
+}

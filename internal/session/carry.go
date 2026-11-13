@@ -73,6 +73,17 @@ func (m *Manager) SetChannelOf(f func(id string) (agents []api.ChannelAgent, in 
 	m.chanOf.Store(&f)
 }
 
+// SetSpeaks has f say whether a session's agent is in a channel by a subscription
+// (docs/channels.md): saying something there with ir is then not asked about (speaksOnly).
+func (m *Manager) SetSpeaks(f func(session, channel string) bool) { m.speaksIn.Store(&f) }
+
+func (m *Manager) speaks(session, channel string) bool {
+	if f := m.speaksIn.Load(); f != nil {
+		return (*f)(session, channel)
+	}
+	return false
+}
+
 // SetSpawned has f say where a session was started, if for a channel; List marks them with it.
 func (m *Manager) SetSpawned(f func(id string) *api.Spawned) { m.spawned.Store(&f) }
 

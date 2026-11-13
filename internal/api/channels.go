@@ -96,6 +96,15 @@ type ChannelSetup struct {
 	Recv string `json:"recv,omitempty"`
 }
 
+// Follow is what an agent asks to be given of a channel beside what names it (POST
+// …/follow): the next Count messages (none: 1) of User (a nick, a user's id, "*" anyone) within
+// Seconds (none: 600).
+type Follow struct {
+	User    string `json:"user"`
+	Count   int    `json:"count,omitempty"`
+	Seconds int    `json:"seconds,omitempty"`
+}
+
 // People sets a channel's people (PUT …/people).
 type People struct {
 	People []string `json:"people"`

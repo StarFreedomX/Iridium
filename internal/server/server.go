@@ -81,11 +81,12 @@ type Server struct {
 	// Remote, if set, takes executors' connections at /v1/internal/exec (docs/exec.md).
 	Remote *remote.Hub
 
-	files *files.Service   // routes_files.go
-	sat   *satori.Service  // /v1/: Satori with ir (satori.go)
-	ch    *channel.Service // what is said in the channels (docs/channels.md)
-	chain chains           // the chain each agent's turn is in (channels.go)
-	calls calls            // the channels each agent was called in by a subscription (channels.go)
+	files   *files.Service   // routes_files.go
+	sat     *satori.Service  // /v1/: Satori with ir (satori.go)
+	ch      *channel.Service // what is said in the channels (docs/channels.md)
+	chain   chains           // the chain each agent's turn is in (channels.go)
+	follows follows          // what agents asked to be given of a channel beside what names them (channels.go)
+	calls   calls            // the channels each agent was called in by a subscription (channels.go)
 	// channelsSeq: the state "channels", up by one at each change of a channel's members.
 	channelsSeq atomic.Int64
 	// stopList stops giving Satori the session list (its channel events).
@@ -115,6 +116,7 @@ func New(cfg config.Config, m *session.Manager, h *hub.Hub, logf func(string, ..
 	m.SetChannelOf(s.channelOf)
 	m.SetSpawned(s.spawnedOf)
 	m.SetBare(s.bareChannels)
+	m.SetSpeaks(func(id, ch string) bool { return s.ch.Speaks(ch, id) })
 	s.sat.Keep(satoriKeeper{s.st})
 	m.Watch(s.sat.Notice)
 	lctx, lstop := context.WithCancel(context.Background())
