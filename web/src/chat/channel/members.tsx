@@ -1,24 +1,26 @@
 // A channel's agents as faces (docs/channels.md): beside what each said, its harness's logo on a
 // disc, its lamp on the corner. A press opens its card (as QQ's: talk to it in its own channel,
-// call it here, its context); the right button, or a finger held down, its menu: compact, model, effort, approval mode, stop, what it receives, its nick, usage, its
-// own session, what the channel gave it, out.
+// call it here); the right button, or a finger held down, its menu: call, compact, model,
+// effort, approval mode, stop, what it receives, its nick, its face, its own session, what the
+// channel gave it, out. Its context and usage are not here: they have their keys after its
+// model's name (docs/前端设计规范.md "一样东西一个地方").
 import { Dialog } from "@base-ui/react/dialog";
 import { Menu } from "@base-ui/react/menu";
 import { Popover } from "@base-ui/react/popover";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AtSign, BarChart3, MessageCircle, Box, Brain, ChartPie, Check, ChevronRight, CircleStop, FoldVertical, ImagePlus, PencilLine, Inbox, ScrollText, ShieldCheck, UserMinus, X } from "lucide-react";
+import { AtSign, MessageCircle, Box, Brain, Check, ChevronRight, CircleStop, FoldVertical, ImagePlus, PencilLine, Inbox, ScrollText, ShieldCheck, UserMinus, X } from "lucide-react";
 import { useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 import { api } from "../../api/client";
 import type { ChannelMembers, SessionState as LiveSession, Session } from "../../api/types.gen";
 import { CardFrame, CardHead, MainKey, SecondKey } from "../../card";
 import { t, useLang } from "../../i18n";
 import { ModeMark, modeName } from "../../modes";
-import { useContextState, useList, useSession } from "../../store";
+import { useList, useSession } from "../../store";
 import { errText, toast } from "../../toast";
-import { openChat, openUsage } from "../../route";
+import { openChat } from "../../route";
 import { agentName, cn, Lamp, Logo, own, sessionStatusText, useLongPress, useMenuAt } from "../../ui";
 import { levelName } from "../effort";
-import { ContextDetail, modelView, useMode } from "../meters";
+import { modelView, useMode } from "../meters";
 import { Face, pickFace } from "./face";
 import { memberError } from "./key";
 import { givenParts, validNick, type AgentRow } from "./lib";
@@ -52,7 +54,6 @@ export function AgentFace({ channel, a, call, record, may, talk, size = 28 }: { 
   const real = useSession(a.session);
   const row = useList()?.find((x) => x.id === a.session);
   const s = real ?? (row && ghostOf(row));
-  const ctx = useContextState(a.session) ?? s?.context;
   const face = useRef<HTMLButtonElement>(null);
   const [menuAt, setMenuAt] = useMenuAt();
   const [detail, setDetail] = useState(false);
@@ -91,7 +92,7 @@ export function AgentFace({ channel, a, call, record, may, talk, size = 28 }: { 
         </span>
       </button>
       <At anchor={face} open={detail} onOpenChange={setDetail} className="w-[min(300px,calc(100vw-16px))] p-3.5">
-        <Card channel={channel} a={a} s={s} ctx={ctx} call={call} record={record} may={may} talk={talk} done={() => setDetail(false)} />
+        <Card channel={channel} a={a} call={call} record={record} may={may} talk={talk} done={() => setDetail(false)} />
       </At>
       {s && (
         <MemberMenu
@@ -102,7 +103,6 @@ export function AgentFace({ channel, a, call, record, may, talk, size = 28 }: { 
           at={menuAt}
           close={() => setMenuAt(null)}
           call={call}
-          detail={ctx?.max ? () => setDetail(true) : undefined}
           rename={() => setNaming(true)}
           record={record && (() => record(a.session))}
           given={() => setGiven(true)}
@@ -120,10 +120,11 @@ export function AgentFace({ channel, a, call, record, may, talk, size = 28 }: { 
   );
 }
 
-/** An agent's card (the user, 2026-11-13, as QQ's): its face, nick, what it runs as, its state
- *  and context; keys to talk to it in its own channel (its session: one channel bound to it),
+/** An agent's card (the user, 2026-11-13, as QQ's): its face, nick, what it runs as, its state;
+ *  not its context or usage, which have their own keys after its model's name (docs/前端设计规范.md
+ *  "一样东西一个地方"). Keys to talk to it in its own channel (its session: one channel bound to it),
  *  to call it here (@nick); in its own channel, to change its face and see its record. */
-function Card({ channel, a, s, ctx, call, record, may, talk, done }: { channel: string; a: AgentRow; s?: LiveSession; ctx?: Parameters<typeof ContextDetail>[0]["c"]; call?: (nick: string) => void; record?: (session: string) => void; may: boolean; talk?: () => void; done: () => void }) {
+function Card({ channel, a, call, record, may, talk, done }: { channel: string; a: AgentRow; call?: (nick: string) => void; record?: (session: string) => void; may: boolean; talk?: () => void; done: () => void }) {
   const mine = a.session === channel;
   const key = "g-press flex h-8 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md bg-fill px-2 text-sm text-ink hover:bg-fill-2 pointer-coarse:h-10";
   return (
@@ -141,7 +142,6 @@ function Card({ channel, a, s, ctx, call, record, may, talk, done }: { channel: 
           </span>
         </div>
       </div>
-      {!!ctx?.max && <ContextDetail c={ctx} tokens={s?.tokens} />}
       <div className="flex gap-1.5">
         {(!mine || (talk && may)) && (
           <button type="button" onClick={() => (done(), mine ? talk?.() : openChat(a.session))} className={key}>
@@ -209,7 +209,7 @@ function Pick({ icon, label, now, value, options, set, i }: { icon: ReactNode; l
 /** A member's menu, at a point. Its model, effort and mode are its session's own, set as the
  *  one-agent chat's keys set them. remove: none for the session the channel is. */
 /** may: the one looking is of the channel's people; else only what reads is offered. */
-function MemberMenu({ channel, a, s, may, at, close, call, detail, rename, record, given, remove }: { channel: string; a: AgentRow; s: LiveSession; may: boolean; at: { x: number; y: number } | null; close: () => void; call?: (nick: string) => void; detail?: () => void; rename: () => void; record?: () => void; given: () => void; remove?: () => void }) {
+function MemberMenu({ channel, a, s, may, at, close, call, rename, record, given, remove }: { channel: string; a: AgentRow; s: LiveSession; may: boolean; at: { x: number; y: number } | null; close: () => void; call?: (nick: string) => void; rename: () => void; record?: () => void; given: () => void; remove?: () => void }) {
   const qc = useQueryClient();
   const mode = useMode(s);
   const v = modelView(s);
@@ -278,8 +278,6 @@ function MemberMenu({ channel, a, s, may, at, close, call, detail, rename, recor
                 i={i++}
               />}
               {may && item(<PencilLine size={15} />, t("menu.rename"), later(rename))}
-              {detail && item(<ChartPie size={15} />, t("ctx.title"), later(detail))}
-              {item(<BarChart3 size={15} />, t("usage.title"), later(() => openUsage(at ? { x: at.x, y: at.y } : undefined, s.machine)))}
               {may && item(<ImagePlus size={15} />, t("me.avatar"), later(() => pickFace(a.session)))}
               {record && item(<ScrollText size={15} />, t("channel.session"), record)}
               {item(<Inbox size={15} />, t("channel.given"), later(given))}
