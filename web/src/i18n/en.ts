@@ -266,6 +266,8 @@ export const en: Dict = {
   "channel.members": "Members",
   "channel.invite": "Invite",
   "channel.direct": "Direct",
+  "channel.talk": "Message",
+  "channel.call": "Mention",
   "channel.session": "Open session",
   "channel.readBy": "Read by {names}",
   "channel.worksIn": "Working in {name}",

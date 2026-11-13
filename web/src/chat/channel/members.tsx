@@ -1,14 +1,13 @@
 // A channel's agents as faces (docs/channels.md): beside what each said, its harness's logo on a
-// disc, its lamp on the corner. A press calls it (@nick in the composer); the mouse resting on
-// it shows what it runs as and its context's parts; the right button, or a finger held down,
-// its menu: compact, model, effort, approval mode, stop, what it receives, its nick, usage, its
+// disc, its lamp on the corner. A press opens its card (as QQ's: talk to it in its own channel,
+// call it here, its context); the right button, or a finger held down, its menu: compact, model, effort, approval mode, stop, what it receives, its nick, usage, its
 // own session, what the channel gave it, out.
 import { Dialog } from "@base-ui/react/dialog";
 import { Menu } from "@base-ui/react/menu";
 import { Popover } from "@base-ui/react/popover";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AtSign, BarChart3, Box, Brain, ChartPie, Check, ChevronRight, CircleStop, FoldVertical, ImagePlus, PencilLine, Inbox, ScrollText, ShieldCheck, UserMinus, X } from "lucide-react";
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
+import { AtSign, BarChart3, MessageCircle, Box, Brain, ChartPie, Check, ChevronRight, CircleStop, FoldVertical, ImagePlus, PencilLine, Inbox, ScrollText, ShieldCheck, UserMinus, X } from "lucide-react";
+import { useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 import { api } from "../../api/client";
 import type { ChannelMembers, SessionState as LiveSession, Session } from "../../api/types.gen";
 import { CardFrame, CardHead, MainKey, SecondKey } from "../../card";
@@ -16,7 +15,7 @@ import { t, useLang } from "../../i18n";
 import { ModeMark, modeName } from "../../modes";
 import { useContextState, useList, useSession } from "../../store";
 import { errText, toast } from "../../toast";
-import { openUsage } from "../../route";
+import { openChat, openUsage } from "../../route";
 import { agentName, cn, Lamp, Logo, own, sessionStatusText, useLongPress, useMenuAt } from "../../ui";
 import { levelName } from "../effort";
 import { ContextDetail, modelView, useMode } from "../meters";
@@ -47,9 +46,7 @@ function At({ anchor, open, onOpenChange, children, className, bare }: { anchor:
 }
 
 /** An agent's face beside what it said (the user, 2026-11-13): its harness's logo on a disc, its
- *  lamp on the corner. A press calls it (@nick in the composer; with no call, in its own chat,
- *  shows its detail); the mouse resting on it shows
- *  what it runs as and its context; the right button, or a finger held down, its menu. */
+ *  lamp on the corner. A press opens its card; the right button, or a finger held down, its menu. */
 export function AgentFace({ channel, a, call, record, may, size = 28 }: { channel: string; a: AgentRow; call?: (nick: string) => void; record?: (session: string) => void; may: boolean; size?: number }) {
   const real = useSession(a.session);
   const row = useList()?.find((x) => x.id === a.session);
@@ -61,13 +58,6 @@ export function AgentFace({ channel, a, call, record, may, size = 28 }: { channe
   const [naming, setNaming] = useState(false);
   const [given, setGiven] = useState(false);
   const [sure, setSure] = useState(false);
-  // The mouse resting on the face shows the detail; leaving it and the detail both puts it away.
-  const rest = useRef<number | undefined>(undefined);
-  const hover = (on: boolean, ms: number) => {
-    clearTimeout(rest.current);
-    rest.current = window.setTimeout(() => setDetail(on), ms);
-  };
-  useEffect(() => () => clearTimeout(rest.current), []);
   const lp = useLongPress(() => {
     const r = face.current?.getBoundingClientRect();
     setMenuAt(r ? { x: r.left, y: r.bottom + 4 } : { x: 40, y: 80 });
@@ -79,14 +69,11 @@ export function AgentFace({ channel, a, call, record, may, size = 28 }: { channe
         ref={face}
         type="button"
         aria-label={label}
-        onClick={() => (clearTimeout(rest.current), call ? (setDetail(false), call(a.nick)) : setDetail(!detail))}
+        onClick={() => setDetail(!detail)}
         {...lp}
-        onPointerEnter={(e) => e.pointerType === "mouse" && hover(true, 350)}
-        onPointerLeave={(e) => e.pointerType === "mouse" && hover(false, 150)}
         onContextMenu={(e) => {
           if (!own(e)) return;
           e.preventDefault();
-          clearTimeout(rest.current);
           setDetail(false);
           setMenuAt({ x: e.clientX, y: e.clientY });
         }}
@@ -103,13 +90,7 @@ export function AgentFace({ channel, a, call, record, may, size = 28 }: { channe
         </span>
       </button>
       <At anchor={face} open={detail} onOpenChange={setDetail} className="w-[min(300px,calc(100vw-16px))] p-3.5">
-        <div onPointerEnter={() => clearTimeout(rest.current)} onPointerLeave={(e) => e.pointerType === "mouse" && hover(false, 150)}>
-          <div className={cn("flex items-baseline justify-between gap-3", !!ctx?.max && "mb-3")}>
-            <span className="min-w-0 text-sm font-semibold [overflow-wrap:anywhere]">{a.name || agentName(a.agent)}</span>
-            <span className="shrink-0 text-xs text-ink-3">{sessionStatusText(a)}</span>
-          </div>
-          {!!ctx?.max && <ContextDetail c={ctx} tokens={s?.tokens} />}
-        </div>
+        <Card channel={channel} a={a} s={s} ctx={ctx} call={call} record={record} done={() => setDetail(false)} />
       </At>
       {s && (
         <MemberMenu
@@ -134,6 +115,52 @@ export function AgentFace({ channel, a, call, record, may, size = 28 }: { channe
       </At>
       {given && <Given a={a} close={() => setGiven(false)} />}
     </>
+  );
+}
+
+/** An agent's card (the user, 2026-11-13, as QQ's): its face, nick, what it runs as, its state
+ *  and context; keys to talk to it in its own channel (its session: one channel bound to it),
+ *  to call it here (@nick), to see its record. */
+function Card({ channel, a, s, ctx, call, record, done }: { channel: string; a: AgentRow; s?: LiveSession; ctx?: Parameters<typeof ContextDetail>[0]["c"]; call?: (nick: string) => void; record?: (session: string) => void; done: () => void }) {
+  const mine = a.session === channel;
+  const key = "g-press flex h-8 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md bg-fill px-2 text-sm text-ink hover:bg-fill-2 pointer-coarse:h-10";
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center gap-3">
+        <span className="grid size-12 shrink-0 place-items-center rounded-full bg-fill">
+          <Face id={a.session} agent={a.agent} size={48} logo={26} />
+        </span>
+        <div className="flex min-w-0 flex-1 flex-col">
+          <span className="truncate text-base font-semibold">{a.nick || agentName(a.agent)}</span>
+          <span className="truncate text-xs text-ink-3">{a.name || agentName(a.agent)}</span>
+          <span className="flex items-center gap-1.5 text-xs text-ink-3">
+            <Lamp status={a.status} />
+            {sessionStatusText(a)}
+          </span>
+        </div>
+      </div>
+      {!!ctx?.max && <ContextDetail c={ctx} tokens={s?.tokens} />}
+      <div className="flex gap-1.5">
+        {!mine && (
+          <button type="button" onClick={() => (done(), openChat(a.session))} className={key}>
+            <MessageCircle size={14} className="shrink-0" />
+            <span className="truncate">{t("channel.talk")}</span>
+          </button>
+        )}
+        {call && a.nick && (
+          <button type="button" onClick={() => (done(), call(a.nick))} className={key}>
+            <AtSign size={14} className="shrink-0" />
+            <span className="truncate">{t("channel.call")}</span>
+          </button>
+        )}
+        {mine && record && (
+          <button type="button" onClick={() => (done(), record(a.session))} className={key}>
+            <ScrollText size={14} className="shrink-0" />
+            <span className="truncate">{t("channel.session")}</span>
+          </button>
+        )}
+      </div>
+    </div>
   );
 }
 
