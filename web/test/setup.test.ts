@@ -3,11 +3,20 @@
 import { describe, expect, test } from "vitest";
 import type { ChannelMembers } from "../src/api/types.gen";
 import { mayAct } from "../src/chat/channel/gate";
-import { everyone, hasApp, hasLogin, keepMe, pressApp, pressLogin, peopleOf, setApp, setLogin } from "../src/chat/channel/setup";
+import { everyone, hasApp, hasLogin, keepMe, pressApp, pressLogin, peopleCount, peopleOf, setApp, setLogin } from "../src/chat/channel/setup";
 
 const ME = "ir_web/me";
 
 describe("a channel's people", () => {
+  test("counted: each login once, an app's all its logins, an entry of no listed login one", () => {
+    const logins = [{ app: "ir_web", id: "a" }, { app: "ir_web", id: "b" }, { app: "bot", id: "x" }];
+    expect(peopleCount([], logins)).toBe(3);
+    expect(peopleCount(["*"], logins)).toBe(3);
+    expect(peopleCount(["ir_web/*"], logins)).toBe(2);
+    expect(peopleCount(["ir_web/a", "ir_web/*"], logins)).toBe(2);
+    expect(peopleCount(["ir_web/a", "bot/x"], logins)).toBe(2);
+    expect(peopleCount(["ir_web/a", "local/*", "ir_web/gone"], logins)).toBe(3);
+  });
   test("everyone: none named, or * among them", () => {
     expect(everyone([])).toBe(true);
     expect(everyone(["*"])).toBe(true);

@@ -2,7 +2,7 @@
 import { describe, expect, test } from "vitest";
 import type { ChannelMessage, ChannelPage } from "../src/api/client";
 import type { Session } from "../src/api/types.gen";
-import { eventParts, personName, type EventWords, channelLamp, givenParts, givenTurn, groupMessages, insertNick, isMulti, linkNicks, matchAgents, merge, msgOf, nickOfURL, nickParts, nickSpans, readMarks, stillWaiting, validNick, watchExtra, workOf } from "../src/chat/channel/lib";
+import { eventParts, personName, type EventWords, channelLamp, givenParts, givenTurn, groupMessages, insertNick, isMulti, linkNicks, invitedOf, matchAgents, mayDM, merge, msgOf, ownAgent, nickOfURL, nickParts, nickSpans, readMarks, stillWaiting, userOf, validNick, watchExtra, workOf } from "../src/chat/channel/lib";
 import { ChannelLog } from "../src/chat/channel/log";
 import { buildTree, standing } from "../src/tree";
 
@@ -34,6 +34,12 @@ describe("a channel's messages", () => {
     // The kind an event said stays when the log, which says none, reads the message again.
     const said = merge([{ ...msgs(agent(4, "a"))[0]!, kind: "reply" }], msgs(agent(4, "a", "more")));
     expect(said[0]).toMatchObject({ text: "more", kind: "reply" });
+    // One heard as it was said, then read with where it is from in its agent's record: that kept.
+    const heard = msgs(agent(5, "a"));
+    const backed = merge(heard, [msgOf({ ...agent(5, "a"), _data: { session: "a", block: "12.0" } })!]);
+    expect(backed).not.toBe(heard);
+    expect(backed[0]!.src).toEqual({ session: "a", block: "12.0" });
+    expect(merge(backed, [msgOf({ ...agent(5, "a"), _data: { session: "a", block: "12.0" } })!])).toBe(backed);
   });
   test("sent from here: gone once the log has its number, or before that the same words said since", () => {
     const log = msgs(person(1, "one"), agent(2, "a"), person(3, "two"));
@@ -95,6 +101,19 @@ describe("@nick", () => {
     expect(at("（@pi）你好@cc")).toEqual(["pi"]);
     expect(nickSpans("a\n@pi b", nicks)).toEqual([{ from: 2, to: 5, nick: "pi" }]);
   });
+  test("people, apps and the names of all are named as agents are; a name with a space, the longest that fits", () => {
+    const names = ["pi", "Alice", "Alice Liddell", "kumo.dev", "全体成员", "全体Agent"];
+    const at = (t: string) => nickSpans(t, names).map((s) => s.nick);
+    expect(at("@alice liddell, @Alice and @pi")).toEqual(["Alice Liddell", "Alice", "pi"]);
+    expect(at("@Alicex @kumo.dev @全体成员 请看，@全体agent")).toEqual(["kumo.dev", "全体成员", "全体Agent"]);
+    expect(nickSpans("hi @Alice Liddell!", names)).toEqual([{ from: 3, to: 17, nick: "Alice Liddell" }]);
+    expect(linkNicks("@Alice Liddell 看", names)).toBe("[@Alice Liddell](ir:member/Alice%20Liddell) 看");
+    expect(nickOfURL("ir:member/Alice%20Liddell")).toBe("Alice Liddell");
+  });
+  test("a person's member string as a user id: a login's own, an app's for all of it", () => {
+    expect(userOf("ir_web/u1")).toBe("u1");
+    expect(userOf("bot/*")).toBe("bot");
+  });
   test("cut into parts, and linked in Markdown", () => {
     expect(nickParts("@pi2 回一个字，@nobody", nicks)).toEqual([{ nick: "pi2" }, " 回一个字，@nobody"]);
     expect(nickParts("no one", nicks)).toEqual(["no one"]);
@@ -146,7 +165,15 @@ describe("who has read", () => {
 describe("the list", () => {
   const s = (id: string, more: Partial<Session> = {}): Session => ({ id, agent: "pi", cwd: "/w", status: "idle", hosted: true, live: false, updatedAt: 1, ...more }) as Session;
   const list = [s("c", { agents: [{ session: "c", nick: "pi" }, { session: "m", nick: "pi2" }], own: true }), s("m", { in: ["c"], spawned: { channel: "c" }, own: true, live: true }), s("o", { own: true })];
-  test("an agent in another's channel is a session as any: a row of its own, not hung under the channel", () => {
+  test("an invited agent is listed under its channel's row too: not its own, not one it started, not an archived one", () => {
+    const byId = new Map(list.map((x) => [x.id, x]));
+    expect(invitedOf(list[0]!, byId).map((x) => x.id)).toEqual(["m"]);
+    expect(invitedOf(list[0]!, byId, [list[1]!])).toEqual([]); // started by it: hung there already
+    expect(invitedOf(list[0]!, new Map([["m", s("m", { archived: true })]]))).toEqual([]);
+    expect(invitedOf(list[0]!, new Map())).toEqual([]); // not in the list
+    expect(invitedOf(list[2]!, byId)).toEqual([]);
+  });
+  test("an agent in another's channel is a session as any: a row of its own in the tree, hung under none (the list puts it under its channel's row besides: invitedOf)", () => {
     expect(isMulti(list[0])).toBe(true);
     expect(isMulti(list[1])).toBe(false);
     const st = standing(list);
@@ -162,6 +189,18 @@ describe("the list", () => {
     ).toBe("c,m,o");
     // What it started shows under its own row.
     expect(tree.kids.get("m")?.map((x) => x.id)).toEqual(["sub"]);
+  });
+  test("the channel's own agent: the session the channel is", () => {
+    expect(ownAgent("c", { session: "c" })).toBe(true);
+    expect(ownAgent("c", { session: "m" })).toBe(false);
+    expect(ownAgent("c", {})).toBe(false); // a person
+  });
+  test("私聊: the host and logins only, not an app or an author that is no login", () => {
+    const logins = [{ id: "u1" }];
+    expect(mayDM("local", logins)).toBe(true);
+    expect(mayDM("u1", logins)).toBe(true);
+    expect(mayDM("bot", logins)).toBe(false);
+    expect(mayDM("u2", [])).toBe(false);
   });
   test("a channel's lamp: amber while one waits, else lit while any works", () => {
     expect(channelLamp("idle", ["idle", "running"])).toBe("running");
@@ -196,7 +235,7 @@ describe("didOf", () => {
 });
 
 describe("a channel's events", () => {
-  const w: EventWords = { join: "{nick} 已加入", leave: "{nick} 已移出", rename: "{from} 改名 {nick}", recv: "{nick} 接收{recv}", everyone: "人：全部", added: "已加入：{added}", removed: "已移出：{removed}", undelivered: "#{seq} 未送达 {nick}", stopped: "#{seq} 未转交", by: "（{by}）", sep: "，", all: "全部", at: "@我" };
+  const w: EventWords = { join: "{nick} 已加入", leave: "{nick} 已移出", rename: "{from} 改名 {nick}", recv: "{nick} 接收{recv}", everyone: "人：全部", added: "已加入：{added}", removed: "已移出：{removed}", undelivered: "#{seq} 未送达 {nick}", stopped: "#{seq} 未转交", silent: "#{seq} {nick} 未发话", by: "（{by}）", sep: "，", all: "全部", at: "@我" };
   test("join and leave: the agent, then who did it", () => {
     expect(eventParts({ type: "join", member: "agent:s", nick: "pi2", name: "pi Low", by: "主机" }, w)).toEqual([{ nick: "pi2" }, " 已加入（主机）"]);
     expect(eventParts({ type: "leave", nick: "pi2" }, w)).toEqual([{ nick: "pi2" }, " 已移出"]);
@@ -216,6 +255,7 @@ describe("a channel's events", () => {
   test("undelivered and stopped: the message's number", () => {
     expect(eventParts({ type: "undelivered", seq: 12, nick: "pi2" }, w)).toEqual(["#12 未送达 ", { nick: "pi2" }]);
     expect(eventParts({ type: "stopped", seq: 9 }, w)).toEqual(["#9 未转交"]);
+    expect(eventParts({ type: "silent", seq: 7, nick: "pi2" }, w)).toEqual(["#7 ", { nick: "pi2" }, " 未发话"]);
   });
   test("one not known: none, its own text is shown", () => {
     expect(eventParts({ type: "later" }, w)).toBeUndefined();

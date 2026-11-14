@@ -118,13 +118,15 @@ describe("the @ list", () => {
     expect(pathSection(atPath("~", [])!, { path: "/home/k", folders: [] }).rows[0]).toMatchObject({ p: { path: "/home/k" } });
     expect(pathSection(atPath("~", [])!, { path: "/home/k", folders: [] }).rows[0]!.off).toBeUndefined();
   });
-  test("→ goes in only with the caret alone at the @word's end, no key held, to change it", () => {
-    const text = "@/home/otae x";
-    expect(arrowInto(text, 0, 11, 11, "@/home/otae/", false)).toBe(true);
-    expect(arrowInto(text, 0, 3, 3, "@/home/", false)).toBe(false); // inside the word
-    expect(arrowInto(text, 0, 11, 11, "@/home/otae/", true)).toBe(false); // Ctrl, Alt, ⌘ or Shift
-    expect(arrowInto(text, 0, 6, 11, "@/home/otae/", false)).toBe(false); // a selection
-    expect(arrowInto("@/", 0, 2, 2, "@/", false)).toBe(false); // nothing to change: the caret moves
+  test("→ goes in only with the caret alone at the &word's end, no key held, to change it", () => {
+    const text = "&/home/otae x";
+    expect(arrowInto(text, 0, 11, 11, "&/home/otae/", false)).toBe(true);
+    expect(arrowInto(text, 0, 3, 3, "&/home/", false)).toBe(false); // inside the word
+    expect(arrowInto(text, 0, 11, 11, "&/home/otae/", true)).toBe(false); // Ctrl, Alt, ⌘ or Shift
+    expect(arrowInto(text, 0, 6, 11, "&/home/otae/", false)).toBe(false); // a selection
+    expect(arrowInto("&/", 0, 2, 2, "&/", false)).toBe(false); // nothing to change: the caret moves
+    // At the end of a folder gone into: → moves on, not stuck there (what is typed is what → would put).
+    expect(arrowInto("&/home/otae/", 0, 12, 12, `&${typedPath({ path: "/home/otae" }, [])}`, false)).toBe(false);
   });
   test("→ into a folder; names", () => {
     expect(typedPath({ path: "/home/k" }, [])).toBe("/home/k/");

@@ -4,9 +4,9 @@
 // from the transcript (GET messages, after= what the open session's state says was written); its
 // drafts from the stream. Loaded only once a chat opens or the page is idle.
 import { Menu } from "@base-ui/react/menu";
-import { ArrowLeft, BarChart3, Ellipsis, Globe, ListTree, Plus, Settings } from "lucide-react";
+import { ArrowLeft, BarChart3, Ellipsis, FolderOpen, Globe, ListTree, Plus, Settings } from "lucide-react";
 import type { Block, Status } from "../api/types.gen";
-import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type DragEvent, type ReactNode } from "react";
 import type { SessionState as LiveSession } from "../api/types.gen";
 import { api } from "../api/client";
 import { LinkDot } from "../link";
@@ -21,16 +21,18 @@ import { PULL } from "../sheet";
 import { MenuItems, Rename, sessionActions, sessionTags } from "../sidebar";
 import { useConfirms, useList, useSession } from "../store";
 import { drafts, opened } from "../stream";
-import { errText } from "../toast";
+import { errText, toast } from "../toast";
 import { groupPath } from "../tree";
 import { agentName, cn, Lamp, lampOf, LogoLamp, LogoStack, sessionStatusText, tilde, Tip, titleOf, untitled } from "../ui";
 import { givenTurn, isMulti, type AgentRow, type GivenTurn } from "./channel/lib";
 import { relays, type Relay } from "../satori";
 import { AgentFace } from "./channel/members";
-import { PersonCard } from "./channel/person";
+import { PersonCard, useNamed } from "./channel/person";
+import { Nicks } from "./channel/nick";
 import { Face, pickFace } from "./channel/face";
 import { mayAct, useMembers } from "./channel/gate";
-// 群聊配置's key in the composer's foot, and the line in the composer's place for one not joined.
+// A channel's parts, fetched apart: ⋯'s 换头像 on a phone (ChannelMenu), those looking and the
+// members at the bar's right (TopRight), the line in the composer's place for one not joined.
 const ChannelMenu = lazy(() => import("./channel/top"));
 const TopRight = lazy(() => import("./channel/top").then((m) => ({ default: m.TopRight })));
 const NotJoined = lazy(() => import("./channel/key").then((m) => ({ default: m.NotJoined })));
@@ -135,7 +137,7 @@ function OneChat({ id, sheet = 0, onSheet, onMe, back }: { id: string; sheet?: n
   const terminals = useWhoList();
   const workspaces = useWorkspaces().data;
   const confirms = useConfirms();
-  // Its channel's members (docs/channels.md): their key in the composer's foot; one not of its
+  // Its channel's members (docs/channels.md; their key is at the bar's right): one not of its
   // people reads, and neither speaks nor answers.
   const members = useMembers(id);
   const may = mayAct(members);
@@ -237,7 +239,8 @@ function OneChat({ id, sheet = 0, onSheet, onMe, back }: { id: string; sheet?: n
   }, []);
   const [modelOpen, setModelOpen] = useState(false);
   const [modeOpen, setModeOpen] = useState(false);
-  // The context's popover, at the ring after the latest turn's model name (/context opens it).
+  // The context's popover, at the ring after the model name of the agent's latest turn (/context
+  // opens it).
   const [ctxOpen, setCtxOpen] = useState(false);
   const shown = folded(log.blocks);
   const cwd = s?.cwd ?? row?.cwd ?? "";
@@ -308,7 +311,18 @@ function OneChat({ id, sheet = 0, onSheet, onMe, back }: { id: string; sheet?: n
     composer.current?.name(to.id);
   };
 
-  if (!s) {
+  // The agent as its face shows it (the user, 2026-11-13: both sides have a face from the start,
+  // not only once a second agent is in): its nick and what it runs as from the members.
+  const mine = members?.members.find((m) => m.session === id);
+  const faceRow: AgentRow | undefined = s && { session: id, member: `agent:${id}`, agent: s.agent, nick: mine?.nick ?? "", name: mine?.name ?? agentName(s.agent), status: lampOf(s), recv: mine?.recv ?? "all" };
+  // 发消息 on its own agent's card: the composer here.
+  const talk = () => composer.current?.focus();
+  // Its members as words name them and as the composer's @ lists them (agents, people and apps
+  // are peers): the agent by its nick, the people of its channel.
+  const { named: nicks, others } = useNamed({ channel: id, agents: faceRow?.nick ? [faceRow] : [], members, may, call: (name) => composer.current?.insert(`@${name}`), talk });
+  const atRows = useMemo(() => [...nicks.agents, ...others], [nicks, others]);
+
+  if (!s || !faceRow) {
     const gone = lost && list !== undefined && !row;
     return (
       <div className="relative h-full">
@@ -318,16 +332,11 @@ function OneChat({ id, sheet = 0, onSheet, onMe, back }: { id: string; sheet?: n
     );
   }
   const elsewhere = s.status === "elsewhere";
-  // The agent as its face shows it (the user, 2026-11-13: both sides have a face from the start,
-  // not only once a second agent is in): its nick and what it runs as from the members.
-  const mine = members?.members.find((m) => m.session === id);
-  const face: AgentRow = { session: id, member: `agent:${id}`, agent: s.agent, nick: mine?.nick ?? "", name: mine?.name ?? agentName(s.agent), status: lampOf(s), recv: mine?.recv ?? "all" };
+  const face = faceRow;
   // Its lamp only on the face of the turn that is on.
   const resting: AgentRow = { ...face, status: "idle" };
   // Another person's face opens their card (people and agents are peers, the user, 2026-11-13):
   // their Satori user id, a login's (an app's) or the panel login's.
-  // 发消息 on its own agent's card: the composer here.
-  const talk = () => composer.current?.focus();
   const personCard = (b: Block) => {
     const user = b.fromLogin || b.fromTerminal;
     if (!user || user === self.id || (self.host && user === "local")) return undefined;
@@ -366,6 +375,9 @@ function OneChat({ id, sheet = 0, onSheet, onMe, back }: { id: string; sheet?: n
   const turns = turnsOf(rows);
   // Its usage after its model's name, a strip of its own as small as a phone's (the user,
   // 2026-11-13): the context's ring, the quota's bars; each pressed, its popover.
+  // The agent's latest turn: the ring /context opens. None yet: the command is the agent's.
+  const ctxTurn = turns.findLastIndex((x) => x.kind === "agent" || (x.kind === "works" && x.rows.length > 0));
+  const openContext = () => ctxTurn >= 0 && !!s.context?.max && (setCtxOpen(true), true);
   const bars = (last: boolean) =>
     s && (
       <span className="flex shrink-0 items-center">
@@ -382,6 +394,7 @@ function OneChat({ id, sheet = 0, onSheet, onMe, back }: { id: string; sheet?: n
   // What changes as the conversation grows: it keeps to the bottom, the dots wait again.
   const grew = `${log.blocks.at(-1)?.at} ${log.drafts.length} ${log.drafts.at(-1)?.text.length} ${log.drafts.at(-1)?.whole} ${log.sent.length}`;
   return (
+    <Nicks.Provider value={nicks}>
     <div className="relative h-full" data-chat-drop={id} onDragOver={(e) => files(e) || session(e) || place(e)} onDrop={drop}>
       <Stick scroller={scroller} tail={grew} older={() => log.older()} place={chat.place} bottom={stackH} quiet={!!s?.asks.length} style={{ paddingTop: padTop, paddingBottom: stackH + 20 }}>
         <div className="mx-auto flex max-w-(--chat-w) flex-col gap-5 px-4 sm:px-6">
@@ -392,13 +405,13 @@ function OneChat({ id, sheet = 0, onSheet, onMe, back }: { id: string; sheet?: n
             x.kind === "one" ? (
               x.node
             ) : x.kind === "agent" ? (
-              <AgentTurn key={x.key} channel={id} a={i === turns.length - 1 ? face : resting} may={may} bars={bars(i === turns.length - 1)} talk={talk}>
+              <AgentTurn key={x.key} channel={id} a={i === turns.length - 1 ? face : resting} may={may} bars={bars(i === ctxTurn)} talk={talk}>
                 {x.rows.map((r) => r.node)}
               </AgentTurn>
             ) : (
               <Relayed key={x.key} given={x.works.given} relay={x.works.relay} name={nameOf(x.works.given)} time={x.works.time} onJump={openChat}>
                 {x.rows.length > 0 && (
-                  <AgentTurn channel={id} a={resting} may={may} bars={bars(i === turns.length - 1)} talk={talk}>
+                  <AgentTurn channel={id} a={resting} may={may} bars={bars(i === ctxTurn)} talk={talk}>
                     {x.rows.map((r) => r.node)}
                   </AgentTurn>
                 )}
@@ -455,18 +468,20 @@ function OneChat({ id, sheet = 0, onSheet, onMe, back }: { id: string; sheet?: n
               <NotJoined />
             </Suspense>
           ) : (
-            <Under s={s} ghost={ghost} composer={composer} onSent={onSent} onSentDone={sentDone} modelOpen={modelOpen} setModelOpen={setModelOpen} modeOpen={modeOpen} setModeOpen={setModeOpen} setCtxOpen={setCtxOpen} />
+            <Under s={s} ghost={ghost} composer={composer} onSent={onSent} onSentDone={sentDone} modelOpen={modelOpen} setModelOpen={setModelOpen} modeOpen={modeOpen} setModeOpen={setModeOpen} openContext={openContext} people={atRows} />
           )}
         </div>
       </div>
     </div>
+    </Nicks.Provider>
   );
 }
 
 /** The composer, with in its foot the approval-mode key (back, its name alone, the user,
  *  2026-11-08) and the model key, then send. Its usage (the context's ring, the quota's bars) is
  *  after the agent's model name over its turns (the user, 2026-11-13), not here. */
-function Under({ s, ghost, composer, onSent, onSentDone, modelOpen, setModelOpen, modeOpen, setModeOpen, setCtxOpen }: { s: LiveSession; ghost: boolean; composer: React.RefObject<ComposerHandle | null>; onSent: (x: Sent) => void; onSentDone: (x: Sent) => void; modelOpen: boolean; setModelOpen: (o: boolean) => void; modeOpen: boolean; setModeOpen: (o: boolean) => void; setCtxOpen: (o: boolean) => void }) {
+/** people: its channel's members an @ lists (chat/channel/person.tsx useNamed). */
+function Under({ s, ghost, composer, onSent, onSentDone, modelOpen, setModelOpen, modeOpen, setModeOpen, openContext, people }: { s: LiveSession; ghost: boolean; composer: React.RefObject<ComposerHandle | null>; onSent: (x: Sent) => void; onSentDone: (x: Sent) => void; modelOpen: boolean; setModelOpen: (o: boolean) => void; modeOpen: boolean; setModeOpen: (o: boolean) => void; openContext: () => boolean; people: AgentRow[] }) {
   const mode = useMode(s);
   const agentInfo = useAgent(s.agent);
   // Made here just now (create.tsx useStart): its keys fade in, not the chat before's swapped for them.
@@ -490,8 +505,9 @@ function Under({ s, ghost, composer, onSent, onSentDone, modelOpen, setModelOpen
         openModel={() => setModelOpen(true)}
         openMode={() => setModeOpen(true)}
         openUsage={() => openUsage(undefined, s.machine)}
-        openContext={() => !!s.context?.max && (setCtxOpen(true), true)}
+        openContext={openContext}
         cleared={openChat}
+        people={people}
         tools={
           <>
             {/* Not guessed from the row: the mode and the model come with the state, gliding in. */}
@@ -520,11 +536,11 @@ function useWaited(ready: boolean, ms: number): boolean {
   return ready || over;
 }
 
-/** The top bar: the logo with its lamp, the name (its folder only as its tooltip, the user,
- *  2026-11-08); more. The link's dot is the bar's own, left of ⋯ (link.tsx). Under them, while
+/** The top bar: the logo with its lamp, the name (its folder is ⋯'s first row, which copies it);
+ *  more. The link's dot is the bar's own, left of ⋯ (link.tsx). Under them, while
  *  there are any, the places it works in (spots, Where). */
 /** back: the channel this one is an agent of (shown by itself), a key under the title to go
- *  there. children: a channel of several's row of members, under the title (chat/channel). */
+ *  there. */
 function Bar({ s, onSheet, onMe, spots, asked, back }: { s?: Session; onSheet?: () => void; onMe?: () => void; spots?: Spot[]; asked?: { session?: string }[]; back?: Back }) {
   const list = useList();
   // A channel of several: its agents' logos, as its row in the list has them.
@@ -544,8 +560,11 @@ function Bar({ s, onSheet, onMe, spots, asked, back }: { s?: Session; onSheet?: 
     const b = more.current?.getBoundingClientRect();
     openUsage(b && { x: b.right, y: b.bottom + 6, end: true }, s?.machine);
   };
-  // ⋯'s items: making, the sheet and 我 on a phone, usage; then the session's own.
-  const lead = [{ icon: <Plus size={15} />, label: t("menu.new"), run: () => requestAnimationFrame(() => setMaking(true)) }, ...(onSheet ? [{ icon: <ListTree size={15} />, label: t("nav.sidebar"), run: onSheet }] : []), ...(onMe ? [{ icon: <Settings size={15} />, label: t("nav.me"), run: onMe }] : []), { icon: <BarChart3 size={15} />, label: t("usage.title"), run: usageHere }];
+  // Its folder, ⋯'s first row (not the title's tooltip: a phone has no hover); pressed, copied.
+  const folder = s ? (s.machine ? shownPath(groupPath(s), machines).real : tilde(s.cwd)) : "";
+  const where = folder ? [{ icon: <FolderOpen size={15} />, label: folder, run: () => void navigator.clipboard.writeText(folder).then(() => toast(t("toast.copied")), () => {}) }] : [];
+  // ⋯'s items: its folder; making, the sheet and 我 on a phone, usage; then the session's own.
+  const lead = [...where, { icon: <Plus size={15} />, label: t("menu.new"), run: () => requestAnimationFrame(() => setMaking(true)) }, ...(onSheet ? [{ icon: <ListTree size={15} />, label: t("nav.sidebar"), run: onSheet }] : []), ...(onMe ? [{ icon: <Settings size={15} />, label: t("nav.me"), run: onMe }] : []), { icon: <BarChart3 size={15} />, label: t("usage.title"), run: usageHere }];
   const acts = s ? [...sessionActions(s, () => setRenaming(true)), { icon: <Globe size={15} />, label: t("public.menu"), run: () => requestAnimationFrame(() => setPublicOpen(true)) }] : [];
   return (
     <header className="g-turn-stay vt-bar glass absolute inset-x-0 top-0 z-20 shadow-[0_0.5px_0_var(--edge)]">
@@ -562,10 +581,7 @@ function Bar({ s, onSheet, onMe, spots, asked, back }: { s?: Session; onSheet?: 
                     <LogoLamp agent={s.agent} status={lampOf(s)} size={18} ir />
                   </button>
                 ) : (
-                  // The channel's face, pressed: another (the user, 2026-11-13).
-                  <button type="button" aria-label={t("channel.avatar")} onClick={() => pickFace(s.id)} className={cn("g-press -m-1 grid place-items-center rounded-full p-1 hover:bg-fill", late)}>
-                    <LogoLamp agent={s.agent} status={lampOf(s)} size={18} mark={<Face key={s.id} id={s.id} agent={s.agent} size={18} none={stack && <LogoStack agents={stack} size={18} />} />} />
-                  </button>
+                  <FaceKey s={s} stack={stack} className={late} />
                 )}
               </Tip>
               {renaming ? (
@@ -573,7 +589,7 @@ function Bar({ s, onSheet, onMe, spots, asked, back }: { s?: Session; onSheet?: 
                   <Rename s={s} done={() => setRenaming(false)} className="h-7 font-semibold" />
                 </span>
               ) : (
-                <h1 className={cn("m-0 min-w-0 truncate text-base font-semibold", late, untitled(s) && "text-ink-3")} title={s.machine ? shownPath(groupPath(s), machines).real : tilde(s.cwd)} onDoubleClick={() => setRenaming(true)}>
+                <h1 className={cn("m-0 min-w-0 truncate text-base font-semibold", late, untitled(s) && "text-ink-3")} onDoubleClick={() => setRenaming(true)}>
                   {titleOf(s)}
                 </h1>
               )}
@@ -638,6 +654,25 @@ function Bar({ s, onSheet, onMe, spots, asked, back }: { s?: Session; onSheet?: 
       )}
       {!!spots?.length && <Where spots={spots} asked={asked ?? []} />}
     </header>
+  );
+}
+
+/** The channel's face before the title, pressed: another (the user, 2026-11-13). Only for one of
+ *  its people: one who only reads sees it, and it is no key. */
+function FaceKey({ s, stack, className, ...rest }: { s: Session; stack?: Session["agent"][] } & ComponentProps<"button">) {
+  const may = mayAct(useMembers(s.id));
+  const face = <LogoLamp agent={s.agent} status={lampOf(s)} size={18} mark={<Face key={s.id} id={s.id} agent={s.agent} size={18} none={stack && <LogoStack agents={stack} size={18} />} />} />;
+  // rest: what the tip around it gives its trigger.
+  if (!may)
+    return (
+      <span {...(rest as ComponentProps<"span">)} className={cn("-m-1 grid place-items-center p-1", className)}>
+        {face}
+      </span>
+    );
+  return (
+    <button {...rest} type="button" aria-label={t("me.avatar")} onClick={() => pickFace(s.id)} className={cn("g-press -m-1 grid place-items-center rounded-full p-1 hover:bg-fill", className)}>
+      {face}
+    </button>
   );
 }
 

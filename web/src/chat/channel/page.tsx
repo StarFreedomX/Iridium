@@ -1,9 +1,11 @@
-// A channel of several agents (docs/channels.md), as a chat: under the title its agents (the
-// member bar); the conversation is the channel's log, only what was said (people's words as
-// bubbles, an agent's as Markdown under its logo, nick and what it runs as, Iridium's lines small
-// and centred), the newest at the bottom, paged back as you scroll up; an agent's own record
-// (its thinking, its tool calls) is its session's chat. Under it: each agent's queue and asks,
-// under its nick; a composer whose @ calls an agent; the quota of each kind of agent.
+// A channel of several agents, or of none (docs/channels.md), as a chat. Its members are a key at
+// the bar's right (top.tsx), not a row under the title. The conversation is the channel's log,
+// only what was said: your words a bubble on the right, anyone else's on the left under their
+// face; an agent's as Markdown under its face, nick and what it runs as, its usage (the
+// context's ring, the quota's bars) after that, over them its thinking and tool calls from its
+// own record; Iridium's lines small and centred. The newest at the bottom, paged back as you
+// scroll up. Under it: each agent's queue and asks, under its nick; a composer whose @ names a
+// member (agents, people, apps).
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
 import { Popover } from "@base-ui/react/popover";
 import { useQuery } from "@tanstack/react-query";
@@ -19,7 +21,7 @@ import { PULL } from "../../sheet";
 import { getCarried, onCarried, setCarried, useCarried, useConfirms, useList, useSession } from "../../store";
 import { also, carries, events, opened, type SatoriEvent } from "../../stream";
 import { errText } from "../../toast";
-import { agentName, Avatar, cn, lampOf, Logo, PopSurface } from "../../ui";
+import { agentName, cn, lampOf, Logo, PopSurface } from "../../ui";
 import { Asks } from "../asks";
 import { placeDropped } from "../at";
 import { Composer, type ComposerHandle } from "../composer";
@@ -28,16 +30,16 @@ import { Waiting } from "../live";
 import { ContextRing, modelView, QuotaBars } from "../meters";
 import { Queue } from "../queue";
 import { fromSatori, PLACE_DRAG, SESSION_DRAG, sourceOf, yours } from "../refs";
-import { Assistant, Attached, Line, Pending, Said, YouBubble } from "../said";
+import { Assistant, Attached, Line, Pending, Said, When, YouBubble } from "../said";
 import { folded } from "../fold";
 import { Stick, toEnd } from "../stick";
-import { groupMessages, readMarks, linkNicks, stillWaiting, watchExtra, type AgentRow, type Did, type Group, type Msg, type Src, lineOf, workOf, eventParts, personName, type EventWords } from "./lib";
+import { groupMessages, readMarks, stillWaiting, watchExtra, type AgentRow, type Did, type Group, type Msg, type Src, lineOf, workOf, eventParts, personName, type EventWords } from "./lib";
 import { channelLog } from "./log";
 import { mayAct, useMembers } from "./gate";
-import { hasApp, hasLogin, peopleOf } from "./setup";
 import { NotJoined } from "./key";
+import { MemberFace } from "./face";
 import { AgentFace } from "./members";
-import { PersonCard } from "./person";
+import { PersonCard, useNamed } from "./person";
 import { NickLink, Nicks, NickWords } from "./nick";
 
 const WORKING = new Set(["running", "compacting", "starting"]);
@@ -54,8 +56,8 @@ function useStates(ids: string[]): (LiveSession | undefined)[] {
   return ids.map((id) => getCarried<LiveSession>(`session:${id}`));
 }
 
-/** bar: the chat's top bar (chat.tsx Bar). The agents' quotas are at the composer's foot (the user, 2026-11-13). record: an agent's own
- *  record asked for (the channel's own session's: shown in its place). */
+/** bar: the chat's top bar (chat.tsx Bar). record: an agent's own record asked for (the
+ *  channel's own session's: shown in its place). */
 export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?: number; bar: (s: Session | undefined) => ReactNode; record: (session: string) => void }) {
   useLang();
   const list = useList();
@@ -188,13 +190,15 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
     return () => removeEventListener("ir:note", put);
   }, []);
   const call = (nick: string) => composer.current?.insert(`@${nick}`);
-  const nicks = useMemo(() => ({ agents, call }), [agents.map((a) => `${a.session}:${a.nick}:${a.name}:${a.status}:${a.agent}`).join(" ")]);
+  // Its members as words name them and as @ lists them (agents, people and apps: peers).
+  const { named: nicks, others: peopleRows } = useNamed({ channel: id, agents, members, may, call, record });
 
   const files = (e: DragEvent) => e.dataTransfer.types.includes("Files") && (e.preventDefault(), true);
   const session = (e: DragEvent) => e.dataTransfer.types.includes(SESSION_DRAG) && (e.preventDefault(), (e.dataTransfer.dropEffect = "copy"), true);
   const place = (e: DragEvent) => e.dataTransfer.types.includes(PLACE_DRAG) && (e.preventDefault(), (e.dataTransfer.dropEffect = "copy"), true);
   const drop = (e: DragEvent) => {
-    if (files(e)) return composer.current?.attach([...e.dataTransfer.files]);
+    // Files dropped on a channel with no agent go nowhere (the composer takes none there).
+    if (files(e)) return row?.bare ? undefined : composer.current?.attach([...e.dataTransfer.files]);
     if (place(e)) {
       const p = placeDropped(e.dataTransfer.getData(PLACE_DRAG));
       return p && composer.current?.name(p);
@@ -215,22 +219,6 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
     return { who: yours(known ? { ...known, name: m.name || known.name } : { id: m.id, name: m.name, device: "none" }), mine };
   };
   const groups = useMemo(() => groupMessages(log.msgs), [log.msgs]);
-  // Its people and apps as @ names them (peers of its agents): each login among its people, each
-  // app whose all are; not the one looking.
-  const apps = useApps().data;
-  const peopleRows = useMemo<AgentRow[]>(() => {
-    const ps = peopleOf(members);
-    const out: AgentRow[] = [];
-    for (const a of apps?.apps ?? []) {
-      const appName = a.web ? t("term.panel") : a.name;
-      if (!a.host && hasApp(ps, a.id)) out.push({ session: "", member: `${a.id}/*`, agent: "" as AgentRow["agent"], nick: appName, name: t("channel.app"), status: "idle", recv: "", avatar: a.avatar, person: true });
-      for (const l of (apps?.logins ?? []).filter((x) => x.app === a.id)) {
-        const m = `${a.id}/${l.id}`;
-        if (m !== members?.me && hasLogin(ps, a.id, l.id)) out.push({ session: "", member: m, agent: "" as AgentRow["agent"], nick: l.name, name: appName, status: "idle", recv: "", avatar: l.avatar, person: true });
-      }
-    }
-    return out;
-  }, [apps, members]);
   // Each agent's usage after its model's name, a strip of its own as small as a phone's (the
   // user, 2026-11-13): its context's ring, its quota's bars; each pressed, its popover.
   const bars = (session: string) => {
@@ -254,7 +242,8 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
   };
 
   // How far each member has read (docs/channels.md "已读"): asked once, then as the stream
-  // brings it. This page has read what it shows: said as the log's end moves, while it is seen.
+  // brings it. This page has read what it shows: said as the log's end moves while it is seen,
+  // and as it is seen again.
   const reads = useCarried<ChannelReads>(`reads:${id}`);
   useEffect(() => {
     void api.reads(id).then(
@@ -263,11 +252,18 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
     );
   }, [id]);
   const end = log.loaded ? log.end : 0;
+  // Seen: the tab in front. Back in front, what came meanwhile is read then.
+  const [seen, setSeen] = useState(() => document.visibilityState === "visible");
   useEffect(() => {
-    if (!end || !may || document.visibilityState !== "visible") return;
+    const look = () => setSeen(document.visibilityState === "visible");
+    document.addEventListener("visibilitychange", look);
+    return () => document.removeEventListener("visibilitychange", look);
+  }, []);
+  useEffect(() => {
+    if (!end || !may || !seen) return;
     const timer = setTimeout(() => void api.read(id, end).then((r) => setCarried(`reads:${id}`, r), () => {}), 600);
     return () => clearTimeout(timer);
-  }, [id, end, may]);
+  }, [id, end, may, seen]);
   const marks = useMemo(() => readMarks(groups, reads?.readers ?? [], members?.me), [groups, reads, members?.me]);
   const working = agents.filter((a) => WORKING.has(a.status));
   const asking = agents.some((_, i) => states[i]?.asks.length);
@@ -346,10 +342,8 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
 /** Who has read up to here: small faces at the right, under what they last read. */
 function ReadMarks({ readers, agents }: { readers: Reader[]; agents: AgentRow[] }) {
   const names = readers.map((r) => r.nick || r.name || r.member).join(t("channel.event.sep"));
-  const face = (r: Reader, size: number) => {
-    const a = r.agent ?? agents.find((x) => x.member === r.member)?.agent;
-    return a ? <Logo agent={a} size={size - 2} className="opacity-70" /> : <Avatar name={r.name} size={size} />;
-  };
+  // Each its own face (an agent's, a login's avatar), as beside what it says.
+  const face = (r: Reader, size: number) => <MemberFace member={r.member} name={r.name} agent={r.agent ?? agents.find((x) => x.member === r.member)?.agent} size={size} />;
   return (
     <Popover.Root>
       <Popover.Trigger
@@ -391,17 +385,17 @@ function Of({ a, children, off }: { a: AgentRow; children: ReactNode; off?: bool
   );
 }
 
-/** A message as the block an agent's words are drawn from, the nicks it calls links: kept per
- *  message, so one drawn is not drawn again. */
+/** A message as the block an agent's words are drawn from (said.tsx Assistant, which makes the
+ *  members they name links): kept per message, so one drawn is not drawn again. */
 const blocks = new WeakMap<Msg, { sig: string; b: Block }>();
 function blockFor(m: Msg, agents: AgentRow[]): Block {
   const nicks = agents.map((a) => a.nick);
   const sig = nicks.join(" ");
   const had = blocks.get(m);
   if (had?.sig === sig) return had.b;
-  // Satori's elements in the words (an <at>) as Markdown writes them, then the nicks as links.
+  // Satori's elements in the words (an <at>) as Markdown writes them.
   const words = fromSatori(m.text, (session) => agents.find((a) => a.session === session)?.nick);
-  const b: Block = { at: String(m.n), kind: "assistant", text: linkNicks(words, nicks), ...(m.files.length ? { files: m.files } : {}), ...(m.time ? { time: m.time } : {}) };
+  const b: Block = { at: String(m.n), kind: "assistant", text: words, ...(m.files.length ? { files: m.files } : {}), ...(m.time ? { time: m.time } : {}) };
   blocks.set(m, { sig, b });
   return b;
 }
@@ -438,7 +432,7 @@ function GroupView({ g, channel, agents, who, record, call, may, quote, quoted, 
   return (
     <div className="flex min-w-0 items-start gap-2.5">
       {now ? (
-        <AgentFace channel={channel} a={now} call={call} record={record} may={may} />
+        <AgentFace channel={channel} a={now} call={may ? call : undefined} record={record} may={may} />
       ) : (
         <span className="grid size-7 shrink-0 place-items-center rounded-full bg-fill">{agent && <Logo agent={agent} size={16} />}</span>
       )}
@@ -447,10 +441,11 @@ function GroupView({ g, channel, agents, who, record, call, may, quote, quoted, 
           <span className="shrink-0 text-xs font-medium text-ink-2">{now?.nick || a.nick}</span>
           <span className="min-w-0 truncate text-xs text-ink-4">{now?.name || a.name}</span>
           {now && bars(now.session)}
+          <When time={g.msgs[0]!.time} />
         </div>
         {g.msgs.map((m) => (
           <div key={m.n} className={cn(m.kind === "error" && "text-err")}>
-            {m.did && (m.src ? <Work src={m.src} did={m.did} /> : <DidLine did={m.did} />)}
+            {m.src ? <Work src={m.src} did={m.did} /> : m.did && <DidLine did={m.did} />}
             {m.quote !== undefined && <QuoteLine n={m.quote} q={quoted(m.quote)} />}
             <Copyable copy={m.text} quote={quote && (() => quote(m))}>
               <Assistant b={blockFor(m, agents)} session={a.session} />
@@ -474,7 +469,7 @@ function QuoteLine({ n, q, right }: { n: number; q?: { who: string; text: string
   );
 }
 
-const EVENT_KEYS = ["join", "leave", "rename", "recv", "everyone", "added", "removed", "undelivered", "stopped", "by", "sep"] as const;
+const EVENT_KEYS = ["join", "leave", "rename", "recv", "everyone", "added", "removed", "undelivered", "stopped", "silent", "by", "sep"] as const;
 
 /** A line of Iridium's own: what happened to the channel (who joined, left, was renamed, what one
  *  receives, its people), in the page's words, the agent in it as its nick is drawn elsewhere;
@@ -484,10 +479,10 @@ function EventLine({ m }: { m: Msg }) {
   const d = useApps().data;
   const words = { ...Object.fromEntries(EVENT_KEYS.map((k) => [k, t(`channel.event.${k}`)])), all: t("channel.recvAll"), at: t("channel.recvAt") } as EventWords;
   const parts = m.event && eventParts(m.event, words);
-  if (!parts) return <Line title={m.text}>{m.text}</Line>;
+  if (!parts) return <Line>{m.text}</Line>;
   const apps = (d?.apps ?? []).map((a) => (a.web ? { ...a, name: t("term.panel") } : a));
   return (
-    <Line title={m.text}>
+    <Line>
       {parts.map((p, i) => (typeof p === "string" ? p : "nick" in p ? <NickLink key={i} nick={p.nick} /> : p.people.map((x) => personName(x, apps, d?.logins ?? [])).join(t("channel.event.sep"))))}
     </Line>
   );
@@ -495,8 +490,9 @@ function EventLine({ m }: { m: Msg }) {
 
 /** What the agent did before the words under it (the user, 2026-11-13: all of it, not a count):
  *  its thinking and tool calls from its own record, folded as its own chat folds them. The
- *  count's line until they come, or when the record cannot be read. */
-function Work({ src, did }: { src: Src; did: Did }) {
+ *  count's line until they come, or when the record cannot be read. did: none for a stretch
+ *  with no tool call (thinking alone), which has no count to show meanwhile. */
+function Work({ src, did }: { src: Src; did?: Did }) {
   const row = useList()?.find((x) => x.id === src.session);
   const q = useQuery({
     queryKey: ["work", src.session, src.block ?? "", src.from ?? 0, src.to ?? 0],
@@ -508,7 +504,7 @@ function Work({ src, did }: { src: Src; did: Did }) {
     retry: false,
   });
   const work = q.data;
-  if (!work?.length) return <DidLine did={did} />;
+  if (!work?.length) return did ? <DidLine did={did} /> : null;
   return (
     <div className="mb-1.5 flex min-w-0 flex-col gap-3">
       {folded(work).map((b) => (

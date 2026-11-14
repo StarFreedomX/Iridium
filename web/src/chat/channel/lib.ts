@@ -1,8 +1,8 @@
 // A channel of several agents (docs/channels.md), what the page reads of it, pure for tests: its
 // messages as the log gives them (Satori's message.list: only what was said), grouped under their
 // speakers; the @nick that calls an agent, found in words as the server finds it
-// (internal/deliver Mentions) and put into the composer; which sessions are rows of their own; a
-// channel's lamp; the agents' quotas, one per kind.
+// (internal/deliver Mentions) and put into the composer; the agents listed under a channel's row;
+// a channel's lamp.
 import type { ChannelMessage } from "../../api/client";
 import type { Agent, FileRef, Session, Status } from "../../api/types.gen";
 import { blockOf } from "../../satori";
@@ -41,7 +41,8 @@ export function workOf<B extends { at: string; kind: string; text?: string }>(bl
 
 /** Something that happened to a channel, a line of Iridium's own in it (internal/channel Event):
  *  join, leave (nick), rename (from, nick), recv (nick, recv), people (added, removed: member
- *  strings; everyone), undelivered (seq, nick), stopped (seq). by: who did it, by name. */
+ *  strings; everyone), undelivered (seq, nick), stopped (seq), silent (seq, nick: called for it,
+ *  it said nothing in the channel). by: who did it, by name. */
 export type ChEvent = { type: string; member?: string; nick?: string; name?: string; from?: string; recv?: string; added?: string[]; removed?: string[]; everyone?: boolean; seq?: number; by?: string };
 
 /** A piece of an event's line: words, an agent by its nick, people by their member strings. */
@@ -49,7 +50,7 @@ export type EventPart = string | { nick: string } | { people: string[] };
 
 /** The line's words by event (i18n: channel.event.*), their slots in braces: {nick} {from}
  *  {recv} {people} {seq} {by}. */
-export type EventWords = Record<"join" | "leave" | "rename" | "recv" | "everyone" | "added" | "removed" | "undelivered" | "stopped" | "by" | "sep" | "all" | "at", string>;
+export type EventWords = Record<"join" | "leave" | "rename" | "recv" | "everyone" | "added" | "removed" | "undelivered" | "stopped" | "silent" | "by" | "sep" | "all" | "at", string>;
 
 /** An event as the pieces of its line, in the page's words; none for one not known (its message's
  *  own text is shown then). */
@@ -85,6 +86,7 @@ export function eventParts(e: ChEvent, w: EventWords): EventPart[] | undefined {
     case "recv":
     case "undelivered":
     case "stopped":
+    case "silent":
       out = fill(w[e.type]);
       break;
     case "people": {
@@ -148,16 +150,20 @@ export function msgOf(m: ChannelMessage): Msg | undefined {
   return { n, text: b.text ?? "", files: b.files ?? [], author, ...(q ? { quote: Number(q[1]) } : {}), ...(m.created_at ? { time: m.created_at } : {}), ...(m._data?.kind ? { kind: m._data.kind } : {}), ...(author.kind === "agent" && didOf(m.content) ? { did: didOf(m.content)! } : {}), ...(m._data?.event && typeof m._data.event === "object" ? { event: m._data.event as ChEvent } : {}), ...(author.kind === "agent" && m._data?.session ? { src: { session: m._data.session, ...(m._data.block ? { block: m._data.block } : {}), ...(m._data.from ? { from: m._data.from } : {}), ...(m._data.to ? { to: m._data.to } : {}) } } : {}) };
 }
 
-/** have with more put in: each number once (the later one wins: a message read again, changed),
- *  in order. The same array when nothing changed. */
+const sameSrc = (a?: Src, b?: Src) => a?.session === b?.session && a?.block === b?.block && a?.from === b?.from && a?.to === b?.to;
+
+/** have with more put in: each number once (the later one wins: a message read again, changed:
+ *  its words, or where it is from in its agent's record, which one heard as it was said has not
+ *  yet), in order. The same array when nothing changed. */
 export function merge(have: Msg[], more: Msg[]): Msg[] {
   if (!more.length) return have;
   const by = new Map(have.map((m) => [m.n, m]));
   let changed = false;
   for (const m of more) {
     const was = by.get(m.n);
-    if (was && was.text === m.text && was.files.length === m.files.length && was.kind === (m.kind ?? was.kind) && !was.did === !m.did && !was.event === !m.event && was.quote === m.quote) continue;
-    by.set(m.n, was && !m.kind && was.kind ? { ...m, kind: was.kind } : m);
+    if (was && was.text === m.text && was.files.length === m.files.length && was.kind === (m.kind ?? was.kind) && !was.did === !m.did && !was.event === !m.event && was.quote === m.quote && (!m.src || sameSrc(was.src, m.src))) continue;
+    // What a reading does not say (the kind, the source) stays as it was known.
+    by.set(m.n, was ? { ...m, ...(!m.kind && was.kind ? { kind: was.kind } : {}), ...(!m.src && was.src ? { src: was.src } : {}) } : m);
     changed = true;
   }
   return changed ? [...by.values()].sort((a, b) => a.n - b.n) : have;
@@ -201,12 +207,18 @@ const NICK = /^[\p{L}\p{N}_-]+$/u;
 /** A nick: letters, digits, "_" and "-", at most 32 of them (internal/deliver ValidNick). */
 export const validNick = (n: string) => NICK.test(n) && [...n].length <= 32;
 
-/** Where words call a nick of nicks: "@nick" standing by itself (not inside a word, an address or
- *  a longer name), outside code (a fenced block, an inline span) and quoted lines; case does not
- *  matter. As the server routes by (internal/deliver Mentions), each place it is said. */
+/** The names that call more than one in a channel (internal/deliver AllMembers, AllAgents). */
+export const ALL_MEMBERS = "全体成员";
+export const ALL_AGENTS = "全体Agent";
+
+/** Where words name one of nicks (an agent's nick, a person's or an app's name, the names of
+ *  all): "@name" standing by itself (not inside a word, an address or a longer name), outside
+ *  code (a fenced block, an inline span) and quoted lines; case does not matter. An agent's nick
+ *  as the server routes by (internal/deliver Mentions), each place it is said; a person's name
+ *  may have what a nick may not (a space, a dot): the longest that fits is the one named. */
 export function nickSpans(text: string, nicks: string[]): { from: number; to: number; nick: string }[] {
   if (!nicks.length || !text.includes("@")) return [];
-  const by = new Map(nicks.map((n) => [n.toLowerCase(), n]));
+  const names = [...new Set(nicks.filter(Boolean))].map((n) => [n.toLowerCase(), n] as const).sort((a, b) => b[0].length - a[0].length);
   const out: { from: number; to: number; nick: string }[] = [];
   let fenced = false;
   let at = 0;
@@ -219,17 +231,22 @@ export function nickSpans(text: string, nicks: string[]): { from: number; to: nu
       continue;
     }
     if (fenced || t.startsWith(">")) continue;
+    const low = line.toLowerCase();
     let code = false;
-    for (const m of line.matchAll(/`|@([\p{L}\p{N}_-]*)/gu)) {
-      if (m[0] === "`") {
-        code = !code;
-        continue;
-      }
-      if (code) continue;
-      const before = [...line.slice(Math.max(0, m.index - 2), m.index)].at(-1);
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (c === "`") code = !code;
+      if (code || c !== "@") continue;
+      const before = [...line.slice(Math.max(0, i - 2), i)].at(-1);
       if (before !== undefined && (NICK_RUNE.test(before) || before === "@" || before === "/" || before === ".")) continue;
-      const nick = by.get(m[1]!.toLowerCase());
-      if (nick) out.push({ from: start + m.index, to: start + m.index + m[0].length, nick });
+      const hit = names.find(([w]) => {
+        if (!low.startsWith(w, i + 1)) return false;
+        const after = [...line.slice(i + 1 + w.length, i + 3 + w.length)][0];
+        return after === undefined || !NICK_RUNE.test(after);
+      });
+      if (!hit) continue;
+      out.push({ from: start + i, to: start + i + 1 + hit[0].length, nick: hit[1] });
+      i += hit[0].length;
     }
   }
   return out;
@@ -279,8 +296,26 @@ export function insertNick(text: string, a: number, b: number, nick: string): { 
   return { text: before + words + text.slice(b).replace(/^ /, ""), caret: before.length + words.length };
 }
 
-/** An agent as the @ list and the member bar show it. */
+/** A member as the @ list and the words that name it show it: an agent; or (person) a login or
+ *  an app, its name as nick, its app (or 应用) as name, its avatar. */
 export type AgentRow = { session: string; member: string; agent: Agent; nick: string; name: string; status: Status; recv: string; avatar?: string; person?: boolean };
+
+/** Whether user (a Satori user id) may be talked to alone (docs/channels.md "私聊"): the host, or
+ *  one of logins; not an app, nor an author that is no login (the server has no one to open the
+ *  channel with). */
+export const mayDM = (user: string, logins: { id: string }[]) => user === "local" || logins.some((l) => l.id === user);
+
+/** The Satori user id of a person's member string: a login's own id ("<app>/<login>"), an app's
+ *  for all of its logins ("<app>/*"). */
+export function userOf(member: string): string {
+  const i = member.indexOf("/");
+  const login = member.slice(i + 1);
+  return i < 0 || login !== "*" ? login : member.slice(0, i);
+}
+
+/** Whether a member is the channel's own agent: the session the channel is. It speaks there
+ *  straight out, and is not taken out of it. */
+export const ownAgent = (channel: string, m: { session?: string | null }) => !!m.session && m.session === channel;
 
 /** The agents an @q may call: nicks that start with it first, then nicks and names that have it. */
 export function matchAgents<T extends { nick: string; name: string }>(rows: T[], q: string): T[] {
@@ -295,6 +330,16 @@ export function matchAgents<T extends { nick: string; name: string }>(rows: T[],
 
 /** Whether a session is a channel of several agents. */
 export const isMulti = (s?: Pick<Session, "agents">) => (s?.agents?.length ?? 0) > 1;
+
+/** The agents of s's channel beside its own (the user, 2026-11-13), as the list puts them under
+ *  its row: each a session there is (byId), not archived, not one it started (those hang there
+ *  already). They keep their own rows too, wherever those are. */
+export function invitedOf<S extends Pick<Session, "id" | "agents" | "archived">>(s: S, byId: Map<string, S>, started?: { id: string }[]): S[] {
+  return (s.agents ?? []).flatMap((a) => {
+    const x = a.session !== s.id && !started?.some((h) => h.id === a.session) ? byId.get(a.session) : undefined;
+    return x && !x.archived ? [x] : [];
+  });
+}
 
 const WORKING = new Set<Status>(["running", "compacting", "starting"]);
 

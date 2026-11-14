@@ -148,8 +148,8 @@ export function pathSection(p: AtPath, got: { path?: string; folders?: string[];
   return { key: "path", head: { kind: "path", ...(p.m ? { m: p.m } : {}), path: nativeAt(p.m, dir) }, rows };
 }
 
-/** Whether → goes into the folder typed would name (what → puts after the @, typedPath): only with
- *  the caret alone (nothing selected) at the end of the @word (from: its @), no key held with it
+/** Whether → goes into the folder typed would name (the & and what → puts after it, typedPath): only
+ *  with the caret alone (nothing selected) at the end of the &word (from: its &), no key held with it
  *  (a word or line jump), and only to change what is typed; else → moves the caret as ever. */
 export const arrowInto = (text: string, from: number, start: number, end: number, typed: string, held: boolean) => !held && start === end && /^(\s|$)/.test(text.slice(end)) && text.slice(from, end) !== typed;
 

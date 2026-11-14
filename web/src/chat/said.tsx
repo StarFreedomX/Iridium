@@ -7,8 +7,9 @@
 // thoughts folded to a line.
 import { Archive, ArchiveRestore, ArrowUpRight, BookOpen, Bot, BotMessageSquare, ChartColumn, Check, ChevronRight, CircleStop, CircleX, Clock, CloudDownload, CloudUpload, Copy, Cpu, Earth, FileCode, FileDiff, FilePen, Files as FilesIcon, FileText, FlaskConical, FolderGit2, FolderOpen, Folders, FoldVertical, GitBranch, GitCommitHorizontal, GitPullRequest, Globe, Hammer, History, Hourglass, KeyRound, Laptop, Link2, List, ListChecks, LoaderCircle, MessagesSquare, LockKeyhole, MessageCircleQuestionMark, MessageSquarePlus, Monitor, MonitorSmartphone, MousePointerClick, Network, Package, PencilLine, Plug, RotateCcw, RotateCw, Search, Send, ServerCog, SlidersHorizontal, Smartphone, SquareTerminal, StickyNote, Terminal, Trash2, type LucideIcon, UserRound, Workflow as WorkflowIcon, Wrench, X } from "lucide-react";
 import { Copyable } from "./copyable";
-import { Children, forwardRef, memo, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { givenTurn, type GivenTurn } from "./channel/lib";
+import { Children, forwardRef, memo, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { givenTurn, linkNicks, type GivenTurn } from "./channel/lib";
+import { Nicks, NickWords } from "./channel/nick";
 import type { Relay } from "../satori";
 import { Popover } from "@base-ui/react/popover";
 import { api } from "../api/client";
@@ -37,13 +38,17 @@ type From = Extract<Source, { kind: "letter" }>;
 
 /** One formatter per language: making one per call is slow, and a chat calls it for every block. */
 const clocks = new Map<string, Intl.DateTimeFormat>();
-const clock = (ms?: number) => {
+export const clock = (ms?: number) => {
   if (!ms) return "";
   const l = document.documentElement.lang === "en" ? "en" : "zh-CN";
   let f = clocks.get(l);
   if (!f) clocks.set(l, (f = new Intl.DateTimeFormat(l, { hour: "2-digit", minute: "2-digit" })));
   return f.format(ms);
 };
+
+/** When a message was said, after its sender's name: always there, small and grey, not in a tip
+ *  (docs/前端设计规范.md "点击，不靠悬停"). */
+export const When = ({ time }: { time?: number }) => (time ? <span className="shrink-0 text-xs leading-4 text-ink-4 tabular-nums">{clock(time)}</span> : null);
 
 const FACE = 28;
 const BADGE = 12;
@@ -90,7 +95,8 @@ function Face({ who }: { who: You | From }) {
 /** left: another's words in a channel others speak in too, on the left: only yours are on the
  *  right there (the user, 2026-11-13). */
 /** card: what its face opens, pressed (a person's card in a channel, chat/channel/person.tsx). */
-const Sender = forwardRef<HTMLDivElement, { who: You | From; title?: string; jump?: () => void; left?: boolean; card?: ReactNode; children: ReactNode }>(function Sender({ who, title, jump, left, card, children }, ref) {
+/** time: when it was said, after the name on the line the name already has. */
+const Sender = forwardRef<HTMLDivElement, { who: You | From; time?: number; jump?: () => void; left?: boolean; card?: ReactNode; children: ReactNode }>(function Sender({ who, time, jump, left, card, children }, ref) {
   const mine = who.kind === "you";
   const name = mine ? youName(who) : who.name;
   // A session's letter: its folder too, in the tip; the name is its title alone.
@@ -101,7 +107,7 @@ const Sender = forwardRef<HTMLDivElement, { who: You | From; title?: string; jum
   // Every sender on the right, a letter as your words are: on the left it read as the agent's own
   // (the user, 2026-11-06).
   return (
-    <div ref={ref} className={cn("flex items-start gap-2.5", left ? "pr-6 sm:pr-10" : "flex-row-reverse pl-6 sm:pl-10")} title={title}>
+    <div ref={ref} className={cn("flex items-start gap-2.5", left ? "pr-6 sm:pr-10" : "flex-row-reverse pl-6 sm:pl-10")}>
       {card ? (
         <Popover.Root>
           <Popover.Trigger
@@ -129,14 +135,17 @@ const Sender = forwardRef<HTMLDivElement, { who: You | From; title?: string; jum
       </Tip>
       )}
       <div className={cn("flex min-w-0 flex-col gap-1", left ? "items-start" : "items-end")}>
-        {jump ? (
-          <button type="button" onClick={jump} className="group flex max-w-full items-center gap-0.5 rounded-sm px-0.5 text-xs leading-4 text-ink-3 hover:text-ink-2">
-            <span className="min-w-0 truncate">{name}</span>
-            <ArrowUpRight size={11} className="shrink-0 text-ink-4 group-hover:text-ink-2" />
-          </button>
-        ) : (
-          <span className="max-w-full truncate px-0.5 text-xs leading-4 text-ink-3">{name}</span>
-        )}
+        <div className="flex max-w-full min-w-0 items-center gap-1">
+          {jump ? (
+            <button type="button" onClick={jump} className="group flex min-w-0 items-center gap-0.5 rounded-sm px-0.5 text-xs leading-4 text-ink-3 hover:text-ink-2">
+              <span className="min-w-0 truncate">{name}</span>
+              <ArrowUpRight size={11} className="shrink-0 text-ink-4 group-hover:text-ink-2" />
+            </button>
+          ) : (
+            <span className="min-w-0 truncate px-0.5 text-xs leading-4 text-ink-3">{name}</span>
+          )}
+          <When time={time} />
+        </div>
         {children}
       </div>
     </div>
@@ -163,7 +172,7 @@ export const YouBubble = forwardRef<HTMLDivElement, { text: string; who: You; fa
   // What the words name, where they name it (Worded); the files in a row under them.
   const row = Children.count(children) > 0;
   return (
-    <Sender ref={ref} who={who} left={left} card={card} title={time ? clock(time) : undefined}>
+    <Sender ref={ref} who={who} left={left} card={card} time={time}>
       <div className="relative max-w-[min(560px,100%)] px-3.5 py-2">
         {going && <SendState state={going} />}
         <span data-bubble-bg className={cn("absolute inset-0 rounded-xl bg-fill", left ? "rounded-tl-sm" : "rounded-tr-sm", failed && "shadow-[inset_0_0_0_1px_var(--err)]")} aria-hidden />
@@ -224,7 +233,7 @@ function Letter({ src, text, time, onJump, children }: { src: From; text: string
   // Its files as in your bubble (ir send -a); what it names, where it names it.
   const files = Children.count(children) > 0;
   return (
-    <Sender who={src} title={time ? clock(time) : undefined} jump={src.session ? () => onJump(src.session!) : undefined}>
+    <Sender who={src} time={time} jump={src.session ? () => onJump(src.session!) : undefined}>
       <div className="max-w-[min(560px,100%)] min-w-0 rounded-xl rounded-tr-sm bg-fill px-3.5 py-2">
         {text && (
           <p className="m-0 text-md whitespace-pre-wrap [overflow-wrap:anywhere]">
@@ -241,12 +250,40 @@ function Letter({ src, text, time, onJump, children }: { src: From; text: string
   );
 }
 
-/** A quiet line across the chat: Iridium's own words, a compaction, an interrupted turn. */
-export function Line({ icon, children, error, title }: { icon?: ReactNode; children: ReactNode; error?: boolean; title?: string }) {
+/** A quiet line across the chat: Iridium's own words, an event, an interrupted turn. One line,
+ *  cut short where it does not fit; pressed, all of it, its height gliding (docs/前端设计规范.md
+ *  "点击，不靠悬停", "要有动画"); pressed again, one line. tail: kept whole at the line's end (a
+ *  time). more: other words it opens to, under the line (what the record itself says). */
+export function Line({ icon, children, error, tail, more }: { icon?: ReactNode; children: ReactNode; error?: boolean; tail?: ReactNode; more?: string }) {
+  const [open, setOpen] = useState(false);
+  // The whole of it is drawn only once it has been asked for.
+  const [ever, setEver] = useState(false);
+  const short = useRef<HTMLSpanElement>(null);
+  const press = (e: { target: EventTarget }) => {
+    // A name in it pressed opens its own card.
+    if (e.target instanceof Element && e.target.closest("button, a")) return;
+    const el = short.current;
+    if (!open && !more && el && el.scrollWidth <= el.clientWidth) return; // all of it is shown
+    setEver(true);
+    setOpen(!open);
+  };
   return (
-    <div className={cn("flex items-center justify-center gap-1.5 py-1 text-xs", error ? "text-err" : "text-ink-3")} title={title}>
-      {icon}
-      <span className="min-w-0 truncate">{children}</span>
+    <div onClick={press} className={cn("grid justify-items-center py-1 text-xs transition-[grid-template-rows] duration-(--dur-2) ease-(--ease-out)", !open ? "grid-rows-[16px_0fr]" : more ? "grid-rows-[16px_1fr]" : "grid-rows-[0px_1fr]", error ? "text-err" : "text-ink-3")}>
+      <div inert={(open && !more) || undefined} className="flex min-h-0 max-w-full min-w-0 items-center gap-1.5 overflow-hidden">
+        {icon}
+        <span ref={short} className="min-w-0 truncate">
+          {children}
+        </span>
+        {tail}
+      </div>
+      <div inert={!open || undefined} aria-hidden={!open || undefined} className="min-h-0 max-w-full overflow-hidden text-center whitespace-pre-wrap [overflow-wrap:anywhere]">
+        {ever && (more ?? (
+          <>
+            {children}
+            {tail}
+          </>
+        ))}
+      </div>
     </div>
   );
 }
@@ -257,9 +294,11 @@ const took = (ms: number) => (ms >= 60_000 ? t("sys.compactMin", { m: Math.floor
 /** A compaction, as a rule across the chat: the light and the words between two hairlines. Live,
  *  while it runs: a yellow light breathing and the seconds so far; done, the context before and
  *  after it, how long it took and when (the user, 2026-11-06: a message of its own, not your
- *  /compact, not the dots). The same height either way, the one taking the other's place. */
+ *  /compact, not the dots). The same height either way, the one taking the other's place. Done,
+ *  pressed: what it was compacted to, under the rule. */
 export function Compaction({ b, since }: { b?: Block; since?: number }) {
   const [now, setNow] = useState(() => Date.now());
+  const [open, setOpen] = useState(false);
   useEffect(() => {
     if (b) return;
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -276,14 +315,25 @@ export function Compaction({ b, since }: { b?: Block; since?: number }) {
     parts.push(t("sys.compacting"));
     if (since && now - since >= 3000) parts.push(took(now - since));
   }
+  // What it was compacted to, as far as the page has it: under the rule once it is pressed.
+  const sum = b?.text?.trim().slice(0, 600);
   return (
-    <div className="g-fade flex items-center gap-3 py-1 text-xs text-ink-3" role={b ? undefined : "status"} title={b?.text ? b.text.slice(0, 600) : undefined}>
-      <span aria-hidden className="h-px flex-1 bg-edge" />
-      <span className="flex min-w-0 items-center gap-2">
-        {b ? <FoldVertical size={13} className="shrink-0 text-ink-4" /> : <span aria-hidden className="row-lamp shrink-0" data-s="compacting" />}
-        <span className="truncate tabular-nums">{parts.join(" · ")}</span>
-      </span>
-      <span aria-hidden className="h-px flex-1 bg-edge" />
+    <div className="g-fade py-1 text-xs text-ink-3" role={b ? undefined : "status"}>
+      <div className="flex items-center gap-3" onClick={sum ? () => setOpen(!open) : undefined}>
+        <span aria-hidden className="h-px flex-1 bg-edge" />
+        <span className="flex min-w-0 items-center gap-2">
+          {b ? <FoldVertical size={13} className="shrink-0 text-ink-4" /> : <span aria-hidden className="row-lamp shrink-0" data-s="compacting" />}
+          <span className="truncate tabular-nums">{parts.join(" · ")}</span>
+        </span>
+        <span aria-hidden className="h-px flex-1 bg-edge" />
+      </div>
+      {sum && (
+        <div inert={!open || undefined} aria-hidden={!open || undefined} className={cn("grid transition-[grid-template-rows] duration-(--dur-2) ease-(--ease-out)", open ? "grid-rows-[1fr]" : "grid-rows-[0fr]")}>
+          <div className="min-h-0 overflow-hidden">
+            <p className="m-0 mx-auto max-w-[min(640px,100%)] pt-1.5 leading-5 whitespace-pre-wrap [overflow-wrap:anywhere]">{sum}</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -294,7 +344,10 @@ const SYSTEM: Record<string, Parameters<typeof t>[0]> = { compact: "sys.compact"
  *  give ([文件] `path`). */
 export const Assistant = memo(function Assistant({ b, session }: { b: Block; session: string }) {
   const home = useHome().data;
-  const text = withoutFiles(withoutNameLines(fromSatori(b.text ?? "")), new Set(b.files?.map((f) => f.path)), home);
+  // The members of its channel it names (agents, people, apps: chat/channel/nick.tsx), links.
+  const names = useContext(Nicks)?.names;
+  const said = withoutFiles(withoutNameLines(fromSatori(b.text ?? "")), new Set(b.files?.map((f) => f.path)), home);
+  const text = names ? linkNicks(said, names) : said;
   // A file link's file shows where the words put it; the rest (file lines) under them.
   const under = b.files?.filter((f) => !isLink(f)) ?? [];
   return (
@@ -322,7 +375,7 @@ export function Relayed({ given, relay, name, time, onJump, children }: { given:
           <IrMark size={14} />
         </span>
         <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-          <div className="flex h-4 min-w-0 items-baseline gap-1.5 text-xs" title={time ? clock(time) : undefined}>
+          <div className="flex h-4 min-w-0 items-baseline gap-1.5 text-xs">
             <span className="shrink-0 font-medium text-ink-2">Iridium</span>
             {ch.id ? (
               <button type="button" onClick={() => onJump(ch.id)} className="flex min-w-0 items-baseline gap-1 text-ink-4 hover:text-ink-2">
@@ -332,6 +385,7 @@ export function Relayed({ given, relay, name, time, onJump, children }: { given:
             ) : (
               <span className="min-w-0 truncate text-ink-4">{head}</span>
             )}
+            <When time={time} />
           </div>
           {relay ? (
             <div className="flex max-w-[min(560px,100%)] min-w-0 flex-col self-start rounded-xl rounded-tl-sm bg-fill px-3.5 py-2.5">
@@ -345,7 +399,13 @@ export function Relayed({ given, relay, name, time, onJump, children }: { given:
                   </button>
                 )}
               </div>
-              {rules && <p className="g-fade m-0 mb-2 border-l-2 border-dashed border-edge pl-2.5 font-mono text-xs leading-5 whitespace-pre-wrap text-ink-3 [overflow-wrap:anywhere]">{relay.context}</p>}
+              {relay.full && relay.context && (
+                <div inert={!rules || undefined} aria-hidden={!rules || undefined} className={cn("grid transition-[grid-template-rows,opacity] duration-(--dur-2) ease-(--ease-out)", rules ? "grid-rows-[1fr]" : "grid-rows-[0fr] opacity-0")}>
+                  <div className="min-h-0 overflow-hidden">
+                    <p className="m-0 mb-2 border-l-2 border-dashed border-edge pl-2.5 font-mono text-xs leading-5 whitespace-pre-wrap text-ink-3 [overflow-wrap:anywhere]">{relay.context}</p>
+                  </div>
+                </div>
+              )}
               <div className="flex min-w-0 flex-col gap-1">
                 {relay.msgs.map((m, i) => {
                   const last = i === relay.msgs.length - 1;
@@ -400,7 +460,7 @@ export function Said({ b, session, cwd, source, onJump, card }: { b: Shown; sess
           </Letter>
         );
       return (
-        <YouBubble text={words} who={src} time={b.time} card={card?.(b)}>
+        <YouBubble text={words} who={src} time={b.time} card={card?.(b)} words={<NickWords text={words} />}>
           {b.files?.map((f) => <Attached key={f.ref} session={session} f={f} />)}
         </YouBubble>
       );
@@ -412,20 +472,19 @@ export function Said({ b, session, cwd, source, onJump, card }: { b: Shown; sess
         </Copyable>
       );
     case "system":
-      if (b.event === "iridium") return <Line icon={<RotateCcw size={12} />} title={b.text}>{b.text}</Line>;
+      if (b.event === "iridium") return <Line icon={<RotateCcw size={12} />}>{b.text}</Line>;
       if (b.event === "compact") return <Compaction b={b} />;
       // A background task ended (a workflow, a background agent): its summary as Claude Code says it.
       if (b.event === "task")
         return (
-          <Line icon={<WorkflowIcon size={12} />} title={b.text}>
-            <span className="max-w-[min(560px,100%)] truncate">{b.text}</span>
-            {b.time ? ` · ${clock(b.time)}` : ""}
+          <Line icon={<WorkflowIcon size={12} />} tail={b.time ? <span className="shrink-0 whitespace-pre"> · {clock(b.time)}</span> : undefined}>
+            {b.text}
           </Line>
         );
       return b.event === "api_error" || b.event === "local_command" || b.event === "unreadable" ? (
         <SystemFold b={b} session={session} />
       ) : (
-        <Line title={b.text}>
+        <Line more={b.text?.trim() || undefined}>
           {t(SYSTEM[b.event ?? ""] ?? "sys.other")}
           {b.time ? ` · ${clock(b.time)}` : ""}
         </Line>

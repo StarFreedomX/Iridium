@@ -18,6 +18,20 @@ export const hasLogin = (people: string[], app: string, login: string) => everyo
 /** Whether all of app's logins are among people. */
 export const hasApp = (people: string[], app: string) => everyone(people) || people.includes(appAll(app));
 
+/** How many people these are, as the members' key counts them: each of logins among them once (an
+ *  app's all: its logins; everyone: all of logins); an entry that names none of logins (the host,
+ *  an app with no login) is one. */
+export function peopleCount(people: string[], logins: { app: string; id: string }[]): number {
+  const named = logins.filter((l) => hasLogin(people, l.app, l.id)).length;
+  if (everyone(people)) return named;
+  const other = people.filter((p) => {
+    const i = p.indexOf("/");
+    const app = p.slice(0, i), login = p.slice(i + 1);
+    return !logins.some((l) => l.app === app && (login === "*" || l.id === login));
+  });
+  return named + other.length;
+}
+
 /** people with me kept among them (unless everyone is, or me's app's all are). */
 export function keepMe(people: string[], me?: string): string[] {
   if (!me || everyone(people) || people.includes(me) || people.includes(appAll(me.slice(0, me.indexOf("/"))))) return people;

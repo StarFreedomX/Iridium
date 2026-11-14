@@ -4,10 +4,11 @@
 import { useState, type ReactNode } from "react";
 import { api } from "../../api/client";
 import type { Agent } from "../../api/types.gen";
+import { useApps } from "../../data";
 import { useCarried } from "../../store";
 import { errText, toast } from "../../toast";
 import { t } from "../../i18n";
-import { cn, Logo } from "../../ui";
+import { Avatar, cn, Logo } from "../../ui";
 
 /** The face of channel (session) id, round, size across; none given: the agent's logo, as
  *  large as logo, or what else stands for it. */
@@ -33,6 +34,22 @@ export function Face({ id, agent, size, logo, className, none: instead }: { id: 
       {img}
     </span>
   );
+}
+
+/** A member's own face, small (a read mark, one who is looking): an agent's ("agent:<session>":
+ *  its Face), a login's avatar ("<app>/<login>"), an app's for one that names no login. */
+export function MemberFace({ member, name, agent, size }: { member: string; name?: string; agent?: Agent; size: number }) {
+  const d = useApps().data;
+  if (member.startsWith("agent:") && agent)
+    return (
+      <span className="grid shrink-0 place-items-center rounded-full bg-fill" style={{ width: size, height: size }}>
+        <Face id={member.slice(6)} agent={agent} size={size} logo={Math.round(size * 0.64)} />
+      </span>
+    );
+  const i = member.indexOf("/");
+  const login = d?.logins.find((l) => l.app === member.slice(0, i) && l.id === member.slice(i + 1));
+  const app = d?.apps.find((a) => a.id === member.slice(0, i));
+  return <Avatar src={login ? login.avatar : app?.avatar} name={name || login?.name || app?.name || member} size={size} />;
 }
 
 const asDataURL = (f: Blob) =>

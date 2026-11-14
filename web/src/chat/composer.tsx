@@ -31,7 +31,7 @@ import { useGlide } from "../motion";
 import { CODE, previews, size, Zoom } from "./files";
 import { upload } from "./upload";
 import { findSecretish } from "./secretish";
-import { insertNick, matchAgents, type AgentRow } from "./channel/lib";
+import { ALL_AGENTS, ALL_MEMBERS, insertNick, matchAgents, type AgentRow } from "./channel/lib";
 import { NickList } from "./channel/nicklist";
 import { SaveSecret } from "./savesecret";
 
@@ -111,15 +111,16 @@ type Props = {
    *  unquote: put it away (Esc, or once sent). */
   quote?: { n: number; who: string; text: string };
   unquote?: () => void;
-  /** The channel's people and apps, which @ names beside its agents (peers, the user, 2026-11-13). */
+  /** The channel's people and apps, which @ names beside its agents (peers, the user, 2026-11-13);
+   *  in one agent's chat (no nicks), all its @ lists: the agent by its nick, the people. */
   people?: AgentRow[];
 };
 
 /** The names that call more than one in a channel (internal/deliver AllMembers, AllAgents), as
  *  rows of the @ list. */
 const everyoneRows = (): AgentRow[] => [
-  { session: "", member: "*", agent: "" as Agent, nick: "全体成员", name: t("channel.atMembers"), status: "idle", recv: "" },
-  { session: "", member: "agent:*", agent: "" as Agent, nick: "全体Agent", name: t("channel.atAgents"), status: "idle", recv: "" },
+  { session: "", member: "*", agent: "" as Agent, nick: ALL_MEMBERS, name: t("channel.atMembers"), status: "idle", recv: "" },
+  { session: "", member: "agent:*", agent: "" as Agent, nick: ALL_AGENTS, name: t("channel.atAgents"), status: "idle", recv: "" },
 ];
 
 export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s, turn, onSent, onSentDone, cycleMode, openModel, openMode, openUsage, openContext, cleared, tools, fresh, nicks, quote, unquote, people }, ref) {
@@ -168,7 +169,11 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
   // On a computer the caret is here as a chat opens; a phone would bring up its keyboard.
   useEffect(() => void (fine() && box.current?.focus({ preventScroll: true })), [s.id]);
 
+  // A channel with no agent takes no files yet (docs/channels.md "还没做"): none picked, pasted
+  // or dropped, and no key for it.
+  const noFiles = !!s.bare;
   const attach = (files: File[]) => {
+    if (noFiles) return;
     const add = files.map((file): Att => ({ key: crypto.randomUUID(), file, sent: 0, url: file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined, stop: new AbortController() }));
     setAtts((a) => [...a, ...add]);
     for (const a of add) {
@@ -242,8 +247,9 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
   // them (Satori's <at>; the user, 2026-11-13).
   const open = caret !== null && text !== shut && !list.length;
   const word = open ? atWord(text, caret, "&") : null;
-  const nickWord = multi && open ? atWord(text, caret) : null;
-  const nickOpts = nickWord ? matchAgents([...nicks!, ...(people ?? []), ...everyoneRows()], nickWord.q) : [];
+  const nickWord = (multi || !!people?.length) && open ? atWord(text, caret) : null;
+  // The names of all only among several agents.
+  const nickOpts = nickWord ? matchAgents([...(nicks ?? []), ...(people ?? []), ...(multi ? everyoneRows() : [])], nickWord.q) : [];
   const nickSel = nickOpts.length ? Math.min(at ?? 0, nickOpts.length - 1) : 0;
   const call = (r: AgentRow) => {
     if (!nickWord) return;
@@ -290,7 +296,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
     caretAt(next, to);
   };
   /** Whether → goes into row r's folder (arrowInto), the box as it is. */
-  const into = (r: AtRow | undefined, el: HTMLTextAreaElement, held: boolean) => !!word && r?.kind === "place" && arrowInto(text, word.from, wordsAt(shownBox, el.selectionStart), wordsAt(shownBox, el.selectionEnd), `@${typedPath(r.p, machines)}`, held);
+  const into = (r: AtRow | undefined, el: HTMLTextAreaElement, held: boolean) => !!word && r?.kind === "place" && arrowInto(text, word.from, wordsAt(shownBox, el.selectionStart), wordsAt(shownBox, el.selectionEnd), `&${typedPath(r.p, machines)}`, held);
   const atOpen = sections.length > 0;
   const shown = list.length || opts.length || nickOpts.length;
   // What looks like a key: store it as a credential and say {{NAME}} instead (savesecret.tsx).
@@ -561,9 +567,11 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
         </div>
       </div>
       <div className="flex min-w-0 items-center gap-0.5 px-2 pt-0.5 pb-2">
-        <IconKey label={t("composer.attach")} onClick={() => picker.current?.click()}>
-          <Paperclip size={17} />
-        </IconKey>
+        {!noFiles && (
+          <IconKey label={t("composer.attach")} onClick={() => picker.current?.click()}>
+            <Paperclip size={17} />
+          </IconKey>
+        )}
         <div ref={toolRow} className={cn("flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden", fresh && "g-fade")}>
           {tools}
         </div>

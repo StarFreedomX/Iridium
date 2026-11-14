@@ -6,21 +6,23 @@ import { Menu } from "@base-ui/react/menu";
 import { Popover } from "@base-ui/react/popover";
 import { useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronRight, ImagePlus, UserPlus, Users } from "lucide-react";
-import type { CSSProperties, ReactNode } from "react";
+import { useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { api } from "../../api/client";
 import type { ChannelMembers, Viewer } from "../../api/types.gen";
-import { useApps } from "../../data";
+import { isComputer, useApps } from "../../data";
 import { t, useLang } from "../../i18n";
 import { openChat } from "../../route";
 import { useCarried, useList } from "../../store";
 import { toast } from "../../toast";
 import { agentName, Avatar, cn, Lamp, Logo, PopSurface, Tip } from "../../ui";
-import { pickFace } from "./face";
+import { MemberFace, pickFace } from "./face";
 import { ContextMark } from "../meters";
 import { mayAct, useMembers } from "./gate";
 import { AgentKinds, ITEM, POPUP } from "./invite";
 import { memberError } from "./key";
-import { appAll, everyone, hasApp, hasLogin, loginOf, peopleOf, pressApp, pressLogin } from "./setup";
+import { ownAgent } from "./lib";
+import { RemoveAsk } from "./members";
+import { appAll, everyone, hasApp, hasLogin, loginOf, peopleCount, peopleOf, pressApp, pressLogin } from "./setup";
 
 const SUB = "no-bar max-h-[min(480px,var(--available-height))] min-w-52 max-w-[calc(100vw-16px)] overflow-y-auto p-1.5";
 const HEAD = "truncate px-2.5 pt-2 pb-0.5 text-xs text-ink-3 select-none first:pt-1";
@@ -49,13 +51,19 @@ function Sub({ icon, label, lead, now, i, children }: { icon: ReactNode; label: 
 const check = (on: boolean) => <span className="grid size-3.5 place-items-center text-ink">{on && <Check size={14} />}</span>;
 
 /** The bar's right (the user, 2026-11-13): who is looking now, their faces, pressed their names;
- *  the members, a key with their count opening the list of them. */
+ *  the members, a key with their count (agents and people) opening the list of them. */
 export function TopRight({ id }: { id: string }) {
   useLang();
   const members = useMembers(id);
   const viewers = useCarried<Viewer[]>(`viewers:${id}`) ?? [];
   const agents = (members?.members ?? []).filter((m) => m.session);
-  const people = peopleOf(members);
+  // How many its members are, on the key itself: its agents and its people (each login once).
+  const logins = useApps().data?.logins ?? [];
+  const count = agents.length + peopleCount(peopleOf(members), logins);
+  // 移出 asked from the list: the card the face's menu asks with, under the members' key.
+  const key = useRef<HTMLButtonElement>(null);
+  const [out, setOut] = useState<{ member: string; nick: string } | null>(null);
+  const [asking, setAsking] = useState(false);
   return (
     <span className="g-fade flex shrink-0 items-center gap-0.5">
       {viewers.length > 0 && (
@@ -66,7 +74,7 @@ export function TopRight({ id }: { id: string }) {
               <button type="button" aria-label={t("channel.viewing")} className="g-press flex h-8 items-center rounded-md px-1.5 hover:bg-fill data-popup-open:bg-fill pointer-coarse:h-10">
                 {viewers.slice(0, 4).map((v, i) => (
                   <span key={v.member} className="grid rounded-full ring-2 ring-paper" style={{ marginLeft: i ? -5 : 0, zIndex: 4 - i }}>
-                    <Avatar name={v.name} size={18} />
+                    <MemberFace member={v.member} name={v.name} size={18} />
                   </span>
                 ))}
                 {viewers.length > 4 && <span className="ml-1 text-xs text-ink-3 tabular-nums">+{viewers.length - 4}</span>}
@@ -77,7 +85,7 @@ export function TopRight({ id }: { id: string }) {
             <div className={HEAD}>{t("channel.viewing")}</div>
             {viewers.map((v) => (
               <div key={v.member} className="flex h-8 items-center gap-2.5 px-2.5 text-base pointer-coarse:h-11">
-                <Avatar name={v.name} size={18} />
+                <MemberFace member={v.member} name={v.name} size={18} />
                 <span className="min-w-0 flex-1 truncate">{v.name}</span>
               </div>
             ))}
@@ -85,12 +93,12 @@ export function TopRight({ id }: { id: string }) {
         </Popover.Root>
       )}
       <Menu.Root>
-        <Tip label={`${t("channel.members")} · ${agents.length || 1} · ${everyone(people) ? t("channel.everyone") : t("channel.peopleN", { n: people.length })}`} side="bottom">
+        <Tip label={t("channel.members")} side="bottom">
           <Menu.Trigger
             render={
-              <button type="button" aria-label={t("channel.members")} className="g-press flex h-8 items-center gap-1 rounded-md px-2 text-ink-2 hover:bg-fill hover:text-ink data-popup-open:bg-fill pointer-coarse:h-10">
+              <button ref={key} type="button" aria-label={t("channel.members")} className="g-press flex h-8 items-center gap-1 rounded-md px-2 text-ink-2 hover:bg-fill hover:text-ink data-popup-open:bg-fill pointer-coarse:h-10">
                 <Users size={16} />
-                <span className="text-xs tabular-nums">{agents.length || 1}</span>
+                <span className="text-xs tabular-nums">{count}</span>
               </button>
             }
           />
@@ -99,18 +107,20 @@ export function TopRight({ id }: { id: string }) {
           <Menu.Positioner side="bottom" align="end" sideOffset={6} collisionPadding={8} className="z-50">
             <Menu.Popup finalFocus={false} className={cn(POPUP, SUB)}>
               <div className="g-stagger flex flex-col">
-                <MemberList id={id} />
+                <MemberList id={id} remove={(m) => requestAnimationFrame(() => (setOut(m), setAsking(true)))} />
               </div>
             </Menu.Popup>
           </Menu.Positioner>
         </Menu.Portal>
       </Menu.Root>
+      {out && <RemoveAsk channel={id} member={out.member} nick={out.nick} anchor={key} open={asking} onOpenChange={setAsking} />}
     </span>
   );
 }
 
-/** The members: each agent a submenu (what it receives, its session, 移出), then the people. */
-function MemberList({ id }: { id: string }) {
+/** The members: each agent a submenu (what it receives, its session, 移出: asked first, as the
+ *  face's menu asks), then the people. */
+function MemberList({ id, remove }: { id: string; remove: (m: { member: string; nick: string }) => void }) {
   const qc = useQueryClient();
   const list = useList();
   const members = useMembers(id);
@@ -119,13 +129,14 @@ function MemberList({ id }: { id: string }) {
   const run = (f: () => Promise<ChannelMembers>) => void f().then(set, (e) => toast(memberError(e), { error: true }));
   const agents = (members?.members ?? []).filter((m) => m.session);
   const people = peopleOf(members);
+  const logins = useApps().data?.logins ?? [];
   const recvWord = (r: string) => (r === "all" ? t("channel.recvAll") : t("channel.recvAt"));
   return (
     <>
       <div className={HEAD}>{t("channel.agents")}</div>
       {agents.map((m) => {
         const row = list?.find((x) => x.id === m.session);
-        const own = m.send !== "ir";
+        const own = ownAgent(id, m);
         return (
           <Sub key={m.member} icon={<Logo agent={m.agent ?? row?.agent ?? "claude"} size={16} />} lead={<ContextMark session={m.session!} />} label={m.nick || agentName(m.agent ?? row?.agent ?? "claude")} now={own ? t("channel.direct") : recvWord(m.recv)} i={0}>
             <div className={HEAD}>{m.name}</div>
@@ -140,13 +151,13 @@ function MemberList({ id }: { id: string }) {
                 </Menu.RadioItem>
               ))}
             </Menu.RadioGroup>
-            {m.session !== id && (
+            {!own && (
               <Menu.Item onClick={() => openChat(m.session!)} className={ITEM}>
                 {t("channel.session")}
               </Menu.Item>
             )}
             {!own && may && (
-              <Menu.Item onClick={() => run(() => api.removeMember(id, m.member))} className={cn(ITEM, "text-err")}>
+              <Menu.Item onClick={() => remove({ member: m.member, nick: m.nick ?? "" })} className={cn(ITEM, "text-err")}>
                 {t("channel.remove")}
               </Menu.Item>
             )}
@@ -160,7 +171,7 @@ function MemberList({ id }: { id: string }) {
         );
       })}
       <div className={HEAD}>{t("channel.people")}</div>
-      <div className="flex h-8 items-center px-2.5 text-base text-ink-2 pointer-coarse:h-11">{everyone(people) ? t("channel.everyone") : t("channel.peopleN", { n: people.length })}</div>
+      <div className="flex h-8 items-center px-2.5 text-base text-ink-2 pointer-coarse:h-11">{everyone(people) ? t("channel.everyone") : t("channel.peopleN", { n: peopleCount(people, logins) })}</div>
       {may && <Invite id={id} />}
     </>
   );
@@ -175,7 +186,8 @@ function Invite({ id }: { id: string }) {
   const set = (ms: ChannelMembers) => void qc.setQueryData<ChannelMembers>(["members", id], ms);
   const run = (f: () => Promise<ChannelMembers>) => void f().then(set, (e) => toast(memberError(e), { error: true }));
   const people = peopleOf(members);
-  const apps = (d?.apps ?? []).filter((a) => !a.host);
+  // No computers: they are not invited (the owner, 2026-11-14).
+  const apps = (d?.apps ?? []).filter((a) => !isComputer(a));
   const ids = apps.map((a) => a.id);
   const loginsOf = (app: string) => (d?.logins ?? []).filter((l) => l.app === app);
   const idsOf = (app: string) => loginsOf(app).map((l) => l.id);
@@ -220,7 +232,7 @@ export default function ChannelMenu({ id, from = 0, face }: { id: string; from?:
       <span className="text-ink-2">
         <ImagePlus size={15} />
       </span>
-      {t("channel.avatar")}
+      {t("me.avatar")}
     </Menu.Item>
   );
 }

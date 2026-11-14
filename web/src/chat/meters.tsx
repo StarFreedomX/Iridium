@@ -140,8 +140,7 @@ export function ContextRing({ session, summary, tokens, open, onOpenChange, comp
   );
 }
 
-/** The context's breakdown, as the ring's popover says it: how full, the parts, the cache. Also a
- *  channel's agent's, under its face in the member bar (chat/channel). */
+/** The context's breakdown, as the ring's popover says it: how full, the parts, the cache. */
 export function ContextDetail({ c, tokens }: { c: Context; tokens?: InputTokens }) {
   const parts = ctxParts(c);
   const hit = hitRate(tokens);
@@ -696,7 +695,7 @@ export function ModelKey({ s, open, onOpenChange }: { s: LiveSession; open?: boo
   );
 }
 
-/** The model menu's inside (ModelKey's, and a new agent's in the "+", chat/channel/draft.tsx):
+/** The model menu's inside (ModelKey's, and a new agent's under 邀请, chat/channel/pick.tsx):
  *  the models, a pick closing it; under them the effort track, tuned in place. foot: a key at the
  *  track's right (featKey) even with no levels. */
 export function ModelList({ models, value, pickModel, levels, level, setEffort, featKey, featTag, foot, name }: { models: Model[]; value: string; pickModel: (v: string) => void; levels: string[]; level: string; setEffort: (e: string) => Promise<boolean>; featKey?: ReactNode; featTag?: ReactNode; foot?: boolean; name?: string }) {

@@ -1,29 +1,28 @@
 // A channel's agents as faces (docs/channels.md): beside what each said, its harness's logo on a
 // disc, its lamp on the corner. A press opens its card (as QQ's: talk to it in its own channel,
 // call it here); the right button, or a finger held down, its menu: call, compact, model,
-// effort, approval mode, stop, what it receives, its nick, its face, its own session, what the
-// channel gave it, out. Its context and usage are not here: they have their keys after its
+// effort, approval mode, stop, what it receives, its nick, its face, its own session, 注入记录
+// (what the channel gave it), out. Its context and usage are not here: they have their keys after its
 // model's name (docs/前端设计规范.md "一样东西一个地方").
-import { Dialog } from "@base-ui/react/dialog";
 import { Menu } from "@base-ui/react/menu";
 import { Popover } from "@base-ui/react/popover";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AtSign, MessageCircle, Box, Brain, Check, ChevronRight, CircleStop, FoldVertical, ImagePlus, PencilLine, Inbox, ScrollText, ShieldCheck, UserMinus, X } from "lucide-react";
+import { AtSign, MessageCircle, Box, Brain, Check, ChevronRight, CircleStop, FoldVertical, ImagePlus, PencilLine, Inbox, ScrollText, ShieldCheck, UserMinus } from "lucide-react";
 import { useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 import { api } from "../../api/client";
 import type { ChannelMembers, SessionState as LiveSession, Session } from "../../api/types.gen";
-import { CardFrame, CardHead, MainKey, SecondKey } from "../../card";
+import { CardHead, MainKey, SecondKey } from "../../card";
 import { t, useLang } from "../../i18n";
 import { ModeMark, modeName } from "../../modes";
 import { useList, useSession } from "../../store";
 import { errText, toast } from "../../toast";
 import { openChat } from "../../route";
-import { agentName, cn, Lamp, Logo, own, sessionStatusText, useLongPress, useMenuAt } from "../../ui";
+import { agentName, cn, Lamp, Logo, own, PopSurface, sessionStatusText, useLongPress, useMenuAt } from "../../ui";
 import { levelName } from "../effort";
 import { modelView, useMode } from "../meters";
 import { Face, pickFace } from "./face";
 import { memberError } from "./key";
-import { givenParts, validNick, type AgentRow } from "./lib";
+import { givenParts, ownAgent, validNick, type AgentRow } from "./lib";
 
 const ITEM = "flex h-8 cursor-default items-center gap-2.5 rounded-md px-2.5 text-base outline-none select-none data-highlighted:bg-fill data-popup-open:bg-fill pointer-coarse:h-11";
 const POPUP = "g-unfold glass thick float rounded-lg text-ink outline-none";
@@ -32,17 +31,14 @@ const BUSY = new Set(["running", "compacting", "starting", "waiting"]);
 /** A member's state before the stream brings it, from its row. */
 const ghostOf = (row: Session): LiveSession => ({ ...row, asks: [], tasks: [], denials: [], queue: [], end: 0, proc: -1 });
 
-/** Something that floats at a member's face: a popover's surface anchored there. */
-function At({ anchor, open, onOpenChange, children, className, bare }: { anchor: RefObject<HTMLElement | null>; open: boolean; onOpenChange: (o: boolean) => void; children: ReactNode; className?: string; bare?: boolean }) {
+/** Something that floats at a member's face: the app's one popover (ui.tsx PopSurface) unfolding
+ *  out of it, put away by a press elsewhere or Esc. */
+function At({ anchor, open, onOpenChange, children, className }: { anchor: RefObject<HTMLElement | null>; open: boolean; onOpenChange: (o: boolean) => void; children: ReactNode; className?: string }) {
   return (
     <Popover.Root open={open} onOpenChange={onOpenChange}>
-      <Popover.Portal>
-        <Popover.Positioner anchor={anchor} side="bottom" align="start" sideOffset={8} collisionPadding={8} className="z-50">
-          <Popover.Popup initialFocus={(type) => type === "keyboard"} className={cn(bare ? "g-unfold outline-none" : POPUP, className)}>
-            {children}
-          </Popover.Popup>
-        </Popover.Positioner>
-      </Popover.Portal>
+      <PopSurface anchor={anchor.current} className={className}>
+        {children}
+      </PopSurface>
     </Popover.Root>
   );
 }
@@ -92,7 +88,7 @@ export function AgentFace({ channel, a, call, record, may, talk, size = 28 }: { 
         </span>
       </button>
       <At anchor={face} open={detail} onOpenChange={setDetail} className="w-[min(300px,calc(100vw-16px))] p-3.5">
-        <Card channel={channel} a={a} call={call} record={record} may={may} talk={talk} done={() => setDetail(false)} />
+        <AgentCard channel={channel} a={a} call={call} record={record} may={may} talk={talk} done={() => setDetail(false)} />
       </At>
       {s && (
         <MemberMenu
@@ -106,16 +102,16 @@ export function AgentFace({ channel, a, call, record, may, talk, size = 28 }: { 
           rename={() => setNaming(true)}
           record={record && (() => record(a.session))}
           given={() => setGiven(true)}
-          remove={a.session === channel || !may ? undefined : () => setSure(true)}
+          remove={ownAgent(channel, a) || !may ? undefined : () => setSure(true)}
         />
       )}
       <At anchor={face} open={naming} onOpenChange={setNaming} className="w-64 p-2.5">
         <NickForm channel={channel} a={a} done={() => setNaming(false)} />
       </At>
-      <At anchor={face} open={sure} onOpenChange={setSure} bare className="w-[min(340px,calc(100vw-16px))]">
-        <Remove channel={channel} a={a} done={() => setSure(false)} />
+      <RemoveAsk channel={channel} member={a.member} nick={a.nick} anchor={face} open={sure} onOpenChange={setSure} />
+      <At anchor={face} open={given} onOpenChange={setGiven} className="flex max-h-[min(560px,var(--available-height))] w-[min(480px,calc(100vw-16px))] flex-col">
+        <Given a={a} />
       </At>
-      {given && <Given a={a} close={() => setGiven(false)} />}
     </>
   );
 }
@@ -124,8 +120,8 @@ export function AgentFace({ channel, a, call, record, may, talk, size = 28 }: { 
  *  not its context or usage, which have their own keys after its model's name (docs/前端设计规范.md
  *  "一样东西一个地方"). Keys to talk to it in its own channel (its session: one channel bound to it),
  *  to call it here (@nick); in its own channel, to change its face and see its record. */
-function Card({ channel, a, call, record, may, talk, done }: { channel: string; a: AgentRow; call?: (nick: string) => void; record?: (session: string) => void; may: boolean; talk?: () => void; done: () => void }) {
-  const mine = a.session === channel;
+export function AgentCard({ channel, a, call, record, may, talk, done }: { channel: string; a: AgentRow; call?: (nick: string) => void; record?: (session: string) => void; may: boolean; talk?: () => void; done: () => void }) {
+  const mine = ownAgent(channel, a);
   const key = "g-press flex h-8 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md bg-fill px-2 text-sm text-ink hover:bg-fill-2 pointer-coarse:h-10";
   return (
     <div className="flex flex-col gap-3">
@@ -331,14 +327,17 @@ function NickForm({ channel, a, done }: { channel: string; a: AgentRow; done: ()
   );
 }
 
-/** A member taken out, asked first as the app asks before it deletes. */
-function Remove({ channel, a, done }: { channel: string; a: AgentRow; done: () => void }) {
+/** 移出, from wherever it is asked (the face's menu, the members' list at the bar's right): the
+ *  one card at anchor, the member out only once it is confirmed (docs/前端设计规范.md "一样东西
+ *  一个实现"). The session stays: only its place in the channel goes. */
+export function RemoveAsk({ channel, member, nick, anchor, open, onOpenChange }: { channel: string; member: string; nick: string; anchor: RefObject<HTMLElement | null>; open: boolean; onOpenChange: (o: boolean) => void }) {
   const qc = useQueryClient();
   const [busy, setBusy] = useState(false);
+  const done = () => onOpenChange(false);
   const out = async () => {
     setBusy(true);
     try {
-      qc.setQueryData<ChannelMembers>(["members", channel], await api.removeMember(channel, a.member));
+      qc.setQueryData<ChannelMembers>(["members", channel], await api.removeMember(channel, member));
       done();
     } catch (e) {
       toast(t("err.action"), { error: true, description: memberError(e) });
@@ -346,81 +345,77 @@ function Remove({ channel, a, done }: { channel: string; a: AgentRow; done: () =
       setBusy(false);
     }
   };
+  const title = t("channel.removeTitle", { nick });
   return (
-    <CardFrame label={t("channel.removeTitle", { nick: a.nick })}>
-      <CardHead
-        icon={<UserMinus size={16} />}
-        title={t("channel.removeTitle", { nick: a.nick })}
-        summary={t("channel.removeHint")}
-        keys={
-          <>
-            <SecondKey onClick={done}>{t("me.cancel")}</SecondKey>
-            <MainKey busy={busy} onClick={() => void out()}>
-              {t("channel.remove")}
-            </MainKey>
-          </>
-        }
-      />
-    </CardFrame>
+    <At anchor={anchor} open={open} onOpenChange={onOpenChange} className="@container w-[min(340px,calc(100vw-16px))] p-2.5 pl-3">
+      <div role="alertdialog" aria-label={title}>
+        <CardHead
+          icon={<UserMinus size={16} />}
+          title={title}
+          summary={t("channel.removeHint")}
+          keys={
+            <>
+              <SecondKey onClick={done}>{t("me.cancel")}</SecondKey>
+              <MainKey busy={busy} onClick={() => void out()}>
+                {t("channel.remove")}
+              </MainKey>
+            </>
+          }
+        />
+      </div>
+    </At>
   );
 }
 
 const stamp = (ms: number, lang: string) => new Date(ms).toLocaleString(lang === "zh" ? "zh-CN" : "en", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" });
 
-/** What the channel gave an agent, the newest first: for each time, the message it was for, when,
- *  and its parts: where each is from, the values its slots took, the messages it cites. */
-function Given({ a, close }: { a: AgentRow; close: () => void }) {
+/** 注入记录: what the channel gave an agent, the newest first: for each time, the message it was
+ *  for, when, and its parts: where each is from, the values its slots took, the messages it
+ *  cites. Inside the popover at its face (At). */
+function Given({ a }: { a: AgentRow }) {
   const lang = useLang();
   const q = useQuery({ queryKey: ["injections", a.session], queryFn: () => api.injections(a.session), staleTime: 0, retry: false });
   return (
-    <Dialog.Root open onOpenChange={(o) => !o && close()}>
-      <Dialog.Portal>
-        <Dialog.Backdrop className="fixed inset-0 z-50 bg-paper/70 backdrop-blur-sm transition-opacity duration-(--dur-2) data-ending-style:opacity-0 data-starting-style:opacity-0" />
-        <Dialog.Popup className={cn(POPUP, "fixed top-1/2 left-1/2 z-50 flex max-h-[min(640px,86dvh)] w-[min(560px,calc(100vw-24px))] -translate-x-1/2 -translate-y-1/2 flex-col")}>
-          <div className="flex h-11 shrink-0 items-center gap-2 pr-1.5 pl-4">
-            <Logo agent={a.agent} size={16} />
-            <Dialog.Title className="m-0 min-w-0 flex-1 truncate text-sm font-semibold">
-              {t("channel.given")} · {a.nick}
-            </Dialog.Title>
-            <Dialog.Close aria-label={t("msg.close")} className="g-press grid size-8 place-items-center rounded-md text-ink-2 hover:bg-fill hover:text-ink">
-              <X size={15} />
-            </Dialog.Close>
-          </div>
-          <div className="no-bar min-h-0 flex-1 overflow-y-auto px-4 pb-4">
-            {q.error ? <p className="m-0 py-6 text-center text-sm text-err">{errText(q.error)}</p> : q.data && !q.data.length ? <p className="m-0 py-6 text-center text-sm text-ink-3">{t("channel.givenNone")}</p> : null}
-            <ol className="m-0 flex list-none flex-col gap-4 p-0">
-              {q.data?.map((g) => (
-                <li key={g.id} className="g-fade">
-                  <div className="flex items-baseline gap-2 text-sm">
-                    <span className="font-semibold tabular-nums">{g.seq ? `#${g.seq}` : "—"}</span>
-                    <span className="text-xs text-ink-3 tabular-nums">{stamp(g.at, lang)}</span>
-                  </div>
-                  <ul className="m-0 mt-1.5 flex list-none flex-col gap-1 p-0">
-                    {givenParts(g.record).map((p, i) => (
-                      <li key={i} className="rounded-md bg-fill px-2.5 py-1.5">
-                        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                          <span className="font-mono text-xs break-all text-ink">{p.source}</span>
-                          {p.refs.map((r) => (
-                            <span key={r} className="text-xs text-ink-2 tabular-nums">
-                              {r}
-                            </span>
-                          ))}
-                        </div>
-                        {p.values.map(([k, val]) => (
-                          <div key={k} className="mt-0.5 flex gap-2 text-xs">
-                            <span className="shrink-0 text-ink-3">{k}</span>
-                            <span className="min-w-0 break-words whitespace-pre-wrap text-ink-2">{val}</span>
-                          </div>
-                        ))}
-                      </li>
+    <>
+      <div className="flex h-10 shrink-0 items-center gap-2 px-3.5">
+        <Logo agent={a.agent} size={16} />
+        <span className="min-w-0 flex-1 truncate text-sm font-semibold">
+          {t("channel.given")} · {a.nick}
+        </span>
+      </div>
+      <div className="no-bar min-h-0 flex-1 overflow-y-auto px-3.5 pb-3.5">
+        {q.error ? <p className="m-0 py-6 text-center text-sm text-err">{errText(q.error)}</p> : q.data && !q.data.length ? <p className="m-0 py-6 text-center text-sm text-ink-3">{t("channel.givenNone")}</p> : null}
+        <ol className="m-0 flex list-none flex-col gap-4 p-0">
+          {q.data?.map((g) => (
+            <li key={g.id} className="g-fade">
+              <div className="flex items-baseline gap-2 text-sm">
+                <span className="font-semibold tabular-nums">{g.seq ? `#${g.seq}` : "—"}</span>
+                <span className="text-xs text-ink-3 tabular-nums">{stamp(g.at, lang)}</span>
+              </div>
+              <ul className="m-0 mt-1.5 flex list-none flex-col gap-1 p-0">
+                {givenParts(g.record).map((p, i) => (
+                  <li key={i} className="rounded-md bg-fill px-2.5 py-1.5">
+                    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                      <span className="font-mono text-xs break-all text-ink">{p.source}</span>
+                      {p.refs.map((r) => (
+                        <span key={r} className="text-xs text-ink-2 tabular-nums">
+                          {r}
+                        </span>
+                      ))}
+                    </div>
+                    {p.values.map(([k, val]) => (
+                      <div key={k} className="mt-0.5 flex gap-2 text-xs">
+                        <span className="shrink-0 text-ink-3">{k}</span>
+                        <span className="min-w-0 break-words whitespace-pre-wrap text-ink-2">{val}</span>
+                      </div>
                     ))}
-                  </ul>
-                </li>
-              ))}
-            </ol>
-          </div>
-        </Dialog.Popup>
-      </Dialog.Portal>
-    </Dialog.Root>
+                  </li>
+                ))}
+              </ul>
+            </li>
+          ))}
+        </ol>
+      </div>
+    </>
   );
 }
