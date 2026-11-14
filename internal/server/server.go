@@ -373,7 +373,9 @@ func (s *Server) sendAs(ctx context.Context, c caller, from, id string, req api.
 	if _, own := s.ch.Own(id); own {
 		command = false // no agent of its own to run one: words as any
 	}
-	if !command && s.multi(id) {
+	// Among several, only a command of the channel's own agent is its alone; words that merely
+	// begin with a slash ("/home/x is broken @codex") are said in the channel as any.
+	if s.multi(id) && !(command && s.m.IsCommand(id, req.Text)) {
 		return s.sendChannel(ctx, c, from, id, req)
 	}
 	// One agent: the message it answers as quoted lines before the words.

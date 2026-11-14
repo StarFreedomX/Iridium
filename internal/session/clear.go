@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -217,4 +219,36 @@ func (m *Manager) RunsItself(id, text string) bool {
 	}
 	c, ok := h.drv.(agent.Commander)
 	return ok && c.RunsItself(text)
+}
+
+// commandName is how a slash command begins: "/" and its name, with no other slash in it (a
+// path is words).
+var commandName = regexp.MustCompile(`^/([A-Za-z][A-Za-z0-9_:.-]*)$`)
+
+// IsCommand says whether text sent to session id is a command of its agent (/clear, /compact,
+// one its last handshake named...) rather than words that merely begin with a slash
+// ("/home/x is broken"). While the agent has named none yet (it has not run since the daemon
+// began), anything shaped as a command is taken as one.
+func (m *Manager) IsCommand(id, text string) bool {
+	f := strings.Fields(text)
+	if len(f) == 0 {
+		return false
+	}
+	name := commandName.FindStringSubmatch(f[0])
+	if name == nil {
+		return false
+	}
+	if IsClear(text) {
+		return true
+	}
+	h, err := m.get(id)
+	if err != nil {
+		return false
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if len(h.commands) == 0 {
+		return true
+	}
+	return slices.ContainsFunc(h.commandsLocked(), func(c agent.Command) bool { return strings.EqualFold(c.Name, name[1]) })
 }

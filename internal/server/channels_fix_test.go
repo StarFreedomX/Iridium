@@ -443,3 +443,24 @@ func TestChannelJoinFullAndRolledBack(t *testing.T) {
 		t.Errorf("the nick of one that did not join: %q", nick)
 	}
 }
+
+// Among several agents only a command of the channel's own agent goes to it alone: words that
+// merely begin with a slash are said in the channel and reach whom they name.
+func TestChannelSlashWords(t *testing.T) {
+	t.Parallel()
+	l, ch, second := two(t)
+	code, r := l.send("web", ch, api.Send{Text: "/home/x is broken @claude2"})
+	if code != 200 || !r.Said || r.Seq == 0 {
+		t.Fatalf("words beginning with a slash: %d %+v", code, r)
+	}
+	l.waitSaid("web", second, fmt.Sprintf("ok: #%d: /home/x is broken @claude2", r.Seq))
+	// A command is the own agent's still.
+	if code, r = l.send("web", ch, api.Send{Text: "/compact"}); code != 200 || r.Said {
+		t.Fatalf("a command: %d %+v", code, r)
+	}
+	for text, want := range map[string]bool{"/clear": true, "/compact now": true, "/home/x": false, "/ what": false, "/nosuchcommand": false, "plain": false} {
+		if got := l.s.m.IsCommand(ch, text); got != want {
+			t.Errorf("IsCommand(%q) = %v", text, got)
+		}
+	}
+}
