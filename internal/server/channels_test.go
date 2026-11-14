@@ -253,7 +253,11 @@ func TestChannelOfSeveral(t *testing.T) {
 	l.wantSat(422, "web", "guild.member.get", map[string]any{"guild_id": "loose", "user_id": "agent:nobody"}, nil)
 	l.wantSat(400, "web", "guild.member.list", map[string]any{}, nil)
 
-	// Its record in outline: a turn a line, the channel's message by its words alone.
+	// Its record in outline: a turn a line, the channel's message by its words alone. Once its
+	// turns have settled (what it said with ir woke the first, whose echo may call it back):
+	// the outline's end is then the record's.
+	l.idle(ch)
+	l.idle(second)
 	var outline api.Outline
 	l.wantSat(200, "agent-in:"+ch, "internal/block.outline", map[string]any{"channel_id": second}, &outline)
 	if len(outline.Turns) < 1 || !strings.HasPrefix(outline.Turns[0].Asked, fmt.Sprintf("#%d: now @claude2 look", r.Seq)) || strings.Contains(outline.Turns[0].Asked, "channel-context") ||
