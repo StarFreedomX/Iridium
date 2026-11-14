@@ -482,7 +482,7 @@ function QuoteLine({ n, q, right }: { n: number; q?: { who: string; text: string
   );
 }
 
-const EVENT_KEYS = ["join", "leave", "rename", "recv", "everyone", "added", "removed", "undelivered", "stopped", "by", "sep"] as const;
+const EVENT_KEYS = ["join", "leave", "rename", "recv", "everyone", "added", "removed", "undelivered", "stopped", "silent", "by", "sep"] as const;
 
 /** A line of Iridium's own: what happened to the channel (who joined, left, was renamed, what one
  *  receives, its people), in the page's words, the agent in it as its nick is drawn elsewhere;

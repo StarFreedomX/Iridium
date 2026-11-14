@@ -214,7 +214,7 @@ describe("didOf", () => {
 });
 
 describe("a channel's events", () => {
-  const w: EventWords = { join: "{nick} 已加入", leave: "{nick} 已移出", rename: "{from} 改名 {nick}", recv: "{nick} 接收{recv}", everyone: "人：全部", added: "已加入：{added}", removed: "已移出：{removed}", undelivered: "#{seq} 未送达 {nick}", stopped: "#{seq} 未转交", by: "（{by}）", sep: "，", all: "全部", at: "@我" };
+  const w: EventWords = { join: "{nick} 已加入", leave: "{nick} 已移出", rename: "{from} 改名 {nick}", recv: "{nick} 接收{recv}", everyone: "人：全部", added: "已加入：{added}", removed: "已移出：{removed}", undelivered: "#{seq} 未送达 {nick}", stopped: "#{seq} 未转交", silent: "#{seq} {nick} 未发话", by: "（{by}）", sep: "，", all: "全部", at: "@我" };
   test("join and leave: the agent, then who did it", () => {
     expect(eventParts({ type: "join", member: "agent:s", nick: "pi2", name: "pi Low", by: "主机" }, w)).toEqual([{ nick: "pi2" }, " 已加入（主机）"]);
     expect(eventParts({ type: "leave", nick: "pi2" }, w)).toEqual([{ nick: "pi2" }, " 已移出"]);
@@ -234,6 +234,7 @@ describe("a channel's events", () => {
   test("undelivered and stopped: the message's number", () => {
     expect(eventParts({ type: "undelivered", seq: 12, nick: "pi2" }, w)).toEqual(["#12 未送达 ", { nick: "pi2" }]);
     expect(eventParts({ type: "stopped", seq: 9 }, w)).toEqual(["#9 未转交"]);
+    expect(eventParts({ type: "silent", seq: 7, nick: "pi2" }, w)).toEqual(["#7 ", { nick: "pi2" }, " 未发话"]);
   });
   test("one not known: none, its own text is shown", () => {
     expect(eventParts({ type: "later" }, w)).toBeUndefined();

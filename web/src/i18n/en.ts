@@ -258,6 +258,7 @@ export const en: Dict = {
   "channel.event.removed": "Removed: {removed}",
   "channel.event.undelivered": "#{seq} not delivered to {nick}",
   "channel.event.stopped": "#{seq} not passed on",
+  "channel.event.silent": "#{seq}: {nick} said nothing",
   "channel.event.by": " ({by})",
   "channel.event.sep": ", ",
   "channel.people": "People",

@@ -258,6 +258,7 @@ export const zh = {
   "channel.event.removed": "已移出：{removed}",
   "channel.event.undelivered": "#{seq} 未送达 {nick}",
   "channel.event.stopped": "#{seq} 未转交",
+  "channel.event.silent": "#{seq} {nick} 未发话",
   "channel.event.by": "（{by}）",
   "channel.event.sep": "，",
   "channel.people": "人",

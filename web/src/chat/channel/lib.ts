@@ -41,7 +41,8 @@ export function workOf<B extends { at: string; kind: string; text?: string }>(bl
 
 /** Something that happened to a channel, a line of Iridium's own in it (internal/channel Event):
  *  join, leave (nick), rename (from, nick), recv (nick, recv), people (added, removed: member
- *  strings; everyone), undelivered (seq, nick), stopped (seq). by: who did it, by name. */
+ *  strings; everyone), undelivered (seq, nick), stopped (seq), silent (seq, nick: called for it,
+ *  it said nothing in the channel). by: who did it, by name. */
 export type ChEvent = { type: string; member?: string; nick?: string; name?: string; from?: string; recv?: string; added?: string[]; removed?: string[]; everyone?: boolean; seq?: number; by?: string };
 
 /** A piece of an event's line: words, an agent by its nick, people by their member strings. */
@@ -49,7 +50,7 @@ export type EventPart = string | { nick: string } | { people: string[] };
 
 /** The line's words by event (i18n: channel.event.*), their slots in braces: {nick} {from}
  *  {recv} {people} {seq} {by}. */
-export type EventWords = Record<"join" | "leave" | "rename" | "recv" | "everyone" | "added" | "removed" | "undelivered" | "stopped" | "by" | "sep" | "all" | "at", string>;
+export type EventWords = Record<"join" | "leave" | "rename" | "recv" | "everyone" | "added" | "removed" | "undelivered" | "stopped" | "silent" | "by" | "sep" | "all" | "at", string>;
 
 /** An event as the pieces of its line, in the page's words; none for one not known (its message's
  *  own text is shown then). */
@@ -85,6 +86,7 @@ export function eventParts(e: ChEvent, w: EventWords): EventPart[] | undefined {
     case "recv":
     case "undelivered":
     case "stopped":
+    case "silent":
       out = fill(w[e.type]);
       break;
     case "people": {
