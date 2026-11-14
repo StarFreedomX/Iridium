@@ -112,6 +112,7 @@ func New(cfg config.Config, m *session.Manager, h *hub.Hub, logf func(string, ..
 	}
 	s := &Server{cfg: cfg, m: m, hub: h, st: m.Store(), files: newFiles(cfg, m, logf), logf: logf}
 	s.calls.st = s.st
+	s.calls.open()
 	s.voice = voice.New(logf)
 	s.voice.Changed = s.carryVoice
 	h.Set("voice", map[string][]voice.Member{})
@@ -126,7 +127,12 @@ func New(cfg config.Config, m *session.Manager, h *hub.Hub, logf func(string, ..
 	s.sat = satori.New(satoriBackend{s}, logf)
 	s.sat.Channels(s.ch)
 	s.sat.OnSaid(s.routeSaid)
-	s.sat.OnTurnEnd(func(id, reply string) { go s.turnEnded(id, reply) })
+	s.sat.OnTurnEnd(func(id, reply string, waiting []string) { go s.turnEnded(id, reply, waiting) })
+	m.Watch(func(n session.Notice) {
+		if n.Kind == session.NoticeTurnStart {
+			go s.turnBegan(n.Session)
+		}
+	})
 	m.SetInChannel(s.multi)
 	m.SetChannelOf(s.channelOf)
 	m.SetSpawned(s.spawnedOf)

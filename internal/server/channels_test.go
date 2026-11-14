@@ -777,16 +777,17 @@ func TestDirect(t *testing.T) {
 func TestCallsKept(t *testing.T) {
 	t.Parallel()
 	l := start(t)
+	any := func(called) bool { return true }
 	l.s.calls.add("s1", called{Channel: "c1", Seq: 4, From: 10})
 	again := calls{st: l.s.st}
 	if from := again.spoke("s1", "c1", 20); from != 10 {
 		t.Errorf("spoke after a restart: from %d", from)
 	}
 	fresh := calls{st: l.s.st}
-	if got := fresh.take("s1"); len(got) != 1 || !got[0].Spoke || got[0].From != 20 {
+	if got := fresh.take("s1", any); len(got) != 1 || !got[0].Spoke || got[0].From != 20 {
 		t.Errorf("taken: %+v", got)
 	}
-	if got := (&calls{st: l.s.st}).take("s1"); len(got) != 0 {
+	if got := (&calls{st: l.s.st}).take("s1", any); len(got) != 0 {
 		t.Errorf("taken twice: %+v", got)
 	}
 }

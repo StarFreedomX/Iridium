@@ -94,11 +94,19 @@ type called struct {
 	// From: the line its own record was at when it was called: where what it does for the call
 	// begins.
 	From int64 `json:"from,omitempty"`
+	// Input: the input the call was given to the agent as. The call is closed by the end of the
+	// turn that took that input, not by one that ends while it still waits in the queue. None:
+	// a call kept before calls had one, closed by any turn's end.
+	Input string `json:"input,omitempty"`
+	// old: read from the store as this process began, its input given to the agent by then:
+	// the turn that took it may have ended while nobody listened (calls.began).
+	old bool
 }
 
 // calls are the calls each session's agent has open: made as it is given a channel's message,
-// closed as its turn ends (turnEnded). Kept in the store too (callsKey), so that a turn going on
-// across a restart still has its reply said where it was called (the user, 2026-11-13).
+// closed as the turn that took it ends (turnEnded). Kept in the store too (callsKey), so that a
+// turn going on across a restart still has its reply said where it was called (the user,
+// 2026-11-13).
 type calls struct {
 	mu sync.Mutex
 	of map[string][]called
@@ -106,6 +114,46 @@ type calls struct {
 }
 
 func callsKey(session string) string { return "calls:" + session }
+
+// open reads every session's calls from the store, as the process begins: those whose input
+// the agent had been given by then are old.
+func (k *calls) open() {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if k.of == nil {
+		k.of = map[string][]called{}
+	}
+	kept, err := k.st.KeptUnder(callsKey(""))
+	if err != nil {
+		return
+	}
+	for key, v := range kept {
+		var cs []called
+		if v == "" || json.Unmarshal([]byte(v), &cs) != nil {
+			continue
+		}
+		for i := range cs {
+			cs[i].old = !waits(k.st, cs[i], nil)
+		}
+		k.of[strings.TrimPrefix(key, callsKey(""))] = cs
+	}
+}
+
+// waits: call c's input still waits in its session's queue (waiting: those a turn's end named),
+// so no turn has taken it yet.
+func waits(st *store.Store, c called, waiting []string) bool {
+	if c.Input == "" {
+		return false
+	}
+	if slices.Contains(waiting, c.Input) {
+		return true
+	}
+	if st == nil {
+		return false
+	}
+	_, state, ok := st.InputOf(c.Input)
+	return ok && state != "sent"
+}
 
 // load is session's calls, from the store if not had yet; with k.mu held.
 func (k *calls) load(session string) []called {
@@ -173,26 +221,51 @@ func (k *calls) forget(session string, c called) {
 	k.save(session)
 }
 
-// take are session's open calls, which are then closed.
-func (k *calls) take(session string) []called {
+// take are those of session's open calls that closes says are over, which are then closed; the
+// rest stay open.
+func (k *calls) take(session string, closes func(called) bool) []called {
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	out := k.load(session)
-	k.of[session] = nil
+	var out, kept []called
+	for _, c := range k.load(session) {
+		if closes(c) {
+			out = append(out, c)
+		} else {
+			kept = append(kept, c)
+		}
+	}
+	k.of[session] = kept
 	k.save(session)
 	return out
 }
 
-// turnEnded: a turn of session's agent ended with reply. In each channel it was called in by a
-// subscription and said nothing there with ir, its reply is said there for it (the user,
+// turnBegan: a turn of session's agent began. Its old calls (kept from before this process,
+// their input given by then) were for a turn that ended while nobody listened: what this turn
+// says is not their answer. Each is closed as one nothing was said for.
+func (s *Server) turnBegan(id string) {
+	unlock := s.chain.lock(id)
+	over := s.calls.take(id, func(c called) bool { return c.old })
+	unlock()
+	s.closeCalls(id, "", over)
+}
+
+// turnEnded: a turn of session's agent ended with reply (none: also one cut short, its process
+// gone); waiting, the inputs that still wait in its queue. The calls it took are over, those
+// whose input still waits stay open for the turn that takes them. In each channel it was called
+// in by a subscription and said nothing there with ir, its reply is said there for it (the user,
 // 2026-11-13: an agent may simply answer); with no reply, the channel is told it said nothing.
-func (s *Server) turnEnded(id, reply string) {
-	open := s.calls.take(id)
-	if len(open) == 0 {
-		return
-	}
+func (s *Server) turnEnded(id, reply string, waiting []string) {
+	// Not while it is being given a message: that call is made once the message is its.
+	unlock := s.chain.lock(id)
+	over := s.calls.take(id, func(c called) bool { return !waits(s.st, c, waiting) })
+	unlock()
+	s.closeCalls(id, reply, over)
+}
+
+// closeCalls closes calls over of session id, whose turn ended with reply (turnEnded).
+func (s *Server) closeCalls(id, reply string, over []called) {
 	done := map[string]bool{}
-	for _, c := range open {
+	for _, c := range over {
 		if c.Spoke || done[c.Channel] || !s.ch.Speaks(c.Channel, id) {
 			continue
 		}
@@ -1608,7 +1681,7 @@ func (s *Server) deliverTo(ctx context.Context, ch, to string, seq int64, said, 
 	}
 	s.seen(ch, to, seq)
 	if !me.Direct() {
-		s.calls.add(to, called{Channel: ch, Seq: seq, From: before})
+		s.calls.add(to, called{Channel: ch, Seq: seq, From: before, Input: id})
 	}
 	// Only a person speaking begins a chain anew: what agents pass on never shortens the one
 	// its receiver is in (two chains crossing would else go on past the limit).

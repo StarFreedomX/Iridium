@@ -550,6 +550,12 @@ func (h *Hosted) ended(e *hold.Exit) {
 	if errText != "" {
 		h.m.notify(Notice{Session: h.id, Kind: NoticeError, Text: errText})
 	}
+	if hadTurn && !resume {
+		h.mu.Lock()
+		waiting := h.waitingLocked()
+		h.mu.Unlock()
+		h.m.notify(Notice{Session: h.id, Kind: NoticeEnded, Waiting: waiting})
+	}
 	if resume {
 		go h.resume()
 	}
@@ -567,6 +573,15 @@ func (h *Hosted) stop(ctx context.Context) error {
 		return err
 	}
 	return h.launcher().Stop(ctx, h.unit)
+}
+
+// waitingLocked are the inputs that wait in the queue; with h.mu held.
+func (h *Hosted) waitingLocked() []string {
+	var out []string
+	for _, q := range h.queue {
+		out = append(out, q.ID)
+	}
+	return out
 }
 
 // idleSince: whether the agent runs with nothing to do, and since when.
@@ -744,7 +759,7 @@ func (h *Hosted) onEvent(e agent.Event) {
 				later(func() { h.restoreMode(mode) })
 			}
 		}
-		note(Notice{Kind: NoticeTurnEnd, Text: transcript.WithoutNameLines(e.Reply), Background: e.Background, Denied: h.turnDenied})
+		note(Notice{Kind: NoticeTurnEnd, Text: transcript.WithoutNameLines(e.Reply), Background: e.Background, Denied: h.turnDenied, Waiting: h.waitingLocked()})
 	case agent.AskOpen:
 		if !replay && e.Ask.Kind == "permission" && h.allowedLocked(e.Ask) {
 			id := e.Ask.RequestID

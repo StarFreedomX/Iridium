@@ -712,6 +712,24 @@ func (s *Store) Kept(key string) string {
 	return v
 }
 
+// KeptUnder is what is kept under the keys that begin with prefix, by key.
+func (s *Store) KeptUnder(prefix string) (map[string]string, error) {
+	rows, err := s.db.Query(`SELECT key, value FROM meta WHERE substr(key, 1, ?) = ?`, len(prefix), prefix)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]string{}
+	for rows.Next() {
+		var k, v string
+		if err := rows.Scan(&k, &v); err != nil {
+			return nil, err
+		}
+		out[k] = v
+	}
+	return out, rows.Err()
+}
+
 // Keep keeps value under key, in place of what was there.
 func (s *Store) Keep(key, value string) error {
 	_, err := s.db.Exec(`INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value`, key, value)
