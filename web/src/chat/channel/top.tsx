@@ -9,7 +9,7 @@ import { Check, ChevronRight, ImagePlus, UserPlus, Users } from "lucide-react";
 import { useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { api } from "../../api/client";
 import type { ChannelMembers, Viewer } from "../../api/types.gen";
-import { useApps } from "../../data";
+import { isComputer, useApps } from "../../data";
 import { t, useLang } from "../../i18n";
 import { openChat } from "../../route";
 import { useCarried, useList } from "../../store";
@@ -186,7 +186,8 @@ function Invite({ id }: { id: string }) {
   const set = (ms: ChannelMembers) => void qc.setQueryData<ChannelMembers>(["members", id], ms);
   const run = (f: () => Promise<ChannelMembers>) => void f().then(set, (e) => toast(memberError(e), { error: true }));
   const people = peopleOf(members);
-  const apps = (d?.apps ?? []).filter((a) => !a.host);
+  // No computers: they are not invited (the owner, 2026-11-14).
+  const apps = (d?.apps ?? []).filter((a) => !isComputer(a));
   const ids = apps.map((a) => a.id);
   const loginsOf = (app: string) => (d?.logins ?? []).filter((l) => l.app === app);
   const idsOf = (app: string) => loginsOf(app).map((l) => l.id);

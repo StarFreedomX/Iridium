@@ -5,7 +5,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { api, missing, speakAs } from "./api/client";
-import type { AgentInfo, Apps, LastSaid, Me, Session, Settings, UpdateState, Workspace } from "./api/types.gen";
+import type { AgentInfo, App, Apps, LastSaid, Me, Session, Settings, UpdateState, Workspace } from "./api/types.gen";
 import type { Machine } from "./machines";
 import { sourceOf, type Who } from "./chat/refs";
 import { t } from "./i18n";
@@ -91,6 +91,10 @@ export function useApps() {
   }, [changed, qc]);
   return useQuery({ queryKey: ["apps"], queryFn: orNone(api.apps), staleTime: 60_000, enabled: may });
 }
+
+/** A computer (k_glossary "电脑"): the host, or an app that paired as one or has said its system.
+ *  Not among a channel's people: it is not invited (the owner, 2026-11-14). */
+export const isComputer = (a: Pick<App, "host" | "computer" | "type">) => !!a.host || !!a.computer || a.type === "computer";
 
 const NO_MACHINES: Machine[] = [];
 const machinesOf = new WeakMap<Apps, Machine[]>();

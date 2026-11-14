@@ -11,7 +11,7 @@ import { Reply } from "lucide-react";
 import { api } from "../../api/client";
 import type { Block, ChannelReads, Reader, SessionState as LiveSession, Session } from "../../api/types.gen";
 import { stateAhead, type Sent } from "../../chats";
-import { LOCAL_ME, useApps, useMe, useWhoList, useWorkspaces } from "../../data";
+import { isComputer, LOCAL_ME, useApps, useMe, useWhoList, useWorkspaces } from "../../data";
 import { t, useLang } from "../../i18n";
 import { pushIn } from "../../motion";
 import { openChat } from "../../route";
@@ -222,8 +222,9 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
     const ps = peopleOf(members);
     const out: AgentRow[] = [];
     for (const a of apps?.apps ?? []) {
+      if (isComputer(a)) continue; // not among a channel's people
       const appName = a.web ? t("term.panel") : a.name;
-      if (!a.host && hasApp(ps, a.id)) out.push({ session: "", member: `${a.id}/*`, agent: "" as AgentRow["agent"], nick: appName, name: t("channel.app"), status: "idle", recv: "", avatar: a.avatar, person: true });
+      if (hasApp(ps, a.id)) out.push({ session: "", member: `${a.id}/*`, agent: "" as AgentRow["agent"], nick: appName, name: t("channel.app"), status: "idle", recv: "", avatar: a.avatar, person: true });
       for (const l of (apps?.logins ?? []).filter((x) => x.app === a.id)) {
         const m = `${a.id}/${l.id}`;
         if (m !== members?.me && hasLogin(ps, a.id, l.id)) out.push({ session: "", member: m, agent: "" as AgentRow["agent"], nick: l.name, name: appName, status: "idle", recv: "", avatar: l.avatar, person: true });

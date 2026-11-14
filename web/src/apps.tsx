@@ -13,7 +13,7 @@ import { ApiError, api } from "./api/client";
 import type { Agent, App, Apps, Computer, Login, Perms, PendingInvite, Rules } from "./api/types.gen";
 import { CardFrame, CardHead, MainKey, SecondKey } from "./card";
 import { ConfirmCard, saysOwner } from "./confirms";
-import { useApps, useMe } from "./data";
+import { isComputer, useApps, useMe } from "./data";
 import { t, useLang } from "./i18n";
 import { Code } from "./chat/hl";
 import { Segmented } from "./me";
@@ -34,9 +34,6 @@ const systems: Record<string, string> = {
   darwin: "macOS",
   linux: "Linux",
 };
-
-/** A computer (k_glossary "电脑"): the host, or an app that paired as one or has said its system. */
-const isComputer = (a: App) => !!a.host || !!a.computer || a.type === "computer";
 
 /** The apps on the same machine as id, after it (Computer.under): listed next to it, not under it. */
 const sameMachine = (apps: App[], id: string) => apps.filter((a) => a.computer?.under === id);

@@ -12,7 +12,7 @@ import { born } from "./chats";
 import { openChat } from "./route";
 import type { Agent } from "./api/types.gen";
 import { t } from "./i18n";
-import { agentsQ, useApps, useHome, useMachines } from "./data";
+import { agentsQ, isComputer, useApps, useHome, useMachines } from "./data";
 import { appAll, everyone, hasApp, hasLogin, pressApp, pressLogin } from "./chat/channel/setup";
 import { agentsAt, atMachine, homeAt, MachineBadge, MachineFace, pageAt, type Machine } from "./machines";
 import { onCreateAt } from "./places";
@@ -379,7 +379,7 @@ const ROW = "flex h-8 cursor-default items-center gap-2.5 rounded-md px-2.5 text
  *  and the host's at first, no Bot's; pressed, each app and its logins to add or take out. */
 function PeopleRow({ people, set }: { people: string[]; set: (p: string[]) => void }) {
   const d = useApps().data;
-  const apps = (d?.apps ?? []).filter((a) => !a.host);
+  const apps = (d?.apps ?? []).filter((a) => !isComputer(a));
   const ids = apps.map((a) => a.id);
   const loginsOf = (app: string) => (d?.logins ?? []).filter((l) => l.app === app);
   const idsOf = (app: string) => loginsOf(app).map((l) => l.id);
