@@ -102,17 +102,13 @@ type Props = {
   cleared: (id: string) => void;
   /** The keys in the composer's foot, between attach and send: mode, model, quota, context. */
   tools?: ReactNode;
-  /** The key at the far right, before send: the context ring. */
-  end?: ReactNode;
   /** A session just made here: its keys fade in, not taken over at once from the chat before. */
   fresh?: boolean;
   /** A channel of several agents (chat/channel): these, which an @ lists and calls by nick; no /
    *  commands, no command lines, nothing of one agent's own. */
   nicks?: AgentRow[];
-  /** In the foot right after the attach key: the channel's members' key (chat/channel/key.tsx). */
-  lead?: ReactNode;
   /** The message being answered (Satori's <quote>): shown over the words, sent with them;
-   *  unquote: put it away (its ×, or once sent). */
+   *  unquote: put it away (Esc, or once sent). */
   quote?: { n: number; who: string; text: string };
   unquote?: () => void;
   /** The channel's people and apps, which @ names beside its agents (peers, the user, 2026-11-13). */
@@ -126,7 +122,7 @@ const everyoneRows = (): AgentRow[] => [
   { session: "", member: "agent:*", agent: "" as Agent, nick: "全体Agent", name: t("channel.atAgents"), status: "idle", recv: "" },
 ];
 
-export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s, turn, onSent, onSentDone, cycleMode, openModel, openMode, openUsage, openContext, cleared, tools, end, fresh, nicks, lead, quote, unquote, people }, ref) {
+export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s, turn, onSent, onSentDone, cycleMode, openModel, openMode, openUsage, openContext, cleared, tools, fresh, nicks, quote, unquote, people }, ref) {
   const multi = !!nicks;
   // The quote as last shown: its row keeps its words while it shuts.
   const lastQuote = useRef(quote);
@@ -197,8 +193,6 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
   const toolRow = useRef<HTMLDivElement>(null);
   useGlide(toolRow);
   // The ring comes once the agent has said its context: faded in as the keys are.
-  const endKey = useRef<HTMLSpanElement>(null);
-  useGlide(endKey);
   /** words put where the caret is, a space either side. */
   const insert = (words: string) => {
     const el = box.current;
@@ -570,15 +564,9 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
         <IconKey label={t("composer.attach")} onClick={() => picker.current?.click()}>
           <Paperclip size={17} />
         </IconKey>
-        {lead}
         <div ref={toolRow} className={cn("flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden", fresh && "g-fade")}>
           {tools}
         </div>
-        {end && (
-          <span ref={endKey} className={cn("flex shrink-0", fresh && "g-fade")}>
-            {end}
-          </span>
-        )}
         <Tip label={label}>
           <button
             type="button"

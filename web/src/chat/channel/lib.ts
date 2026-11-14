@@ -306,21 +306,6 @@ export function channelLamp(own: Status, members: Status[]): Status {
   return members.some((s) => WORKING.has(s)) ? "running" : own;
 }
 
-/** The agents' quotas to show, one per kind and machine (two Claude agents on one login share
- *  one): the first of each, with every model its agents use and whether any has a process. */
-export type QuotaKind = { agent: Agent; machine?: string; using: (string | undefined)[]; live: boolean };
-
-export function quotaKinds(agents: { agent: Agent; machine?: string; using?: (string | undefined)[]; live?: boolean }[]): QuotaKind[] {
-  const out: QuotaKind[] = [];
-  for (const a of agents) {
-    let k = out.find((x) => x.agent === a.agent && (x.machine ?? "") === (a.machine ?? ""));
-    if (!k) out.push((k = { agent: a.agent, ...(a.machine ? { machine: a.machine } : {}), using: [], live: false }));
-    for (const u of a.using ?? []) if (u && !k.using.includes(u)) k.using.push(u);
-    k.live ||= !!a.live;
-  }
-  return out;
-}
-
 /** A message sent from here, till the channel's log has it: seq, its number once the server
  *  answered; from, the log's last number as it was sent. */
 export type Waiting = { text: string; seq?: number; from: number; failed?: string };

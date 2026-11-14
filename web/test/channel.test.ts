@@ -2,7 +2,7 @@
 import { describe, expect, test } from "vitest";
 import type { ChannelMessage, ChannelPage } from "../src/api/client";
 import type { Session } from "../src/api/types.gen";
-import { eventParts, personName, type EventWords, channelLamp, givenParts, givenTurn, groupMessages, insertNick, isMulti, linkNicks, matchAgents, merge, msgOf, nickOfURL, nickParts, nickSpans, quotaKinds, readMarks, stillWaiting, validNick, watchExtra, workOf } from "../src/chat/channel/lib";
+import { eventParts, personName, type EventWords, channelLamp, givenParts, givenTurn, groupMessages, insertNick, isMulti, linkNicks, matchAgents, merge, msgOf, nickOfURL, nickParts, nickSpans, readMarks, stillWaiting, validNick, watchExtra, workOf } from "../src/chat/channel/lib";
 import { ChannelLog } from "../src/chat/channel/log";
 import { buildTree, standing } from "../src/tree";
 
@@ -170,20 +170,6 @@ describe("the list", () => {
     expect(channelLamp("starting", ["idle"])).toBe("starting");
     expect(channelLamp("error", ["idle"])).toBe("error");
     expect(channelLamp("idle", [])).toBe("idle");
-  });
-  test("the quotas: one per kind of agent and machine, with every model in use", () => {
-    expect(
-      quotaKinds([
-        { agent: "claude", using: ["opus", undefined], live: false },
-        { agent: "pi", using: ["flash"] },
-        { agent: "claude", using: ["opus", "haiku"], live: true },
-        { agent: "claude", machine: "mac", using: [] },
-      ]),
-    ).toEqual([
-      { agent: "claude", using: ["opus", "haiku"], live: true },
-      { agent: "pi", using: ["flash"], live: false },
-      { agent: "claude", machine: "mac", using: [], live: false },
-    ]);
   });
   test("the states asked of the stream: the other agents' sessions, then their contexts", () => {
     expect(watchExtra("c", ["c", "m", "n"])).toEqual(["session:m", "session:n", "context:m", "context:n"]);

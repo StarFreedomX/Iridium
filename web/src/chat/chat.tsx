@@ -33,7 +33,7 @@ import { mayAct, useMembers } from "./channel/gate";
 // 群聊配置's key in the composer's foot, and the line in the composer's place for one not joined.
 const ChannelMenu = lazy(() => import("./channel/top"));
 const TopRight = lazy(() => import("./channel/top").then((m) => ({ default: m.TopRight })));
-const NotJoinedOf = lazy(() => import("./channel/key").then((m) => ({ default: m.NotJoinedOf })));
+const NotJoined = lazy(() => import("./channel/key").then((m) => ({ default: m.NotJoined })));
 // A channel of several agents: its own code, fetched as one is first opened.
 const ChannelPage = lazy(() => import("./channel/page").then((m) => ({ default: m.ChannelPage })));
 import { MachineFace, shownPath } from "../machines";
@@ -451,7 +451,7 @@ function OneChat({ id, sheet = 0, onSheet, onMe, back }: { id: string; sheet?: n
             <div className="glass float rest flex h-12 items-center justify-center rounded-[20px] text-sm text-ink-3">{t("chat.elsewhere")}</div>
           ) : !may ? (
             <Suspense fallback={<div className="h-12" />}>
-              <NotJoinedOf id={id} />
+              <NotJoined />
             </Suspense>
           ) : (
             <Under s={s} ghost={ghost} composer={composer} onSent={onSent} onSentDone={sentDone} modelOpen={modelOpen} setModelOpen={setModelOpen} modeOpen={modeOpen} setModeOpen={setModeOpen} setCtxOpen={setCtxOpen} />

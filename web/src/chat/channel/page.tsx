@@ -33,9 +33,9 @@ import { folded } from "../fold";
 import { Stick, toEnd } from "../stick";
 import { groupMessages, readMarks, linkNicks, stillWaiting, watchExtra, type AgentRow, type Did, type Group, type Msg, type Src, lineOf, workOf, eventParts, personName, type EventWords } from "./lib";
 import { channelLog } from "./log";
-import { useMembers } from "./gate";
+import { mayAct, useMembers } from "./gate";
 import { hasApp, hasLogin, peopleOf } from "./setup";
-import { NotJoined, useChannelCtl } from "./key";
+import { NotJoined } from "./key";
 import { AgentFace } from "./members";
 import { PersonCard } from "./person";
 import { NickLink, Nicks, NickWords } from "./nick";
@@ -79,9 +79,8 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
   const states = useStates(sessions);
   const sig = states.map((st) => `${st?.model ?? ""}:${st?.effort ?? ""}:${st?.effortNow ?? ""}`).join(" ");
   const members = useMembers(id, sig);
-  const ctl = useChannelCtl(id, members);
   // Not of its people: read, not spoken in (docs/channels.md).
-  const may = !ctl.readOnly || !members;
+  const may = mayAct(members);
   const agents: AgentRow[] = (row?.agents ?? []).map((a, i) => {
     const m = members?.members.find((x) => x.session === a.session);
     const of = states[i] ?? list?.find((x) => x.id === a.session);
@@ -335,7 +334,7 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
                 </Of>
               ) : null;
             })}
-            {!may ? <NotJoined ctl={ctl} /> : null}
+            {!may ? <NotJoined /> : null}
             {may && <Composer ref={composer} s={s} turn={false} nicks={agents} people={peopleRows} quote={quote ? { n: quote.n, who: nameOf(quote), text: quote.text } : undefined} unquote={() => setQuote(null)} onSent={onSent} onSentDone={changed} cycleMode={() => {}} openModel={() => {}} openMode={() => {}} openUsage={() => {}} openContext={() => false} cleared={openChat} />}
           </div>
         </div>

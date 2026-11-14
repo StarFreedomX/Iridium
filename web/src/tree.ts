@@ -183,11 +183,10 @@ function bySeen<T>(xs: T[], key: (x: T) => string, at: (x: T) => number, seen: M
 export function buildTree(all: Session[], workspaces: Workspace[], unsorted: string, now = Date.now(), seen = SEEN, places: Places = { groups: [], order: {}, pinned: [] }): Tree {
   const list = all.filter((s) => !s.subagent);
   const byId = new Map(list.map((s) => [s.id, s]));
-  const starters = new Map(all.filter((s) => !s.subagent).map((s) => [s.id, s]));
   const kids = new Map<string, Session[]>();
   const runs = new Map<string, Run[]>();
   for (const s of all) {
-    const starter = s.subagent && s.parent ? starters.get(s.parent) : undefined;
+    const starter = s.subagent && s.parent ? byId.get(s.parent) : undefined;
     const parent = starter?.id;
     if (!starter || !parent || !byId.has(parent)) continue;
     const at = working(s, starter, now);
