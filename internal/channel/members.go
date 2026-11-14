@@ -203,7 +203,8 @@ func (s *Service) Change(channel, member string, nick, recv *string, base func(s
 }
 
 // Create makes a channel of its own: no session's, listed in cwd at machine. Its people are
-// everyone until chosen; it has no agent until one joins.
+// everyone until they are set (the server sets a new one's as it makes it); it has no agent
+// until one joins.
 func (s *Service) Create(c store.Channel) error {
 	if c.ID == "" {
 		return ErrChannel

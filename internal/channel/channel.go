@@ -3,8 +3,9 @@
 // thinking, its tool calls) stays the agent's. What an agent said is read in from that record
 // (Sync), what a person said is written as it is sent (Say). A session has a channel of its own,
 // under the session's id: what its agent says in its turns is said there. A session may also be
-// in other channels (a subscription, members.go): there it sees only what is said and speaks
-// with ir. A channel may be no session's (store.Channel): then all its agents are such.
+// in other channels (a subscription, members.go): there it sees only what is said, and what it
+// says there is its turn's reply, said for it, or what it sends with ir. A channel may be no
+// session's (store.Channel): then all its agents are such.
 package channel
 
 import (

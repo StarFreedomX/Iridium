@@ -10,8 +10,8 @@ import (
 	"github.com/kumoSleeping/iridium/internal/search"
 )
 
-// Channels (docs/channels.md): a channel is where people and agents talk; its id is the id of the
-// session it began as. It keeps what was said, each message under its number (seq, from 1, never
+// Channels (docs/channels.md): a channel is where people and agents talk; a session's own has
+// the session's id, one that is no session's an id of its own (channels). It keeps what was said, each message under its number (seq, from 1, never
 // reused), and who is in it. An agent's own record (its thinking, its tool calls) is not here:
 // only what it said, read in from that record up to channel_sync's offset.
 const channelsSchema = `CREATE TABLE IF NOT EXISTS channel_members (
@@ -51,7 +51,8 @@ const channelsSchema = `CREATE TABLE IF NOT EXISTS channel_members (
 // login "<app>/<login>", all of an app's "<app>/*", or everyone "*". Recv: what wakes an agent
 // ("all": what people say; "at": only what names it), what a person is shown ("all", "mine").
 // Send: how an agent speaks there: "direct", what it says in its turn is the channel's (its own
-// channel, at most one); "ir", only what it sends with ir. Seen: the number of the last message
+// channel, at most one); "ir", what it sends with ir, and its turn's reply, said there for it
+// when it was called there. Seen: the number of the last message
 // it has been given (an agent) or has read (a person).
 type ChannelMember struct {
 	Channel string

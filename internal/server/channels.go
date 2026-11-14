@@ -1787,8 +1787,8 @@ func (s *Server) deliverTo(ctx context.Context, ch, to string, seq int64, said, 
 	}
 	cc := assemble.Channel{You: me.Nick, Plan: strategy.Fold(unseen, strategy.Default), Pull: true, Zone: time.Local, Did: did}
 	if !me.Direct() {
-		// In it by a subscription: told which channel this is of, and that it speaks there with
-		// ir; without one, that its reply is said there for it.
+		// In it by a subscription: told which channel this is of and that its reply is said there
+		// for it as its turn ends; with ir, also how to say something there before that.
 		cc.ID, cc.Name, cc.Pull = ch, s.channelName(ch), s.m.HasIR(to)
 	}
 	for _, a := range list {
