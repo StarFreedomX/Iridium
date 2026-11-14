@@ -256,10 +256,10 @@ func (s *Server) using(c caller, id string) (*api.SessionState, error) {
 	if err != nil {
 		return nil, err
 	}
+	if !s.seenBy(c, st.Session) {
+		return nil, errNoSession
+	}
 	if !c.Host() {
-		if !s.sees(s.permsFor(c), st.Session) {
-			return nil, errNoSession
-		}
 		if st.Bare {
 			return st, nil // no agent of its own to have the right to: whoever sees it uses it
 		}

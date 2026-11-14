@@ -88,6 +88,7 @@ type Server struct {
 	chain   chains           // each channel's run of agents passing messages on (channels.go)
 	follows follows          // what agents asked to be given of a channel beside what names them (channels.go)
 	viewers viewers          // who is looking at each channel now (channels.go)
+	dms     dms              // the channels that are two people's (channels.go)
 	calls   calls            // the channels each agent was called in by a subscription (channels.go)
 	// channelsSeq: the state "channels", up by one at each change of a channel's members.
 	channelsSeq atomic.Int64

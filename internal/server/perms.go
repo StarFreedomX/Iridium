@@ -162,6 +162,16 @@ func (s *Server) sees(p api.Perms, st api.Session) bool {
 	return s.scopeHas(p.Scope, st.Machine, st.Cwd)
 }
 
+// seenBy: c sees session (or channel) st. The host sees every one, anyone else those in its
+// scope; two people's channel (docs/channels.md "私聊") is seen by exactly those two, whatever
+// folder it is listed in and whoever asks, the host too.
+func (s *Server) seenBy(c caller, st api.Session) bool {
+	if s.isDM(st.ID) {
+		return s.ch.Has(st.ID, c.App, c.Login)
+	}
+	return c.Host() || s.sees(s.permsFor(c), st)
+}
+
 var errNoSession = fmt.Errorf("%w", session.ErrNotFound)
 
 // seeing is session id if the caller may see it (its scope has it).
@@ -170,7 +180,7 @@ func (s *Server) seeing(c caller, id string) (*api.SessionState, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !c.Host() && !s.sees(s.permsFor(c), st.Session) {
+	if !s.seenBy(c, st.Session) {
 		return nil, errNoSession
 	}
 	return st, nil
@@ -202,7 +212,7 @@ func (s *Server) sessionGuard(next http.Handler) http.Handler {
 		}
 		id, _, _ := strings.Cut(rest, "/")
 		c := callerOf(r)
-		if c.Host() {
+		if c.Host() && !s.isDM(id) {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -221,14 +231,20 @@ func (s *Server) sessionGuard(next http.Handler) http.Handler {
 	})
 }
 
-// filterSessions keeps the sessions p's scope has.
-func (s *Server) filterSessions(p api.Perms, l []api.Session) []api.Session {
-	if slices.Contains(p.Scope, api.PermsAll) {
+// filterSessions keeps the sessions c sees: those p's scope (c's) has, and of two people's
+// channels those c is one of (seenBy).
+func (s *Server) filterSessions(c caller, p api.Perms, l []api.Session) []api.Session {
+	all := c.Host() || slices.Contains(p.Scope, api.PermsAll)
+	if all && !s.dms.any() {
 		return l
 	}
 	out := make([]api.Session, 0, len(l))
 	for _, x := range l {
-		if s.sees(p, x) {
+		if s.isDM(x.ID) {
+			if s.ch.Has(x.ID, c.App, c.Login) {
+				out = append(out, x)
+			}
+		} else if all || s.sees(p, x) {
 			out = append(out, x)
 		}
 	}
@@ -238,14 +254,25 @@ func (s *Server) filterSessions(p api.Perms, l []api.Session) []api.Session {
 // stateFilter is an event stream's hub.Filter for a caller that does not see every session: the
 // list without the others, a session's own states as none.
 func (s *Server) stateFilter(c caller) func(key string, v []byte) []byte {
-	if c.Host() {
-		return nil
-	}
 	p := s.permsFor(c)
-	if slices.Contains(p.Scope, api.PermsAll) {
-		return nil
-	}
+	all := c.Host() || slices.Contains(p.Scope, api.PermsAll)
 	return func(key string, v []byte) []byte {
+		// Whoever sees every folder still sees of two people's channels only its own.
+		if all {
+			switch {
+			case !s.dms.any():
+			case key == "list":
+				var l []api.Session
+				if json.Unmarshal(v, &l) == nil {
+					v, _ = json.Marshal(s.filterSessions(c, p, l))
+				}
+			case strings.HasPrefix(key, "session:"), strings.HasPrefix(key, "context:"), strings.HasPrefix(key, "reads:"), strings.HasPrefix(key, "viewers:"):
+				if _, id, _ := strings.Cut(key, ":"); s.isDM(id) && !s.ch.Has(id, c.App, c.Login) {
+					return []byte("null")
+				}
+			}
+			return v
+		}
 		switch {
 		case key == "guilds":
 			// Its groups, and the marks of the folders in its scope.
@@ -262,7 +289,7 @@ func (s *Server) stateFilter(c caller) func(key string, v []byte) []byte {
 			if json.Unmarshal(v, &l) != nil {
 				return v
 			}
-			b, _ := json.Marshal(s.filterSessions(p, l))
+			b, _ := json.Marshal(s.filterSessions(c, p, l))
 			return b
 		case key == "voice":
 			// The rooms of the folder groups it sees.
@@ -279,7 +306,7 @@ func (s *Server) stateFilter(c caller) func(key string, v []byte) []byte {
 			return b
 		case strings.HasPrefix(key, "session:"), strings.HasPrefix(key, "context:"), strings.HasPrefix(key, "reads:"), strings.HasPrefix(key, "viewers:"):
 			_, id, _ := strings.Cut(key, ":")
-			if st, err := s.m.State(id); err == nil && !s.sees(p, st.Session) {
+			if st, err := s.m.State(id); err == nil && !s.seenBy(c, st.Session) {
 				return []byte("null")
 			}
 		}
@@ -382,5 +409,5 @@ func (s *Server) LoginSees(login, id string) bool {
 	if err != nil {
 		return false
 	}
-	return s.sees(s.permsFor(caller{Identity: gate.Identity{App: gate.WebApp, Login: login}}), st.Session)
+	return s.seenBy(caller{Identity: gate.Identity{App: gate.WebApp, Login: login}}, st.Session)
 }

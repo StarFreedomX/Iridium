@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -9,6 +10,8 @@ import (
 
 	"github.com/kumoSleeping/iridium/internal/api"
 	"github.com/kumoSleeping/iridium/internal/channel"
+	"github.com/kumoSleeping/iridium/internal/gate"
+	"github.com/kumoSleeping/iridium/internal/satori"
 )
 
 // An agent woken in a channel acts for whoever woke it: its ir has that login's rights, not
@@ -502,4 +505,68 @@ func TestChannelQueuedEdited(t *testing.T) {
 	}
 	l.wantSat(422, "web", "message.delete", map[string]any{"channel_id": ch, "message_id": fmt.Sprint(r.Seq)}, nil)
 	l.want(200, "web", "POST", "/v1/internal/sessions/"+second+"/interrupt", nil, nil)
+}
+
+// Two people's channel is seen by exactly the two, whatever folders anyone may see; the same
+// two asking at once get the same one.
+func TestDirectSeenByItsTwo(t *testing.T) {
+	t.Parallel()
+	l := start(t)
+	bot := l.newApp("bot", true)
+	// The Bot sees one folder only: not the home folder the channel is listed in.
+	scope, _ := json.Marshal(api.Perms{Agents: []string{"*"}, Scope: []string{"local:" + l.work}})
+	if err := l.s.st.SetAppPerms(bot.App.ID, scope); err != nil {
+		t.Fatal(err)
+	}
+	ids := make(chan string, 8)
+	for range 8 {
+		go func() {
+			var out struct {
+				Channel string `json:"channel"`
+			}
+			l.asLogin(bot.Token, "", "POST", "/v1/internal/dm", map[string]string{"user": "local"}, &out)
+			ids <- out.Channel
+		}()
+	}
+	dm := <-ids
+	for range 7 {
+		if id := <-ids; id != dm || id == "" {
+			t.Fatalf("the same two at once: %q and %q", dm, id)
+		}
+	}
+	listed := func(as string) bool {
+		var page satori.List[satori.Channel]
+		l.wantSat(200, as, "channel.list", map[string]any{"guild_id": "loose"}, &page)
+		for _, ss := range l.sessions(as) {
+			if ss.ID == dm {
+				return true
+			}
+		}
+		return false
+	}
+	// Its two: the Bot, out of whose scope its folder is, and the host.
+	var ms api.ChannelMembers
+	if code := l.asLogin(bot.Token, "", "GET", "/v1/internal/channels/"+dm+"/members", nil, &ms); code != 200 || !ms.Joined || len(ms.Members) != 2 {
+		t.Errorf("one of the two, out of its scope: %d %+v", code, ms)
+	}
+	if code := l.sat(bot.Token, "message.create", map[string]any{"channel_id": dm, "content": "hello"}, nil); code != 200 {
+		t.Errorf("one of the two speaks: %d", code)
+	}
+	if !listed(bot.Token) || !listed("socket") {
+		t.Errorf("listed to its two: the Bot %v, the host %v", listed(bot.Token), listed("socket"))
+	}
+	// Anyone else, though it sees every folder: not there.
+	other := l.newApp("other", true).Token
+	if code := l.asLogin(other, "", "GET", "/v1/internal/channels/"+dm+"/members", nil, nil); code != 422 {
+		t.Errorf("one who is not of the two reads its members: %d", code)
+	}
+	if code := l.sat(other, "message.list", map[string]any{"channel_id": dm}, nil); code == 200 {
+		t.Errorf("one who is not of the two reads it: %d", code)
+	}
+	if listed(other) {
+		t.Errorf("listed to one who is not of the two")
+	}
+	if l.s.seenBy(caller{Identity: localIdentity}, api.Session{ID: "no-dm"}) != true || l.s.seenBy(caller{Identity: gate.Identity{App: "x", Login: "y"}}, api.Session{ID: dm}) {
+		t.Errorf("seenBy")
+	}
 }

@@ -445,7 +445,7 @@ func (s *Server) seeingChannel(c caller, ch string) (string, *api.SessionState, 
 	if err != nil {
 		return "", nil, err
 	}
-	if !c.Host() && !s.sees(s.permsFor(c), st.Session) {
+	if !s.seenBy(c, st.Session) {
 		return "", nil, errNoSession
 	}
 	return ch, st, nil
@@ -655,6 +655,17 @@ func (s *Server) bareChannels() []api.Session {
 // req.Cwd, with the people and agents req.Members names; then req.Text, its first words, said
 // in it. Whoever may see that folder may make one there.
 func (s *Server) createChannel(ctx context.Context, c caller, req api.NewSession) (string, error) {
+	id := session.NewChannelID()
+	if made, err := s.createChannelAs(ctx, c, req, id); !made {
+		return "", err
+	} else {
+		return id, err
+	}
+}
+
+// createChannelAs is createChannel under the id given; made: the channel is there, whatever
+// came of setting it up.
+func (s *Server) createChannelAs(ctx context.Context, c caller, req api.NewSession, id string) (made bool, err error) {
 	if !c.Host() {
 		app := gate.HostID
 		if req.Machine != "" {
@@ -663,7 +674,7 @@ func (s *Server) createChannel(ctx context.Context, c caller, req api.NewSession
 			}
 		}
 		if !s.scopeHas(s.permsFor(c).Scope, app, req.Cwd) {
-			return "", &access.Denied{Reason: fmt.Sprintf("%s is out of this one's scope", req.Cwd)}
+			return false, &access.Denied{Reason: fmt.Sprintf("%s is out of this one's scope", req.Cwd)}
 		}
 	}
 	setup := api.ChannelSetup{}
@@ -671,16 +682,15 @@ func (s *Server) createChannel(ctx context.Context, c caller, req api.NewSession
 		setup = *req.Members
 	}
 	if len(setup.Agents) > MaxAgents {
-		return "", &createError{errFull}
+		return false, &createError{errFull}
 	}
 	for _, a := range setup.Agents {
 		if a.Nick != "" && !deliver.ValidNick(a.Nick) {
-			return "", &createError{fmt.Errorf("%w: %w", session.ErrBadRequest, channel.ErrNick)}
+			return false, &createError{fmt.Errorf("%w: %w", session.ErrBadRequest, channel.ErrNick)}
 		}
 	}
-	id := session.NewChannelID()
 	if err := s.ch.Create(store.Channel{ID: id, Cwd: req.Cwd, Machine: req.Machine, Creator: c.ID()}); err != nil {
-		return "", &createError{err}
+		return false, &createError{err}
 	}
 	if err := s.m.ListBare(id, req.Cwd, req.Caller); err != nil {
 		s.logf("server: channel %s: listing it: %v", id, err)
@@ -691,9 +701,9 @@ func (s *Server) createChannel(ctx context.Context, c caller, req api.NewSession
 		}
 	}
 	setup.Nick, setup.Recv = "", ""
-	err := s.setUp(ctx, c, id, setup, req.Text)
+	err = s.setUp(ctx, c, id, setup, req.Text)
 	s.m.Refresh([]string{id})
-	return id, err
+	return true, err
 }
 
 // spawnedKey is where what is kept of a session started for a channel is.
@@ -1523,7 +1533,7 @@ func (s *Server) sendChannelAs(ctx context.Context, c caller, from, ch string, r
 	if err != nil {
 		return api.SendReply{}, err
 	}
-	if !c.Host() && !s.sees(s.permsFor(c), st.Session) {
+	if !s.seenBy(c, st.Session) {
 		return api.SendReply{}, errNoSession
 	}
 	if err := s.inChannel(c, ch); err != nil {
@@ -1989,9 +1999,60 @@ func (s *Server) relayOf(session string, b api.Block) (satori.Relay, bool) {
 	return out, true
 }
 
+// dms are the channels that are two people's ("dm:<the two>" kept in the store names each).
+type dms struct {
+	making sync.Mutex // one is looked up and made at a time (dmPost)
+	mu     sync.Mutex
+	of     map[string]bool
+	read   bool
+}
+
+// mark: channel id is (on) or is not two people's.
+func (s *Server) markDM(id string, on bool) {
+	s.dms.mu.Lock()
+	defer s.dms.mu.Unlock()
+	s.dms.load(s.st)
+	if on {
+		s.dms.of[id] = true
+	} else {
+		delete(s.dms.of, id)
+	}
+}
+
+// load reads them from the store, once; with d.mu held.
+func (d *dms) load(st *store.Store) {
+	if d.read || st == nil {
+		return
+	}
+	d.read, d.of = true, map[string]bool{}
+	if kept, err := st.KeptUnder("dm:"); err == nil {
+		for _, id := range kept {
+			if id != "" {
+				d.of[id] = true
+			}
+		}
+	}
+}
+
+// any: there is one at all.
+func (d *dms) any() bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return len(d.of) > 0
+}
+
+// isDM: channel id is two people's.
+func (s *Server) isDM(id string) bool {
+	s.dms.mu.Lock()
+	defer s.dms.mu.Unlock()
+	s.dms.load(s.st)
+	return s.dms.of[id]
+}
+
 // dmPost opens the channel of two people (POST /v1/internal/dm {user}): the caller and the login
 // whose Satori user id user is (the host's: "local"). The same two always have the same one,
-// made at first with no agent, its people the two, in the home folder (docs/channels.md "私聊").
+// made at first with no agent, its people the two, in the home folder (docs/channels.md "私聊");
+// only the two see it, whatever folders they may see.
 func (s *Server) dmPost(w http.ResponseWriter, r *http.Request) {
 	c := callerOf(r)
 	var req struct {
@@ -2027,6 +2088,9 @@ func (s *Server) dmPost(w http.ResponseWriter, r *http.Request) {
 	pair := []string{me, them}
 	slices.Sort(pair)
 	key := "dm:" + strings.Join(pair, "|")
+	// Looked up and made under one lock: the same two asking at once get the same one.
+	s.dms.making.Lock()
+	defer s.dms.making.Unlock()
 	if id := s.st.Kept(key); id != "" {
 		if _, ok := s.ch.Own(id); ok {
 			reply(w, http.StatusOK, map[string]string{"channel": id})
@@ -2039,8 +2103,13 @@ func (s *Server) dmPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Made as the host: two people's channel is no folder's to allow (its people are the two).
-	id, err := s.createChannel(r.Context(), caller{Identity: localIdentity, socket: true}, api.NewSession{Cwd: home, Members: &api.ChannelSetup{People: pair}})
-	if err != nil {
+	// Known as theirs before it is there, so that it is never listed to anyone else.
+	id := session.NewChannelID()
+	s.markDM(id, true)
+	if made, err := s.createChannelAs(r.Context(), caller{Identity: localIdentity, socket: true}, api.NewSession{Cwd: home, Members: &api.ChannelSetup{People: pair}}, id); err != nil {
+		if !made {
+			s.markDM(id, false)
+		}
 		s.error(w, err)
 		return
 	}
