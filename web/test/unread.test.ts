@@ -53,6 +53,27 @@ test("another's session is quiet, yours is not; the menu's word is kept", () => 
   expect(document.title).toBe("(2) Iridium");
 });
 
+test("kept over a reload; said while no page was open counts one; a channel it is in is in front", () => {
+  w = watchUnread(() => ({ chat: "", visible: true, focused: true }));
+  w.take([s("a", { last: { role: "assistant", text: "x", at: 1 } }), s("b", { last: { role: "assistant", text: "x", at: 1 } })], me);
+  w.take([s("a", { last: { role: "assistant", text: "y", at: 2 } }), s("b", { last: { role: "assistant", text: "x", at: 1 } })], me);
+  expect(unreadOf("a")).toBe(1);
+  w.stop();
+  expect(unreadOf("a")).toBe(0);
+  // Loaded again: a's count is back; b spoke meanwhile.
+  let chat = "";
+  w = watchUnread(() => ({ chat, visible: true, focused: true }));
+  expect(unreadOf("a")).toBe(1);
+  w.take([s("a", { last: { role: "assistant", text: "y", at: 2 } }), s("b", { in: ["room"], last: { role: "assistant", text: "z", at: 5 } })], me);
+  expect([unreadOf("a"), unreadOf("b")]).toEqual([1, 1]);
+  // The channel b is in comes to the front: read. What it says while it is there is not counted.
+  chat = "room";
+  dispatchEvent(new Event("focus"));
+  expect([unreadOf("a"), unreadOf("b")]).toEqual([1, 0]);
+  w.take([s("a", { last: { role: "assistant", text: "y", at: 2 } }), s("b", { in: ["room"], last: { role: "assistant", text: "z", at: 6 } })], me);
+  expect(unreadOf("b")).toBe(0);
+});
+
 test("a badge stops at 99+", () => {
   expect([badge(1), badge(99), badge(100)]).toEqual(["1", "99", "99+"]);
 });
