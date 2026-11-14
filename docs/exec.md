@@ -1,6 +1,8 @@
 # 执行端
 
-另一台机器（Windows、Mac、Linux）跑一个**执行端**：替这边启动 agent 进程、转发它的输入输出、读写文件。会话还是这边托管，网页、驱动、记录解析、卡片全部照旧。第一个实现是 dsh 插件 `dsh-remote-iridium`（2026-11-08 定）；第二个是 Iridium 二进制自己的 `ir join <地址>`（Linux、Mac；Windows 版不再发布，用 dsh 插件）。不做节点：别的机器都以执行端接入，见 `plan.md`“别的机器”（用户，2026-11-08）。
+“执行端”是协议名（exec）。接入方称为**电脑**，每个接入程序是电脑上的一条**连接**（`docs/next/k_glossary.md`“电脑”）。
+
+另一台机器（Windows、Mac、Linux）跑一个**执行端**：替这边启动 agent 进程、转发它的输入输出、读写文件。会话还是这边托管，网页、驱动、记录解析、卡片全部照旧。第一个实现是 dsh 插件 `dsh-remote-iridium`（2026-11-08 定）；第二个是 Iridium 二进制自己的 `ir join <地址>`（Linux、Mac）；第三个是单独的小程序 `ir-computer <地址>`（Windows、Mac、Linux，2026-11-13，见“ir-computer”）。不做节点：别的机器都以执行端接入，见 `plan.md`“别的机器”（用户，2026-11-08）。
 
 执行端不懂会话、历史、审批，也不懂 agent 的协议：会话归这边托管，agent 的协议由这边现有的驱动讲。这边断开时，那边的回合照样跑完；断开期间不能发话、不能答审批。
 
@@ -129,6 +131,7 @@ agent 的 `ir sh`：每条命令一个新进程，不经托管进程，不写文
 - 没有单独的“机器”：执行端就是一个带 Agent 的应用，`GET /v1/internal/apps` 里它的 `computer` 是最后一次 `hello` 报的情况加上在线、延迟。
 - 报上来的 agent 默认都开；应用详情的“带的 agent”里逐个开关（`PUT /v1/internal/apps/{id}/agents`），关掉的不在那里启动，也不在新会话里列。只做命令行的电脑：agent 全关、`shell` 开。
 - 新配对的带 Agent 应用默认范围是自己的家目录（`ir join` 报 `home`）；不带的默认全部。
+- 电脑与应用分组列出（2026-11-13）：配对申请带 `os` 的为电脑（`type` 固定为 `computer`），其余为应用。连接按 hello 的 `machineId` 归入电脑：同一台电脑的其余连接带最早配对的那条的应用 ID（`computer.under`，主机上的带 `local`），列表据此把它们排在一起，平铺不分层级。`machineId` 存于 `machines.info`，不新增表。
 
 ## 网页（用户，2026-11-08）
 
@@ -157,16 +160,25 @@ agent 的 `ir sh`：每条命令一个新进程，不经托管进程，不写文
 | | Windows | Mac | Linux |
 |---|---|---|---|
 | 整棵进程树 | Job Object（或 `taskkill /T /F`） | 新进程组，`kill(-pgid)`，先 TERM 后 KILL | 同 Mac |
-| 常驻 | 插件跟着 `dsh web`；`ir join` 用登录时运行的计划任务（不用系统服务：SYSTEM 账户拿不到本人的 PATH 和 agent 登录） | 插件同左；`ir join` 用 launchd 用户代理 | 插件同左；`ir join` 用 systemd 用户单元 |
+| 常驻 | 插件跟着 `dsh web`；`ir join`、`ir-computer` 用登录时运行的计划任务（不用系统服务：SYSTEM 账户拿不到本人的 PATH 和 agent 登录） | 插件同左；`ir join`、`ir-computer` 用 launchd 用户代理 | 插件同左；`ir join`、`ir-computer` 用 systemd 用户单元 |
 | 换行 | 只认 `\n`，行尾的 `\r` 去掉 | `\n` | `\n` |
 | dsh 记录的目录名 | `C:\a\b` → `C-a-b`（`/ \ :` 换成 `-`） | `/Users/a` → `Users-a` | 同 Mac |
 | 编码 | UTF-8，不带 BOM | UTF-8 | UTF-8 |
 
 这边的路径处理不能用 `filepath`（它只懂本机）：远端路径一律按握手的 `sep` 处理。
 
-## 开发测试用的 Bot
+## ir-computer
 
-`scripts/dev/shell-bot.mjs`：开发者自己的 Mac 上测 `ir sh` 用的小脚本，不进发布包。它借用 dsh 插件的执行端，配对一次后只提供命令执行（`agentShell`，按 `shell` 开着算），不带 agent。用时再起：30 分钟没起过命令就退出（`IDLE=分钟`，0 不退），TOKEN 不被接受（401）也退出并删掉 TOKEN，下次启动重新配对。这种 Bot 谁都能照协议写一个；不想写代码就用 `ir join <地址> --shell`，再在应用管理里把它带的 agent 全关掉，效果一样（`--no-agents` 已删，2026-11-11；旧常驻单元里还有的照收、不起作用）。
+`cmd/ir-computer`（2026-11-13）：电脑一端的单独程序，不受“一个二进制”约束（`AGENTS.md`）。和 `ir join` 是同一套代码（`internal/join`），选项相同，另有 `--headless`（不显示图标）；握手和配对里的 `program` 是 `ir-computer <版本>`。登录时运行的项和 `ir join` 同名，换用时直接替换。
+
+- 图标：Windows 在通知区（`Shell_NotifyIconW`），Mac 在菜单栏（经 purego 调 AppKit，不用 cgo，主线程跑）；Linux 不显示。未连接时图标变淡。
+- 菜单：第一行是地址和状态（连接中、已连接、已断开、配对码 1234、未开配对），然后是打开（浏览器打开那个 Iridium）、登录时运行（开关：只增删登录项，不启停正在运行的这一份）、退出（正常退出，常驻的不会被重新拉起）。
+- 那边 agent 用的 `ir` 是它自己（按名字 `ir` 进命令行模式，Mac、Linux）。
+- 发布包里是裸二进制 `ir-computer-<系统>-<架构>`（Windows 带 `.exe`），一行脚本即可下载运行；`ir update` 不管它。Mac 用 curl 下载的不带隔离标记，arm64 由 Go 链接器做了临时签名，可直接运行。
+
+## 开发测试用的连接
+
+`scripts/dev/shell-bot.mjs`：`ir join` 的 Node 实现，用于在开发者的 Mac 上测试 `ir sh`，不进发布包。它借用 dsh 插件的执行端，配对一次后只提供命令执行（`agentShell`，按 `shell` 开着算），不带 agent；名字默认取主机名。用时再起：30 分钟没起过命令就退出（`IDLE=分钟`，0 不退），TOKEN 不被接受（401）也退出并删掉 TOKEN，下次启动重新配对。这类连接可按协议自行实现；也可用 `ir join <地址> --shell`，再在应用管理中关闭它带的全部 agent，效果相同（`--no-agents` 已删，2026-11-11；旧常驻单元里还有的照收、不起作用）。
 
 `scripts/dev/exec-mini.py`：只用 Python 标准库（WebSocket 也是手写）的最小执行端，证明照协议就能接入：配对、握手报本机找到的 agent（默认 pi）、进程、文件、心跳、重连、`run`。可同时接多个 Iridium，配置在 `~/.iridium-exec-mini/config.json`：`add <地址> [--name] [--agents pi,…] [--shell] [--agent-shell]`、`on`/`off`/`rm <地址>`、`ls`；`run` 常驻，配置改了 2 秒内跟上，`off` 断开并结束那边起的进程。默认只开自己的 agent，加 `--shell` 才执行命令。只有 401 才删 TOKEN 重新配对，403（带原因码）等一会儿再连。单个前台：`python3 -I scripts/dev/exec-mini.py https://<Iridium> [名字] [agent…] [--shell]`。要带自己的 User-Agent：Cloudflare 拒 Python 默认的（1010）。
 
