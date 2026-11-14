@@ -305,7 +305,6 @@ export const en: Dict = {
   "channel.forward": "Chat history · {n}",
   "channel.rules": "Channel rules",
   "channel.supplement": "Context added",
-  "channel.avatar": "Change channel avatar",
   "channel.back": "Back to channel",
   "queue.title": "Queue",
   "queue.paused": "Paused",

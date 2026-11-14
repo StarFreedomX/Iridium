@@ -666,7 +666,7 @@ function FaceKey({ s, stack, className, ...rest }: { s: Session; stack?: Session
       </span>
     );
   return (
-    <button {...rest} type="button" aria-label={t("channel.avatar")} onClick={() => pickFace(s.id)} className={cn("g-press -m-1 grid place-items-center rounded-full p-1 hover:bg-fill", className)}>
+    <button {...rest} type="button" aria-label={t("me.avatar")} onClick={() => pickFace(s.id)} className={cn("g-press -m-1 grid place-items-center rounded-full p-1 hover:bg-fill", className)}>
       {face}
     </button>
   );

@@ -232,7 +232,7 @@ export default function ChannelMenu({ id, from = 0, face }: { id: string; from?:
       <span className="text-ink-2">
         <ImagePlus size={15} />
       </span>
-      {t("channel.avatar")}
+      {t("me.avatar")}
     </Menu.Item>
   );
 }
