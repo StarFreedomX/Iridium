@@ -446,7 +446,7 @@ function GroupView({ g, channel, agents, who, record, call, may, quote, quoted, 
   return (
     <div className="flex min-w-0 items-start gap-2.5">
       {now ? (
-        <AgentFace channel={channel} a={now} call={call} record={record} may={may} />
+        <AgentFace channel={channel} a={now} call={may ? call : undefined} record={record} may={may} />
       ) : (
         <span className="grid size-7 shrink-0 place-items-center rounded-full bg-fill">{agent && <Logo agent={agent} size={16} />}</span>
       )}

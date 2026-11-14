@@ -2,7 +2,7 @@
 import { describe, expect, test } from "vitest";
 import type { ChannelMessage, ChannelPage } from "../src/api/client";
 import type { Session } from "../src/api/types.gen";
-import { eventParts, personName, type EventWords, channelLamp, givenParts, givenTurn, groupMessages, insertNick, isMulti, linkNicks, matchAgents, merge, msgOf, ownAgent, nickOfURL, nickParts, nickSpans, readMarks, stillWaiting, validNick, watchExtra, workOf } from "../src/chat/channel/lib";
+import { eventParts, personName, type EventWords, channelLamp, givenParts, givenTurn, groupMessages, insertNick, isMulti, linkNicks, matchAgents, mayDM, merge, msgOf, ownAgent, nickOfURL, nickParts, nickSpans, readMarks, stillWaiting, validNick, watchExtra, workOf } from "../src/chat/channel/lib";
 import { ChannelLog } from "../src/chat/channel/log";
 import { buildTree, standing } from "../src/tree";
 
@@ -173,6 +173,13 @@ describe("the list", () => {
     expect(ownAgent("c", { session: "c" })).toBe(true);
     expect(ownAgent("c", { session: "m" })).toBe(false);
     expect(ownAgent("c", {})).toBe(false); // a person
+  });
+  test("私聊: the host and logins only, not an app or an author that is no login", () => {
+    const logins = [{ id: "u1" }];
+    expect(mayDM("local", logins)).toBe(true);
+    expect(mayDM("u1", logins)).toBe(true);
+    expect(mayDM("bot", logins)).toBe(false);
+    expect(mayDM("u2", [])).toBe(false);
   });
   test("a channel's lamp: amber while one waits, else lit while any works", () => {
     expect(channelLamp("idle", ["idle", "running"])).toBe("running");

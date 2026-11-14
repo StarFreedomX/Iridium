@@ -6,7 +6,7 @@
 import { Menu } from "@base-ui/react/menu";
 import { ArrowLeft, BarChart3, Ellipsis, Globe, ListTree, Plus, Settings } from "lucide-react";
 import type { Block, Status } from "../api/types.gen";
-import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type DragEvent, type ReactNode } from "react";
 import type { SessionState as LiveSession } from "../api/types.gen";
 import { api } from "../api/client";
 import { LinkDot } from "../link";
@@ -566,10 +566,7 @@ function Bar({ s, onSheet, onMe, spots, asked, back }: { s?: Session; onSheet?: 
                     <LogoLamp agent={s.agent} status={lampOf(s)} size={18} ir />
                   </button>
                 ) : (
-                  // The channel's face, pressed: another (the user, 2026-11-13).
-                  <button type="button" aria-label={t("channel.avatar")} onClick={() => pickFace(s.id)} className={cn("g-press -m-1 grid place-items-center rounded-full p-1 hover:bg-fill", late)}>
-                    <LogoLamp agent={s.agent} status={lampOf(s)} size={18} mark={<Face key={s.id} id={s.id} agent={s.agent} size={18} none={stack && <LogoStack agents={stack} size={18} />} />} />
-                  </button>
+                  <FaceKey s={s} stack={stack} className={late} />
                 )}
               </Tip>
               {renaming ? (
@@ -642,6 +639,25 @@ function Bar({ s, onSheet, onMe, spots, asked, back }: { s?: Session; onSheet?: 
       )}
       {!!spots?.length && <Where spots={spots} asked={asked ?? []} />}
     </header>
+  );
+}
+
+/** The channel's face before the title, pressed: another (the user, 2026-11-13). Only for one of
+ *  its people: one who only reads sees it, and it is no key. */
+function FaceKey({ s, stack, className, ...rest }: { s: Session; stack?: Session["agent"][] } & ComponentProps<"button">) {
+  const may = mayAct(useMembers(s.id));
+  const face = <LogoLamp agent={s.agent} status={lampOf(s)} size={18} mark={<Face key={s.id} id={s.id} agent={s.agent} size={18} none={stack && <LogoStack agents={stack} size={18} />} />} />;
+  // rest: what the tip around it gives its trigger.
+  if (!may)
+    return (
+      <span {...(rest as ComponentProps<"span">)} className={cn("-m-1 grid place-items-center p-1", className)}>
+        {face}
+      </span>
+    );
+  return (
+    <button {...rest} type="button" aria-label={t("channel.avatar")} onClick={() => pickFace(s.id)} className={cn("g-press -m-1 grid place-items-center rounded-full p-1 hover:bg-fill", className)}>
+      {face}
+    </button>
   );
 }
 

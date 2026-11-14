@@ -1,19 +1,23 @@
 // A person's card in a channel (the user, 2026-11-13: people, apps and agents are peers): their
 // face pressed opens it, as an agent's does (members.tsx Card). Their face and name; 私聊, the
-// channel of the two of you (POST /v1/internal/dm), and 提及, "@name" in the composer.
+// channel of the two of you (POST /v1/internal/dm), for a login or the host only (an app, an
+// author that is no login have none: the owner, 2026-11-14); and 提及, "@name" in the composer.
 import { AtSign, MessageCircle } from "lucide-react";
 import { useState } from "react";
 import { api } from "../../api/client";
 import { t } from "../../i18n";
 import { openChat } from "../../route";
+import { useApps } from "../../data";
 import { errText, toast } from "../../toast";
 import { Avatar, cn } from "../../ui";
+import { mayDM } from "./lib";
 
 const KEY = "g-press flex h-8 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md bg-fill px-2 text-sm text-ink hover:bg-fill-2 disabled:opacity-50 pointer-coarse:h-10";
 
 /** user: their Satori user id (a login's, "local" the host's); app: the app they came by. */
 export function PersonCard({ user, name, avatar, app, call }: { user: string; name: string; avatar?: string; app?: string; call?: (name: string) => void }) {
   const [busy, setBusy] = useState(false);
+  const dm = mayDM(user, useApps().data?.logins ?? []);
   const talk = () => {
     setBusy(true);
     void api.dm(user).then(
@@ -30,18 +34,20 @@ export function PersonCard({ user, name, avatar, app, call }: { user: string; na
           {app && <span className="truncate text-xs text-ink-3">{app}</span>}
         </div>
       </div>
-      <div className="flex gap-1.5">
-        <button type="button" disabled={busy} onClick={talk} className={KEY}>
-          <MessageCircle size={14} className="shrink-0" />
-          <span className="truncate">{t("channel.dm")}</span>
-        </button>
+      {(dm || call) && <div className="flex gap-1.5">
+        {dm && (
+          <button type="button" disabled={busy} onClick={talk} className={KEY}>
+            <MessageCircle size={14} className="shrink-0" />
+            <span className="truncate">{t("channel.dm")}</span>
+          </button>
+        )}
         {call && (
           <button type="button" onClick={() => call(name)} className={cn(KEY)}>
             <AtSign size={14} className="shrink-0" />
             <span className="truncate">{t("channel.call")}</span>
           </button>
         )}
-      </div>
+      </div>}
     </div>
   );
 }

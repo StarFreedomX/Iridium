@@ -286,6 +286,11 @@ export function insertNick(text: string, a: number, b: number, nick: string): { 
 /** An agent as the @ list and the member bar show it. */
 export type AgentRow = { session: string; member: string; agent: Agent; nick: string; name: string; status: Status; recv: string; avatar?: string; person?: boolean };
 
+/** Whether user (a Satori user id) may be talked to alone (docs/channels.md "私聊"): the host, or
+ *  one of logins; not an app, nor an author that is no login (the server has no one to open the
+ *  channel with). */
+export const mayDM = (user: string, logins: { id: string }[]) => user === "local" || logins.some((l) => l.id === user);
+
 /** Whether a member is the channel's own agent: the session the channel is. It speaks there
  *  straight out, and is not taken out of it. */
 export const ownAgent = (channel: string, m: { session?: string | null }) => !!m.session && m.session === channel;
