@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/kumoSleeping/iridium/internal/access"
@@ -262,6 +263,19 @@ func (s *Server) stateFilter(c caller) func(key string, v []byte) []byte {
 				return v
 			}
 			b, _ := json.Marshal(s.filterSessions(p, l))
+			return b
+		case key == "voice":
+			// The rooms of the folder groups it sees.
+			var rooms map[string]json.RawMessage
+			if json.Unmarshal(v, &rooms) != nil {
+				return v
+			}
+			for id := range rooms {
+				if n, err := strconv.ParseInt(id, 10, 64); err != nil || !s.seesGuild(c, n) {
+					delete(rooms, id)
+				}
+			}
+			b, _ := json.Marshal(rooms)
 			return b
 		case strings.HasPrefix(key, "session:"), strings.HasPrefix(key, "context:"), strings.HasPrefix(key, "reads:"), strings.HasPrefix(key, "viewers:"):
 			_, id, _ := strings.Cut(key, ":")

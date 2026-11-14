@@ -31,8 +31,9 @@ import { NoteMark, NotesAt, useNotes } from "./notekey";
 import { badge, isQuiet, setQuiet, useQuiet, useUnread } from "./unread";
 import { Face } from "./chat/channel/face";
 import { CloudBadge, MachineFace, shownPath, useLate, useMachine, type Machine } from "./machines";
-import { getCarried, setCarried, useCarried } from "./store";
+import { getCarried, setCarried, useCarried, useLink, useList } from "./store";
 import { channelLamp, isMulti } from "./chat/channel/lib";
+import { VoiceDock, VoiceMark } from "./voice/dock";
 import { dropMark, dropTarget, endDrag, listDrop, pinFolder, placeFolder, placeGroup as placeGroupKey, placeSession, sortList, startDrag, useDragged, useOver, type Dragged, type Edge, type Over } from "./reorder";
 
 const STEP = 18;
@@ -434,14 +435,19 @@ export function Sidebar(p: Props) {
           // see, darker when the row is hovered (the user, 2026-11-06).
           end={
             w.id !== 0 &&
-            !gone(w.root) &&
-            p.wsPlus(
+            !gone(w.root) && (
+              <>
+                {/* Who is in the group's voice; the way in is in its "+". */}
+                <VoiceMark guild={w.id} />
+                {p.wsPlus(
               w,
               <button type="button" onClick={(e) => e.stopPropagation()} aria-label={t("nav.newHere", { ws: w.name })} className="g-press -mr-1 grid size-6 place-items-center rounded-sm text-ink-3 group-hover:text-ink-2 hover:bg-fill-2 data-popup-open:bg-fill-2 data-popup-open:text-ink-2 pointer-coarse:size-8">
                 <Plus size={15} />
               </button>,
               plusOpen === w.key,
               (o) => setPlusOpen(o ? w.key : null),
+            )}
+              </>
             )
           }
         />
@@ -507,7 +513,7 @@ export function Sidebar(p: Props) {
             {p.expanded("archive") && p.tree.archived.map((s) => row(s, 0))}
           </div>
         )}
-        {!p.tree.workspaces.length && !loose.length && <div className="g-fade px-2 pt-10 text-center text-sm text-ink-3">{t("nav.empty")}</div>}
+        {!p.tree.workspaces.length && !loose.length && <Empty />}
       </div>
       {!p.noFoot && <Foot me={p.me} />}
     </aside>
@@ -543,6 +549,8 @@ function Foot(p: Pick<Props, "me">) {
   return (
     <div className="flex h-14 shrink-0 items-center justify-between gap-2 px-2 pointer-coarse:h-16">
       <div className="flex min-w-0 flex-1">{p.me}</div>
+      {/* The voice this page is in, beside me; nothing while in none (the user, 2026-11-12). */}
+      <VoiceDock />
       <UpdateKey />
     </div>
   );
@@ -1342,4 +1350,12 @@ export function Marked({ color, children }: { color?: Color; children: ReactNode
       {children}
     </span>
   );
+}
+
+/** The list empty: no sessions, or none come yet because the stream is down (not that there are none). */
+function Empty() {
+  const listed = useList() !== undefined;
+  const down = useLink().live === false;
+  if (!listed && !down) return null;
+  return <div className="g-fade px-2 pt-10 text-center text-sm text-ink-3">{t(listed ? "nav.empty" : "nav.offline")}</div>;
 }

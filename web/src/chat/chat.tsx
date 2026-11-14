@@ -56,6 +56,7 @@ import { spotsOf, type Spot } from "./where";
 import { Compaction, Pending, Relayed, Running, Said } from "./said";
 import { turnsOf, type Row } from "./turns";
 import { Stick, toEnd } from "./stick";
+import { VoiceDock } from "../voice/dock";
 
 const BUSY = new Set(["running", "compacting", "starting", "waiting"]);
 /** A turn is on: at work, or waiting on an ask. Waiting only on a step auto mode denied, the turn is
@@ -588,6 +589,8 @@ function Bar({ s, onSheet, onMe, spots, asked, back }: { s?: Session; onSheet?: 
         {onSheet && <LinkDot />}
         {/* ⋯'s place kept while the session comes: the dot beside it does not move as it does. */}
         {!s && <span aria-hidden className="size-8 shrink-0 pointer-coarse:size-10" />}
+        {/* On a phone the voice this page is in stands here: there is no foot beside me. */}
+        {onSheet && <VoiceDock side="bottom" />}
         {s && (
           <span className="relative grid">
             {/* Anchored on ⋯ itself, under it: clicks go through to ⋯. */}

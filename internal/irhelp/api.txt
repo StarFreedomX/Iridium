@@ -59,6 +59,8 @@ POST internal/button {id, option?, choices?, words?, message?} -> {}  answer an 
 POST internal/files/copy {from, to} -> ndjson  copy a file: from, to are paths here or app:path at an app's computer; prints path, size, sha256; run again to resume; socket only
 POST internal/machines/{id}/shell {line, cwd?} -> output  a command line at an app's computer (id or name); --wait for its output and exit code; host or agents
 PATCH internal/guilds/{id} {name?, position?, split?} -> {ok}  rename a folder group, move it (0 first), split it by subfolder; host or web
+GET internal/guilds/{id}/voice - -> ws  the folder group's voice: a member's connection (docs/voice.md); a login only
+GET internal/guilds/{id}/voice/members - -> Member[]  who is in the group's voice  view=id,name,app,muted
 GET internal/apps - -> Apps  apps, computers, logins  view=apps.id,apps.name,apps.online,apps.computer.home,logins.id,logins.name
 GET internal/files?path&machine - -> DirListing  list a directory; socket only  view=entries.name,entries.size,entries.type
 GET internal/usage?days&app&by - -> Usage  tokens, cost; app=id|name|me, by=hour|weekhour  view=rows.day,rows.agent,rows.model,rows.output,rows.costUsd
@@ -151,8 +153,8 @@ POST internal/invites {name?, claude?, perms?} -> Invite  a one-time ir_web link
 GET internal/needs - -> Needs  waiting for a person; person only  view=pending.id,pending.kind,pending.name
 GET internal/needs/{id}?wait - -> NeedState  how a need went; wait up to 60 s
 POST internal/needs/{id} {allow, value?, forSession?, owner?, name?, perms?, agentsOff?} -> NeedReply  allow or deny; person only
-GET internal/pairing - -> PairWindow  pairing window; person only
-PUT internal/pairing {open, minutes?} -> PairWindow  open (10 min, 60 max) or close pairing; person only
+GET internal/pairing - -> PairWindow  whether pairing is on; person only
+PUT internal/pairing {open} -> PairWindow  pairing on (till turned off) or off; person only
 POST internal/pair {name, type?, os?, arch?, program?, agents?, shell?, noShell?, agentShell?, home?, machineId?, wants?} -> {code, request}  ask to pair
 GET internal/pair/{request} - -> {status, token?}  pairing outcome; token given once
 GET internal/exec - -> ws  an executor's connection; its app TOKEN only

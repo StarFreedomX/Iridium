@@ -61,13 +61,15 @@ const noop = () => () => {};
 export const useList = () => useCarried<Session[]>("list");
 export const useSession = (id: string | null) => useCarried<SessionState>(id ? `session:${id}` : null);
 export const useContextState = (id: string | null) => useCarried<Context>(id ? `context:${id}` : null);
+/** Who is in each folder group's voice (voice/state.ts Rooms), by the group's id. */
+export const useVoiceRooms = () => useCarried<Record<string, { id: number; name: string }[]>>("voice");
 export const useQuota = () => useCarried<Quota>("quota");
 /** Whether a newer Iridium is out, and how installing it goes. */
 export const useUpdateState = () => useCarried<UpdateState>("update");
 /** What agents' ir asked a panel for (invites, tokens); none for a terminal that may not answer. */
 export const useConfirms = () => useCarried<Needs>("needs")?.pending ?? NONE;
 const NONE: Needs["pending"] = [];
-/** The pairing window: open till when; closed when none. */
+/** Pairing: whether apps may ask to pair (on till turned off). */
 export const usePairing = () => useCarried<PairWindow>("pairing");
 
 /** The stream: null before it first opens, then whether it is open; rtt, the last round trip in ms. */

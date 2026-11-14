@@ -13,14 +13,14 @@ import { defineConfig, type Plugin } from "vite";
  *  the icons: which of them a part uses changes with our code, and would rename the libraries' files. */
 const LIB = /node_modules(?!\/lucide-react\/)|^\0/;
 
-/** Each script, style and the HTML get a brotli (x.br) and a gzip (x.gz) beside them, at the highest
+/** Each script, style, WebAssembly file and the HTML get a brotli (x.br) and a gzip (x.gz) beside them, at the highest
  *  levels, as they are built once; internal/webui sends whichever the browser takes. */
 function precompress(): Plugin {
   return {
     name: "iridium-precompress",
     apply: "build",
     writeBundle({ dir }, bundle) {
-      for (const name of Object.keys(bundle).filter((f) => /\.(js|css|html|svg|webmanifest)$/.test(f))) {
+      for (const name of Object.keys(bundle).filter((f) => /\.(js|css|html|svg|webmanifest|wasm)$/.test(f))) {
         const file = join(dir!, name);
         const raw = readFileSync(file);
         writeFileSync(`${file}.br`, brotliCompressSync(raw, { params: { [constants.BROTLI_PARAM_QUALITY]: 11 } }));

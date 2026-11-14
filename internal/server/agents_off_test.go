@@ -25,7 +25,7 @@ func TestAgentsOffAndHomeScope(t *testing.T) {
 		s.WatchMachines()
 	})
 	l.want(200, "socket", "PUT", "/v1/internal/public", api.SetPublic{Origin: "https://ir.example.com"}, nil)
-	l.s.OpenPairing(0)
+	l.s.SetPairing(true)
 	ask := func(req api.PairRequest) (api.Pairing, api.Need) {
 		t.Helper()
 		code, p, e := l.pairFrom("", req)
