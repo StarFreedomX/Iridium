@@ -278,7 +278,7 @@ export const en: Dict = {
   "channel.did.web": "web {n}",
   "channel.did.agents": "subagents {n}",
   "channel.did.other": "other tools {n}",
-  "channel.given": "What it was given",
+  "channel.given": "Injections",
   "channel.givenNone": "Nothing yet",
   "channel.remove": "Remove",
   "channel.removeTitle": "Remove {nick}",

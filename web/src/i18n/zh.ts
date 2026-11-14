@@ -278,7 +278,7 @@ export const zh = {
   "channel.did.web": "网页 {n}",
   "channel.did.agents": "子 agent {n}",
   "channel.did.other": "其他工具 {n}",
-  "channel.given": "给了它什么",
+  "channel.given": "注入记录",
   "channel.givenNone": "暂无",
   "channel.remove": "移出",
   "channel.removeTitle": "移出 {nick}",
