@@ -237,7 +237,8 @@ function OneChat({ id, sheet = 0, onSheet, onMe, back }: { id: string; sheet?: n
   }, []);
   const [modelOpen, setModelOpen] = useState(false);
   const [modeOpen, setModeOpen] = useState(false);
-  // The context's popover, at the ring after the latest turn's model name (/context opens it).
+  // The context's popover, at the ring after the model name of the agent's latest turn (/context
+  // opens it).
   const [ctxOpen, setCtxOpen] = useState(false);
   const shown = folded(log.blocks);
   const cwd = s?.cwd ?? row?.cwd ?? "";
@@ -366,6 +367,9 @@ function OneChat({ id, sheet = 0, onSheet, onMe, back }: { id: string; sheet?: n
   const turns = turnsOf(rows);
   // Its usage after its model's name, a strip of its own as small as a phone's (the user,
   // 2026-11-13): the context's ring, the quota's bars; each pressed, its popover.
+  // The agent's latest turn: the ring /context opens. None yet: the command is the agent's.
+  const ctxTurn = turns.findLastIndex((x) => x.kind === "agent" || (x.kind === "works" && x.rows.length > 0));
+  const openContext = () => ctxTurn >= 0 && !!s.context?.max && (setCtxOpen(true), true);
   const bars = (last: boolean) =>
     s && (
       <span className="flex shrink-0 items-center">
@@ -392,13 +396,13 @@ function OneChat({ id, sheet = 0, onSheet, onMe, back }: { id: string; sheet?: n
             x.kind === "one" ? (
               x.node
             ) : x.kind === "agent" ? (
-              <AgentTurn key={x.key} channel={id} a={i === turns.length - 1 ? face : resting} may={may} bars={bars(i === turns.length - 1)} talk={talk}>
+              <AgentTurn key={x.key} channel={id} a={i === turns.length - 1 ? face : resting} may={may} bars={bars(i === ctxTurn)} talk={talk}>
                 {x.rows.map((r) => r.node)}
               </AgentTurn>
             ) : (
               <Relayed key={x.key} given={x.works.given} relay={x.works.relay} name={nameOf(x.works.given)} time={x.works.time} onJump={openChat}>
                 {x.rows.length > 0 && (
-                  <AgentTurn channel={id} a={resting} may={may} bars={bars(i === turns.length - 1)} talk={talk}>
+                  <AgentTurn channel={id} a={resting} may={may} bars={bars(i === ctxTurn)} talk={talk}>
                     {x.rows.map((r) => r.node)}
                   </AgentTurn>
                 )}
@@ -455,7 +459,7 @@ function OneChat({ id, sheet = 0, onSheet, onMe, back }: { id: string; sheet?: n
               <NotJoined />
             </Suspense>
           ) : (
-            <Under s={s} ghost={ghost} composer={composer} onSent={onSent} onSentDone={sentDone} modelOpen={modelOpen} setModelOpen={setModelOpen} modeOpen={modeOpen} setModeOpen={setModeOpen} setCtxOpen={setCtxOpen} />
+            <Under s={s} ghost={ghost} composer={composer} onSent={onSent} onSentDone={sentDone} modelOpen={modelOpen} setModelOpen={setModelOpen} modeOpen={modeOpen} setModeOpen={setModeOpen} openContext={openContext} />
           )}
         </div>
       </div>
@@ -466,7 +470,7 @@ function OneChat({ id, sheet = 0, onSheet, onMe, back }: { id: string; sheet?: n
 /** The composer, with in its foot the approval-mode key (back, its name alone, the user,
  *  2026-11-08) and the model key, then send. Its usage (the context's ring, the quota's bars) is
  *  after the agent's model name over its turns (the user, 2026-11-13), not here. */
-function Under({ s, ghost, composer, onSent, onSentDone, modelOpen, setModelOpen, modeOpen, setModeOpen, setCtxOpen }: { s: LiveSession; ghost: boolean; composer: React.RefObject<ComposerHandle | null>; onSent: (x: Sent) => void; onSentDone: (x: Sent) => void; modelOpen: boolean; setModelOpen: (o: boolean) => void; modeOpen: boolean; setModeOpen: (o: boolean) => void; setCtxOpen: (o: boolean) => void }) {
+function Under({ s, ghost, composer, onSent, onSentDone, modelOpen, setModelOpen, modeOpen, setModeOpen, openContext }: { s: LiveSession; ghost: boolean; composer: React.RefObject<ComposerHandle | null>; onSent: (x: Sent) => void; onSentDone: (x: Sent) => void; modelOpen: boolean; setModelOpen: (o: boolean) => void; modeOpen: boolean; setModeOpen: (o: boolean) => void; openContext: () => boolean }) {
   const mode = useMode(s);
   const agentInfo = useAgent(s.agent);
   // Made here just now (create.tsx useStart): its keys fade in, not the chat before's swapped for them.
@@ -490,7 +494,7 @@ function Under({ s, ghost, composer, onSent, onSentDone, modelOpen, setModelOpen
         openModel={() => setModelOpen(true)}
         openMode={() => setModeOpen(true)}
         openUsage={() => openUsage(undefined, s.machine)}
-        openContext={() => !!s.context?.max && (setCtxOpen(true), true)}
+        openContext={openContext}
         cleared={openChat}
         tools={
           <>
