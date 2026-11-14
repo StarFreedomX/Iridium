@@ -254,7 +254,8 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
   };
 
   // How far each member has read (docs/channels.md "已读"): asked once, then as the stream
-  // brings it. This page has read what it shows: said as the log's end moves, while it is seen.
+  // brings it. This page has read what it shows: said as the log's end moves while it is seen,
+  // and as it is seen again.
   const reads = useCarried<ChannelReads>(`reads:${id}`);
   useEffect(() => {
     void api.reads(id).then(
@@ -263,11 +264,18 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
     );
   }, [id]);
   const end = log.loaded ? log.end : 0;
+  // Seen: the tab in front. Back in front, what came meanwhile is read then.
+  const [seen, setSeen] = useState(() => document.visibilityState === "visible");
   useEffect(() => {
-    if (!end || !may || document.visibilityState !== "visible") return;
+    const look = () => setSeen(document.visibilityState === "visible");
+    document.addEventListener("visibilitychange", look);
+    return () => document.removeEventListener("visibilitychange", look);
+  }, []);
+  useEffect(() => {
+    if (!end || !may || !seen) return;
     const timer = setTimeout(() => void api.read(id, end).then((r) => setCarried(`reads:${id}`, r), () => {}), 600);
     return () => clearTimeout(timer);
-  }, [id, end, may]);
+  }, [id, end, may, seen]);
   const marks = useMemo(() => readMarks(groups, reads?.readers ?? [], members?.me), [groups, reads, members?.me]);
   const working = agents.filter((a) => WORKING.has(a.status));
   const asking = agents.some((_, i) => states[i]?.asks.length);
