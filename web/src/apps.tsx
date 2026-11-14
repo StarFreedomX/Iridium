@@ -35,6 +35,9 @@ const systems: Record<string, string> = {
   linux: "Linux",
 };
 
+/** An agent's version as a row has room for: its number alone ("2.1.34 (Claude Code)": 2.1.34). */
+export const shortVersion = (v?: string) => /\d+(?:\.\d+)*/.exec(v ?? "")?.[0] ?? "";
+
 /** The apps on the same machine as id, after it (Computer.under): listed next to it, not under it. */
 const sameMachine = (apps: App[], id: string) => apps.filter((a) => a.computer?.under === id);
 
@@ -339,14 +342,16 @@ function ItemRow({ a }: { a: App }) {
           </span>
           <Seen a={a} />
         </span>
-        {/* A computer's agents as their marks, the version in the tip. (Whether it may use the
+        {/* A computer's agents as their marks, each its version after it, short and grey: on the
+            row itself, not in a tip (docs/前端设计规范.md "电脑列表"). (Whether it may use the
             owner's Claude is asked when it does: no mark for it here.) */}
         {a.computer && marked(a.computer).length > 0 && (
-          <span className="flex shrink-0 items-center gap-1.5">
+          <span className="flex shrink-0 items-center gap-2">
             {marked(a.computer).map((x) => (
-              <Tip key={x.agent} label={[agentName(x.agent as Agent), x.version].filter(Boolean).join(" ")}>
-                <span className="grid shrink-0 place-items-center">
+              <Tip key={x.agent} label={agentName(x.agent as Agent)}>
+                <span className="flex shrink-0 items-center gap-1">
                   <Logo agent={x.agent as Agent} size={14} />
+                  {shortVersion(x.version) && <span className="text-xs text-ink-4 tabular-nums">{shortVersion(x.version)}</span>}
                 </span>
               </Tip>
             ))}
