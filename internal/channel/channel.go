@@ -25,7 +25,7 @@ import (
 // Kinds of message.
 const (
 	KindUser  = "user"  // a person's words
-	KindSaid  = "said"  // an agent's words
+	KindSaid  = "said"  // an agent's words: of its turn, read from its record, or sent with ir (Data.Sent)
 	KindAsk   = "ask"   // an agent asks: a question, an approval, a plan
 	KindError = "error" // an agent's process ended badly
 	KindNote  = "note"  // Iridium's own line: who joined, a message not passed on
@@ -64,6 +64,9 @@ type Data struct {
 	To   int64 `json:"to,omitempty"`
 	// Final: the last thing the agent said in its turn.
 	Final bool `json:"final,omitempty"`
+	// Sent: an agent's words said with ir, or for it as its turn ended (then Final), not read
+	// from its record: given to whom they name as they were sent, not once more as said.
+	Sent bool `json:"sent,omitempty"`
 	// Quote: the message it answers.
 	Quote int64 `json:"quote,omitempty"`
 	// Card: an ask's card id.
@@ -110,7 +113,7 @@ func read(m store.ChannelMessage) Message {
 }
 
 func (d Data) encode() string {
-	if d.Session == "" && d.Block == "" && d.From == 0 && d.To == 0 && len(d.Files) == 0 && !d.Final && d.Quote == 0 && d.Card == "" && d.Activity == nil && d.Event == nil {
+	if d.Session == "" && d.Block == "" && d.From == 0 && d.To == 0 && len(d.Files) == 0 && !d.Final && !d.Sent && d.Quote == 0 && d.Card == "" && d.Activity == nil && d.Event == nil {
 		return ""
 	}
 	b, _ := json.Marshal(d)
@@ -539,7 +542,7 @@ func (s *Service) Heard(session, text string, after, since int64) (others []Mess
 			return all, Message{}, err
 		}
 		for i := len(last) - 1; i >= 0; i-- {
-			if l := last[i]; l.Seq > after && (l.At == 0 || l.At >= since) && l.Author == author && l.Kind == KindSaid && Same(l.Text, text) {
+			if l := last[i]; l.Seq > after && (l.At == 0 || l.At >= since) && l.Author == author && l.Kind == KindSaid && !read(l).D.Sent && Same(l.Text, text) {
 				return all, read(l), nil
 			}
 		}

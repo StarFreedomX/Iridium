@@ -597,3 +597,60 @@ func TestChannelRelayByInput(t *testing.T) {
 		t.Errorf("not forwarded as the channel's: %+v", rec.Data)
 	}
 }
+
+// What an agent says with ir, and what is said for it, is an agent's words in the channel
+// (kind "said": told as progress, or reply when said for it at its turn's end), and is given
+// to whom it names once.
+func TestChannelAgentWordsAreSaid(t *testing.T) {
+	t.Parallel()
+	l, ch, second := two(t)
+	var sent []satori.Message
+	l.wantSat(200, "agent-in:"+second, "message.create", map[string]any{"channel_id": ch, "content": "over to @claude"}, &sent)
+	l.waitSaid("web", ch, "@claude ", "ok: #"+sent[0].ID+": over to @claude")
+	l.idle(ch)
+	n := 0
+	for _, b := range l.page("web", ch).Blocks {
+		if b.Kind == api.BlockKindUser && strings.HasPrefix(b.Text, "#"+sent[0].ID+": ") {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("what it sent was given to the one it names %d times", n)
+	}
+	code, r := l.send("web", ch, api.Send{Text: "@claude2 answer (no names)"})
+	if code != 200 {
+		t.Fatalf("send: %d", code)
+	}
+	l.waitSaid("web", ch, " @claude2 ", fmt.Sprintf("ok: #%d: @claude2 answer", r.Seq))
+	kinds := map[string]string{}
+	all, err := l.s.ch.Between(ch, 0, 0, 200)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range all {
+		if m.Author == "agent:"+second {
+			k := m.Kind
+			if m.D.Final {
+				k += " final"
+			}
+			if m.D.Sent {
+				k += " sent"
+			}
+			kinds[strings.SplitN(m.Text, ":", 2)[0]] = k
+		}
+	}
+	if kinds["over to @claude"] != "said sent" || kinds["ok"] != "said final sent" {
+		t.Errorf("the kinds of what the second agent said: %+v", kinds)
+	}
+	var page satori.BidiList[satori.Message]
+	l.wantSat(200, "web", "message.list", map[string]any{"channel_id": ch, "limit": 200}, &page)
+	for _, m := range page.Data {
+		raw, _ := json.Marshal(m.Data)
+		switch {
+		case m.ID == sent[0].ID && !strings.Contains(string(raw), `"kind":"progress"`):
+			t.Errorf("what it sent with ir as listed: %s", raw)
+		case m.User.Nick == "claude2" && strings.HasPrefix(m.Content, "ok: ") && !strings.Contains(string(raw), `"kind":"reply"`):
+			t.Errorf("what was said for it as listed: %s", raw)
+		}
+	}
+}

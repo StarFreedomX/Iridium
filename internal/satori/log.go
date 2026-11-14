@@ -200,6 +200,9 @@ func logData(m channel.Message) LogData {
 		if m.D.Final {
 			d.Kind = "reply"
 		}
+		if m.D.Sent {
+			d.Input = m.Ref // sent with ir: the input it was sent as
+		}
 	}
 	return d
 }
@@ -229,7 +232,8 @@ func (s *Service) tell(m channel.Message, kind, origin string, denied int) {
 	}
 	msg.Content += activityElement(m.D.Activity, false)
 	s.emitOf(st.Session, m.D.Session, Event{Type: "message-created", Message: &msg, User: msg.User}, m.D.Files, kind, origin)
-	if s.onSaid != nil && m.Kind == channel.KindSaid {
+	// What an agent said in its turn; what it sent with ir went to whom it names as it was sent.
+	if s.onSaid != nil && m.Kind == channel.KindSaid && !m.D.Sent {
 		s.onSaid(m)
 	}
 }

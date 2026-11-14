@@ -658,7 +658,7 @@ func (s *Service) queued(c Caller, channel, id string, text *string) (any, error
 		// Said in a channel and given to the agents it woke, each under an input of its own:
 		// changed where it still waits.
 		n := 0
-		if logged && m.Kind == channel_.KindUser {
+		if logged && (m.Kind == channel_.KindUser || m.D.Sent) {
 			if n, err = s.b.EditGiven(c, ch, m.Seq, m.Text, text); err != nil {
 				return nil, err
 			}

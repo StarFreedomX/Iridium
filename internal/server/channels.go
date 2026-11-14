@@ -1618,7 +1618,9 @@ func (s *Server) sendChannelAs(ctx context.Context, c caller, from, ch string, r
 	if req.ID == "" {
 		req.ID = session.NewInputID()
 	}
-	of := channel.Data{Quote: quote}
+	// An agent's words are an agent's (kind "said"), marked as sent; a reply said for it is its
+	// turn's last.
+	of := channel.Data{Quote: quote, Sent: sender != "", Final: sender != "" && relay}
 	if sender != "" && sender != ch {
 		// Where it is from: the stretch of the agent's own record since it was called here.
 		of.Session = sender
@@ -1887,7 +1889,8 @@ func (s *Server) unread(ch string, me channel.Member, before int64, by map[strin
 // given it; after too many agents in a row, nobody is, and the channel says so.
 func (s *Server) routeSaid(m channel.Message) {
 	sender, ok := store.SessionOfMember(m.Author)
-	if !ok || m.Kind != channel.KindSaid {
+	// What it sent with ir (or was said for it) was given to whom it names as it was sent.
+	if !ok || m.Kind != channel.KindSaid || m.D.Sent {
 		return
 	}
 	list, by := s.agentsOf(m.Channel)
