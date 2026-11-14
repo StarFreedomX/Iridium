@@ -2,7 +2,7 @@
 import { describe, expect, test } from "vitest";
 import type { ChannelMessage, ChannelPage } from "../src/api/client";
 import type { Session } from "../src/api/types.gen";
-import { eventParts, personName, type EventWords, channelLamp, givenParts, givenTurn, groupMessages, insertNick, isMulti, linkNicks, matchAgents, mayDM, merge, msgOf, ownAgent, nickOfURL, nickParts, nickSpans, readMarks, stillWaiting, validNick, watchExtra, workOf } from "../src/chat/channel/lib";
+import { eventParts, personName, type EventWords, channelLamp, givenParts, givenTurn, groupMessages, insertNick, isMulti, linkNicks, matchAgents, mayDM, merge, msgOf, ownAgent, nickOfURL, nickParts, nickSpans, readMarks, stillWaiting, userOf, validNick, watchExtra, workOf } from "../src/chat/channel/lib";
 import { ChannelLog } from "../src/chat/channel/log";
 import { buildTree, standing } from "../src/tree";
 
@@ -100,6 +100,19 @@ describe("@nick", () => {
     expect(at("```\n@pi\n```\n> @pi2\n@cc")).toEqual(["cc"]);
     expect(at("（@pi）你好@cc")).toEqual(["pi"]);
     expect(nickSpans("a\n@pi b", nicks)).toEqual([{ from: 2, to: 5, nick: "pi" }]);
+  });
+  test("people, apps and the names of all are named as agents are; a name with a space, the longest that fits", () => {
+    const names = ["pi", "Alice", "Alice Liddell", "kumo.dev", "全体成员", "全体Agent"];
+    const at = (t: string) => nickSpans(t, names).map((s) => s.nick);
+    expect(at("@alice liddell, @Alice and @pi")).toEqual(["Alice Liddell", "Alice", "pi"]);
+    expect(at("@Alicex @kumo.dev @全体成员 请看，@全体agent")).toEqual(["kumo.dev", "全体成员", "全体Agent"]);
+    expect(nickSpans("hi @Alice Liddell!", names)).toEqual([{ from: 3, to: 17, nick: "Alice Liddell" }]);
+    expect(linkNicks("@Alice Liddell 看", names)).toBe("[@Alice Liddell](ir:member/Alice%20Liddell) 看");
+    expect(nickOfURL("ir:member/Alice%20Liddell")).toBe("Alice Liddell");
+  });
+  test("a person's member string as a user id: a login's own, an app's for all of it", () => {
+    expect(userOf("ir_web/u1")).toBe("u1");
+    expect(userOf("bot/*")).toBe("bot");
   });
   test("cut into parts, and linked in Markdown", () => {
     expect(nickParts("@pi2 回一个字，@nobody", nicks)).toEqual([{ nick: "pi2" }, " 回一个字，@nobody"]);

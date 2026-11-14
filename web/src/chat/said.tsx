@@ -7,8 +7,9 @@
 // thoughts folded to a line.
 import { Archive, ArchiveRestore, ArrowUpRight, BookOpen, Bot, BotMessageSquare, ChartColumn, Check, ChevronRight, CircleStop, CircleX, Clock, CloudDownload, CloudUpload, Copy, Cpu, Earth, FileCode, FileDiff, FilePen, Files as FilesIcon, FileText, FlaskConical, FolderGit2, FolderOpen, Folders, FoldVertical, GitBranch, GitCommitHorizontal, GitPullRequest, Globe, Hammer, History, Hourglass, KeyRound, Laptop, Link2, List, ListChecks, LoaderCircle, MessagesSquare, LockKeyhole, MessageCircleQuestionMark, MessageSquarePlus, Monitor, MonitorSmartphone, MousePointerClick, Network, Package, PencilLine, Plug, RotateCcw, RotateCw, Search, Send, ServerCog, SlidersHorizontal, Smartphone, SquareTerminal, StickyNote, Terminal, Trash2, type LucideIcon, UserRound, Workflow as WorkflowIcon, Wrench, X } from "lucide-react";
 import { Copyable } from "./copyable";
-import { Children, forwardRef, memo, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { givenTurn, type GivenTurn } from "./channel/lib";
+import { Children, forwardRef, memo, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { givenTurn, linkNicks, type GivenTurn } from "./channel/lib";
+import { Nicks, NickWords } from "./channel/nick";
 import type { Relay } from "../satori";
 import { Popover } from "@base-ui/react/popover";
 import { api } from "../api/client";
@@ -294,7 +295,10 @@ const SYSTEM: Record<string, Parameters<typeof t>[0]> = { compact: "sys.compact"
  *  give ([文件] `path`). */
 export const Assistant = memo(function Assistant({ b, session }: { b: Block; session: string }) {
   const home = useHome().data;
-  const text = withoutFiles(withoutNameLines(fromSatori(b.text ?? "")), new Set(b.files?.map((f) => f.path)), home);
+  // The members of its channel it names (agents, people, apps: chat/channel/nick.tsx), links.
+  const names = useContext(Nicks)?.names;
+  const said = withoutFiles(withoutNameLines(fromSatori(b.text ?? "")), new Set(b.files?.map((f) => f.path)), home);
+  const text = names ? linkNicks(said, names) : said;
   // A file link's file shows where the words put it; the rest (file lines) under them.
   const under = b.files?.filter((f) => !isLink(f)) ?? [];
   return (
@@ -400,7 +404,7 @@ export function Said({ b, session, cwd, source, onJump, card }: { b: Shown; sess
           </Letter>
         );
       return (
-        <YouBubble text={words} who={src} time={b.time} card={card?.(b)}>
+        <YouBubble text={words} who={src} time={b.time} card={card?.(b)} words={<NickWords text={words} />}>
           {b.files?.map((f) => <Attached key={f.ref} session={session} f={f} />)}
         </YouBubble>
       );

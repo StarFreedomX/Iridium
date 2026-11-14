@@ -207,12 +207,18 @@ const NICK = /^[\p{L}\p{N}_-]+$/u;
 /** A nick: letters, digits, "_" and "-", at most 32 of them (internal/deliver ValidNick). */
 export const validNick = (n: string) => NICK.test(n) && [...n].length <= 32;
 
-/** Where words call a nick of nicks: "@nick" standing by itself (not inside a word, an address or
- *  a longer name), outside code (a fenced block, an inline span) and quoted lines; case does not
- *  matter. As the server routes by (internal/deliver Mentions), each place it is said. */
+/** The names that call more than one in a channel (internal/deliver AllMembers, AllAgents). */
+export const ALL_MEMBERS = "全体成员";
+export const ALL_AGENTS = "全体Agent";
+
+/** Where words name one of nicks (an agent's nick, a person's or an app's name, the names of
+ *  all): "@name" standing by itself (not inside a word, an address or a longer name), outside
+ *  code (a fenced block, an inline span) and quoted lines; case does not matter. An agent's nick
+ *  as the server routes by (internal/deliver Mentions), each place it is said; a person's name
+ *  may have what a nick may not (a space, a dot): the longest that fits is the one named. */
 export function nickSpans(text: string, nicks: string[]): { from: number; to: number; nick: string }[] {
   if (!nicks.length || !text.includes("@")) return [];
-  const by = new Map(nicks.map((n) => [n.toLowerCase(), n]));
+  const names = [...new Set(nicks.filter(Boolean))].map((n) => [n.toLowerCase(), n] as const).sort((a, b) => b[0].length - a[0].length);
   const out: { from: number; to: number; nick: string }[] = [];
   let fenced = false;
   let at = 0;
@@ -225,17 +231,22 @@ export function nickSpans(text: string, nicks: string[]): { from: number; to: nu
       continue;
     }
     if (fenced || t.startsWith(">")) continue;
+    const low = line.toLowerCase();
     let code = false;
-    for (const m of line.matchAll(/`|@([\p{L}\p{N}_-]*)/gu)) {
-      if (m[0] === "`") {
-        code = !code;
-        continue;
-      }
-      if (code) continue;
-      const before = [...line.slice(Math.max(0, m.index - 2), m.index)].at(-1);
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (c === "`") code = !code;
+      if (code || c !== "@") continue;
+      const before = [...line.slice(Math.max(0, i - 2), i)].at(-1);
       if (before !== undefined && (NICK_RUNE.test(before) || before === "@" || before === "/" || before === ".")) continue;
-      const nick = by.get(m[1]!.toLowerCase());
-      if (nick) out.push({ from: start + m.index, to: start + m.index + m[0].length, nick });
+      const hit = names.find(([w]) => {
+        if (!low.startsWith(w, i + 1)) return false;
+        const after = [...line.slice(i + 1 + w.length, i + 3 + w.length)][0];
+        return after === undefined || !NICK_RUNE.test(after);
+      });
+      if (!hit) continue;
+      out.push({ from: start + i, to: start + i + 1 + hit[0].length, nick: hit[1] });
+      i += hit[0].length;
     }
   }
   return out;
@@ -285,13 +296,22 @@ export function insertNick(text: string, a: number, b: number, nick: string): { 
   return { text: before + words + text.slice(b).replace(/^ /, ""), caret: before.length + words.length };
 }
 
-/** An agent as the @ list and the member bar show it. */
+/** A member as the @ list and the words that name it show it: an agent; or (person) a login or
+ *  an app, its name as nick, its app (or 应用) as name, its avatar. */
 export type AgentRow = { session: string; member: string; agent: Agent; nick: string; name: string; status: Status; recv: string; avatar?: string; person?: boolean };
 
 /** Whether user (a Satori user id) may be talked to alone (docs/channels.md "私聊"): the host, or
  *  one of logins; not an app, nor an author that is no login (the server has no one to open the
  *  channel with). */
 export const mayDM = (user: string, logins: { id: string }[]) => user === "local" || logins.some((l) => l.id === user);
+
+/** The Satori user id of a person's member string: a login's own id ("<app>/<login>"), an app's
+ *  for all of its logins ("<app>/*"). */
+export function userOf(member: string): string {
+  const i = member.indexOf("/");
+  const login = member.slice(i + 1);
+  return i < 0 || login !== "*" ? login : member.slice(0, i);
+}
 
 /** Whether a member is the channel's own agent: the session the channel is. It speaks there
  *  straight out, and is not taken out of it. */

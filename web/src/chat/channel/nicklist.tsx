@@ -1,6 +1,6 @@
 // The members an @ may name in a channel (agents, people, apps: peers, the user, 2026-11-13), over the composer as what an @ names is
-// elsewhere (composer.tsx AtList): a row each, its logo, its nick, what it runs as faint at the
-// end, its lamp. ↑↓ and Enter or Tab on a keyboard, a tap on a phone.
+// elsewhere (composer.tsx AtList): a row each, its face (an agent's logo, a person's avatar), its
+// name, what it runs as (a person's app) faint at the end, its lamp. ↑↓ and Enter or Tab on a keyboard, a tap on a phone.
 import { Bot, Users } from "lucide-react";
 import type { CSSProperties } from "react";
 import { t } from "../../i18n";
@@ -9,7 +9,7 @@ import type { AgentRow } from "./lib";
 
 export function NickList({ rows, at, pick, point }: { rows: AgentRow[]; at: number; pick: (r: AgentRow) => void; point: (i: number) => void }) {
   return (
-    <div role="listbox" aria-label={t("channel.agents")} className="g-pop glass thick float absolute bottom-full left-2 z-10 mb-2 max-h-[min(360px,50dvh)] w-80 max-w-[calc(100%-16px)] origin-bottom-left no-bar overflow-y-auto overscroll-contain rounded-lg p-1.5 text-ink">
+    <div role="listbox" aria-label={t("channel.members")} className="g-pop glass thick float absolute bottom-full left-2 z-10 mb-2 max-h-[min(360px,50dvh)] w-80 max-w-[calc(100%-16px)] origin-bottom-left no-bar overflow-y-auto overscroll-contain rounded-lg p-1.5 text-ink">
       <div className="g-stagger flex flex-col">
         {rows.map((r, i) => (
           <button

@@ -92,7 +92,7 @@ export function AgentFace({ channel, a, call, record, may, talk, size = 28 }: { 
         </span>
       </button>
       <At anchor={face} open={detail} onOpenChange={setDetail} className="w-[min(300px,calc(100vw-16px))] p-3.5">
-        <Card channel={channel} a={a} call={call} record={record} may={may} talk={talk} done={() => setDetail(false)} />
+        <AgentCard channel={channel} a={a} call={call} record={record} may={may} talk={talk} done={() => setDetail(false)} />
       </At>
       {s && (
         <MemberMenu
@@ -122,7 +122,7 @@ export function AgentFace({ channel, a, call, record, may, talk, size = 28 }: { 
  *  not its context or usage, which have their own keys after its model's name (docs/前端设计规范.md
  *  "一样东西一个地方"). Keys to talk to it in its own channel (its session: one channel bound to it),
  *  to call it here (@nick); in its own channel, to change its face and see its record. */
-function Card({ channel, a, call, record, may, talk, done }: { channel: string; a: AgentRow; call?: (nick: string) => void; record?: (session: string) => void; may: boolean; talk?: () => void; done: () => void }) {
+export function AgentCard({ channel, a, call, record, may, talk, done }: { channel: string; a: AgentRow; call?: (nick: string) => void; record?: (session: string) => void; may: boolean; talk?: () => void; done: () => void }) {
   const mine = ownAgent(channel, a);
   const key = "g-press flex h-8 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md bg-fill px-2 text-sm text-ink hover:bg-fill-2 pointer-coarse:h-10";
   return (

@@ -11,7 +11,7 @@ import { Reply } from "lucide-react";
 import { api } from "../../api/client";
 import type { Block, ChannelReads, Reader, SessionState as LiveSession, Session } from "../../api/types.gen";
 import { stateAhead, type Sent } from "../../chats";
-import { isComputer, LOCAL_ME, useApps, useMe, useWhoList, useWorkspaces } from "../../data";
+import { LOCAL_ME, useApps, useMe, useWhoList, useWorkspaces } from "../../data";
 import { t, useLang } from "../../i18n";
 import { pushIn } from "../../motion";
 import { openChat } from "../../route";
@@ -31,13 +31,12 @@ import { fromSatori, PLACE_DRAG, SESSION_DRAG, sourceOf, yours } from "../refs";
 import { Assistant, Attached, Line, Pending, Said, YouBubble } from "../said";
 import { folded } from "../fold";
 import { Stick, toEnd } from "../stick";
-import { groupMessages, readMarks, linkNicks, stillWaiting, watchExtra, type AgentRow, type Did, type Group, type Msg, type Src, lineOf, workOf, eventParts, personName, type EventWords } from "./lib";
+import { groupMessages, readMarks, stillWaiting, watchExtra, type AgentRow, type Did, type Group, type Msg, type Src, lineOf, workOf, eventParts, personName, type EventWords } from "./lib";
 import { channelLog } from "./log";
 import { mayAct, useMembers } from "./gate";
-import { hasApp, hasLogin, peopleOf } from "./setup";
 import { NotJoined } from "./key";
 import { AgentFace } from "./members";
-import { PersonCard } from "./person";
+import { PersonCard, useNamed } from "./person";
 import { NickLink, Nicks, NickWords } from "./nick";
 
 const WORKING = new Set(["running", "compacting", "starting"]);
@@ -188,7 +187,8 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
     return () => removeEventListener("ir:note", put);
   }, []);
   const call = (nick: string) => composer.current?.insert(`@${nick}`);
-  const nicks = useMemo(() => ({ agents, call }), [agents.map((a) => `${a.session}:${a.nick}:${a.name}:${a.status}:${a.agent}`).join(" ")]);
+  // Its members as words name them and as @ lists them (agents, people and apps: peers).
+  const { named: nicks, others: peopleRows } = useNamed({ channel: id, agents, members, may, call, record });
 
   const files = (e: DragEvent) => e.dataTransfer.types.includes("Files") && (e.preventDefault(), true);
   const session = (e: DragEvent) => e.dataTransfer.types.includes(SESSION_DRAG) && (e.preventDefault(), (e.dataTransfer.dropEffect = "copy"), true);
@@ -215,23 +215,6 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
     return { who: yours(known ? { ...known, name: m.name || known.name } : { id: m.id, name: m.name, device: "none" }), mine };
   };
   const groups = useMemo(() => groupMessages(log.msgs), [log.msgs]);
-  // Its people and apps as @ names them (peers of its agents): each login among its people, each
-  // app whose all are; not the one looking.
-  const apps = useApps().data;
-  const peopleRows = useMemo<AgentRow[]>(() => {
-    const ps = peopleOf(members);
-    const out: AgentRow[] = [];
-    for (const a of apps?.apps ?? []) {
-      if (isComputer(a)) continue; // not among a channel's people
-      const appName = a.web ? t("term.panel") : a.name;
-      if (hasApp(ps, a.id)) out.push({ session: "", member: `${a.id}/*`, agent: "" as AgentRow["agent"], nick: appName, name: t("channel.app"), status: "idle", recv: "", avatar: a.avatar, person: true });
-      for (const l of (apps?.logins ?? []).filter((x) => x.app === a.id)) {
-        const m = `${a.id}/${l.id}`;
-        if (m !== members?.me && hasLogin(ps, a.id, l.id)) out.push({ session: "", member: m, agent: "" as AgentRow["agent"], nick: l.name, name: appName, status: "idle", recv: "", avatar: l.avatar, person: true });
-      }
-    }
-    return out;
-  }, [apps, members]);
   // Each agent's usage after its model's name, a strip of its own as small as a phone's (the
   // user, 2026-11-13): its context's ring, its quota's bars; each pressed, its popover.
   const bars = (session: string) => {
@@ -400,17 +383,17 @@ function Of({ a, children, off }: { a: AgentRow; children: ReactNode; off?: bool
   );
 }
 
-/** A message as the block an agent's words are drawn from, the nicks it calls links: kept per
- *  message, so one drawn is not drawn again. */
+/** A message as the block an agent's words are drawn from (said.tsx Assistant, which makes the
+ *  members they name links): kept per message, so one drawn is not drawn again. */
 const blocks = new WeakMap<Msg, { sig: string; b: Block }>();
 function blockFor(m: Msg, agents: AgentRow[]): Block {
   const nicks = agents.map((a) => a.nick);
   const sig = nicks.join(" ");
   const had = blocks.get(m);
   if (had?.sig === sig) return had.b;
-  // Satori's elements in the words (an <at>) as Markdown writes them, then the nicks as links.
+  // Satori's elements in the words (an <at>) as Markdown writes them.
   const words = fromSatori(m.text, (session) => agents.find((a) => a.session === session)?.nick);
-  const b: Block = { at: String(m.n), kind: "assistant", text: linkNicks(words, nicks), ...(m.files.length ? { files: m.files } : {}), ...(m.time ? { time: m.time } : {}) };
+  const b: Block = { at: String(m.n), kind: "assistant", text: words, ...(m.files.length ? { files: m.files } : {}), ...(m.time ? { time: m.time } : {}) };
   blocks.set(m, { sig, b });
   return b;
 }
