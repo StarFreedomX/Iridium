@@ -34,6 +34,12 @@ describe("a channel's messages", () => {
     // The kind an event said stays when the log, which says none, reads the message again.
     const said = merge([{ ...msgs(agent(4, "a"))[0]!, kind: "reply" }], msgs(agent(4, "a", "more")));
     expect(said[0]).toMatchObject({ text: "more", kind: "reply" });
+    // One heard as it was said, then read with where it is from in its agent's record: that kept.
+    const heard = msgs(agent(5, "a"));
+    const backed = merge(heard, [msgOf({ ...agent(5, "a"), _data: { session: "a", block: "12.0" } })!]);
+    expect(backed).not.toBe(heard);
+    expect(backed[0]!.src).toEqual({ session: "a", block: "12.0" });
+    expect(merge(backed, [msgOf({ ...agent(5, "a"), _data: { session: "a", block: "12.0" } })!])).toBe(backed);
   });
   test("sent from here: gone once the log has its number, or before that the same words said since", () => {
     const log = msgs(person(1, "one"), agent(2, "a"), person(3, "two"));

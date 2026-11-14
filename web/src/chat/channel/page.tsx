@@ -458,7 +458,7 @@ function GroupView({ g, channel, agents, who, record, call, may, quote, quoted, 
         </div>
         {g.msgs.map((m) => (
           <div key={m.n} className={cn(m.kind === "error" && "text-err")}>
-            {m.did && (m.src ? <Work src={m.src} did={m.did} /> : <DidLine did={m.did} />)}
+            {m.src ? <Work src={m.src} did={m.did} /> : m.did && <DidLine did={m.did} />}
             {m.quote !== undefined && <QuoteLine n={m.quote} q={quoted(m.quote)} />}
             <Copyable copy={m.text} quote={quote && (() => quote(m))}>
               <Assistant b={blockFor(m, agents)} session={a.session} />
@@ -503,8 +503,9 @@ function EventLine({ m }: { m: Msg }) {
 
 /** What the agent did before the words under it (the user, 2026-11-13: all of it, not a count):
  *  its thinking and tool calls from its own record, folded as its own chat folds them. The
- *  count's line until they come, or when the record cannot be read. */
-function Work({ src, did }: { src: Src; did: Did }) {
+ *  count's line until they come, or when the record cannot be read. did: none for a stretch
+ *  with no tool call (thinking alone), which has no count to show meanwhile. */
+function Work({ src, did }: { src: Src; did?: Did }) {
   const row = useList()?.find((x) => x.id === src.session);
   const q = useQuery({
     queryKey: ["work", src.session, src.block ?? "", src.from ?? 0, src.to ?? 0],
@@ -516,7 +517,7 @@ function Work({ src, did }: { src: Src; did: Did }) {
     retry: false,
   });
   const work = q.data;
-  if (!work?.length) return <DidLine did={did} />;
+  if (!work?.length) return did ? <DidLine did={did} /> : null;
   return (
     <div className="mb-1.5 flex min-w-0 flex-col gap-3">
       {folded(work).map((b) => (

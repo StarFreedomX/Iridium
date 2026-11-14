@@ -148,16 +148,20 @@ export function msgOf(m: ChannelMessage): Msg | undefined {
   return { n, text: b.text ?? "", files: b.files ?? [], author, ...(q ? { quote: Number(q[1]) } : {}), ...(m.created_at ? { time: m.created_at } : {}), ...(m._data?.kind ? { kind: m._data.kind } : {}), ...(author.kind === "agent" && didOf(m.content) ? { did: didOf(m.content)! } : {}), ...(m._data?.event && typeof m._data.event === "object" ? { event: m._data.event as ChEvent } : {}), ...(author.kind === "agent" && m._data?.session ? { src: { session: m._data.session, ...(m._data.block ? { block: m._data.block } : {}), ...(m._data.from ? { from: m._data.from } : {}), ...(m._data.to ? { to: m._data.to } : {}) } } : {}) };
 }
 
-/** have with more put in: each number once (the later one wins: a message read again, changed),
- *  in order. The same array when nothing changed. */
+const sameSrc = (a?: Src, b?: Src) => a?.session === b?.session && a?.block === b?.block && a?.from === b?.from && a?.to === b?.to;
+
+/** have with more put in: each number once (the later one wins: a message read again, changed:
+ *  its words, or where it is from in its agent's record, which one heard as it was said has not
+ *  yet), in order. The same array when nothing changed. */
 export function merge(have: Msg[], more: Msg[]): Msg[] {
   if (!more.length) return have;
   const by = new Map(have.map((m) => [m.n, m]));
   let changed = false;
   for (const m of more) {
     const was = by.get(m.n);
-    if (was && was.text === m.text && was.files.length === m.files.length && was.kind === (m.kind ?? was.kind) && !was.did === !m.did && !was.event === !m.event && was.quote === m.quote) continue;
-    by.set(m.n, was && !m.kind && was.kind ? { ...m, kind: was.kind } : m);
+    if (was && was.text === m.text && was.files.length === m.files.length && was.kind === (m.kind ?? was.kind) && !was.did === !m.did && !was.event === !m.event && was.quote === m.quote && (!m.src || sameSrc(was.src, m.src))) continue;
+    // What a reading does not say (the kind, the source) stays as it was known.
+    by.set(m.n, was ? { ...m, ...(!m.kind && was.kind ? { kind: was.kind } : {}), ...(!m.src && was.src ? { src: was.src } : {}) } : m);
     changed = true;
   }
   return changed ? [...by.values()].sort((a, b) => a.n - b.n) : have;
