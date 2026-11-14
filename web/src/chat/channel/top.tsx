@@ -22,7 +22,7 @@ import { AgentKinds, ITEM, POPUP } from "./invite";
 import { memberError } from "./key";
 import { ownAgent } from "./lib";
 import { RemoveAsk } from "./members";
-import { appAll, everyone, hasApp, hasLogin, loginOf, peopleOf, pressApp, pressLogin } from "./setup";
+import { appAll, everyone, hasApp, hasLogin, loginOf, peopleCount, peopleOf, pressApp, pressLogin } from "./setup";
 
 const SUB = "no-bar max-h-[min(480px,var(--available-height))] min-w-52 max-w-[calc(100vw-16px)] overflow-y-auto p-1.5";
 const HEAD = "truncate px-2.5 pt-2 pb-0.5 text-xs text-ink-3 select-none first:pt-1";
@@ -51,13 +51,15 @@ function Sub({ icon, label, lead, now, i, children }: { icon: ReactNode; label: 
 const check = (on: boolean) => <span className="grid size-3.5 place-items-center text-ink">{on && <Check size={14} />}</span>;
 
 /** The bar's right (the user, 2026-11-13): who is looking now, their faces, pressed their names;
- *  the members, a key with their count opening the list of them. */
+ *  the members, a key with their count (agents and people) opening the list of them. */
 export function TopRight({ id }: { id: string }) {
   useLang();
   const members = useMembers(id);
   const viewers = useCarried<Viewer[]>(`viewers:${id}`) ?? [];
   const agents = (members?.members ?? []).filter((m) => m.session);
-  const people = peopleOf(members);
+  // How many its members are, on the key itself: its agents and its people (each login once).
+  const logins = useApps().data?.logins ?? [];
+  const count = agents.length + peopleCount(peopleOf(members), logins);
   // 移出 asked from the list: the card the face's menu asks with, under the members' key.
   const key = useRef<HTMLButtonElement>(null);
   const [out, setOut] = useState<{ member: string; nick: string } | null>(null);
@@ -91,12 +93,12 @@ export function TopRight({ id }: { id: string }) {
         </Popover.Root>
       )}
       <Menu.Root>
-        <Tip label={`${t("channel.members")} · ${agents.length || 1} · ${everyone(people) ? t("channel.everyone") : t("channel.peopleN", { n: people.length })}`} side="bottom">
+        <Tip label={t("channel.members")} side="bottom">
           <Menu.Trigger
             render={
               <button ref={key} type="button" aria-label={t("channel.members")} className="g-press flex h-8 items-center gap-1 rounded-md px-2 text-ink-2 hover:bg-fill hover:text-ink data-popup-open:bg-fill pointer-coarse:h-10">
                 <Users size={16} />
-                <span className="text-xs tabular-nums">{agents.length || 1}</span>
+                <span className="text-xs tabular-nums">{count}</span>
               </button>
             }
           />
@@ -127,6 +129,7 @@ function MemberList({ id, remove }: { id: string; remove: (m: { member: string; 
   const run = (f: () => Promise<ChannelMembers>) => void f().then(set, (e) => toast(memberError(e), { error: true }));
   const agents = (members?.members ?? []).filter((m) => m.session);
   const people = peopleOf(members);
+  const logins = useApps().data?.logins ?? [];
   const recvWord = (r: string) => (r === "all" ? t("channel.recvAll") : t("channel.recvAt"));
   return (
     <>
@@ -168,7 +171,7 @@ function MemberList({ id, remove }: { id: string; remove: (m: { member: string; 
         );
       })}
       <div className={HEAD}>{t("channel.people")}</div>
-      <div className="flex h-8 items-center px-2.5 text-base text-ink-2 pointer-coarse:h-11">{everyone(people) ? t("channel.everyone") : t("channel.peopleN", { n: people.length })}</div>
+      <div className="flex h-8 items-center px-2.5 text-base text-ink-2 pointer-coarse:h-11">{everyone(people) ? t("channel.everyone") : t("channel.peopleN", { n: peopleCount(people, logins) })}</div>
       {may && <Invite id={id} />}
     </>
   );
