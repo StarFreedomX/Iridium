@@ -64,9 +64,8 @@ type Data struct {
 	To   int64 `json:"to,omitempty"`
 	// Final: the last thing the agent said in its turn.
 	Final bool `json:"final,omitempty"`
-	// At: the members the message names; Quote: the message it answers.
-	At    []string `json:"at,omitempty"`
-	Quote int64    `json:"quote,omitempty"`
+	// Quote: the message it answers.
+	Quote int64 `json:"quote,omitempty"`
 	// Card: an ask's card id.
 	Card string `json:"card,omitempty"`
 	// Event: what a line of Iridium's own tells of (a member joined, left…), for a page to say
@@ -111,7 +110,7 @@ func read(m store.ChannelMessage) Message {
 }
 
 func (d Data) encode() string {
-	if d.Session == "" && d.Block == "" && d.From == 0 && d.To == 0 && len(d.Files) == 0 && !d.Final && len(d.At) == 0 && d.Quote == 0 && d.Card == "" && d.Activity == nil && d.Event == nil {
+	if d.Session == "" && d.Block == "" && d.From == 0 && d.To == 0 && len(d.Files) == 0 && !d.Final && d.Quote == 0 && d.Card == "" && d.Activity == nil && d.Event == nil {
 		return ""
 	}
 	b, _ := json.Marshal(d)

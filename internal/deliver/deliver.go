@@ -19,12 +19,10 @@ type Agent struct {
 }
 
 // Decision is what a message does. Wake: the sessions it is delivered to, in the channel's
-// order; Named: the nicks it names (itself aside); TooFar: an agent's message that names
-// someone but comes after MaxHops agents in a row, so it wakes nobody.
+// order; Named: the nicks it names (itself aside).
 type Decision struct {
-	Wake   []string
-	Named  []string
-	TooFar bool
+	Wake  []string
+	Named []string
 }
 
 // The two names that call more than one (the user, 2026-11-13): "@全体成员", everyone in the
@@ -41,11 +39,12 @@ func Reserved(n string) bool {
 }
 
 // Route decides for a message with words text. from: the session of the agent that said it,
-// "" for a person; hop: how many agents passed the chain on before it. A person's message wakes
+// "" for a person. A person's message wakes
 // the agents it names; one that names none, those that receive everything (they read the rest
 // when next called). An agent's wakes only those it names: agents do not wake each other by
-// merely speaking.
-func Route(text, from string, hop int, agents []Agent) Decision {
+// merely speaking. How many agents in a row may pass a message on (MaxHops) is counted by the
+// channel, by whoever sends.
+func Route(text, from string, agents []Agent) Decision {
 	var nicks []string
 	for _, a := range agents {
 		if a.Session != from {
@@ -60,10 +59,6 @@ func Route(text, from string, hop int, agents []Agent) Decision {
 	named := map[string]bool{}
 	for _, n := range d.Named {
 		named[strings.ToLower(n)] = true
-	}
-	if from != "" && len(d.Named) > 0 && hop >= MaxHops {
-		d.TooFar = true
-		return d
 	}
 	for _, a := range agents {
 		if a.Session == from {

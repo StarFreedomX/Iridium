@@ -146,3 +146,158 @@ func TestCallsOldClosed(t *testing.T) {
 		}
 	}
 }
+
+// seenOf is how far session id's agent has been given channel ch.
+func (l *live) seenOf(ch, id string) int64 {
+	l.t.Helper()
+	var ms api.ChannelMembers
+	l.want(200, "web", "GET", "/v1/internal/channels/"+ch+"/members", nil, &ms)
+	for _, m := range ms.Members {
+		if m.Session == id {
+			return m.Seen
+		}
+	}
+	l.t.Fatalf("%s is not in %s", id, ch)
+	return 0
+}
+
+// A reply said for an agent stays said when it cannot be passed on: after too many agents in a
+// row the channel has it and a line that it was not passed on, not a line that the agent said
+// nothing.
+func TestChannelRelayStopped(t *testing.T) {
+	t.Parallel()
+	l, ch, second := two(t)
+	// One line of agents: a person calls the second alone, into a turn of its own that runs,
+	// naming someone nobody is called yet; the channel's own agent takes that name meanwhile.
+	// The fake agents echo: the second's reply names the first, whose echo names the second...
+	at, helper := "at", "helper"
+	l.want(200, "web", "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+ch, api.MemberPatch{Recv: &at}, nil)
+	if code, _ := l.send("web", second, api.Send{Text: "its own work WAIT"}); code != 200 {
+		t.Fatalf("send to the second: %d", code)
+	}
+	l.running(second)
+	code, r := l.send("web", ch, api.Send{Text: "@claude2 ask @helper back", Steer: true})
+	if code != 200 || r.Queued {
+		t.Fatalf("send: %d %+v", code, r)
+	}
+	l.want(200, "web", "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+ch, api.MemberPatch{Nick: &helper}, nil)
+	all := l.waitSaid("web", ch, "iridium", "未转交 #")
+	time.Sleep(300 * time.Millisecond)
+	all = l.said("web", ch)
+	var stoppedAt string
+	for _, m := range all {
+		if strings.Contains(m, "被叫起") {
+			t.Errorf("a reply that was said is told as none: %s", m)
+		}
+		if _, rest, ok := strings.Cut(m, "未转交 #"); ok {
+			stoppedAt, _, _ = strings.Cut(rest, "：")
+		}
+	}
+	// The message not passed on is there, said for the second agent (the fifth in the row).
+	if stoppedAt == "" {
+		t.Fatalf("no line of what was not passed on:\n%s", strings.Join(all, "\n"))
+	}
+	found := false
+	for _, m := range all {
+		found = found || strings.HasPrefix(m, stoppedAt+" @claude2 ok: ")
+	}
+	if !found {
+		t.Errorf("the reply not passed on (#%s) is not in the channel:\n%s", stoppedAt, strings.Join(all, "\n"))
+	}
+}
+
+// The count of agents passing a message on is a channel's, begun anew by a person speaking in
+// it: nothing of one channel's run counts in another, nor outlives its run.
+func TestChainsByChannel(t *testing.T) {
+	var c chains
+	lk := c.person("ch1", "me")
+	c.pass("ch1", "a", link{epoch: lk.epoch, hop: 3, kin: 2})
+	if got := c.of("ch1", "a"); got.hop != 3 || got.kin != 2 || got.origin != "me" {
+		t.Errorf("as passed: %+v", got)
+	}
+	c.pass("ch1", "a", link{epoch: lk.epoch, hop: 1, kin: 5})
+	if got := c.of("ch1", "a"); got.hop != 3 || got.kin != 5 {
+		t.Errorf("a shorter line shortened the count: %+v", got)
+	}
+	if got := c.of("ch2", "a"); got.hop != 0 || got.kin != 0 {
+		t.Errorf("one channel's count in another: %+v", got)
+	}
+	next := c.person("ch1", "you")
+	if got := c.of("ch1", "a"); got.hop != 0 || got.kin != 0 || got.origin != "you" || got.epoch != next.epoch {
+		t.Errorf("after a person spoke: %+v", got)
+	}
+	// What was on its way as the person spoke belongs to the run that is over.
+	c.pass("ch1", "a", link{epoch: lk.epoch, hop: 4})
+	if got := c.of("ch1", "a"); got.hop != 0 {
+		t.Errorf("a pass of the run before counted: %+v", got)
+	}
+}
+
+// An agent's place in a channel moves as far as what it was given, no further: what its ir was
+// refused with is not lost, and what is said while its turn runs is not marked read by the
+// reply said for it.
+func TestChannelSeenOnlyWhatWasGiven(t *testing.T) {
+	t.Parallel()
+	l, ch, second := two(t)
+	code, r := l.send("web", ch, api.Send{Text: "plain words"})
+	if code != 200 {
+		t.Fatalf("send: %d", code)
+	}
+	l.waitSaid("web", ch, "@claude ", fmt.Sprintf("ok: #%d: plain words", r.Seq))
+	// Refused (no such message to answer): what it has not seen is not given, so not read.
+	l.wantSat(400, "agent-in:"+second, "message.create", map[string]any{"channel_id": ch, "content": `<quote id="99999"/>no such`}, nil)
+	if seen := l.seenOf(ch, second); seen != 0 {
+		t.Errorf("a refused send moved its place to %d", seen)
+	}
+	var raw string
+	l.wantSat(200, "agent-in:"+second, "message.create", map[string]any{"channel_id": ch, "content": "now"}, &raw)
+	if !strings.Contains(raw, "plain words") {
+		t.Errorf("what it had not seen did not come back with the send: %s", raw)
+	}
+
+	// Its turn runs; it is called into it; someone speaks meanwhile (to nobody: the channel's
+	// own agent takes only what names it); its reply is said for it.
+	at := "at"
+	l.want(200, "web", "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+ch, api.MemberPatch{Recv: &at}, nil)
+	if code, _ := l.send("web", second, api.Send{Text: "its own work WAIT"}); code != 200 {
+		t.Fatalf("send to the second: %d", code)
+	}
+	l.running(second)
+	code, call := l.send("web", ch, api.Send{Text: "@claude2 join in", Steer: true})
+	if code != 200 || call.Queued {
+		t.Fatalf("a message joining its turn: %d %+v", code, call)
+	}
+	code, between := l.send("web", ch, api.Send{Text: "said meanwhile"})
+	if code != 200 {
+		t.Fatalf("send meanwhile: %d", code)
+	}
+	l.waitSaid("web", ch, " @claude2 ", fmt.Sprintf("ok: #%d: @claude2 join in", call.Seq))
+	l.noCalls(second)
+	if seen := l.seenOf(ch, second); seen >= between.Seq {
+		t.Errorf("read to %d by the reply said for it; said meanwhile is %d, never given", seen, between.Seq)
+	}
+	code, next := l.send("web", ch, api.Send{Text: "@claude2 once more"})
+	if code != 200 {
+		t.Fatalf("send: %d", code)
+	}
+	l.waitSaid("web", second, fmt.Sprintf("ok: #%d: @claude2 once more", next.Seq), "]: said meanwhile\n")
+}
+
+// What an agent asked to be given counts only messages that are said: one refused takes
+// nothing from it.
+func TestChannelFollowNotSpentOnRefusal(t *testing.T) {
+	t.Parallel()
+	l, ch, second := two(t)
+	l.want(200, "web", "PUT", "/v1/internal/channels/"+ch+"/people", api.People{People: []string{"*"}}, nil)
+	l.want(200, "agent-in:"+second, "POST", "/v1/internal/channels/"+ch+"/follow", api.Follow{User: "*"}, nil)
+	// A Bot with no right to Claude names it: refused.
+	bot := l.newApp("bot", false).Token
+	if code, _ := l.send(bot, ch, api.Send{Text: "@claude for you"}); code != 403 {
+		t.Fatalf("a Bot without Claude names it: %d", code)
+	}
+	code, r := l.send("web", ch, api.Send{Text: "the next one said"})
+	if code != 200 {
+		t.Fatalf("send: %d", code)
+	}
+	l.waitSaid("web", second, fmt.Sprintf("ok: #%d: the next one said", r.Seq))
+}

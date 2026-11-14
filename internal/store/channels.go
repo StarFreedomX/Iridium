@@ -71,8 +71,7 @@ const (
 // ChannelMessage is one message of a channel. Kind: "user" (a person's), "said" (an agent's
 // words), "ask", "error", "note" (Iridium's own line). Data: JSON, the kind's own (files, who is
 // named, the activity). Ref: where it is from, unique in the channel: an input's id, a block of
-// an agent's record "b:<session>:<at>", an ask's card. Origin: who began the chain it is in; Hop:
-// how many agents passed it on since.
+// an agent's record "b:<session>:<at>", an ask's card. Origin: who began the chain it is in.
 type ChannelMessage struct {
 	Channel string
 	Seq     int64
@@ -83,7 +82,6 @@ type ChannelMessage struct {
 	Data    string
 	Ref     string
 	Origin  string
-	Hop     int
 	At      int64
 	Edited  int64
 	Gone    bool
@@ -93,7 +91,8 @@ const messageCols = `channel, seq, author, name, kind, text, data, ref, origin, 
 
 func scanMessage(r interface{ Scan(...any) error }) (ChannelMessage, error) {
 	var m ChannelMessage
-	err := r.Scan(&m.Channel, &m.Seq, &m.Author, &m.Name, &m.Kind, &m.Text, &m.Data, &m.Ref, &m.Origin, &m.Hop, &m.At, &m.Edited, &m.Gone)
+	var hop int // a column nothing writes any more
+	err := r.Scan(&m.Channel, &m.Seq, &m.Author, &m.Name, &m.Kind, &m.Text, &m.Data, &m.Ref, &m.Origin, &hop, &m.At, &m.Edited, &m.Gone)
 	return m, err
 }
 
@@ -121,7 +120,7 @@ func (s *Store) AddChannelMessage(m ChannelMessage) (seq int64, added bool, err 
 		return 0, false, err
 	}
 	res, err := tx.Exec(`INSERT INTO channel_messages (`+messageCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)`,
-		m.Channel, seq, m.Author, m.Name, m.Kind, m.Text, m.Data, m.Ref, m.Origin, m.Hop, m.At)
+		m.Channel, seq, m.Author, m.Name, m.Kind, m.Text, m.Data, m.Ref, m.Origin, 0, m.At)
 	if err != nil {
 		return 0, false, err
 	}
@@ -679,6 +678,12 @@ func (s *Store) AddInjection(in Injection) error {
 	}
 	_, err := s.db.Exec(`DELETE FROM injections WHERE session = ? AND id <= (SELECT id FROM injections WHERE session = ? ORDER BY id DESC LIMIT 1 OFFSET ?)`,
 		in.Session, in.Session, InjectionsKept)
+	return err
+}
+
+// RemoveInjection drops what session was to be given as input: it was not given.
+func (s *Store) RemoveInjection(session, input string) error {
+	_, err := s.db.Exec(`DELETE FROM injections WHERE session = ? AND input = ?`, session, input)
 	return err
 }
 

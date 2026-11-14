@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/kumoSleeping/iridium/internal/api"
+	"github.com/kumoSleeping/iridium/internal/deliver"
 	"github.com/kumoSleeping/iridium/internal/satori"
 )
 
@@ -612,16 +613,36 @@ func TestChannelSendCheckAndFollows(t *testing.T) {
 	l.send("web", ch, api.Send{Text: "@kid begin (say nothing)"})
 	l.waitSaid("web", ch, "iridium", "@kid 被叫起", "未在频道发话")
 	l.waitSaid("web", ch, "@claude ", "kid, which you started, was called in the channel")
-	for i := range 7 {
+	// Kin pass a message on to each other further than other agents, not without end: the
+	// fake agents echo what names the other, until MaxKinHops passes in a row; then ir is refused.
+	stopped := false
+	for i := range 2 * MaxKinHops {
 		words := fmt.Sprintf("@claude tell @kid turn%d", i)
 		code, _, raw := say("agent-in:"+kid, ch, words)
 		if code == 409 { // something on its way to it names it: read, again
 			code, _, raw = say("agent-in:"+kid, ch, words)
 		}
-		if code != 200 {
+		if code == 400 && strings.Contains(raw, fmt.Sprint(MaxKinHops)) {
+			stopped = true
+			break
+		}
+		if code != 200 && code != 409 {
 			t.Fatalf("kin, turn %d: %d %s", i, code, raw)
 		}
-		l.waitSaid("web", kid, fmt.Sprintf("turn%d", i), "ok: #")
+		if i < deliver.MaxHops && code != 200 {
+			t.Fatalf("kin stopped as agents that are not: turn %d: %d %s", i, code, raw)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if !stopped {
+		t.Errorf("kin went on passing it")
+	}
+	// A person speaking begins anew.
+	if code, _ := l.send("web", ch, api.Send{Text: "@kid again (say nothing)"}); code != 200 {
+		t.Fatalf("a person after kin stopped: %d", code)
+	}
+	if code, _, raw := say("agent-in:"+kid, ch, "fine"); code != 200 && code != 409 {
+		t.Errorf("kin after a person spoke: %d %s", code, raw)
 	}
 }
 
@@ -672,6 +693,11 @@ func TestChannelQuoteAndAll(t *testing.T) {
 	var ms api.ChannelMembers
 	l.want(200, "web", "POST", "/v1/internal/channels/"+ch+"/members", api.NewMember{Agent: api.AgentClaude}, &ms)
 	second := ms.Members[len(ms.Members)-1].Session
+	// A turn of its own first: what it runs as (its name in the standing words) is known by then.
+	if code, _ := l.send("web", second, api.Send{Text: "settle"}); code != 200 {
+		t.Fatalf("send to the second: %d", code)
+	}
+	l.waitReply("web", second, "ok: settle")
 
 	// The second speaks with ir; a person answers it without naming it.
 	var sent []satori.Message

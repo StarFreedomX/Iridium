@@ -85,7 +85,7 @@ type Server struct {
 	files   *files.Service   // routes_files.go
 	sat     *satori.Service  // /v1/: Satori with ir (satori.go)
 	ch      *channel.Service // what is said in the channels (docs/channels.md)
-	chain   chains           // the chain each agent's turn is in (channels.go)
+	chain   chains           // each channel's run of agents passing messages on (channels.go)
 	follows follows          // what agents asked to be given of a channel beside what names them (channels.go)
 	viewers viewers          // who is looking at each channel now (channels.go)
 	calls   calls            // the channels each agent was called in by a subscription (channels.go)
