@@ -28,7 +28,7 @@ import { Waiting } from "../live";
 import { ContextRing, modelView, QuotaBars } from "../meters";
 import { Queue } from "../queue";
 import { fromSatori, PLACE_DRAG, SESSION_DRAG, sourceOf, yours } from "../refs";
-import { Assistant, Attached, Line, Pending, Said, YouBubble } from "../said";
+import { Assistant, Attached, Line, Pending, Said, When, YouBubble } from "../said";
 import { folded } from "../fold";
 import { Stick, toEnd } from "../stick";
 import { groupMessages, readMarks, stillWaiting, watchExtra, type AgentRow, type Did, type Group, type Msg, type Src, lineOf, workOf, eventParts, personName, type EventWords } from "./lib";
@@ -439,6 +439,7 @@ function GroupView({ g, channel, agents, who, record, call, may, quote, quoted, 
           <span className="shrink-0 text-xs font-medium text-ink-2">{now?.nick || a.nick}</span>
           <span className="min-w-0 truncate text-xs text-ink-4">{now?.name || a.name}</span>
           {now && bars(now.session)}
+          <When time={g.msgs[0]!.time} />
         </div>
         {g.msgs.map((m) => (
           <div key={m.n} className={cn(m.kind === "error" && "text-err")}>
@@ -476,10 +477,10 @@ function EventLine({ m }: { m: Msg }) {
   const d = useApps().data;
   const words = { ...Object.fromEntries(EVENT_KEYS.map((k) => [k, t(`channel.event.${k}`)])), all: t("channel.recvAll"), at: t("channel.recvAt") } as EventWords;
   const parts = m.event && eventParts(m.event, words);
-  if (!parts) return <Line title={m.text}>{m.text}</Line>;
+  if (!parts) return <Line>{m.text}</Line>;
   const apps = (d?.apps ?? []).map((a) => (a.web ? { ...a, name: t("term.panel") } : a));
   return (
-    <Line title={m.text}>
+    <Line>
       {parts.map((p, i) => (typeof p === "string" ? p : "nick" in p ? <NickLink key={i} nick={p.nick} /> : p.people.map((x) => personName(x, apps, d?.logins ?? [])).join(t("channel.event.sep"))))}
     </Line>
   );
