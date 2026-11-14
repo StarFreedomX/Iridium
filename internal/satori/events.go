@@ -180,7 +180,12 @@ func (s *Service) handle(n session.Notice, at time.Time) {
 		}
 		s.flush(n.Session, "reply", origin, n.Denied)
 		if s.onTurnEnd != nil {
-			s.onTurnEnd(n.Session, n.Text)
+			s.onTurnEnd(n.Session, n.Text, n.Waiting)
+		}
+	case session.NoticeEnded:
+		// Cut short: nothing was its reply.
+		if s.onTurnEnd != nil {
+			s.onTurnEnd(n.Session, "", n.Waiting)
 		}
 	case session.NoticeAsk:
 		st, err := s.b.Session(n.Session)

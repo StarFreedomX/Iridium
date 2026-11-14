@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -29,7 +31,8 @@ func IsClear(text string) bool {
 
 // Clear starts the session over (/clear, as Claude Code's): a new session of the same agent, in
 // the same folder and workspace, with the same model, mode, effort, ultracode, preset and launcher
-// (hung under it still, if it was; those it started hang under the new one). The old one
+// (hung under it still, if it was; those it started hang under the new one), and in the same
+// channels under the same nick (SetCleared). The old one
 // stays on record; idle, it goes to the archive and its agent stops; in a turn it is left to
 // finish. A session that has said nothing yet is already clear: its own id comes back.
 func (m *Manager) Clear(ctx context.Context, id, from string) (string, error) {
@@ -66,6 +69,7 @@ func (m *Manager) Clear(ctx context.Context, id, from string) (string, error) {
 		return nid, err
 	}
 	m.relaunch(h, nid)
+	m.tellCleared(h.id, nid)
 	if !h.busy() && len(h.asksNow()) == 0 {
 		if err := m.SetArchived(ctx, h.id, true); err != nil {
 			m.o.Logf("session %s: archiving it after /clear: %v", h.id, err)
@@ -179,6 +183,7 @@ func (m *Manager) clearedInside(h *Hosted, proc int, nid string) {
 		}
 	}
 	m.relaunch(h, nid)
+	m.tellCleared(h.id, nid)
 	if name != "" {
 		if err := m.o.Store.SetName(nid, name); err != nil {
 			n.logf("its name: %v", err)
@@ -214,4 +219,36 @@ func (m *Manager) RunsItself(id, text string) bool {
 	}
 	c, ok := h.drv.(agent.Commander)
 	return ok && c.RunsItself(text)
+}
+
+// commandName is how a slash command begins: "/" and its name, with no other slash in it (a
+// path is words).
+var commandName = regexp.MustCompile(`^/([A-Za-z][A-Za-z0-9_:.-]*)$`)
+
+// IsCommand says whether text sent to session id is a command of its agent (/clear, /compact,
+// one its last handshake named...) rather than words that merely begin with a slash
+// ("/home/x is broken"). While the agent has named none yet (it has not run since the daemon
+// began), anything shaped as a command is taken as one.
+func (m *Manager) IsCommand(id, text string) bool {
+	f := strings.Fields(text)
+	if len(f) == 0 {
+		return false
+	}
+	name := commandName.FindStringSubmatch(f[0])
+	if name == nil {
+		return false
+	}
+	if IsClear(text) {
+		return true
+	}
+	h, err := m.get(id)
+	if err != nil {
+		return false
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if len(h.commands) == 0 {
+		return true
+	}
+	return slices.ContainsFunc(h.commandsLocked(), func(c agent.Command) bool { return strings.EqualFold(c.Name, name[1]) })
 }

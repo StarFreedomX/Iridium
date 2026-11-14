@@ -3,8 +3,9 @@
 // thinking, its tool calls) stays the agent's. What an agent said is read in from that record
 // (Sync), what a person said is written as it is sent (Say). A session has a channel of its own,
 // under the session's id: what its agent says in its turns is said there. A session may also be
-// in other channels (a subscription, members.go): there it sees only what is said and speaks
-// with ir. A channel may be no session's (store.Channel): then all its agents are such.
+// in other channels (a subscription, members.go): there it sees only what is said, and what it
+// says there is its turn's reply, said for it, or what it sends with ir. A channel may be no
+// session's (store.Channel): then all its agents are such.
 package channel
 
 import (
@@ -25,7 +26,7 @@ import (
 // Kinds of message.
 const (
 	KindUser  = "user"  // a person's words
-	KindSaid  = "said"  // an agent's words
+	KindSaid  = "said"  // an agent's words: of its turn, read from its record, or sent with ir (Data.Sent)
 	KindAsk   = "ask"   // an agent asks: a question, an approval, a plan
 	KindError = "error" // an agent's process ended badly
 	KindNote  = "note"  // Iridium's own line: who joined, a message not passed on
@@ -64,9 +65,11 @@ type Data struct {
 	To   int64 `json:"to,omitempty"`
 	// Final: the last thing the agent said in its turn.
 	Final bool `json:"final,omitempty"`
-	// At: the members the message names; Quote: the message it answers.
-	At    []string `json:"at,omitempty"`
-	Quote int64    `json:"quote,omitempty"`
+	// Sent: an agent's words said with ir, or for it as its turn ended (then Final), not read
+	// from its record: given to whom they name as they were sent, not once more as said.
+	Sent bool `json:"sent,omitempty"`
+	// Quote: the message it answers.
+	Quote int64 `json:"quote,omitempty"`
 	// Card: an ask's card id.
 	Card string `json:"card,omitempty"`
 	// Event: what a line of Iridium's own tells of (a member joined, left…), for a page to say
@@ -111,7 +114,7 @@ func read(m store.ChannelMessage) Message {
 }
 
 func (d Data) encode() string {
-	if d.Session == "" && d.Block == "" && d.From == 0 && d.To == 0 && len(d.Files) == 0 && !d.Final && len(d.At) == 0 && d.Quote == 0 && d.Card == "" && d.Activity == nil && d.Event == nil {
+	if d.Session == "" && d.Block == "" && d.From == 0 && d.To == 0 && len(d.Files) == 0 && !d.Final && !d.Sent && d.Quote == 0 && d.Card == "" && d.Activity == nil && d.Event == nil {
 		return ""
 	}
 	b, _ := json.Marshal(d)
@@ -138,6 +141,8 @@ type Service struct {
 
 	mu    sync.Mutex
 	locks map[string]*sync.Mutex // a session's record is read in by one at a time
+
+	jmu sync.Mutex // one agent joins at a time (Join)
 
 	// The members as written, all of them, read once and again after a change (members.go).
 	imu   sync.Mutex
@@ -538,7 +543,7 @@ func (s *Service) Heard(session, text string, after, since int64) (others []Mess
 			return all, Message{}, err
 		}
 		for i := len(last) - 1; i >= 0; i-- {
-			if l := last[i]; l.Seq > after && (l.At == 0 || l.At >= since) && l.Author == author && l.Kind == KindSaid && Same(l.Text, text) {
+			if l := last[i]; l.Seq > after && (l.At == 0 || l.At >= since) && l.Author == author && l.Kind == KindSaid && !read(l).D.Sent && Same(l.Text, text) {
 				return all, read(l), nil
 			}
 		}

@@ -287,7 +287,7 @@ func (b satoriBackend) Sees(c satori.Caller, id string) bool {
 	if err != nil {
 		return false
 	}
-	return b.s.sees(b.s.permsFor(callerAs(c)), st.Session)
+	return b.s.seenBy(callerAs(c), st.Session)
 }
 
 func (b satoriBackend) Messages(id string, before, after int64) (api.MessagePage, error) {

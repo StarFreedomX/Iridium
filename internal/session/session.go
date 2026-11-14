@@ -101,6 +101,7 @@ type Manager struct {
 	inChan   atomic.Pointer[func(string) bool]
 	chanOf   atomic.Pointer[func(string) ([]api.ChannelAgent, []string)]
 	spawned  atomic.Pointer[func(string) *api.Spawned]
+	cleared  atomic.Pointer[func(old, next string)]
 	bare     atomic.Pointer[func() []api.Session]
 	speaksIn atomic.Pointer[func(session, channel string) bool]
 }

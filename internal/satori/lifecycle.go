@@ -140,23 +140,33 @@ func (s *Service) Sessions(l []api.Session) {
 	s.ch.seen, s.ch.ready = now, true
 }
 
-// ---- a person's message ----
+// ---- a message sent ----
 
 // Input is what someone wrote to session ss (its input id, its text): said in the session's
 // channel, under the number it returns, and sent as message-created, _data.kind "user", to the
-// logins that see it: the agent's words are not alone in the stream.
+// logins that see it: the agent's words are not alone in the stream. What an agent sent (of's
+// Sent: with ir, or its reply said for it) is an agent's words as those of its turns are: kind
+// "said", told as "progress", or "reply" when it is its turn's last.
 func (s *Service) Input(ss api.Session, id, text string, from User, origin string, of ...channel.Data) int64 {
 	if id == "" {
 		return 0
 	}
+	d := append(of, channel.Data{})[0]
+	kind, told := channel.KindUser, "user"
+	if d.Sent {
+		kind, told = channel.KindSaid, "progress"
+		if d.Final {
+			told = "reply"
+		}
+	}
 	m, isNew, err := s.log.Say(channel.Message{ChannelMessage: store.ChannelMessage{Channel: ss.ID, Author: from.ID, Name: from.Name,
-		Kind: channel.KindUser, Text: text, Ref: id, Origin: origin}, D: append(of, channel.Data{})[0]})
+		Kind: kind, Text: text, Ref: id, Origin: origin}, D: d})
 	if err != nil {
 		s.logf("satori: channel %s: %v", ss.ID, err)
 		return 0
 	}
 	if isNew {
-		s.tell(m, "user", origin, 0)
+		s.tell(m, told, origin, 0)
 	}
 	return m.Seq
 }

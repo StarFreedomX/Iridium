@@ -25,7 +25,7 @@
 - `channel.get`、`channel.list {guild_id?, next?, _data?: {all}}`（不给 `guild_id` 是全部；先列文件夹，再列会话；不列归档和子 agent，`_data.all` 都列）、`guild.get`、`guild.list`（只列范围里的）、`guild.member.list {guild_id, next?}`、`guild.member.get {guild_id, user_id}`（组里各会话的 agent：`user` 是 `agent:<会话>`，带 `nick` 和 `joined_at`；再加本应用的登录。`_data.channel_id` 只列那个频道的成员，`joined_at` 是加入频道的时间，2026-11-13）、`login.get`、`user.get`。`channel.get`、`channel.list` 的每个 channel 带 `_data`：会话本身（同 `GET /v1/internal/sessions` 的一项，名字、标题、最后一句打码）；`guild.get`、`guild.list` 的 guild 带 `_data`：文件夹组（`path`、`only`），`loose` 没有。网页拿不到携带状态 `guilds` 时用 `guild.list` 的 `_data`。
 - `channel.create {guild_id?, data?: {name, parent_id}, _data: {agent, cwd, text?, model?, mode?, effort?, preset?}}`（2026-11-11）：开一个会话；不带 `_data.agent` 是建一个无 agent 的频道（`_data.cwd` 是它列在哪个文件夹，2026-11-13）。`guild_id` 是文件夹组（`self` 自己的；不给或 `loose` 按目录归组），`data.parent_id` 是拉起者（不给是发话的会话自己，`ir` 开的就挂在自己下面），`data.name` 是名字；`_data` 是 agent 怎么起。回这个会话的 Channel（同 `channel.get`），随后照常有 `channel-added`。`ir api channel.create` 先印 ID，带 `text` 等 agent 接了再返回，`--wait` 等到这一回合结束。
 - `channel.update {channel_id, data?: {name, parent_id}, _data?: {archived, pinned, color, order, workspace}}` 改名，`_data.archived` 归档或恢复（挂在它下面的一起），`pinned` 置顶，`color` 颜色标签（`red`…`purple`，空串去掉），`order` 拖到的位置（毫秒，0 去掉），`workspace` 手动放进那个组（0 未归类）；`data.parent_id` 设成 `null` 或它自己的文件夹，就从拉起者下面拿出来（此后算人开的），别的值 422 `parent_fixed`。文件夹（`folder:…`）只收 `_data.color`（本机的文件夹）、`pinned`、`order`，只有面板和本机能改。
-- `message.update {channel_id, message_id, content | _data.text}`、`message.delete {channel_id, message_id}`（2026-11-11）：改、撤回还在排队的一条（`message_id` 是 `message.create` 回的 ID）；已经交给 agent 的 422 `no_such_message`。
+- `message.update {channel_id, message_id, content | _data.text}`、`message.delete {channel_id, message_id}`（2026-11-11）：改、撤回还在排队的一条（`message_id` 是 `message.create` 回的 ID，或频道里的编号）；已经交给 agent 的 422 `no_such_message`。多 agent 或无 agent 的频道里，改的是它叫起的每个 agent 队列里的那条。
 - `block.list` 带 `_data.blocks: true` 时，回答的 `_data.blocks` 另给这一页 Iridium 自己的块（`api.Block`，打码），`ir` 的 `--wait` 靠它读回复。
 - `channel.delete {channel_id}` 归档（agent 停下，记录不删）。要能用这个会话。agent 改的名不盖人起的（409 `named`）。
 - `upload.create`：一个 multipart，带字段 `channel_id`，每个文件回 `internal:{应用}/{登录}/files/{会话}/{ref}`。网页用分块的 `/v1/internal/uploads`。
@@ -68,7 +68,7 @@
 
 照规范的 internal 路由（advanced/internal.md）：Iridium 自己的接口全在 `/v1/internal/<路径>`（`docs/api.md`），给 Satori 没有的东西：工具块、待发队列、模型和模式、文件夹组、设置、应用管理……带了 `Satori-Platform`、`Satori-User-ID` 就必须是调用者自己的。主机的 `ir` 经 unix socket 走同样的路径。网页只用这里和标准方法。
 
-`message.create` 多收一个 `_data`：`{steer?, attachments?, caller?, id?}`（插话还是排队、上传好的引用；`id` 是发送方自己定的消息 ID，小写 UUID，同一个 `id` 再发不会写第二遍，回答它当时的结果，丢了回答可以放心重发，网页每条都带），回答的 Message 也带 `_data`，是发送的结果（`api.SendReply`：`input`、`queued`、`session`、`command`、`desktop`）。应用发的一律插话。
+`message.create` 多收一个 `_data`：`{steer?, attachments?, caller?, id?, text?, paths?}`（插话还是排队、上传好的引用、代替 `content` 的纯文字、主机上的文件；引用哪条写在内容里：`<quote id="编号"/>`；`id` 是发送方自己定的消息 ID，小写 UUID，同一个 `id` 再发不会写第二遍，回答它当时的结果，丢了回答可以放心重发，网页每条都带），回答的 Message 也带 `_data`，是发送的结果（`api.SendReply`：`input`、`queued`、`seq` 频道里的编号、`said` 说进了多 agent 或无 agent 的频道、`unseen` agent 用 `ir` 发话时它没读过的消息、`session`、`command`、`desktop`）。应用发的一律插话。
 
 ## WebSocket `/v1/events`
 
@@ -84,9 +84,9 @@
 
 | 事件 | 什么时候 | `_data.kind` |
 | --- | --- | --- |
-| `message-created` | 有人往会话里发了话（网页、别的应用的登录、主机的 `ir`；`message.id` 同 `message.create` 回的） | `user` |
-| `message-created` | agent 回合中间说的话（下一段来了才发） | `progress` |
-| `message-created` | 回合最后一段话 | `reply` |
+| `message-created` | 有人往会话里发了话（网页、别的应用的登录、主机的 `ir`；`message.id` 同 `message.create` 回的）；主机终端里直接对 agent 打的话，读记录时补进来（作者 `terminal`） | `user` |
+| `message-created` | agent 回合中间说的话（下一段来了才发）；agent 用 `ir` 在频道里发的话 | `progress` |
+| `message-created` | 回合最后一段话；订阅来的 agent 回合结束时替它说进频道的那句 | `reply` |
 | `message-created` | 提问、审批、计划 | `ask` |
 | `message-created` | agent 进程出错 | `error` |
 | `message-created` | Iridium 自己的一行（没转交、没送达） | `note` |
@@ -131,5 +131,4 @@ Koishi 的 `koishi.yml`：`adapter-satori` 的 `endpoint` 是打印出的地址�
 
 ## 还没做
 
-- 主机终端里直接打的话（不经 Iridium）没有 `user`，也不发 `message-created`。
 - 提问多选时按到一半的按钮只在内存里，重启后要从头按。

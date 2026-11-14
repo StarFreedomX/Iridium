@@ -8,7 +8,7 @@ import "encoding/json"
 // called by, in every channel (@nick); Status, its lamp; Cwd, Machine, where it runs. Recv: an
 // agent's "all" (what people say) or "at" (only what names it); a person's "all" or "mine".
 // Send: how an agent speaks in the channel: "direct" (its turns are said there: the channel is
-// its own) or "ir" (only what it sends with ir). Seen: the number of the last message the agent
+// its own) or "ir" (what it sends with ir, and its turn's reply, said there for it). Seen: the number of the last message the agent
 // was given.
 type ChannelMember struct {
 	Member  string `json:"member"`
@@ -24,8 +24,8 @@ type ChannelMember struct {
 	Machine string `json:"machine,omitempty"`
 }
 
-// ChannelMembers are a channel's members: Channel, its id; Multi, it has more than one agent
-// (people call them by @nick; an agent then gets only what it is given).
+// ChannelMembers are a channel's members: Channel, its id; Multi, it has more than one agent or
+// is no session's (people call its agents by @nick; an agent then gets only what it is given).
 type ChannelMembers struct {
 	Channel string          `json:"channel"`
 	Multi   bool            `json:"multi"`
@@ -88,8 +88,10 @@ type Spawned struct {
 }
 
 // ChannelSetup is who a new session's channel has beside its own agent. Agents: more agents,
-// each a session of its own (NewMember). People: who may speak in it ("*" everyone, "<app>/*",
-// "<app>/<login>"); none: everyone. The one who makes it is always one of them.
+// each a session of its own (NewMember), in it by a subscription: called by what names it, its
+// turn's reply said there for it. People: who may speak in it ("*" everyone, "<app>/*",
+// "<app>/<login>"); none: the panel's logins and the host's. The one who makes it is always
+// one of them.
 type ChannelSetup struct {
 	Agents []NewMember `json:"agents,omitempty"`
 	People []string    `json:"people,omitempty"`

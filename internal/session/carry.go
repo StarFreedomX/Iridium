@@ -84,6 +84,16 @@ func (m *Manager) speaks(session, channel string) bool {
 	return false
 }
 
+// SetCleared has f told when a session is cleared: old, and the session that goes on in its
+// place (Clear, clearedInside), before old goes to the archive.
+func (m *Manager) SetCleared(f func(old, next string)) { m.cleared.Store(&f) }
+
+func (m *Manager) tellCleared(old, next string) {
+	if f := m.cleared.Load(); f != nil && old != next {
+		(*f)(old, next)
+	}
+}
+
 // SetSpawned has f say where a session was started, if for a channel; List marks them with it.
 func (m *Manager) SetSpawned(f func(id string) *api.Spawned) { m.spawned.Store(&f) }
 

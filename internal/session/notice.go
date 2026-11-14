@@ -15,6 +15,9 @@ const (
 	NoticeError     NoticeKind = "error"    // the agent process ended badly: Text says how
 	NoticeStatus    NoticeKind = "status"   // the lamp changed to Status
 	NoticeCompacted NoticeKind = "compacted"
+	// NoticeEnded: the agent process ended while a turn ran and the turn is not run again (a stop,
+	// a crash not continued): no turn_end follows. Waiting as at a turn's end.
+	NoticeEnded NoticeKind = "ended"
 )
 
 // Notice is one thing that happened in a session, live (never from a replay).
@@ -31,6 +34,9 @@ type Notice struct {
 	Asked bool
 	// Denied: at a turn's end, how many of its calls auto mode denied.
 	Denied int
+	// Waiting, at a turn's end: the inputs that still wait in the queue, which the turn did not
+	// take (what was given before it ended and is not among them, it took).
+	Waiting []string
 	// From, on a turn's start and an ask: the terminal that began the turn; Via, the session whose
 	// agent sent the message that began it (ir send, ir new), if one did.
 	From, Via string

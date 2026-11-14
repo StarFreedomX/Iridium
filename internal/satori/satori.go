@@ -121,6 +121,10 @@ type Backend interface {
 	MarkFolder(c Caller, path string, p api.FolderPatch) error
 	// EditQueued changes the text of input of session id while it waits in the queue; nil drops it.
 	EditQueued(c Caller, id, input string, text *string) error
+	// EditGiven changes message seq of channel ch (its words were old) where it waits in the
+	// queues of the agents it was given to, each under an input of its own (a channel of several
+	// agents, or of none of its own); nil takes it back. How many queues had it.
+	EditGiven(c Caller, ch string, seq int64, old string, text *string) (int, error)
 	// Answer answers an ask's card as c.
 	Answer(ctx context.Context, c Caller, a api.CardAnswer) error
 	// Press gives button id, attached to session sid's page from source from, pressed by c, back
@@ -167,7 +171,7 @@ type Service struct {
 	log *channel.Service // what was said in the channels (Channels)
 	// onSaid is told each message an agent said, as it is sent out (OnSaid).
 	onSaid    func(channel.Message)
-	onTurnEnd func(session, reply string)
+	onTurnEnd func(session, reply string, waiting []string)
 
 	mu      sync.Mutex
 	held    map[string]channel.Message  // session: the agent's last message this turn, not sent yet
@@ -183,8 +187,9 @@ type Service struct {
 func (s *Service) OnSaid(f func(channel.Message)) { s.onSaid = f }
 
 // OnTurnEnd has f told each turn of a session that ends, after its reply was said: the
-// session, and the reply's words ("" if it said none).
-func (s *Service) OnTurnEnd(f func(session, reply string)) { s.onTurnEnd = f }
+// session, the reply's words ("" if it said none), and the inputs that still wait in its queue
+// (session.Notice.Waiting). A turn cut short by its process ending is told too, with no reply.
+func (s *Service) OnTurnEnd(f func(session, reply string, waiting []string)) { s.onTurnEnd = f }
 
 // Note writes a line of Iridium's own into channel ch and tells those who see it (_data.kind
 // "note"). ev: what it tells of, for a page to say in its own words (the message's _data.event).

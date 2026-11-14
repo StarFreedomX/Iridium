@@ -2,6 +2,7 @@ package satori
 
 import (
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -89,15 +90,24 @@ func AtWords(text string, nick func(session string) string) string {
 			if len(els) != 1 || els[0].Type != "at" {
 				return tag
 			}
-			e := els[0]
-			if id, ok := store.SessionOfMember(e.Attr("id")); ok && nick != nil {
-				if n := nick(id); n != "" {
-					return "@" + n
-				}
-			}
-			return Plain(els, nil)
+			return Plain([]Element{atNick(els[0], nick)}, nil)
 		})
 	})
+}
+
+// atNick is e, if it is an <at> of an agent (id "agent:<session>") that nick knows, named by
+// that nick: as text it is then "@nick". The one place an <at> becomes a nick, for the
+// elements of a message (atNicks) and for those written in its words (AtWords).
+func atNick(e Element, nick func(session string) string) Element {
+	if e.Type != "at" || nick == nil {
+		return e
+	}
+	if id, ok := store.SessionOfMember(e.Attr("id")); ok {
+		if n := nick(id); n != "" {
+			e.Attrs = append([]Attr{{Key: "name", Value: n}}, slices.DeleteFunc(slices.Clone(e.Attrs), func(a Attr) bool { return a.Key == "name" })...)
+		}
+	}
+	return e
 }
 
 // outsideCode applies f to the parts of Markdown text outside fenced blocks and inline code.

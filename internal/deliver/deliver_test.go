@@ -35,33 +35,27 @@ func TestRoute(t *testing.T) {
 	agents := []Agent{{"s1", "claude", true}, {"s2", "codex", false}, {"s3", "pi", true}}
 	wake := func(d Decision) string { return strings.Join(d.Wake, " ") }
 	// A person: whoever is named; nobody named, those that receive everything.
-	if d := Route("hello", "", 0, agents); wake(d) != "s1 s3" {
+	if d := Route("hello", "", agents); wake(d) != "s1 s3" {
 		t.Errorf("a person, nobody named: %+v", d)
 	}
-	if d := Route("@codex hello", "", 0, agents); wake(d) != "s2" || len(d.Named) != 1 {
+	if d := Route("@codex hello", "", agents); wake(d) != "s2" || len(d.Named) != 1 {
 		t.Errorf("a person naming one: %+v", d)
 	}
 	// An agent: only whom it names, never itself, never by merely speaking.
-	if d := Route("done", "s1", 0, agents); wake(d) != "" {
+	if d := Route("done", "s1", agents); wake(d) != "" {
 		t.Errorf("an agent speaking: %+v", d)
 	}
-	if d := Route("@codex and @claude", "s1", 1, agents); wake(d) != "s2" {
+	if d := Route("@codex and @claude", "s1", agents); wake(d) != "s2" {
 		t.Errorf("an agent naming: %+v", d)
 	}
-	if d := Route("@codex go on", "s1", MaxHops, agents); !d.TooFar || wake(d) != "" {
-		t.Errorf("too far: %+v", d)
-	}
-	if d := Route("no names", "s1", MaxHops, agents); d.TooFar {
-		t.Errorf("too far without a name: %+v", d)
-	}
 	// @全体成员 and @全体Agent: every agent but the one speaking, as if each were named.
-	if d := Route("@全体成员 look", "", 0, agents); wake(d) != "s1 s2 s3" || len(d.Named) != 3 {
+	if d := Route("@全体成员 look", "", agents); wake(d) != "s1 s2 s3" || len(d.Named) != 3 {
 		t.Errorf("a person to all: %+v", d)
 	}
-	if d := Route("@全体agent look", "s1", 0, agents); wake(d) != "s2 s3" {
+	if d := Route("@全体agent look", "s1", agents); wake(d) != "s2 s3" {
 		t.Errorf("an agent to all agents: %+v", d)
 	}
-	if d := Route("`@全体成员`", "", 0, agents); wake(d) != "s1 s3" {
+	if d := Route("`@全体成员`", "", agents); wake(d) != "s1 s3" {
 		t.Errorf("in code: %+v", d)
 	}
 	if ValidNick("全体成员") || ValidNick("全体AGENT") {

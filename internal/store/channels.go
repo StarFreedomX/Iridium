@@ -10,8 +10,8 @@ import (
 	"github.com/kumoSleeping/iridium/internal/search"
 )
 
-// Channels (docs/channels.md): a channel is where people and agents talk; its id is the id of the
-// session it began as. It keeps what was said, each message under its number (seq, from 1, never
+// Channels (docs/channels.md): a channel is where people and agents talk; a session's own has
+// the session's id, one that is no session's an id of its own (channels). It keeps what was said, each message under its number (seq, from 1, never
 // reused), and who is in it. An agent's own record (its thinking, its tool calls) is not here:
 // only what it said, read in from that record up to channel_sync's offset.
 const channelsSchema = `CREATE TABLE IF NOT EXISTS channel_members (
@@ -51,7 +51,8 @@ const channelsSchema = `CREATE TABLE IF NOT EXISTS channel_members (
 // login "<app>/<login>", all of an app's "<app>/*", or everyone "*". Recv: what wakes an agent
 // ("all": what people say; "at": only what names it), what a person is shown ("all", "mine").
 // Send: how an agent speaks there: "direct", what it says in its turn is the channel's (its own
-// channel, at most one); "ir", only what it sends with ir. Seen: the number of the last message
+// channel, at most one); "ir", what it sends with ir, and its turn's reply, said there for it
+// when it was called there. Seen: the number of the last message
 // it has been given (an agent) or has read (a person).
 type ChannelMember struct {
 	Channel string
@@ -71,8 +72,7 @@ const (
 // ChannelMessage is one message of a channel. Kind: "user" (a person's), "said" (an agent's
 // words), "ask", "error", "note" (Iridium's own line). Data: JSON, the kind's own (files, who is
 // named, the activity). Ref: where it is from, unique in the channel: an input's id, a block of
-// an agent's record "b:<session>:<at>", an ask's card. Origin: who began the chain it is in; Hop:
-// how many agents passed it on since.
+// an agent's record "b:<session>:<at>", an ask's card. Origin: who began the chain it is in.
 type ChannelMessage struct {
 	Channel string
 	Seq     int64
@@ -83,7 +83,6 @@ type ChannelMessage struct {
 	Data    string
 	Ref     string
 	Origin  string
-	Hop     int
 	At      int64
 	Edited  int64
 	Gone    bool
@@ -93,7 +92,8 @@ const messageCols = `channel, seq, author, name, kind, text, data, ref, origin, 
 
 func scanMessage(r interface{ Scan(...any) error }) (ChannelMessage, error) {
 	var m ChannelMessage
-	err := r.Scan(&m.Channel, &m.Seq, &m.Author, &m.Name, &m.Kind, &m.Text, &m.Data, &m.Ref, &m.Origin, &m.Hop, &m.At, &m.Edited, &m.Gone)
+	var hop int // a column nothing writes any more
+	err := r.Scan(&m.Channel, &m.Seq, &m.Author, &m.Name, &m.Kind, &m.Text, &m.Data, &m.Ref, &m.Origin, &hop, &m.At, &m.Edited, &m.Gone)
 	return m, err
 }
 
@@ -121,7 +121,7 @@ func (s *Store) AddChannelMessage(m ChannelMessage) (seq int64, added bool, err 
 		return 0, false, err
 	}
 	res, err := tx.Exec(`INSERT INTO channel_messages (`+messageCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)`,
-		m.Channel, seq, m.Author, m.Name, m.Kind, m.Text, m.Data, m.Ref, m.Origin, m.Hop, m.At)
+		m.Channel, seq, m.Author, m.Name, m.Kind, m.Text, m.Data, m.Ref, m.Origin, 0, m.At)
 	if err != nil {
 		return 0, false, err
 	}
@@ -424,6 +424,40 @@ func (s *Store) SetChannelSeen(channel, member string, seq int64) error {
 	return err
 }
 
+// MoveAgent makes what was session old's the session next's, which goes on in its place (a
+// session cleared): the members of old's own channel (each as having read nothing of the new
+// one), old's place in the channels it is in, its nick, its face and where it was started
+// (kept under "spawned:").
+func (s *Store) MoveAgent(old, next string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, q := range []struct {
+		q    string
+		args []any
+	}{
+		{`UPDATE OR REPLACE channel_members SET channel = ?, seen = 0 WHERE channel = ?`, []any{next, old}},
+		{`UPDATE OR REPLACE channel_members SET member = ? WHERE member = ?`, []any{AgentMember(next), AgentMember(old)}},
+		{`UPDATE OR REPLACE agent_nicks SET session = ? WHERE session = ?`, []any{next, old}},
+		{`UPDATE OR REPLACE avatars SET key = ? WHERE key = ?`, []any{"c:" + next, "c:" + old}},
+		{`UPDATE OR REPLACE meta SET key = ? WHERE key = ?`, []any{"spawned:" + next, "spawned:" + old}},
+	} {
+		if _, err := tx.Exec(q.q, q.args...); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// RewindChannelSeen moves member's read position in channel back to seq, if it is past it:
+// what it was to be given after that was taken back.
+func (s *Store) RewindChannelSeen(channel, member string, seq int64) error {
+	_, err := s.db.Exec(`UPDATE channel_members SET seen = MIN(seen, ?) WHERE channel = ? AND member = ?`, seq, channel, member)
+	return err
+}
+
 // ---- how far people have read ----
 
 // ChannelRead is how far Reader (a login, "<app>/<login>"), who goes by Name, has read Channel:
@@ -682,6 +716,12 @@ func (s *Store) AddInjection(in Injection) error {
 	return err
 }
 
+// RemoveInjection drops what session was to be given as input: it was not given.
+func (s *Store) RemoveInjection(session, input string) error {
+	_, err := s.db.Exec(`DELETE FROM injections WHERE session = ? AND input = ?`, session, input)
+	return err
+}
+
 // Injections are session's latest limit injections, newest first.
 func (s *Store) Injections(session string, limit int) ([]Injection, error) {
 	if limit <= 0 || limit > InjectionsKept {
@@ -710,6 +750,24 @@ func (s *Store) Kept(key string) string {
 	var v string
 	_ = s.db.QueryRow(`SELECT value FROM meta WHERE key = ?`, key).Scan(&v)
 	return v
+}
+
+// KeptUnder is what is kept under the keys that begin with prefix, by key.
+func (s *Store) KeptUnder(prefix string) (map[string]string, error) {
+	rows, err := s.db.Query(`SELECT key, value FROM meta WHERE substr(key, 1, ?) = ?`, len(prefix), prefix)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]string{}
+	for rows.Next() {
+		var k, v string
+		if err := rows.Scan(&k, &v); err != nil {
+			return nil, err
+		}
+		out[k] = v
+	}
+	return out, rows.Err()
 }
 
 // Keep keeps value under key, in place of what was there.

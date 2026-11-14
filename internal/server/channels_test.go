@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/kumoSleeping/iridium/internal/api"
+	"github.com/kumoSleeping/iridium/internal/deliver"
 	"github.com/kumoSleeping/iridium/internal/satori"
 )
 
@@ -176,12 +177,12 @@ func TestChannelOfSeveral(t *testing.T) {
 		t.Errorf("injections: %+v", ins)
 	}
 
-	// How far each has read: the channel's own agent all of it, the second what it was given
-	// (and its reply, said for it);
-	// a person as they say, never back, and not an agent by hand.
+	// How far each has read: the channel's own agent what it was given and said (not the
+	// message that named the second, though it takes all that names nobody), the second what
+	// it was given; a person as they say, never back, and not an agent by hand.
 	var reads api.ChannelReads
 	l.want(200, "web", "GET", "/v1/internal/channels/"+ch+"/reads", nil, &reads)
-	if reads.End < r.Seq || len(reads.Readers) != 2 || reads.Readers[0].Member != "agent:"+ch || reads.Readers[0].Seq != reads.End ||
+	if reads.End < r.Seq || len(reads.Readers) != 2 || reads.Readers[0].Member != "agent:"+ch || reads.Readers[0].Seq < 1 || reads.Readers[0].Seq >= r.Seq ||
 		reads.Readers[1].Nick != "claude2" || reads.Readers[1].Seq < r.Seq || reads.Readers[1].Name == "" {
 		t.Errorf("reads: %+v, the message named %d", reads, r.Seq)
 	}
@@ -252,7 +253,11 @@ func TestChannelOfSeveral(t *testing.T) {
 	l.wantSat(422, "web", "guild.member.get", map[string]any{"guild_id": "loose", "user_id": "agent:nobody"}, nil)
 	l.wantSat(400, "web", "guild.member.list", map[string]any{}, nil)
 
-	// Its record in outline: a turn a line, the channel's message by its words alone.
+	// Its record in outline: a turn a line, the channel's message by its words alone. Once its
+	// turns have settled (what it said with ir woke the first, whose echo may call it back):
+	// the outline's end is then the record's.
+	l.idle(ch)
+	l.idle(second)
 	var outline api.Outline
 	l.wantSat(200, "agent-in:"+ch, "internal/block.outline", map[string]any{"channel_id": second}, &outline)
 	if len(outline.Turns) < 1 || !strings.HasPrefix(outline.Turns[0].Asked, fmt.Sprintf("#%d: now @claude2 look", r.Seq)) || strings.Contains(outline.Turns[0].Asked, "channel-context") ||
@@ -612,16 +617,36 @@ func TestChannelSendCheckAndFollows(t *testing.T) {
 	l.send("web", ch, api.Send{Text: "@kid begin (say nothing)"})
 	l.waitSaid("web", ch, "iridium", "@kid 被叫起", "未在频道发话")
 	l.waitSaid("web", ch, "@claude ", "kid, which you started, was called in the channel")
-	for i := range 7 {
+	// Kin pass a message on to each other further than other agents, not without end: the
+	// fake agents echo what names the other, until MaxKinHops passes in a row; then ir is refused.
+	stopped := false
+	for i := range 2 * MaxKinHops {
 		words := fmt.Sprintf("@claude tell @kid turn%d", i)
 		code, _, raw := say("agent-in:"+kid, ch, words)
 		if code == 409 { // something on its way to it names it: read, again
 			code, _, raw = say("agent-in:"+kid, ch, words)
 		}
-		if code != 200 {
+		if code == 400 && strings.Contains(raw, fmt.Sprint(MaxKinHops)) {
+			stopped = true
+			break
+		}
+		if code != 200 && code != 409 {
 			t.Fatalf("kin, turn %d: %d %s", i, code, raw)
 		}
-		l.waitSaid("web", kid, fmt.Sprintf("turn%d", i), "ok: #")
+		if i < deliver.MaxHops && code != 200 {
+			t.Fatalf("kin stopped as agents that are not: turn %d: %d %s", i, code, raw)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if !stopped {
+		t.Errorf("kin went on passing it")
+	}
+	// A person speaking begins anew.
+	if code, _ := l.send("web", ch, api.Send{Text: "@kid again (say nothing)"}); code != 200 {
+		t.Fatalf("a person after kin stopped: %d", code)
+	}
+	if code, _, raw := say("agent-in:"+kid, ch, "fine"); code != 200 && code != 409 {
+		t.Errorf("kin after a person spoke: %d %s", code, raw)
 	}
 }
 
@@ -672,6 +697,11 @@ func TestChannelQuoteAndAll(t *testing.T) {
 	var ms api.ChannelMembers
 	l.want(200, "web", "POST", "/v1/internal/channels/"+ch+"/members", api.NewMember{Agent: api.AgentClaude}, &ms)
 	second := ms.Members[len(ms.Members)-1].Session
+	// A turn of its own first: what it runs as (its name in the standing words) is known by then.
+	if code, _ := l.send("web", second, api.Send{Text: "settle"}); code != 200 {
+		t.Fatalf("send to the second: %d", code)
+	}
+	l.waitReply("web", second, "ok: settle")
 
 	// The second speaks with ir; a person answers it without naming it.
 	var sent []satori.Message
@@ -764,7 +794,7 @@ func TestDirect(t *testing.T) {
 	}
 	var ms api.ChannelMembers
 	l.want(200, "socket", "GET", "/v1/internal/channels/"+a.Channel+"/members", nil, &ms)
-	if len(ms.Members) != 2 || ms.Multi || ms.Members[0].Member == ms.Members[1].Member {
+	if len(ms.Members) != 2 || !ms.Multi || ms.Members[0].Member == ms.Members[1].Member {
 		t.Errorf("members: %+v", ms)
 	}
 	if code := l.asLogin(bot, "", "POST", "/v1/internal/dm", map[string]string{"user": "nobody"}, nil); code != 422 {
@@ -777,16 +807,17 @@ func TestDirect(t *testing.T) {
 func TestCallsKept(t *testing.T) {
 	t.Parallel()
 	l := start(t)
+	any := func(called) bool { return true }
 	l.s.calls.add("s1", called{Channel: "c1", Seq: 4, From: 10})
 	again := calls{st: l.s.st}
 	if from := again.spoke("s1", "c1", 20); from != 10 {
 		t.Errorf("spoke after a restart: from %d", from)
 	}
 	fresh := calls{st: l.s.st}
-	if got := fresh.take("s1"); len(got) != 1 || !got[0].Spoke || got[0].From != 20 {
+	if got := fresh.take("s1", any); len(got) != 1 || !got[0].Spoke || got[0].From != 20 {
 		t.Errorf("taken: %+v", got)
 	}
-	if got := (&calls{st: l.s.st}).take("s1"); len(got) != 0 {
+	if got := (&calls{st: l.s.st}).take("s1", any); len(got) != 0 {
 		t.Errorf("taken twice: %+v", got)
 	}
 }

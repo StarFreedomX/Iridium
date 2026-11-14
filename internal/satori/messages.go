@@ -10,8 +10,6 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
-
-	"github.com/kumoSleeping/iridium/internal/store"
 	"strconv"
 	"strings"
 
@@ -650,11 +648,22 @@ func (s *Service) queued(c Caller, channel, id string, text *string) (any, error
 	if logged && m.Kind == channel_.KindUser && m.Ref != "" {
 		id = m.Ref
 	}
-	if !slices.ContainsFunc(st.Queue, func(q api.Queued) bool { return q.ID == id }) {
-		return nil, refuse(http.StatusUnprocessableEntity, "no_such_message", "not waiting in the queue: "+id)
-	}
-	if err := s.b.EditQueued(c, st.ID, id, text); err != nil {
-		return nil, err
+	if slices.ContainsFunc(st.Queue, func(q api.Queued) bool { return q.ID == id }) {
+		if err := s.b.EditQueued(c, st.ID, id, text); err != nil {
+			return nil, err
+		}
+	} else {
+		// Said in a channel and given to the agents it woke, each under an input of its own:
+		// changed where it still waits.
+		n := 0
+		if logged && (m.Kind == channel_.KindUser || m.D.Sent) {
+			if n, err = s.b.EditGiven(c, ch, m.Seq, m.Text, text); err != nil {
+				return nil, err
+			}
+		}
+		if n == 0 {
+			return nil, refuse(http.StatusUnprocessableEntity, "no_such_message", "not waiting in the queue: "+id)
+		}
 	}
 	if logged {
 		if text != nil {
@@ -669,23 +678,17 @@ func (s *Service) queued(c Caller, channel, id string, text *string) (any, error
 	return struct{}{}, nil
 }
 
-// atNicks is els with each <at id="agent:<session>"/> named by the agent's nick: as text it is
-// then "@nick", which is how a channel's agents are called (docs/channels.md "叫起谁"). So an
-// app that names a member the way Satori has it (the user's id) calls it as one who types the
-// nick does.
+// atNicks is els with each <at id="agent:<session>"/> named by the agent's nick (atNick): as
+// text it is then "@nick", which is how a channel's agents are called (docs/channels.md
+// "叫起谁"). So an app that names a member the way Satori has it (the user's id) calls it as
+// one who types the nick does.
 func (s *Service) atNicks(els []Element) []Element {
 	if s.log == nil {
 		return els
 	}
 	out := make([]Element, len(els))
 	for i, e := range els {
-		if e.Type == "at" {
-			if id, ok := store.SessionOfMember(e.Attr("id")); ok {
-				if nick := s.log.Nick(id); nick != "" {
-					e.Attrs = append([]Attr{{Key: "name", Value: nick}}, slices.DeleteFunc(slices.Clone(e.Attrs), func(a Attr) bool { return a.Key == "name" })...)
-				}
-			}
-		}
+		e = atNick(e, s.log.Nick)
 		if len(e.Children) > 0 {
 			e.Children = s.atNicks(e.Children)
 		}
