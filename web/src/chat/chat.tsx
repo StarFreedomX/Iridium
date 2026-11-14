@@ -4,7 +4,7 @@
 // from the transcript (GET messages, after= what the open session's state says was written); its
 // drafts from the stream. Loaded only once a chat opens or the page is idle.
 import { Menu } from "@base-ui/react/menu";
-import { ArrowLeft, BarChart3, Ellipsis, Globe, ListTree, Plus, Settings } from "lucide-react";
+import { ArrowLeft, BarChart3, Ellipsis, FolderOpen, Globe, ListTree, Plus, Settings } from "lucide-react";
 import type { Block, Status } from "../api/types.gen";
 import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type DragEvent, type ReactNode } from "react";
 import type { SessionState as LiveSession } from "../api/types.gen";
@@ -21,7 +21,7 @@ import { PULL } from "../sheet";
 import { MenuItems, Rename, sessionActions, sessionTags } from "../sidebar";
 import { useConfirms, useList, useSession } from "../store";
 import { drafts, opened } from "../stream";
-import { errText } from "../toast";
+import { errText, toast } from "../toast";
 import { groupPath } from "../tree";
 import { agentName, cn, Lamp, lampOf, LogoLamp, LogoStack, sessionStatusText, tilde, Tip, titleOf, untitled } from "../ui";
 import { givenTurn, isMulti, type AgentRow, type GivenTurn } from "./channel/lib";
@@ -535,8 +535,8 @@ function useWaited(ready: boolean, ms: number): boolean {
   return ready || over;
 }
 
-/** The top bar: the logo with its lamp, the name (its folder only as its tooltip, the user,
- *  2026-11-08); more. The link's dot is the bar's own, left of ⋯ (link.tsx). Under them, while
+/** The top bar: the logo with its lamp, the name (its folder is ⋯'s first row, which copies it);
+ *  more. The link's dot is the bar's own, left of ⋯ (link.tsx). Under them, while
  *  there are any, the places it works in (spots, Where). */
 /** back: the channel this one is an agent of (shown by itself), a key under the title to go
  *  there. children: a channel of several's row of members, under the title (chat/channel). */
@@ -559,8 +559,11 @@ function Bar({ s, onSheet, onMe, spots, asked, back }: { s?: Session; onSheet?: 
     const b = more.current?.getBoundingClientRect();
     openUsage(b && { x: b.right, y: b.bottom + 6, end: true }, s?.machine);
   };
-  // ⋯'s items: making, the sheet and 我 on a phone, usage; then the session's own.
-  const lead = [{ icon: <Plus size={15} />, label: t("menu.new"), run: () => requestAnimationFrame(() => setMaking(true)) }, ...(onSheet ? [{ icon: <ListTree size={15} />, label: t("nav.sidebar"), run: onSheet }] : []), ...(onMe ? [{ icon: <Settings size={15} />, label: t("nav.me"), run: onMe }] : []), { icon: <BarChart3 size={15} />, label: t("usage.title"), run: usageHere }];
+  // Its folder, ⋯'s first row (not the title's tooltip: a phone has no hover); pressed, copied.
+  const folder = s ? (s.machine ? shownPath(groupPath(s), machines).real : tilde(s.cwd)) : "";
+  const where = folder ? [{ icon: <FolderOpen size={15} />, label: folder, run: () => void navigator.clipboard.writeText(folder).then(() => toast(t("toast.copied")), () => {}) }] : [];
+  // ⋯'s items: its folder; making, the sheet and 我 on a phone, usage; then the session's own.
+  const lead = [...where, { icon: <Plus size={15} />, label: t("menu.new"), run: () => requestAnimationFrame(() => setMaking(true)) }, ...(onSheet ? [{ icon: <ListTree size={15} />, label: t("nav.sidebar"), run: onSheet }] : []), ...(onMe ? [{ icon: <Settings size={15} />, label: t("nav.me"), run: onMe }] : []), { icon: <BarChart3 size={15} />, label: t("usage.title"), run: usageHere }];
   const acts = s ? [...sessionActions(s, () => setRenaming(true)), { icon: <Globe size={15} />, label: t("public.menu"), run: () => requestAnimationFrame(() => setPublicOpen(true)) }] : [];
   return (
     <header className="g-turn-stay vt-bar glass absolute inset-x-0 top-0 z-20 shadow-[0_0.5px_0_var(--edge)]">
@@ -585,7 +588,7 @@ function Bar({ s, onSheet, onMe, spots, asked, back }: { s?: Session; onSheet?: 
                   <Rename s={s} done={() => setRenaming(false)} className="h-7 font-semibold" />
                 </span>
               ) : (
-                <h1 className={cn("m-0 min-w-0 truncate text-base font-semibold", late, untitled(s) && "text-ink-3")} title={s.machine ? shownPath(groupPath(s), machines).real : tilde(s.cwd)} onDoubleClick={() => setRenaming(true)}>
+                <h1 className={cn("m-0 min-w-0 truncate text-base font-semibold", late, untitled(s) && "text-ink-3")} onDoubleClick={() => setRenaming(true)}>
                   {titleOf(s)}
                 </h1>
               )}

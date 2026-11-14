@@ -1291,11 +1291,11 @@ export function MenuItems({ lead = [], items, tags, children, foot }: { lead?: M
   const item = (it: MenuItem, i: number) => (
     <Menu.Item key={it.label} onClick={it.run} style={{ "--i": i } as CSSProperties} className="flex h-8 cursor-default items-center gap-2.5 rounded-md px-2.5 text-base outline-none select-none data-highlighted:bg-fill pointer-coarse:h-11">
       <span className="text-ink-2">{it.icon}</span>
-      {it.label}
+      <span className="min-w-0 truncate">{it.label}</span>
     </Menu.Item>
   );
   return (
-    <Menu.Popup finalFocus={false} className="g-unfold glass thick float min-w-48 rounded-lg p-1.5 text-ink outline-none">
+    <Menu.Popup finalFocus={false} className="g-unfold glass thick float max-w-[calc(100vw-16px)] min-w-48 rounded-lg p-1.5 text-ink outline-none">
       <div className="g-stagger flex flex-col">
         {lead.map(item)}
         {children}
