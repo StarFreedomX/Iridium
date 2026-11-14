@@ -55,7 +55,7 @@ import { placesIn, PLACE_DRAG, SESSION_DRAG, sourceOf, yours } from "./refs";
 import { placeDropped, type NamedPlace } from "./at";
 import { PlaceIcon, placeOf } from "./mention";
 import { spotsOf, type Spot } from "./where";
-import { Compaction, Pending, Relayed, Running, Said } from "./said";
+import { Compaction, Pending, Relayed, Running, Said, When } from "./said";
 import { turnsOf, type Row } from "./turns";
 import { Stick, toEnd } from "./stick";
 import { VoiceDock } from "../voice/dock";
@@ -343,6 +343,9 @@ function OneChat({ id, sheet = 0, onSheet, onMe, back }: { id: string; sheet?: n
     const src = source(b);
     return <PersonCard user={user} name={b.from || user} avatar={src.kind === "you" ? src.avatar : undefined} call={may ? (name) => composer.current?.insert(`@${name}`) : undefined} />;
   };
+  // When each of the agent's rows was written: its turn's head says the first's.
+  const times = new Map<string, number>();
+  const began = (rs: { key: string }[]) => rs.map((r) => times.get(r.key)).find(Boolean);
   const rows: Row<ReactNode, Works>[] = (busy ? shown.filter((b) => b.kind !== "running") : shown).map((b) => {
     // A call from another channel it is in (chat/channel/lib givenTurn): Iridium's message on
     // the left, what follows its work there (Relayed).
@@ -350,6 +353,7 @@ function OneChat({ id, sheet = 0, onSheet, onMe, back }: { id: string; sheet?: n
     const relay = b.kind === "user" ? relays.get(b) : undefined;
     const given: GivenTurn | null = relay ? { seq: relay.seq, words: relay.msgs.at(-1)?.text ?? "", context: relay.context, ...(relay.channel !== id ? { channel: { id: relay.channel, name: relay.name } } : {}) } : b.kind === "user" ? givenTurn(b.text ?? "") : null;
     const time = b.kind === "user" ? b.time : undefined;
+    if (b.kind !== "user" && "time" in b && b.time) times.set(b.at, b.time);
     return {
       key: b.at,
       agent: b.kind === "assistant" || b.kind === "fold" || b.kind === "running",
@@ -405,13 +409,13 @@ function OneChat({ id, sheet = 0, onSheet, onMe, back }: { id: string; sheet?: n
             x.kind === "one" ? (
               x.node
             ) : x.kind === "agent" ? (
-              <AgentTurn key={x.key} channel={id} a={i === turns.length - 1 ? face : resting} may={may} bars={bars(i === ctxTurn)} talk={talk}>
+              <AgentTurn key={x.key} channel={id} a={i === turns.length - 1 ? face : resting} may={may} bars={bars(i === ctxTurn)} talk={talk} time={began(x.rows)}>
                 {x.rows.map((r) => r.node)}
               </AgentTurn>
             ) : (
               <Relayed key={x.key} given={x.works.given} relay={x.works.relay} name={nameOf(x.works.given)} time={x.works.time} onJump={openChat}>
                 {x.rows.length > 0 && (
-                  <AgentTurn channel={id} a={resting} may={may} bars={bars(i === ctxTurn)} talk={talk}>
+                  <AgentTurn channel={id} a={resting} may={may} bars={bars(i === ctxTurn)} talk={talk} time={began(x.rows)}>
                     {x.rows.map((r) => r.node)}
                   </AgentTurn>
                 )}
@@ -726,7 +730,7 @@ type Works = { given: GivenTurn; relay?: Relay; time?: number };
  *  it runs as over the rest, as in a channel of several (chat/channel/page GroupView). */
 /** bars: its usage, after its model's name (the user, 2026-11-13: as the composer's foot had it,
  *  as small as a phone's). */
-function AgentTurn({ channel, a, may, bars, talk, children }: { channel: string; a: AgentRow; may: boolean; bars?: ReactNode; talk?: () => void; children: ReactNode }) {
+function AgentTurn({ channel, a, may, bars, talk, time, children }: { channel: string; a: AgentRow; may: boolean; bars?: ReactNode; talk?: () => void; time?: number; children: ReactNode }) {
   return (
     <div className="flex min-w-0 items-start gap-2.5">
       <AgentFace channel={channel} a={a} may={may} talk={talk} />
@@ -735,6 +739,7 @@ function AgentTurn({ channel, a, may, bars, talk, children }: { channel: string;
           {a.nick && <span className="shrink-0 text-xs font-medium text-ink-2">{a.nick}</span>}
           <span className={cn("min-w-0 truncate text-xs", a.nick ? "text-ink-4" : "font-medium text-ink-2")}>{a.name}</span>
           {bars}
+          <When time={time} />
         </div>
         {children}
       </div>
