@@ -1,8 +1,8 @@
 // A channel of several agents (docs/channels.md), what the page reads of it, pure for tests: its
 // messages as the log gives them (Satori's message.list: only what was said), grouped under their
 // speakers; the @nick that calls an agent, found in words as the server finds it
-// (internal/deliver Mentions) and put into the composer; which sessions are rows of their own; a
-// channel's lamp; the agents' quotas, one per kind.
+// (internal/deliver Mentions) and put into the composer; the agents listed under a channel's row;
+// a channel's lamp.
 import type { ChannelMessage } from "../../api/client";
 import type { Agent, FileRef, Session, Status } from "../../api/types.gen";
 import { blockOf } from "../../satori";
@@ -330,6 +330,16 @@ export function matchAgents<T extends { nick: string; name: string }>(rows: T[],
 
 /** Whether a session is a channel of several agents. */
 export const isMulti = (s?: Pick<Session, "agents">) => (s?.agents?.length ?? 0) > 1;
+
+/** The agents of s's channel beside its own (the user, 2026-11-13), as the list puts them under
+ *  its row: each a session there is (byId), not archived, not one it started (those hang there
+ *  already). They keep their own rows too, wherever those are. */
+export function invitedOf<S extends Pick<Session, "id" | "agents" | "archived">>(s: S, byId: Map<string, S>, started?: { id: string }[]): S[] {
+  return (s.agents ?? []).flatMap((a) => {
+    const x = a.session !== s.id && !started?.some((h) => h.id === a.session) ? byId.get(a.session) : undefined;
+    return x && !x.archived ? [x] : [];
+  });
+}
 
 const WORKING = new Set<Status>(["running", "compacting", "starting"]);
 

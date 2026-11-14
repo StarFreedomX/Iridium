@@ -2,7 +2,7 @@
 import { describe, expect, test } from "vitest";
 import type { ChannelMessage, ChannelPage } from "../src/api/client";
 import type { Session } from "../src/api/types.gen";
-import { eventParts, personName, type EventWords, channelLamp, givenParts, givenTurn, groupMessages, insertNick, isMulti, linkNicks, matchAgents, mayDM, merge, msgOf, ownAgent, nickOfURL, nickParts, nickSpans, readMarks, stillWaiting, userOf, validNick, watchExtra, workOf } from "../src/chat/channel/lib";
+import { eventParts, personName, type EventWords, channelLamp, givenParts, givenTurn, groupMessages, insertNick, isMulti, linkNicks, invitedOf, matchAgents, mayDM, merge, msgOf, ownAgent, nickOfURL, nickParts, nickSpans, readMarks, stillWaiting, userOf, validNick, watchExtra, workOf } from "../src/chat/channel/lib";
 import { ChannelLog } from "../src/chat/channel/log";
 import { buildTree, standing } from "../src/tree";
 
@@ -165,7 +165,15 @@ describe("who has read", () => {
 describe("the list", () => {
   const s = (id: string, more: Partial<Session> = {}): Session => ({ id, agent: "pi", cwd: "/w", status: "idle", hosted: true, live: false, updatedAt: 1, ...more }) as Session;
   const list = [s("c", { agents: [{ session: "c", nick: "pi" }, { session: "m", nick: "pi2" }], own: true }), s("m", { in: ["c"], spawned: { channel: "c" }, own: true, live: true }), s("o", { own: true })];
-  test("an agent in another's channel is a session as any: a row of its own, not hung under the channel", () => {
+  test("an invited agent is listed under its channel's row too: not its own, not one it started, not an archived one", () => {
+    const byId = new Map(list.map((x) => [x.id, x]));
+    expect(invitedOf(list[0]!, byId).map((x) => x.id)).toEqual(["m"]);
+    expect(invitedOf(list[0]!, byId, [list[1]!])).toEqual([]); // started by it: hung there already
+    expect(invitedOf(list[0]!, new Map([["m", s("m", { archived: true })]]))).toEqual([]);
+    expect(invitedOf(list[0]!, new Map())).toEqual([]); // not in the list
+    expect(invitedOf(list[2]!, byId)).toEqual([]);
+  });
+  test("an agent in another's channel is a session as any: a row of its own in the tree, hung under none (the list puts it under its channel's row besides: invitedOf)", () => {
     expect(isMulti(list[0])).toBe(true);
     expect(isMulti(list[1])).toBe(false);
     const st = standing(list);

@@ -31,7 +31,8 @@ import { PersonCard, useNamed } from "./channel/person";
 import { Nicks } from "./channel/nick";
 import { Face, pickFace } from "./channel/face";
 import { mayAct, useMembers } from "./channel/gate";
-// 群聊配置's key in the composer's foot, and the line in the composer's place for one not joined.
+// A channel's parts, fetched apart: ⋯'s 换头像 on a phone (ChannelMenu), those looking and the
+// members at the bar's right (TopRight), the line in the composer's place for one not joined.
 const ChannelMenu = lazy(() => import("./channel/top"));
 const TopRight = lazy(() => import("./channel/top").then((m) => ({ default: m.TopRight })));
 const NotJoined = lazy(() => import("./channel/key").then((m) => ({ default: m.NotJoined })));
@@ -136,7 +137,7 @@ function OneChat({ id, sheet = 0, onSheet, onMe, back }: { id: string; sheet?: n
   const terminals = useWhoList();
   const workspaces = useWorkspaces().data;
   const confirms = useConfirms();
-  // Its channel's members (docs/channels.md): their key in the composer's foot; one not of its
+  // Its channel's members (docs/channels.md; their key is at the bar's right): one not of its
   // people reads, and neither speaks nor answers.
   const members = useMembers(id);
   const may = mayAct(members);
@@ -539,7 +540,7 @@ function useWaited(ready: boolean, ms: number): boolean {
  *  more. The link's dot is the bar's own, left of ⋯ (link.tsx). Under them, while
  *  there are any, the places it works in (spots, Where). */
 /** back: the channel this one is an agent of (shown by itself), a key under the title to go
- *  there. children: a channel of several's row of members, under the title (chat/channel). */
+ *  there. */
 function Bar({ s, onSheet, onMe, spots, asked, back }: { s?: Session; onSheet?: () => void; onMe?: () => void; spots?: Spot[]; asked?: { session?: string }[]; back?: Back }) {
   const list = useList();
   // A channel of several: its agents' logos, as its row in the list has them.

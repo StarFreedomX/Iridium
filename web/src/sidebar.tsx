@@ -32,7 +32,7 @@ import { badge, isQuiet, setQuiet, useQuiet, useUnread } from "./unread";
 import { Face } from "./chat/channel/face";
 import { CloudBadge, MachineFace, shownPath, useLate, useMachine, type Machine } from "./machines";
 import { getCarried, setCarried, useCarried, useLink, useList } from "./store";
-import { channelLamp, isMulti } from "./chat/channel/lib";
+import { channelLamp, invitedOf, isMulti } from "./chat/channel/lib";
 import { VoiceDock, VoiceMark } from "./voice/dock";
 import { dropMark, dropTarget, endDrag, listDrop, pinFolder, placeFolder, placeGroup as placeGroupKey, placeSession, sortList, startDrag, useDragged, useOver, type Dragged, type Edge, type Over } from "./reorder";
 
@@ -257,14 +257,9 @@ export function Sidebar(p: Props) {
   // top: the launcher it hangs under, for one hung; its rows and those under it are that one's.
   // invited: the agents of its channel beside its own (the user, 2026-11-13): an entry each
   // under it with those it started, wherever else they are listed; archiving it leaves them be.
-  const invitedOf = (s: Session, started?: Session[]) =>
-    (s.agents ?? []).flatMap((a) => {
-      const x = a.session !== s.id && !started?.some((h) => h.id === a.session) ? byId.get(a.session) : undefined;
-      return x && !x.archived ? [x] : [];
-    });
   const row = (s: Session, depth: number, shown = false, flip = `s:${s.id}`, lane?: string, pinLine?: string, top?: string, invited = false) => {
     const started = top ? undefined : p.tree.hung.get(s.id);
-    const guests = top ? [] : invitedOf(s, started);
+    const guests = top ? [] : invitedOf(s, byId, started);
     const hung = started || guests.length ? [...(started ?? []), ...guests] : undefined;
     const open = !!hung && p.expanded(`hung:${s.id}`);
     const under = top ?? (hung ? s.id : undefined);

@@ -1,9 +1,11 @@
-// A channel of several agents (docs/channels.md), as a chat: under the title its agents (the
-// member bar); the conversation is the channel's log, only what was said (people's words as
-// bubbles, an agent's as Markdown under its logo, nick and what it runs as, Iridium's lines small
-// and centred), the newest at the bottom, paged back as you scroll up; an agent's own record
-// (its thinking, its tool calls) is its session's chat. Under it: each agent's queue and asks,
-// under its nick; a composer whose @ calls an agent; the quota of each kind of agent.
+// A channel of several agents, or of none (docs/channels.md), as a chat. Its members are a key at
+// the bar's right (top.tsx), not a row under the title. The conversation is the channel's log,
+// only what was said: your words a bubble on the right, anyone else's on the left under their
+// face; an agent's as Markdown under its face, nick and what it runs as, its usage (the
+// context's ring, the quota's bars) after that, over them its thinking and tool calls from its
+// own record; Iridium's lines small and centred. The newest at the bottom, paged back as you
+// scroll up. Under it: each agent's queue and asks, under its nick; a composer whose @ names a
+// member (agents, people, apps).
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
 import { Popover } from "@base-ui/react/popover";
 import { useQuery } from "@tanstack/react-query";
@@ -54,8 +56,8 @@ function useStates(ids: string[]): (LiveSession | undefined)[] {
   return ids.map((id) => getCarried<LiveSession>(`session:${id}`));
 }
 
-/** bar: the chat's top bar (chat.tsx Bar). The agents' quotas are at the composer's foot (the user, 2026-11-13). record: an agent's own
- *  record asked for (the channel's own session's: shown in its place). */
+/** bar: the chat's top bar (chat.tsx Bar). record: an agent's own record asked for (the
+ *  channel's own session's: shown in its place). */
 export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?: number; bar: (s: Session | undefined) => ReactNode; record: (session: string) => void }) {
   useLang();
   const list = useList();
