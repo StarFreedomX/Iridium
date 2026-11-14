@@ -18,7 +18,7 @@
 ## 成员
 
 - agent 是 `agent:<会话ID>`。人有三种写法：`*`（所有应用的所有登录）、`应用/*`（一个应用的全部登录）、`应用/登录`。
-- 人：2026-11-13 起新建的频道默认是面板的登录和主机的（`ir_web/*`、`local/*`），不带 Bot；建它的应用自己也在。新建页里可改（`channel.create` 的 `_data.members.people`）。之前的、没选过的频道是 `*`。选了人以后，没被选进来的仍然在侧栏看到、能读，但不能发消息、不能答提问和审批、不能停 agent、不能改成员（403）。主机始终在里面；频道里的 agent 也在。群里任何人都能改成员（`PUT …/people`），改的人自己留在里面。
+- 人：2026-11-13 起新建的频道默认是面板的登录和主机的（`ir_web/*`、`local/*`），不带 Bot；建它的应用自己也在。新建页里可改（`channel.create` 的 `_data.members.people`）。之前的、没选过的频道是 `*`。选了人以后，没被选进来的仍然在侧栏看到、能读，但不能发消息、不能答提问和审批、不能停 agent、不能改成员（403）。主机始终在里面；频道里的 agent 也在。群里任何人都能改成员（`PUT …/people`），改的人自己留在里面。agent 的 `ir` 不能改人、不能移出成员；`DELETE …/members/{member}` 只收 `agent:`。改 agent 的称呼要有用那个会话的权限。
 - agent 的 `user.name` 是它现在用什么跑的（`Claude Opus 5.5 High`），`nick` 是叫它的名字：字母、数字、`_`、`-`，至多 32 个。称呼是会话的（`agent_nicks`），整个 Iridium 里唯一（不分大小写），在哪个频道都一样；第一次进有别的 agent 的频道时自动起（`claude`、`claude2`）。`@` 只认 `nick`；Satori 的 `<at id="agent:<会话>"/>` 等同 `@nick`。
 - 每个 agent 一个 `recv`：`all` 收人说的每句话；`at` 只收点到它的。频道自己的 agent 是 `all`，订阅来的默认 `at`。`send`：`direct`（频道自己的 agent）或 `ir`。
 - 一个频道至多 8 个 agent（加入时逐个数，同时加入不会超）。
@@ -86,7 +86,7 @@
 
 ## 已读
 
-- 每个成员在每个频道有一个已读位置（读到第几条）。人：页面看到哪条就 `POST …/read {seq}`，按登录记（`channel_reads`），只进不退。agent：给过它的最后一条（`channel_members.seen`）。频道自己的 agent 收全部时算全读；只收 @ 时，是给过它的和它自己说的最后一条里靠后的那条。
+- 每个成员在每个频道有一个已读位置（读到第几条）。人：页面看到哪条就 `POST …/read {seq}`，按登录记（`channel_reads`），只进不退。agent：给过它的最后一条（`channel_members.seen`）。只有它一个 agent 的会话算全读（`recv` 设成什么都一样，话都直接给它）；多个 agent 时，频道自己的 agent 是给过它的和它自己说的最后一条里靠后的那条（点别人的话没给它）。
 - `GET …/reads` 和携带状态 `reads:<频道>`：`ChannelReads {end, readers[]}`。某条消息谁读了：`seq` 不小于它的那些。
 
 ## 元素

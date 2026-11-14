@@ -396,7 +396,7 @@ var errNotMember = &access.Denied{Reason: "not one of this channel's people: it 
 // always; an agent of the channel; else the caller's login, as the channel's people name it.
 // Whoever is not may still read.
 func (s *Server) inChannel(c caller, ch string) error {
-	if c.Host() && !c.agent && c.session == "" {
+	if c.Host() && !c.byAgent() {
 		return nil
 	}
 	if s.ch.Speaks(ch, cmp.Or(c.session, c.Session)) {
@@ -743,7 +743,7 @@ func (s *Server) peoplePut(w http.ResponseWriter, r *http.Request) {
 		s.error(w, err)
 		return
 	}
-	if c.agent {
+	if c.byAgent() {
 		forbid(w, errors.New("an agent's ir may not change a channel's people"))
 		return
 	}
@@ -966,9 +966,19 @@ func (s *Server) memberPatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// An agent's ir changes what the agent itself receives there, nothing else.
-	if c.agent && (r.PathValue("member") != store.AgentMember(c.session) || p.Nick != nil) {
+	if c.byAgent() && (r.PathValue("member") != store.AgentMember(c.session) || p.Nick != nil) {
 		forbid(w, errors.New("an agent's ir changes only what it receives itself (recv)"))
 		return
+	}
+	// A nick is the session's, in every channel: whoever renames it must have the right to use
+	// that session, not merely be one of this channel's people.
+	if p.Nick != nil {
+		if id, ok := store.SessionOfMember(r.PathValue("member")); ok {
+			if _, err := s.using(c, id); err != nil {
+				s.error(w, err)
+				return
+			}
+		}
 	}
 	was, _ := s.memberRow(ch, r.PathValue("member"))
 	now, err := s.ch.Change(ch, r.PathValue("member"), p.Nick, p.Recv, s.harnessOf)
@@ -1070,7 +1080,7 @@ func (s *Server) avatarPut(w http.ResponseWriter, r *http.Request) {
 		s.error(w, err)
 		return
 	}
-	if c.agent || c.session != "" {
+	if c.byAgent() {
 		forbid(w, errors.New("an agent's ir may not change a face"))
 		return
 	}
@@ -1179,9 +1189,10 @@ func (s *Server) viewersOf(ch string) []api.Viewer {
 }
 
 // readsOf is how far each member has read channel ch: the people that opened it, as they said
-// (readPost); its agents, as far as each was given. The channel's own agent taking all of it
-// has all of it (what is said there is its own record); taking only what names it, as far as it
-// was given or spoke.
+// (readPost); its agents, as far as each was given. The agent of a session that is its alone
+// has all of it, whatever it is set to receive (everything said there is sent to it). Among
+// several, the channel's own agent has what it was given and what it said itself: what named
+// another was not given to it, though it receives all that names nobody.
 func (s *Server) readsOf(ch string) api.ChannelReads {
 	out := api.ChannelReads{Channel: ch, End: s.ch.End(ch), Readers: []api.Reader{}}
 	rows, err := s.st.ChannelReads(ch)
@@ -1192,18 +1203,17 @@ func (s *Server) readsOf(ch string) api.ChannelReads {
 		out.Readers = append(out.Readers, api.Reader{Member: r.Reader, Name: r.Name, Seq: min(r.Seq, out.End), At: r.At})
 	}
 	ms, _ := s.ch.Members(ch)
+	multi := s.multi(ch)
 	for _, m := range ms {
 		if !m.Agent() {
 			continue
 		}
 		rd := api.Reader{Member: m.Member, Nick: m.Nick, Seq: m.Seen}
 		if m.Direct() {
-			// Taking all, it has all: what is said there goes into its own record. Taking only
-			// what names it, it has read what it was given and what it said itself.
-			if m.Recv == channel.RecvAll {
-				rd.Seq = out.End
-			} else {
+			if multi {
 				rd.Seq = min(max(m.Seen, s.st.ChannelLastBy(ch, m.Member)), out.End)
+			} else {
+				rd.Seq = out.End
 			}
 		}
 		if st, err := s.m.State(m.Session); err == nil {
@@ -1242,7 +1252,7 @@ func (s *Server) readPost(w http.ResponseWriter, r *http.Request) {
 		s.error(w, err)
 		return
 	}
-	if c.agent || c.session != "" {
+	if c.byAgent() {
 		forbid(w, errors.New("an agent has read what it was given: its place is not set by hand"))
 		return
 	}
@@ -1323,11 +1333,16 @@ func (s *Server) memberRemove(w http.ResponseWriter, r *http.Request) {
 		s.error(w, err)
 		return
 	}
-	if c.agent {
+	if c.byAgent() {
 		forbid(w, errors.New("an agent's ir may not change a channel's members"))
 		return
 	}
 	member := r.PathValue("member")
+	// Agents alone: the people are set whole (PUT …/people), which keeps whoever sets them in.
+	if _, ok := store.SessionOfMember(member); !ok {
+		refuse(w, http.StatusBadRequest, "bad_request", "member: an agent (agent:<session>); the people are set with PUT …/people")
+		return
+	}
 	was, _ := s.memberRow(ch, member)
 	if err := s.ch.Leave(ch, member); err != nil {
 		s.memberFault(w, err)

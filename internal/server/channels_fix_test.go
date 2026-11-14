@@ -654,3 +654,53 @@ func TestChannelAgentWordsAreSaid(t *testing.T) {
 		}
 	}
 }
+
+// Who may change a channel's members: a person among its people, never an agent, however its
+// request names itself. A nick, which is the session's everywhere, by whoever may use that
+// session; a person is not taken out one by one.
+func TestChannelMemberRights(t *testing.T) {
+	t.Parallel()
+	l, ch, second := two(t)
+	l.want(200, "web", "PUT", "/v1/internal/channels/"+ch+"/people", api.People{People: []string{"*"}}, nil)
+	// An agent, with or without the agent flag: neither the people, nor a member out, nor a nick.
+	nick := "renamed"
+	for _, as := range []string{"agent-in:" + second, "ir-in:" + second} {
+		l.want(403, as, "PUT", "/v1/internal/channels/"+ch+"/people", api.People{People: []string{"*"}}, nil)
+		l.want(403, as, "DELETE", "/v1/internal/channels/"+ch+"/members/agent:"+second, nil, nil)
+		l.want(403, as, "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+second, api.MemberPatch{Nick: &nick}, nil)
+	}
+	// A Bot with no right to Claude is one of the people, and may not rename a Claude session.
+	bot := l.newApp("bot", false).Token
+	if code := l.asLogin(bot, "", "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+second, api.MemberPatch{Nick: &nick}, nil); code != 403 {
+		t.Errorf("a nick set by one with no right to the session: %d", code)
+	}
+	if got := l.s.ch.Nick(second); got != "claude2" {
+		t.Errorf("its nick: %q", got)
+	}
+	l.want(200, "web", "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+second, api.MemberPatch{Nick: &nick}, nil)
+	// People are not removed one by one.
+	l.want(400, "web", "DELETE", "/v1/internal/channels/"+ch+"/members/*", nil, nil)
+	if !l.s.ch.Has(ch, "anyone", "at all") {
+		t.Errorf("everyone was taken out")
+	}
+}
+
+// A session that is its agent's alone is read to its end by that agent, whatever the agent
+// was set to receive: everything said there is sent to it.
+func TestReadsOfOneAgent(t *testing.T) {
+	t.Parallel()
+	l := start(t)
+	ch := l.create(200, "web", api.NewSession{Agent: api.AgentClaude, Cwd: l.work, Text: "first"})
+	l.waitReply("web", ch, "ok: first")
+	at := "at"
+	l.want(200, "web", "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+ch, api.MemberPatch{Recv: &at}, nil)
+	if code, _ := l.send("web", ch, api.Send{Text: "more"}); code != 200 {
+		t.Fatalf("send: %d", code)
+	}
+	l.waitReply("web", ch, "ok: more")
+	var reads api.ChannelReads
+	l.want(200, "web", "GET", "/v1/internal/channels/"+ch+"/reads", nil, &reads)
+	if len(reads.Readers) != 1 || reads.Readers[0].Seq != reads.End || reads.End < 4 {
+		t.Errorf("reads: %+v", reads)
+	}
+}

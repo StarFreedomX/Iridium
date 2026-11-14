@@ -507,7 +507,7 @@ func (s *Server) watchStates(ctx context.Context, c caller, keys []string, emit 
 	}
 	// Whoever watches who is looking at a channel is looking at it (channels.go "viewers").
 	for _, k := range carried {
-		if ch, ok := strings.CutPrefix(k, "viewers:"); ok && !c.agent && c.session == "" {
+		if ch, ok := strings.CutPrefix(k, "viewers:"); ok && !c.byAgent() {
 			defer s.viewing(c, ch)()
 		}
 	}

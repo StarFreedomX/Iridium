@@ -41,6 +41,10 @@ type caller struct {
 // let a panel and 本机 do.
 func (c caller) panel() bool { return !c.agent && (c.Web() || c.Host()) }
 
+// byAgent reports whether an agent sent it, not a person: its ir (the agent flag), or anything
+// that names the session it runs in (a session's own TOKEN, ir inside a session).
+func (c caller) byAgent() bool { return c.agent || c.session != "" }
+
 // machine reports whether a person at the host sent it: ir over the socket, not run by an agent.
 func (c caller) machine() bool { return c.socket && c.Host() && !c.agent }
 

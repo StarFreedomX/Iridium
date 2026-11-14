@@ -177,12 +177,12 @@ func TestChannelOfSeveral(t *testing.T) {
 		t.Errorf("injections: %+v", ins)
 	}
 
-	// How far each has read: the channel's own agent all of it, the second what it was given
-	// (and its reply, said for it);
-	// a person as they say, never back, and not an agent by hand.
+	// How far each has read: the channel's own agent what it was given and said (not the
+	// message that named the second, though it takes all that names nobody), the second what
+	// it was given; a person as they say, never back, and not an agent by hand.
 	var reads api.ChannelReads
 	l.want(200, "web", "GET", "/v1/internal/channels/"+ch+"/reads", nil, &reads)
-	if reads.End < r.Seq || len(reads.Readers) != 2 || reads.Readers[0].Member != "agent:"+ch || reads.Readers[0].Seq != reads.End ||
+	if reads.End < r.Seq || len(reads.Readers) != 2 || reads.Readers[0].Member != "agent:"+ch || reads.Readers[0].Seq < 1 || reads.Readers[0].Seq >= r.Seq ||
 		reads.Readers[1].Nick != "claude2" || reads.Readers[1].Seq < r.Seq || reads.Readers[1].Name == "" {
 		t.Errorf("reads: %+v, the message named %d", reads, r.Seq)
 	}
