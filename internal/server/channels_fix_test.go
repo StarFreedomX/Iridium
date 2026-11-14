@@ -570,3 +570,30 @@ func TestDirectSeenByItsTwo(t *testing.T) {
 		t.Errorf("seenBy")
 	}
 }
+
+// What a channel gave an agent is found by the input it was given as, not by reading the
+// channel out of the words: a channel whose name has a quote in it is forwarded as any.
+func TestChannelRelayByInput(t *testing.T) {
+	t.Parallel()
+	l := start(t)
+	var made satori.Channel
+	l.wantSat(200, "web", "channel.create", map[string]any{"data": map[string]any{"name": `the "odd" one`}, "_data": map[string]any{"cwd": l.work}}, &made)
+	ch := made.ID
+	var ms api.ChannelMembers
+	l.want(200, "web", "POST", "/v1/internal/channels/"+ch+"/members", api.NewMember{Agent: api.AgentClaude}, &ms)
+	agent, nick := ms.Members[len(ms.Members)-1].Session, ms.Members[len(ms.Members)-1].Nick
+	code, r := l.send("web", ch, api.Send{Text: "@" + nick + " look"})
+	if code != 200 {
+		t.Fatalf("send: %d", code)
+	}
+	l.waitSaid("web", agent, fmt.Sprintf("ok: #%d: @%s look", r.Seq, nick))
+	var rec satori.BidiList[satori.Message]
+	l.wantSat(200, "web", "internal/block.list", map[string]any{"channel_id": agent}, &rec)
+	found := false
+	for _, m := range rec.Data {
+		found = found || strings.Contains(m.Content, `<iridium:relay channel="`+ch+`"`) && strings.Contains(m.Content, "<message forward>")
+	}
+	if !found {
+		t.Errorf("not forwarded as the channel's: %+v", rec.Data)
+	}
+}

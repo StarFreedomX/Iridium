@@ -1920,15 +1920,13 @@ func (s *Server) routeSaid(m channel.Message) {
 	}()
 }
 
-// relayHead is how a channel's message given to an agent begins ("#12: …"); relayGuest names
-// the channel it is of, where that is not the agent's own (assemble's guest and again lines).
-var (
-	relayHead  = regexp.MustCompile(`^#(\d+): `)
-	relayGuest = regexp.MustCompile(`(?:called in the channel|In the channel) "[^"\n]*" \(([0-9a-zA-Z_-]+)\)`)
-)
+// relayHead is how a channel's message given to an agent begins ("#12: …").
+var relayHead = regexp.MustCompile(`^#(\d+): `)
 
 // relayOf is what block b of session's record was given as by a channel (satori.Relayer): the
-// messages its injection record cites, in order, the one that called it last. None for a block
+// messages its injection record cites, in order, the one that called it last. The injection is
+// the one kept under the block's input (which channel it is of is read there, not guessed from
+// the words); a block that names no input, the latest one for that number. None for a block
 // that is no such message or whose record is no longer kept.
 func (s *Server) relayOf(session string, b api.Block) (satori.Relay, bool) {
 	m := relayHead.FindStringSubmatch(b.Text)
@@ -1937,19 +1935,18 @@ func (s *Server) relayOf(session string, b api.Block) (satori.Relay, bool) {
 		return satori.Relay{}, false
 	}
 	seq, _ := strconv.ParseInt(m[1], 10, 64)
-	ch := session
-	if g := relayGuest.FindStringSubmatch(b.Text); g != nil {
-		ch = g[1]
-	}
 	rows, err := s.st.Injections(session, 0)
 	if err != nil {
 		return satori.Relay{}, false
 	}
 	var rec assemble.Record
-	found := false
+	ch, found := "", false
 	for _, in := range rows {
-		if in.Channel == ch && in.Seq == seq && json.Unmarshal([]byte(in.Record), &rec) == nil {
-			found = true
+		if in.Seq != seq || (b.ID != "" && in.Input != b.ID) {
+			continue
+		}
+		if json.Unmarshal([]byte(in.Record), &rec) == nil {
+			ch, found = in.Channel, true
 			break
 		}
 	}
