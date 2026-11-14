@@ -464,3 +464,42 @@ func TestChannelSlashWords(t *testing.T) {
 		}
 	}
 }
+
+// A message of a channel of several agents that waits in the queue of the agent it woke is
+// changed and taken back there, though the agent has it under an input of its own.
+func TestChannelQueuedEdited(t *testing.T) {
+	t.Parallel()
+	l, ch, second := two(t)
+	queue := func() []api.Queued {
+		var st api.SessionState
+		l.do("web", "GET", "/v1/internal/sessions/"+second, nil, &st)
+		return st.Queue
+	}
+	if code, _ := l.send("web", second, api.Send{Text: "its own work HOLD"}); code != 200 {
+		t.Fatalf("send to the second: %d", code)
+	}
+	l.running(second)
+	code, r := l.send("web", ch, api.Send{Text: "@claude2 the first words"})
+	if code != 200 || !r.Queued {
+		t.Fatalf("a message for a busy agent: %d %+v", code, r)
+	}
+	before := l.seenOf(ch, second)
+	l.wantSat(200, "web", "message.update", map[string]any{"channel_id": ch, "message_id": fmt.Sprint(r.Seq), "content": "@claude2 other words"}, nil)
+	if q := queue(); len(q) != 1 || !strings.HasPrefix(q[0].Text, fmt.Sprintf("#%d: @claude2 other words\n\n<channel-context>", r.Seq)) {
+		t.Fatalf("the queue after the change: %+v", q)
+	}
+	if all := l.said("web", ch); !strings.HasSuffix(all[len(all)-1], "@claude2 other words") {
+		t.Errorf("the channel after the change: %s", all[len(all)-1])
+	}
+	// By the input it was sent as, too; taken back, the agent was never given it.
+	l.wantSat(200, "web", "message.delete", map[string]any{"channel_id": ch, "message_id": r.Input}, nil)
+	if q := queue(); len(q) != 0 {
+		t.Fatalf("the queue after it was taken back: %+v", q)
+	}
+	l.noCalls(second)
+	if seen := l.seenOf(ch, second); seen >= before || seen >= r.Seq {
+		t.Errorf("its place after the message was taken back: %d (%d with it)", seen, before)
+	}
+	l.wantSat(422, "web", "message.delete", map[string]any{"channel_id": ch, "message_id": fmt.Sprint(r.Seq)}, nil)
+	l.want(200, "web", "POST", "/v1/internal/sessions/"+second+"/interrupt", nil, nil)
+}

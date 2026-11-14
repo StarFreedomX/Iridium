@@ -2053,3 +2053,85 @@ func (s *Server) dmPost(w http.ResponseWriter, r *http.Request) {
 	s.membersChanged()
 	reply(w, http.StatusOK, map[string]string{"channel": id})
 }
+
+// EditGiven changes message seq of channel ch where it waits in the queues of the agents it
+// was given to (satori.Backend): each got it under an input of its own, which the injection
+// kept of it names. Taken back, the agent was never given it: its call is closed, what it was
+// given is forgotten, and its place in the channel is where it was before.
+func (b satoriBackend) EditGiven(c satori.Caller, ch string, seq int64, old string, text *string) (int, error) {
+	s := b.s
+	n := 0
+	for _, id := range s.ch.Agents(ch) {
+		st, err := s.m.State(id)
+		if err != nil {
+			continue
+		}
+		rows, err := s.st.Injections(id, 0)
+		if err != nil {
+			return n, err
+		}
+		for _, in := range rows {
+			if in.Channel != ch || in.Seq != seq {
+				continue
+			}
+			i := slices.IndexFunc(st.Queue, func(q api.Queued) bool { return q.ID == in.Input })
+			if i < 0 {
+				continue
+			}
+			if _, err := s.using(callerAs(c), id); err != nil {
+				return n, err
+			}
+			if text != nil {
+				if err := s.m.EditQueued(id, in.Input, givenWith(st.Queue[i].Text, seq, old, *text)); err != nil {
+					return n, err
+				}
+				n++
+				continue
+			}
+			if err := s.m.DeleteQueued(id, in.Input); err != nil {
+				return n, err
+			}
+			n++
+			s.calls.take(id, func(c called) bool { return c.Input == in.Input })
+			if err := s.st.RemoveInjection(id, in.Input); err != nil {
+				s.logf("server: channel %s: forgetting what %s was not given: %v", ch, id, err)
+			}
+			var rec assemble.Record
+			if json.Unmarshal([]byte(in.Record), &rec) == nil {
+				s.ch.Unseen(ch, id, firstGiven(rec, seq)-1)
+				s.readsChanged(ch)
+			}
+		}
+	}
+	return n, nil
+}
+
+// givenWith is given, what an agent gets for message seq of a channel ("#seq: " and the words
+// old, then the channel's context), with the words text in old's place.
+func givenWith(given string, seq int64, old, text string) string {
+	head, rest := given, ""
+	if at := strings.Index(given, "\n\n<channel-context>\n"); at >= 0 {
+		head, rest = given[:at], given[at:]
+	}
+	if at := strings.LastIndex(head, old); old != "" && at >= 0 {
+		return head[:at] + text + head[at+len(old):] + rest
+	}
+	return fmt.Sprintf("#%d: %s", seq, text) + rest
+}
+
+// firstGiven is the number of the first message record rec cites: where what the agent was
+// given for message seq began.
+func firstGiven(rec assemble.Record, seq int64) int64 {
+	first := seq
+	for _, p := range rec.Parts {
+		if n, err := strconv.ParseInt(p.Values["from"], 10, 64); err == nil && n > 0 && p.Source == "prompts:channel.context.turn" {
+			first = min(first, n)
+		}
+		for _, r := range p.Refs {
+			if n, err := strconv.ParseInt(r.ID, 10, 64); err == nil && n > 0 && r.Kind == "message" {
+				first = min(first, n)
+			}
+		}
+	}
+	return first
+}

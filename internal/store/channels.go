@@ -450,6 +450,13 @@ func (s *Store) MoveAgent(old, next string) error {
 	return tx.Commit()
 }
 
+// RewindChannelSeen moves member's read position in channel back to seq, if it is past it:
+// what it was to be given after that was taken back.
+func (s *Store) RewindChannelSeen(channel, member string, seq int64) error {
+	_, err := s.db.Exec(`UPDATE channel_members SET seen = MIN(seen, ?) WHERE channel = ? AND member = ?`, seq, channel, member)
+	return err
+}
+
 // ---- how far people have read ----
 
 // ChannelRead is how far Reader (a login, "<app>/<login>"), who goes by Name, has read Channel:

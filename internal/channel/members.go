@@ -240,6 +240,15 @@ func (s *Service) Seen(channel, session string, seq int64) {
 	}
 }
 
+// Unseen moves session's read position in channel back to seq: what it was to be given after
+// that never reached it.
+func (s *Service) Unseen(channel, session string, seq int64) {
+	defer s.changed()
+	if err := s.st.RewindChannelSeen(channel, store.AgentMember(session), seq); err != nil {
+		s.logf("channel %s: %s back to %d: %v", channel, session, seq, err)
+	}
+}
+
 // Between are channel's messages with numbers above after and below before, the latest limit
 // of them, in order.
 func (s *Service) Between(channel string, after, before int64, limit int) ([]Message, error) {

@@ -121,6 +121,10 @@ type Backend interface {
 	MarkFolder(c Caller, path string, p api.FolderPatch) error
 	// EditQueued changes the text of input of session id while it waits in the queue; nil drops it.
 	EditQueued(c Caller, id, input string, text *string) error
+	// EditGiven changes message seq of channel ch (its words were old) where it waits in the
+	// queues of the agents it was given to, each under an input of its own (a channel of several
+	// agents, or of none of its own); nil takes it back. How many queues had it.
+	EditGiven(c Caller, ch string, seq int64, old string, text *string) (int, error)
 	// Answer answers an ask's card as c.
 	Answer(ctx context.Context, c Caller, a api.CardAnswer) error
 	// Press gives button id, attached to session sid's page from source from, pressed by c, back

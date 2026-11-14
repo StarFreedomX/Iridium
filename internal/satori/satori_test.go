@@ -172,6 +172,8 @@ func (f *fake) MarkFolder(_ Caller, path string, p api.FolderPatch) error {
 	return nil
 }
 
+func (f *fake) EditGiven(Caller, string, int64, string, *string) (int, error) { return 0, nil }
+
 func (f *fake) EditQueued(_ Caller, id, input string, text *string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()

@@ -650,11 +650,22 @@ func (s *Service) queued(c Caller, channel, id string, text *string) (any, error
 	if logged && m.Kind == channel_.KindUser && m.Ref != "" {
 		id = m.Ref
 	}
-	if !slices.ContainsFunc(st.Queue, func(q api.Queued) bool { return q.ID == id }) {
-		return nil, refuse(http.StatusUnprocessableEntity, "no_such_message", "not waiting in the queue: "+id)
-	}
-	if err := s.b.EditQueued(c, st.ID, id, text); err != nil {
-		return nil, err
+	if slices.ContainsFunc(st.Queue, func(q api.Queued) bool { return q.ID == id }) {
+		if err := s.b.EditQueued(c, st.ID, id, text); err != nil {
+			return nil, err
+		}
+	} else {
+		// Said in a channel and given to the agents it woke, each under an input of its own:
+		// changed where it still waits.
+		n := 0
+		if logged && m.Kind == channel_.KindUser {
+			if n, err = s.b.EditGiven(c, ch, m.Seq, m.Text, text); err != nil {
+				return nil, err
+			}
+		}
+		if n == 0 {
+			return nil, refuse(http.StatusUnprocessableEntity, "no_such_message", "not waiting in the queue: "+id)
+		}
 	}
 	if logged {
 		if text != nil {
