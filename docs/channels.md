@@ -21,9 +21,11 @@
 - 人：2026-11-13 起新建的频道默认是面板的登录和主机的（`ir_web/*`、`local/*`），不带 Bot；建它的应用自己也在。新建页里可改（`channel.create` 的 `_data.members.people`）。之前的、没选过的频道是 `*`。选了人以后，没被选进来的仍然在侧栏看到、能读，但不能发消息、不能答提问和审批、不能停 agent、不能改成员（403）。主机始终在里面；频道里的 agent 也在。群里任何人都能改成员（`PUT …/people`），改的人自己留在里面。
 - agent 的 `user.name` 是它现在用什么跑的（`Claude Opus 5.5 High`），`nick` 是叫它的名字：字母、数字、`_`、`-`，至多 32 个。称呼是会话的（`agent_nicks`），整个 Iridium 里唯一（不分大小写），在哪个频道都一样；第一次进有别的 agent 的频道时自动起（`claude`、`claude2`）。`@` 只认 `nick`；Satori 的 `<at id="agent:<会话>"/>` 等同 `@nick`。
 - 每个 agent 一个 `recv`：`all` 收人说的每句话；`at` 只收点到它的。频道自己的 agent 是 `all`，订阅来的默认 `at`。`send`：`direct`（频道自己的 agent）或 `ir`。
-- 一个频道至多 8 个 agent。
+- 一个频道至多 8 个 agent（加入时逐个数，同时加入不会超）。
 - 邀请：`POST …/members`，`session` 给已有的会话（要能用它），否则新开一个会话再订阅（`agent`、`model`…，`cwd`、`machine` 不给就是频道的文件夹）。新开的是普通会话：侧栏里在它的文件夹，不挂在谁下面，`Session.spawned {by, channel}` 记谁拉起的（会话）和在哪拉起的（频道）。别的机器上的会话也能邀请。
 - 移出只是退订，会话照旧。频道自己的 agent 移不出。
+- 清空会话（`/clear`）：新会话接替旧的。旧会话订阅的频道、称呼、头像、`spawned`，和它自己频道的成员，都转给新会话；旧会话归档，不再在任何频道里。
+- 订阅来的 agent 的会话归档了：不叫起，不占名额；恢复后照旧（选的是路由时跳过，不退订）。
 - 建会话时可以一次配好：`channel.create` 的 `_data.members {agents, people, nick, recv}`；第一句话在成员都到齐后才说，点到谁就给谁。
 - 会话列表里：`Session.agents` 是它的频道里的全部 agent（两个以上时；无 agent 的频道一个也列），`Session.in` 是它订阅的频道。
 - 接口见 `docs/api.md`“频道”。agent 自己也能加：`ir api POST internal/channels/self/members agent=codex`。

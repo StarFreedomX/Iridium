@@ -137,6 +137,7 @@ func New(cfg config.Config, m *session.Manager, h *hub.Hub, logf func(string, ..
 	m.SetChannelOf(s.channelOf)
 	m.SetSpawned(s.spawnedOf)
 	m.SetBare(s.bareChannels)
+	m.SetCleared(s.cleared)
 	m.SetSpeaks(func(id, ch string) bool { return s.ch.Speaks(ch, id) })
 	s.sat.Keep(satoriKeeper{s.st})
 	m.Watch(s.sat.Notice)
@@ -400,6 +401,7 @@ func (s *Server) sendAs(ctx context.Context, c caller, from, id string, req api.
 			if err := s.st.SetOpener(nid, c.ID()); err != nil {
 				s.logf("server: opener of %s: %v", nid, err)
 			}
+			s.noteOrigin(c, nid, via)
 		}
 		return api.SendReply{Session: nid}, err
 	}

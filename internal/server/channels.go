@@ -549,7 +549,8 @@ func (s *Server) memberAdd(w http.ResponseWriter, r *http.Request) {
 // the channel's folder) as any session is: listed in its folder, with a channel of its own.
 // Where it was started and by whom is kept (Spawned). The session it is.
 func (s *Server) addAgent(ctx context.Context, c caller, ch string, st *api.SessionState, req api.NewMember) (string, error) {
-	if len(s.ch.Agents(ch)) >= MaxAgents {
+	// Before a session is started for it; Join counts again, one at a time.
+	if n := len(slices.DeleteFunc(s.ch.Agents(ch), func(a string) bool { return !s.counts(ch, a) })); n >= MaxAgents {
 		return "", errFull
 	}
 	if req.Nick != "" && !deliver.ValidNick(req.Nick) {
@@ -581,24 +582,62 @@ func (s *Server) addAgent(ctx context.Context, c caller, ch string, st *api.Sess
 		started = true
 		s.keepSpawned(id, api.Spawned{By: c.session, Channel: ch})
 	}
-	if req.Nick != "" {
-		if err := s.ch.SetNick(id, req.Nick); err != nil {
-			if started {
-				_ = s.m.ArchiveTree(ctx, id, true)
-			}
-			return "", err
-		}
-	}
-	m, err := s.ch.Join(ch, id, req.Recv, s.harnessOf)
+	// Its nick with the joining: one that does not join keeps the nick it had.
+	m, err := s.ch.Join(ch, id, req.Recv, req.Nick, s.harnessOf, MaxAgents, func(a string) bool { return s.counts(ch, a) })
 	if err != nil {
 		if started {
+			// Not in the channel after all: not started for it either.
+			if err := s.st.Keep(spawnedKey(id), ""); err != nil {
+				s.logf("server: forgetting where %s was started: %v", id, err)
+			}
 			_ = s.m.ArchiveTree(ctx, id, true)
+		}
+		if errors.Is(err, channel.ErrFull) {
+			err = errFull
 		}
 		return "", err
 	}
 	s.logf("server: channel %s: %s joined as @%s (%s)", ch, id, m.Nick, m.Recv)
 	s.m.Refresh([]string{ch, id})
 	return id, nil
+}
+
+// counts: session's agent is one channel ch gives messages to and counts among its agents
+// (MaxAgents): the channel's own always; one in it by a subscription unless its session is in
+// the archive (it is passed over until it is shown again) or gone.
+func (s *Server) counts(ch, session string) bool {
+	if session == ch {
+		return true
+	}
+	st, err := s.m.State(session)
+	return err == nil && !st.Archived
+}
+
+// cleared: session next goes on in session old's place (/clear). It is in the channels old was
+// in, under old's nick and face; old's own channel's members are next's channel's; what old
+// started for a channel, next started. Old, in the archive, is in none of them any more.
+func (s *Server) cleared(old, next string) {
+	if err := s.ch.Moved(old, next); err != nil {
+		s.logf("server: %s going on as %s: its channels: %v", old, next, err)
+		return
+	}
+	if kept, err := s.st.KeptUnder(spawnedKey("")); err == nil {
+		for key, v := range kept {
+			var sp api.Spawned
+			if json.Unmarshal([]byte(v), &sp) != nil || (sp.By != old && sp.Channel != old) {
+				continue
+			}
+			if sp.By == old {
+				sp.By = next
+			}
+			if sp.Channel == old {
+				sp.Channel = next
+			}
+			s.keepSpawned(strings.TrimPrefix(key, spawnedKey("")), sp)
+		}
+	}
+	s.hub.Set("avatars", s.avatarsSeq.Add(1))
+	s.membersChanged()
 }
 
 // bareChannels are the channels that are no session's, each as the list of sessions has it: no
@@ -1316,15 +1355,18 @@ func (s *Server) injections(w http.ResponseWriter, r *http.Request) {
 
 // ---- where a message goes ----
 
-// agentsOf are channel ch's agents as the rules see them, and each one's member row.
+// agentsOf are channel ch's agents as the rules see them (those that count: one whose session
+// is in the archive is given nothing), and every agent's member row.
 func (s *Server) agentsOf(ch string) ([]deliver.Agent, map[string]channel.Member) {
 	ms, _ := s.ch.Members(ch)
 	var out []deliver.Agent
 	by := map[string]channel.Member{}
 	for _, m := range ms {
 		if m.Agent() {
-			out = append(out, deliver.Agent{Session: m.Session, Nick: m.Nick, All: m.Recv == channel.RecvAll})
 			by[m.Session] = m
+			if s.counts(ch, m.Session) {
+				out = append(out, deliver.Agent{Session: m.Session, Nick: m.Nick, All: m.Recv == channel.RecvAll})
+			}
 		}
 	}
 	return out, by

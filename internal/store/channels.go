@@ -423,6 +423,33 @@ func (s *Store) SetChannelSeen(channel, member string, seq int64) error {
 	return err
 }
 
+// MoveAgent makes what was session old's the session next's, which goes on in its place (a
+// session cleared): the members of old's own channel (each as having read nothing of the new
+// one), old's place in the channels it is in, its nick, its face and where it was started
+// (kept under "spawned:").
+func (s *Store) MoveAgent(old, next string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, q := range []struct {
+		q    string
+		args []any
+	}{
+		{`UPDATE OR REPLACE channel_members SET channel = ?, seen = 0 WHERE channel = ?`, []any{next, old}},
+		{`UPDATE OR REPLACE channel_members SET member = ? WHERE member = ?`, []any{AgentMember(next), AgentMember(old)}},
+		{`UPDATE OR REPLACE agent_nicks SET session = ? WHERE session = ?`, []any{next, old}},
+		{`UPDATE OR REPLACE avatars SET key = ? WHERE key = ?`, []any{"c:" + next, "c:" + old}},
+		{`UPDATE OR REPLACE meta SET key = ? WHERE key = ?`, []any{"spawned:" + next, "spawned:" + old}},
+	} {
+		if _, err := tx.Exec(q.q, q.args...); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
 // ---- how far people have read ----
 
 // ChannelRead is how far Reader (a login, "<app>/<login>"), who goes by Name, has read Channel:

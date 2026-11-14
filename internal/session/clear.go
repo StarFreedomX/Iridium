@@ -29,7 +29,8 @@ func IsClear(text string) bool {
 
 // Clear starts the session over (/clear, as Claude Code's): a new session of the same agent, in
 // the same folder and workspace, with the same model, mode, effort, ultracode, preset and launcher
-// (hung under it still, if it was; those it started hang under the new one). The old one
+// (hung under it still, if it was; those it started hang under the new one), and in the same
+// channels under the same nick (SetCleared). The old one
 // stays on record; idle, it goes to the archive and its agent stops; in a turn it is left to
 // finish. A session that has said nothing yet is already clear: its own id comes back.
 func (m *Manager) Clear(ctx context.Context, id, from string) (string, error) {
@@ -66,6 +67,7 @@ func (m *Manager) Clear(ctx context.Context, id, from string) (string, error) {
 		return nid, err
 	}
 	m.relaunch(h, nid)
+	m.tellCleared(h.id, nid)
 	if !h.busy() && len(h.asksNow()) == 0 {
 		if err := m.SetArchived(ctx, h.id, true); err != nil {
 			m.o.Logf("session %s: archiving it after /clear: %v", h.id, err)
@@ -179,6 +181,7 @@ func (m *Manager) clearedInside(h *Hosted, proc int, nid string) {
 		}
 	}
 	m.relaunch(h, nid)
+	m.tellCleared(h.id, nid)
 	if name != "" {
 		if err := m.o.Store.SetName(nid, name); err != nil {
 			n.logf("its name: %v", err)

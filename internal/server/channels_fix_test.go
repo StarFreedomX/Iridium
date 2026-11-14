@@ -1,12 +1,14 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/kumoSleeping/iridium/internal/api"
+	"github.com/kumoSleeping/iridium/internal/channel"
 )
 
 // An agent woken in a channel acts for whoever woke it: its ir has that login's rights, not
@@ -300,4 +302,144 @@ func TestChannelFollowNotSpentOnRefusal(t *testing.T) {
 		t.Fatalf("send: %d", code)
 	}
 	l.waitSaid("web", second, fmt.Sprintf("ok: #%d: the next one said", r.Seq))
+}
+
+// A session cleared goes on as a new one: that one is in the channels the old was in, under
+// its nick, and has the members of the old one's own channel; the old one, in the archive, is
+// in none and is given nothing.
+func TestChannelClearKeepsMembership(t *testing.T) {
+	t.Parallel()
+	l, ch, second := two(t)
+	// A turn of its own, so that there is something to clear.
+	if code, _ := l.send("web", second, api.Send{Text: "work"}); code != 200 {
+		t.Fatalf("send to the second: %d", code)
+	}
+	l.waitReply("web", second, "ok: work")
+	code, r := l.send("web", second, api.Send{Text: "/clear"})
+	if code != 200 || r.Session == "" || r.Session == second {
+		t.Fatalf("clear: %d %+v", code, r)
+	}
+	next := r.Session
+	var ms api.ChannelMembers
+	l.want(200, "web", "GET", "/v1/internal/channels/"+ch+"/members", nil, &ms)
+	in := map[string]string{}
+	for _, m := range ms.Members {
+		if m.Session != "" {
+			in[m.Session] = m.Nick
+		}
+	}
+	if in[next] != "claude2" || len(in) != 2 {
+		t.Fatalf("the channel's agents after the clear: %+v (the new session %s, the old %s)", in, next, second)
+	}
+	if got := l.s.ch.In(second); len(got) != 0 {
+		t.Errorf("the old session is still in %v", got)
+	}
+	if sp := l.s.spawnedOf(next); sp == nil || sp.Channel != ch {
+		t.Errorf("where the new one was started: %+v", sp)
+	}
+	// Called by the same name, the new one answers.
+	code, sr := l.send("web", ch, api.Send{Text: "@claude2 still there"})
+	if code != 200 {
+		t.Fatalf("send: %d", code)
+	}
+	l.waitSaid("web", ch, " @claude2 ", fmt.Sprintf("ok: #%d: @claude2 still there", sr.Seq))
+	if p := l.page("web", second); len(p.Blocks) > 2 {
+		t.Errorf("the old session was given more: %+v", p.Blocks)
+	}
+
+	// The channel's own session cleared: its members are the new one's.
+	l.idle(ch)
+	code, r = l.send("web", ch, api.Send{Text: "/clear"})
+	if code != 200 || r.Session == "" || r.Session == ch {
+		t.Fatalf("clear of the channel's own: %d %+v", code, r)
+	}
+	l.want(200, "web", "GET", "/v1/internal/channels/"+r.Session+"/members", nil, &ms)
+	in = map[string]string{}
+	for _, m := range ms.Members {
+		if m.Session != "" {
+			in[m.Session] = m.Nick + "/" + m.Send
+		}
+	}
+	if in[r.Session] != "claude/direct" || in[next] != "claude2/ir" || len(in) != 2 {
+		t.Errorf("the new channel's agents: %+v", in)
+	}
+}
+
+// idle waits until session id's agent is in no turn.
+func (l *live) idle(id string) {
+	l.t.Helper()
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		var st api.SessionState
+		if l.do("web", "GET", "/v1/internal/sessions/"+id, nil, &st); st.Status == api.StatusIdle && len(st.Queue) == 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			l.t.Fatalf("%s is not idle: %+v", id, st.Session)
+		}
+	}
+}
+
+// An agent whose session is in the archive is given nothing and holds no place among the
+// channel's agents; shown again, it is as it was.
+func TestChannelArchivedAgentPassedOver(t *testing.T) {
+	t.Parallel()
+	l, ch, second := two(t)
+	l.wantSat(200, "web", "channel.delete", map[string]any{"channel_id": second}, nil)
+	if list, _ := l.s.agentsOf(ch); len(list) != 1 || list[0].Session != ch {
+		t.Fatalf("the agents messages go to: %+v", list)
+	}
+	code, r := l.send("web", ch, api.Send{Text: "@claude2 are you there"})
+	if code != 200 {
+		t.Fatalf("send: %d", code)
+	}
+	time.Sleep(300 * time.Millisecond)
+	if p := l.page("web", second); len(p.Blocks) != 0 {
+		t.Errorf("an archived agent was given: %+v", p.Blocks)
+	}
+	if !l.s.counts(ch, ch) || l.s.counts(ch, second) {
+		t.Errorf("which count: the own %v, the archived %v", l.s.counts(ch, ch), l.s.counts(ch, second))
+	}
+	_ = r
+}
+
+// Two joining at once do not both find the last place; one that does not join keeps its nick
+// and is not marked as started for the channel.
+func TestChannelJoinFullAndRolledBack(t *testing.T) {
+	t.Parallel()
+	l := start(t)
+	ch := l.create(200, "web", api.NewSession{Agent: api.AgentClaude, Cwd: l.work, Text: "first"})
+	l.waitReply("web", ch, "ok: first")
+	other := l.create(200, "web", api.NewSession{Agent: api.AgentClaude, Cwd: l.work, Text: "other"})
+	l.waitReply("web", other, "ok: other")
+	// Full but for one place.
+	for i := range MaxAgents - 2 {
+		id := fmt.Sprintf("filler-%d", i)
+		if _, err := l.s.ch.Join(ch, id, "", "", func(string) string { return "filler" }, MaxAgents, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	errs := make(chan error, 2)
+	for _, id := range []string{"racer-a", "racer-b"} {
+		go func() {
+			_, err := l.s.ch.Join(ch, id, "", "", func(string) string { return "racer" }, MaxAgents, nil)
+			errs <- err
+		}()
+	}
+	a, b := <-errs, <-errs
+	if (a == nil) == (b == nil) {
+		t.Fatalf("two joining for the last place: %v, %v", a, b)
+	}
+	if n := len(l.s.ch.Agents(ch)); n != MaxAgents {
+		t.Errorf("%d agents in a channel of at most %d", n, MaxAgents)
+	}
+	if _, err := l.s.ch.Join(ch, "late", "", "latecomer", func(string) string { return "late" }, MaxAgents, nil); !errors.Is(err, channel.ErrFull) || l.s.ch.Nick("late") != "" {
+		t.Errorf("joining a full channel: %v, its nick %q", err, l.s.ch.Nick("late"))
+	}
+	// A session there is that does not join (what it would receive is no such thing): the nick
+	// asked for it is not set.
+	l.want(400, "web", "POST", "/v1/internal/channels/"+other+"/members", api.NewMember{Session: ch, Nick: "newname", Recv: "bogus"}, nil)
+	other = ch
+	if nick := l.s.ch.Nick(other); nick == "newname" {
+		t.Errorf("the nick of one that did not join: %q", nick)
+	}
 }

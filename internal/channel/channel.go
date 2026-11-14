@@ -138,6 +138,8 @@ type Service struct {
 	mu    sync.Mutex
 	locks map[string]*sync.Mutex // a session's record is read in by one at a time
 
+	jmu sync.Mutex // one agent joins at a time (Join)
+
 	// The members as written, all of them, read once and again after a change (members.go).
 	imu   sync.Mutex
 	index *index

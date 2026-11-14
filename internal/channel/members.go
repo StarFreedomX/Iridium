@@ -16,6 +16,7 @@ var (
 	ErrMember   = errors.New("already in the channel")
 	ErrRecv     = errors.New("recv: all or at")
 	ErrChannel  = errors.New("no such channel")
+	ErrFull     = errors.New("the channel has as many agents as it may")
 )
 
 // written makes channel's default members rows of their own, once someone changes them:
@@ -90,9 +91,14 @@ func (s *Service) SetNick(session, nick string) error {
 }
 
 // Join puts session's agent in channel, receiving recv ("": only what names it): a
-// subscription. There it sees what is said and speaks with ir; it has seen nothing of the
-// channel yet. base names a session's harness.
-func (s *Service) Join(channel, session, recv string, base func(session string) string) (Member, error) {
+// subscription. There it sees what is said and is called by what names it; it has seen nothing
+// of the channel yet. nick, if any, becomes what it is called by. base names a session's
+// harness. max: how many agents the channel may have (0: any number), counting those counts
+// says do (nil: all). One at a time, so that two joining at once do not both find room; a join
+// that fails leaves the nick as it was.
+func (s *Service) Join(channel, session, recv, nick string, base func(session string) string, max int, counts func(session string) bool) (Member, error) {
+	s.jmu.Lock()
+	defer s.jmu.Unlock()
 	if s.Speaks(channel, session) {
 		return Member{}, ErrMember
 	}
@@ -102,19 +108,50 @@ func (s *Service) Join(channel, session, recv string, base func(session string) 
 	if recv != RecvAll && recv != RecvAt {
 		return Member{}, ErrRecv
 	}
+	if nick != "" && !deliver.ValidNick(nick) {
+		return Member{}, ErrNick
+	}
+	if max > 0 {
+		n := 0
+		for _, a := range s.Agents(channel) {
+			if counts == nil || counts(a) {
+				n++
+			}
+		}
+		if n >= max {
+			return Member{}, ErrFull
+		}
+	}
 	if err := s.written(channel, base); err != nil {
 		return Member{}, err
 	}
-	nick, err := s.nickOf(session, base)
-	if err != nil {
+	was := s.Nick(session)
+	if nick != "" {
+		if err := s.SetNick(session, nick); err != nil {
+			return Member{}, err
+		}
+	} else if _, err := s.nickOf(session, base); err != nil {
 		return Member{}, err
 	}
 	row := store.ChannelMember{Channel: channel, Member: store.AgentMember(session), Recv: recv, Send: store.SendIR}
-	defer s.changed()
-	if err := s.st.PutChannelMember(row); err != nil {
+	err := s.st.PutChannelMember(row)
+	s.changed()
+	if err != nil {
+		if was != "" && was != s.Nick(session) {
+			_ = s.SetNick(session, was)
+		}
 		return Member{}, err
 	}
-	return Member{ChannelMember: row, Session: session, Nick: nick}, nil
+	return Member{ChannelMember: row, Session: session, Nick: s.Nick(session)}, nil
+}
+
+// Moved: session next goes on in session old's place (a session cleared): old's own channel's
+// members, the channels old is in, its nick and its face are next's.
+func (s *Service) Moved(old, next string) error {
+	s.jmu.Lock()
+	defer s.jmu.Unlock()
+	defer s.changed()
+	return s.st.MoveAgent(old, next)
 }
 
 // Leave takes member out of channel. The session a channel is its own stays in it.
