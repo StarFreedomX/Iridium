@@ -281,7 +281,7 @@ export const zh = {
   "channel.givenNone": "暂无",
   "channel.remove": "移出",
   "channel.removeTitle": "移出 {nick}",
-  "channel.removeHint": "其会话归档",
+  "channel.removeHint": "会话保留",
   "channel.nick": "称呼",
   "channel.nickBad": "仅字母、数字、_ 和 -，至多 32 个",
   "channel.nickTaken": "称呼已占用",

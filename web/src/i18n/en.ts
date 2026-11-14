@@ -281,7 +281,7 @@ export const en: Dict = {
   "channel.givenNone": "Nothing yet",
   "channel.remove": "Remove",
   "channel.removeTitle": "Remove {nick}",
-  "channel.removeHint": "Its session is archived",
+  "channel.removeHint": "Its session stays",
   "channel.nick": "Nick",
   "channel.nickBad": "Letters, digits, _ and - only, 32 at most",
   "channel.nickTaken": "Nick taken",

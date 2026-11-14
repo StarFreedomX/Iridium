@@ -6,7 +6,7 @@ import { Menu } from "@base-ui/react/menu";
 import { Popover } from "@base-ui/react/popover";
 import { useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronRight, ImagePlus, UserPlus, Users } from "lucide-react";
-import type { CSSProperties, ReactNode } from "react";
+import { useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { api } from "../../api/client";
 import type { ChannelMembers, Viewer } from "../../api/types.gen";
 import { useApps } from "../../data";
@@ -20,6 +20,8 @@ import { ContextMark } from "../meters";
 import { mayAct, useMembers } from "./gate";
 import { AgentKinds, ITEM, POPUP } from "./invite";
 import { memberError } from "./key";
+import { ownAgent } from "./lib";
+import { RemoveAsk } from "./members";
 import { appAll, everyone, hasApp, hasLogin, loginOf, peopleOf, pressApp, pressLogin } from "./setup";
 
 const SUB = "no-bar max-h-[min(480px,var(--available-height))] min-w-52 max-w-[calc(100vw-16px)] overflow-y-auto p-1.5";
@@ -56,6 +58,10 @@ export function TopRight({ id }: { id: string }) {
   const viewers = useCarried<Viewer[]>(`viewers:${id}`) ?? [];
   const agents = (members?.members ?? []).filter((m) => m.session);
   const people = peopleOf(members);
+  // 移出 asked from the list: the card the face's menu asks with, under the members' key.
+  const key = useRef<HTMLButtonElement>(null);
+  const [out, setOut] = useState<{ member: string; nick: string } | null>(null);
+  const [asking, setAsking] = useState(false);
   return (
     <span className="g-fade flex shrink-0 items-center gap-0.5">
       {viewers.length > 0 && (
@@ -88,7 +94,7 @@ export function TopRight({ id }: { id: string }) {
         <Tip label={`${t("channel.members")} · ${agents.length || 1} · ${everyone(people) ? t("channel.everyone") : t("channel.peopleN", { n: people.length })}`} side="bottom">
           <Menu.Trigger
             render={
-              <button type="button" aria-label={t("channel.members")} className="g-press flex h-8 items-center gap-1 rounded-md px-2 text-ink-2 hover:bg-fill hover:text-ink data-popup-open:bg-fill pointer-coarse:h-10">
+              <button ref={key} type="button" aria-label={t("channel.members")} className="g-press flex h-8 items-center gap-1 rounded-md px-2 text-ink-2 hover:bg-fill hover:text-ink data-popup-open:bg-fill pointer-coarse:h-10">
                 <Users size={16} />
                 <span className="text-xs tabular-nums">{agents.length || 1}</span>
               </button>
@@ -99,18 +105,20 @@ export function TopRight({ id }: { id: string }) {
           <Menu.Positioner side="bottom" align="end" sideOffset={6} collisionPadding={8} className="z-50">
             <Menu.Popup finalFocus={false} className={cn(POPUP, SUB)}>
               <div className="g-stagger flex flex-col">
-                <MemberList id={id} />
+                <MemberList id={id} remove={(m) => requestAnimationFrame(() => (setOut(m), setAsking(true)))} />
               </div>
             </Menu.Popup>
           </Menu.Positioner>
         </Menu.Portal>
       </Menu.Root>
+      {out && <RemoveAsk channel={id} member={out.member} nick={out.nick} anchor={key} open={asking} onOpenChange={setAsking} />}
     </span>
   );
 }
 
-/** The members: each agent a submenu (what it receives, its session, 移出), then the people. */
-function MemberList({ id }: { id: string }) {
+/** The members: each agent a submenu (what it receives, its session, 移出: asked first, as the
+ *  face's menu asks), then the people. */
+function MemberList({ id, remove }: { id: string; remove: (m: { member: string; nick: string }) => void }) {
   const qc = useQueryClient();
   const list = useList();
   const members = useMembers(id);
@@ -125,7 +133,7 @@ function MemberList({ id }: { id: string }) {
       <div className={HEAD}>{t("channel.agents")}</div>
       {agents.map((m) => {
         const row = list?.find((x) => x.id === m.session);
-        const own = m.send !== "ir";
+        const own = ownAgent(id, m);
         return (
           <Sub key={m.member} icon={<Logo agent={m.agent ?? row?.agent ?? "claude"} size={16} />} lead={<ContextMark session={m.session!} />} label={m.nick || agentName(m.agent ?? row?.agent ?? "claude")} now={own ? t("channel.direct") : recvWord(m.recv)} i={0}>
             <div className={HEAD}>{m.name}</div>
@@ -140,13 +148,13 @@ function MemberList({ id }: { id: string }) {
                 </Menu.RadioItem>
               ))}
             </Menu.RadioGroup>
-            {m.session !== id && (
+            {!own && (
               <Menu.Item onClick={() => openChat(m.session!)} className={ITEM}>
                 {t("channel.session")}
               </Menu.Item>
             )}
             {!own && may && (
-              <Menu.Item onClick={() => run(() => api.removeMember(id, m.member))} className={cn(ITEM, "text-err")}>
+              <Menu.Item onClick={() => remove({ member: m.member, nick: m.nick ?? "" })} className={cn(ITEM, "text-err")}>
                 {t("channel.remove")}
               </Menu.Item>
             )}

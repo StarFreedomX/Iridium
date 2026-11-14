@@ -2,7 +2,7 @@
 import { describe, expect, test } from "vitest";
 import type { ChannelMessage, ChannelPage } from "../src/api/client";
 import type { Session } from "../src/api/types.gen";
-import { eventParts, personName, type EventWords, channelLamp, givenParts, givenTurn, groupMessages, insertNick, isMulti, linkNicks, matchAgents, merge, msgOf, nickOfURL, nickParts, nickSpans, readMarks, stillWaiting, validNick, watchExtra, workOf } from "../src/chat/channel/lib";
+import { eventParts, personName, type EventWords, channelLamp, givenParts, givenTurn, groupMessages, insertNick, isMulti, linkNicks, matchAgents, merge, msgOf, ownAgent, nickOfURL, nickParts, nickSpans, readMarks, stillWaiting, validNick, watchExtra, workOf } from "../src/chat/channel/lib";
 import { ChannelLog } from "../src/chat/channel/log";
 import { buildTree, standing } from "../src/tree";
 
@@ -162,6 +162,11 @@ describe("the list", () => {
     ).toBe("c,m,o");
     // What it started shows under its own row.
     expect(tree.kids.get("m")?.map((x) => x.id)).toEqual(["sub"]);
+  });
+  test("the channel's own agent: the session the channel is", () => {
+    expect(ownAgent("c", { session: "c" })).toBe(true);
+    expect(ownAgent("c", { session: "m" })).toBe(false);
+    expect(ownAgent("c", {})).toBe(false); // a person
   });
   test("a channel's lamp: amber while one waits, else lit while any works", () => {
     expect(channelLamp("idle", ["idle", "running"])).toBe("running");

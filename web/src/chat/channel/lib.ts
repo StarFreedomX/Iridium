@@ -282,6 +282,10 @@ export function insertNick(text: string, a: number, b: number, nick: string): { 
 /** An agent as the @ list and the member bar show it. */
 export type AgentRow = { session: string; member: string; agent: Agent; nick: string; name: string; status: Status; recv: string; avatar?: string; person?: boolean };
 
+/** Whether a member is the channel's own agent: the session the channel is. It speaks there
+ *  straight out, and is not taken out of it. */
+export const ownAgent = (channel: string, m: { session?: string | null }) => !!m.session && m.session === channel;
+
 /** The agents an @q may call: nicks that start with it first, then nicks and names that have it. */
 export function matchAgents<T extends { nick: string; name: string }>(rows: T[], q: string): T[] {
   const w = q.toLowerCase();

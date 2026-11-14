@@ -23,7 +23,7 @@ import { levelName } from "../effort";
 import { modelView, useMode } from "../meters";
 import { Face, pickFace } from "./face";
 import { memberError } from "./key";
-import { givenParts, validNick, type AgentRow } from "./lib";
+import { givenParts, ownAgent, validNick, type AgentRow } from "./lib";
 
 const ITEM = "flex h-8 cursor-default items-center gap-2.5 rounded-md px-2.5 text-base outline-none select-none data-highlighted:bg-fill data-popup-open:bg-fill pointer-coarse:h-11";
 const POPUP = "g-unfold glass thick float rounded-lg text-ink outline-none";
@@ -106,15 +106,13 @@ export function AgentFace({ channel, a, call, record, may, talk, size = 28 }: { 
           rename={() => setNaming(true)}
           record={record && (() => record(a.session))}
           given={() => setGiven(true)}
-          remove={a.session === channel || !may ? undefined : () => setSure(true)}
+          remove={ownAgent(channel, a) || !may ? undefined : () => setSure(true)}
         />
       )}
       <At anchor={face} open={naming} onOpenChange={setNaming} className="w-64 p-2.5">
         <NickForm channel={channel} a={a} done={() => setNaming(false)} />
       </At>
-      <At anchor={face} open={sure} onOpenChange={setSure} bare className="w-[min(340px,calc(100vw-16px))]">
-        <Remove channel={channel} a={a} done={() => setSure(false)} />
-      </At>
+      <RemoveAsk channel={channel} member={a.member} nick={a.nick} anchor={face} open={sure} onOpenChange={setSure} />
       {given && <Given a={a} close={() => setGiven(false)} />}
     </>
   );
@@ -125,7 +123,7 @@ export function AgentFace({ channel, a, call, record, may, talk, size = 28 }: { 
  *  "一样东西一个地方"). Keys to talk to it in its own channel (its session: one channel bound to it),
  *  to call it here (@nick); in its own channel, to change its face and see its record. */
 function Card({ channel, a, call, record, may, talk, done }: { channel: string; a: AgentRow; call?: (nick: string) => void; record?: (session: string) => void; may: boolean; talk?: () => void; done: () => void }) {
-  const mine = a.session === channel;
+  const mine = ownAgent(channel, a);
   const key = "g-press flex h-8 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md bg-fill px-2 text-sm text-ink hover:bg-fill-2 pointer-coarse:h-10";
   return (
     <div className="flex flex-col gap-3">
@@ -331,14 +329,17 @@ function NickForm({ channel, a, done }: { channel: string; a: AgentRow; done: ()
   );
 }
 
-/** A member taken out, asked first as the app asks before it deletes. */
-function Remove({ channel, a, done }: { channel: string; a: AgentRow; done: () => void }) {
+/** 移出, from wherever it is asked (the face's menu, the members' list at the bar's right): the
+ *  one card at anchor, the member out only once it is confirmed (docs/前端设计规范.md "一样东西
+ *  一个实现"). The session stays: only its place in the channel goes. */
+export function RemoveAsk({ channel, member, nick, anchor, open, onOpenChange }: { channel: string; member: string; nick: string; anchor: RefObject<HTMLElement | null>; open: boolean; onOpenChange: (o: boolean) => void }) {
   const qc = useQueryClient();
   const [busy, setBusy] = useState(false);
+  const done = () => onOpenChange(false);
   const out = async () => {
     setBusy(true);
     try {
-      qc.setQueryData<ChannelMembers>(["members", channel], await api.removeMember(channel, a.member));
+      qc.setQueryData<ChannelMembers>(["members", channel], await api.removeMember(channel, member));
       done();
     } catch (e) {
       toast(t("err.action"), { error: true, description: memberError(e) });
@@ -346,22 +347,25 @@ function Remove({ channel, a, done }: { channel: string; a: AgentRow; done: () =
       setBusy(false);
     }
   };
+  const title = t("channel.removeTitle", { nick });
   return (
-    <CardFrame label={t("channel.removeTitle", { nick: a.nick })}>
-      <CardHead
-        icon={<UserMinus size={16} />}
-        title={t("channel.removeTitle", { nick: a.nick })}
-        summary={t("channel.removeHint")}
-        keys={
-          <>
-            <SecondKey onClick={done}>{t("me.cancel")}</SecondKey>
-            <MainKey busy={busy} onClick={() => void out()}>
-              {t("channel.remove")}
-            </MainKey>
-          </>
-        }
-      />
-    </CardFrame>
+    <At anchor={anchor} open={open} onOpenChange={onOpenChange} bare className="w-[min(340px,calc(100vw-16px))]">
+      <CardFrame label={title}>
+        <CardHead
+          icon={<UserMinus size={16} />}
+          title={title}
+          summary={t("channel.removeHint")}
+          keys={
+            <>
+              <SecondKey onClick={done}>{t("me.cancel")}</SecondKey>
+              <MainKey busy={busy} onClick={() => void out()}>
+                {t("channel.remove")}
+              </MainKey>
+            </>
+          }
+        />
+      </CardFrame>
+    </At>
   );
 }
 
