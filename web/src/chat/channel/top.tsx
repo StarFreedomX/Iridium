@@ -15,7 +15,7 @@ import { openChat } from "../../route";
 import { useCarried, useList } from "../../store";
 import { toast } from "../../toast";
 import { agentName, Avatar, cn, Lamp, Logo, PopSurface, Tip } from "../../ui";
-import { pickFace } from "./face";
+import { MemberFace, pickFace } from "./face";
 import { ContextMark } from "../meters";
 import { mayAct, useMembers } from "./gate";
 import { AgentKinds, ITEM, POPUP } from "./invite";
@@ -74,7 +74,7 @@ export function TopRight({ id }: { id: string }) {
               <button type="button" aria-label={t("channel.viewing")} className="g-press flex h-8 items-center rounded-md px-1.5 hover:bg-fill data-popup-open:bg-fill pointer-coarse:h-10">
                 {viewers.slice(0, 4).map((v, i) => (
                   <span key={v.member} className="grid rounded-full ring-2 ring-paper" style={{ marginLeft: i ? -5 : 0, zIndex: 4 - i }}>
-                    <Avatar name={v.name} size={18} />
+                    <MemberFace member={v.member} name={v.name} size={18} />
                   </span>
                 ))}
                 {viewers.length > 4 && <span className="ml-1 text-xs text-ink-3 tabular-nums">+{viewers.length - 4}</span>}
@@ -85,7 +85,7 @@ export function TopRight({ id }: { id: string }) {
             <div className={HEAD}>{t("channel.viewing")}</div>
             {viewers.map((v) => (
               <div key={v.member} className="flex h-8 items-center gap-2.5 px-2.5 text-base pointer-coarse:h-11">
-                <Avatar name={v.name} size={18} />
+                <MemberFace member={v.member} name={v.name} size={18} />
                 <span className="min-w-0 flex-1 truncate">{v.name}</span>
               </div>
             ))}

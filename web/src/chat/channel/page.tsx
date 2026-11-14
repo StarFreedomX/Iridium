@@ -19,7 +19,7 @@ import { PULL } from "../../sheet";
 import { getCarried, onCarried, setCarried, useCarried, useConfirms, useList, useSession } from "../../store";
 import { also, carries, events, opened, type SatoriEvent } from "../../stream";
 import { errText } from "../../toast";
-import { agentName, Avatar, cn, lampOf, Logo, PopSurface } from "../../ui";
+import { agentName, cn, lampOf, Logo, PopSurface } from "../../ui";
 import { Asks } from "../asks";
 import { placeDropped } from "../at";
 import { Composer, type ComposerHandle } from "../composer";
@@ -35,6 +35,7 @@ import { groupMessages, readMarks, stillWaiting, watchExtra, type AgentRow, type
 import { channelLog } from "./log";
 import { mayAct, useMembers } from "./gate";
 import { NotJoined } from "./key";
+import { MemberFace } from "./face";
 import { AgentFace } from "./members";
 import { PersonCard, useNamed } from "./person";
 import { NickLink, Nicks, NickWords } from "./nick";
@@ -338,10 +339,8 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
 /** Who has read up to here: small faces at the right, under what they last read. */
 function ReadMarks({ readers, agents }: { readers: Reader[]; agents: AgentRow[] }) {
   const names = readers.map((r) => r.nick || r.name || r.member).join(t("channel.event.sep"));
-  const face = (r: Reader, size: number) => {
-    const a = r.agent ?? agents.find((x) => x.member === r.member)?.agent;
-    return a ? <Logo agent={a} size={size - 2} className="opacity-70" /> : <Avatar name={r.name} size={size} />;
-  };
+  // Each its own face (an agent's, a login's avatar), as beside what it says.
+  const face = (r: Reader, size: number) => <MemberFace member={r.member} name={r.name} agent={r.agent ?? agents.find((x) => x.member === r.member)?.agent} size={size} />;
   return (
     <Popover.Root>
       <Popover.Trigger
