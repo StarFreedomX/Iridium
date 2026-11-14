@@ -290,7 +290,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
     caretAt(next, to);
   };
   /** Whether → goes into row r's folder (arrowInto), the box as it is. */
-  const into = (r: AtRow | undefined, el: HTMLTextAreaElement, held: boolean) => !!word && r?.kind === "place" && arrowInto(text, word.from, wordsAt(shownBox, el.selectionStart), wordsAt(shownBox, el.selectionEnd), `@${typedPath(r.p, machines)}`, held);
+  const into = (r: AtRow | undefined, el: HTMLTextAreaElement, held: boolean) => !!word && r?.kind === "place" && arrowInto(text, word.from, wordsAt(shownBox, el.selectionStart), wordsAt(shownBox, el.selectionEnd), `&${typedPath(r.p, machines)}`, held);
   const atOpen = sections.length > 0;
   const shown = list.length || opts.length || nickOpts.length;
   // What looks like a key: store it as a credential and say {{NAME}} instead (savesecret.tsx).
