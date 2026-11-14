@@ -1187,8 +1187,8 @@ export interface ChannelMember {
   machine?: string;
 }
 /**
- * ChannelMembers are a channel's members: Channel, its id; Multi, it has more than one agent
- * (people call them by @nick; an agent then gets only what it is given).
+ * ChannelMembers are a channel's members: Channel, its id; Multi, it has more than one agent or
+ * is no session's (people call its agents by @nick; an agent then gets only what it is given).
  */
 export interface ChannelMembers {
   channel: string;

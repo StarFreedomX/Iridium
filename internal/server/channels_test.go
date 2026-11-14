@@ -794,7 +794,7 @@ func TestDirect(t *testing.T) {
 	}
 	var ms api.ChannelMembers
 	l.want(200, "socket", "GET", "/v1/internal/channels/"+a.Channel+"/members", nil, &ms)
-	if len(ms.Members) != 2 || ms.Multi || ms.Members[0].Member == ms.Members[1].Member {
+	if len(ms.Members) != 2 || !ms.Multi || ms.Members[0].Member == ms.Members[1].Member {
 		t.Errorf("members: %+v", ms)
 	}
 	if code := l.asLogin(bot, "", "POST", "/v1/internal/dm", map[string]string{"user": "nobody"}, nil); code != 422 {

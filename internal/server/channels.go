@@ -368,6 +368,7 @@ func (s *Server) channelRoutes(mux *http.ServeMux) {
 
 // channelOf is what the list of sessions marks session id with: the agents of its channel, where
 // it has several (its own first) or is no session's, and the channels it is in beside its own.
+// Each agent's kind (ChannelAgent.Agent) the list fills in, which knows it (markChannels).
 func (s *Server) channelOf(id string) (agents []api.ChannelAgent, in []string) {
 	ms, _ := s.ch.Members(id)
 	for _, m := range ms {
@@ -458,11 +459,9 @@ func (s *Server) membersOf(c caller, ch string) (api.ChannelMembers, error) {
 		return api.ChannelMembers{}, err
 	}
 	out := api.ChannelMembers{Channel: ch, Members: []api.ChannelMember{}, Joined: s.inChannel(c, ch) == nil, Me: memberOf(c)}
-	n := 0
 	for _, m := range ms {
 		am := api.ChannelMember{Member: m.Member, Session: m.Session, Nick: m.Nick, Recv: m.Recv, Send: m.Send, Seen: m.Seen}
 		if m.Agent() {
-			n++
 			if st, err := s.m.State(m.Session); err == nil {
 				info, _ := agents.Get(st.Agent)
 				am.Agent, am.Status, am.Cwd, am.Machine = st.Agent, st.Status, st.Cwd, st.Machine
@@ -472,7 +471,7 @@ func (s *Server) membersOf(c caller, ch string) (api.ChannelMembers, error) {
 		}
 		out.Members = append(out.Members, am)
 	}
-	out.Multi = n > 1
+	out.Multi = s.multi(ch)
 	return out, nil
 }
 
