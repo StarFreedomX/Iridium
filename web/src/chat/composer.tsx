@@ -169,7 +169,11 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
   // On a computer the caret is here as a chat opens; a phone would bring up its keyboard.
   useEffect(() => void (fine() && box.current?.focus({ preventScroll: true })), [s.id]);
 
+  // A channel with no agent takes no files yet (docs/channels.md "还没做"): none picked, pasted
+  // or dropped, and no key for it.
+  const noFiles = !!s.bare;
   const attach = (files: File[]) => {
+    if (noFiles) return;
     const add = files.map((file): Att => ({ key: crypto.randomUUID(), file, sent: 0, url: file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined, stop: new AbortController() }));
     setAtts((a) => [...a, ...add]);
     for (const a of add) {
@@ -563,9 +567,11 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
         </div>
       </div>
       <div className="flex min-w-0 items-center gap-0.5 px-2 pt-0.5 pb-2">
-        <IconKey label={t("composer.attach")} onClick={() => picker.current?.click()}>
-          <Paperclip size={17} />
-        </IconKey>
+        {!noFiles && (
+          <IconKey label={t("composer.attach")} onClick={() => picker.current?.click()}>
+            <Paperclip size={17} />
+          </IconKey>
+        )}
         <div ref={toolRow} className={cn("flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden", fresh && "g-fade")}>
           {tools}
         </div>

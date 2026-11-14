@@ -195,7 +195,8 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
   const session = (e: DragEvent) => e.dataTransfer.types.includes(SESSION_DRAG) && (e.preventDefault(), (e.dataTransfer.dropEffect = "copy"), true);
   const place = (e: DragEvent) => e.dataTransfer.types.includes(PLACE_DRAG) && (e.preventDefault(), (e.dataTransfer.dropEffect = "copy"), true);
   const drop = (e: DragEvent) => {
-    if (files(e)) return composer.current?.attach([...e.dataTransfer.files]);
+    // Files dropped on a channel with no agent go nowhere (the composer takes none there).
+    if (files(e)) return row?.bare ? undefined : composer.current?.attach([...e.dataTransfer.files]);
     if (place(e)) {
       const p = placeDropped(e.dataTransfer.getData(PLACE_DRAG));
       return p && composer.current?.name(p);
