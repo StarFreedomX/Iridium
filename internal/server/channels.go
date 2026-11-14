@@ -1411,7 +1411,6 @@ func (s *Server) sendChannelAs(ctx context.Context, c caller, from, ch string, r
 	if seq == 0 {
 		return api.SendReply{}, errors.New("the channel did not take the message")
 	}
-	s.noteOrigin(c, ch, c.session)
 	out := api.SendReply{Input: req.ID, Seq: seq, Said: true, Unseen: unseen}
 	if sender != "" {
 		s.seen(ch, sender, seq)
@@ -1427,6 +1426,9 @@ func (s *Server) sendChannelAs(ctx context.Context, c caller, from, ch string, r
 			failed = append(failed, t)
 			continue
 		}
+		// The turn it begins is the sender's doing: the woken agent's ir acts as that login, the
+		// channel's own agent's only when it is the one woken (origin.go).
+		s.noteOrigin(c, t, c.session)
 		sent++
 		out.Queued = out.Queued || queued
 	}
@@ -1675,7 +1677,10 @@ func (s *Server) routeSaid(m channel.Message) {
 			if err != nil {
 				s.logf("server: channel %s: message %d to %s: %v", m.Channel, m.Seq, t, err)
 				s.sat.Note(m.Channel, fmt.Sprintf("未送达 #%d → @%s：%s", m.Seq, by[t].Nick, strings.TrimSpace(err.Error())), link.origin, &channel.Event{Type: "undelivered", Seq: m.Seq, Nick: by[t].Nick})
+				continue
 			}
+			// Its turn goes on for whom the sender's does.
+			s.noteOrigin(caller{Identity: localIdentity, socket: true, agent: true, session: sender}, t, sender)
 		}
 	}()
 }
