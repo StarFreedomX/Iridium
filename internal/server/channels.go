@@ -1006,10 +1006,46 @@ func (s *Server) agentChoices(w http.ResponseWriter, r *http.Request) {
 		machine = st.Machine
 	}
 	out := api.AgentChoices{Models: []api.Model{}, Efforts: []string{}}
-	list, err := s.m.List(r.Context())
+	// What one said last, kept (keepChoices), at once (kumo, 2026-11-15: the invite menu's models
+	// pop as the chat's own do); the sessions are asked after, for the next time.
+	if kept := s.st.Kept(choicesKey(kind, machine)); kept != "" && json.Unmarshal([]byte(kept), &out) == nil && len(out.Models) > 0 {
+		out.Presets = s.keptPresets(kind, machine)
+		reply(w, http.StatusOK, out)
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			_, _ = s.askChoices(ctx, c, kind, machine)
+		}()
+		return
+	}
+	got, err := s.askChoices(r.Context(), c, kind, machine)
 	if err != nil {
 		s.fault(w, err)
 		return
+	}
+	if got != nil {
+		out = *got
+	}
+	out.Presets = s.keptPresets(kind, machine)
+	reply(w, http.StatusOK, out)
+}
+
+// keptPresets are the presets a session of kind at machine listed last (askChoices); nil for
+// none, or a kind with none.
+func (s *Server) keptPresets(kind api.Agent, machine string) *api.Presets {
+	var p api.Presets
+	if kept := s.st.Kept("presets:" + string(kind) + ":" + machine); kept == "" || json.Unmarshal([]byte(kept), &p) != nil || len(p.Presets) == 0 {
+		return nil
+	}
+	return &p
+}
+
+// askChoices asks the latest hosted sessions of kind at machine that c sees for their models,
+// keeping what the first that says them says (keepChoices); nil when none says them.
+func (s *Server) askChoices(ctx context.Context, c caller, kind api.Agent, machine string) (*api.AgentChoices, error) {
+	list, err := s.m.List(ctx)
+	if err != nil {
+		return nil, err
 	}
 	tried := 0
 	for _, ss := range list {
@@ -1022,18 +1058,19 @@ func (s *Server) agentChoices(w http.ResponseWriter, r *http.Request) {
 		// One that says its models (pi says them only while it runs: an idle one has its
 		// efforts alone, and is passed over).
 		if st, err := s.m.State(ss.ID); err == nil && len(st.Models) > 0 {
-			out.Models, out.Efforts = append(out.Models, st.Models...), append(out.Efforts, st.Efforts...)
 			s.keepChoices(st)
-			break
+			// An agent with presets (dsh): its list kept beside, for the invite menu.
+			if info, _ := agents.Get(kind); info.Presets {
+				if p, err := s.m.SessionPresets(ctx, ss.ID); err == nil && len(p.Presets) > 0 {
+					if b, err := json.Marshal(p); err == nil {
+						_ = s.st.Keep("presets:"+string(kind)+":"+machine, string(b))
+					}
+				}
+			}
+			return &api.AgentChoices{Models: append([]api.Model{}, st.Models...), Efforts: append([]string{}, st.Efforts...)}, nil
 		}
 	}
-	// Else what one said last, kept (keepChoices), for when none of the kind says them now.
-	if len(out.Models) == 0 {
-		if kept := s.st.Kept(choicesKey(kind, machine)); kept != "" {
-			_ = json.Unmarshal([]byte(kept), &out)
-		}
-	}
-	reply(w, http.StatusOK, out)
+	return nil, nil
 }
 
 func choicesKey(kind api.Agent, machine string) string {

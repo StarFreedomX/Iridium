@@ -179,7 +179,9 @@ type People struct {
 // AgentChoices is what a new agent of a kind may be started with at a machine, as the latest
 // session of that kind there said it: its models (each with its own efforts) and efforts. None
 // known (no session of the kind ran there yet): empty, and the agent's own defaults go.
+// Presets: an agent with presets (dsh): those a session of it there listed last.
 type AgentChoices struct {
 	Models  []Model  `json:"models"`
 	Efforts []string `json:"efforts"`
+	Presets *Presets `json:"presets,omitempty"`
 }

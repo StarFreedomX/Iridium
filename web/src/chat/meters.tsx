@@ -698,7 +698,7 @@ export function ModelKey({ s, open, onOpenChange }: { s: LiveSession; open?: boo
 /** The model menu's inside (ModelKey's, and a new agent's under 邀请, chat/channel/pick.tsx):
  *  the models, a pick closing it; under them the effort track, tuned in place. foot: a key at the
  *  track's right (featKey) even with no levels. */
-export function ModelList({ models, value, pickModel, levels, level, setEffort, featKey, featTag, foot, name }: { models: Model[]; value: string; pickModel: (v: string) => void; levels: string[]; level: string; setEffort: (e: string) => Promise<boolean>; featKey?: ReactNode; featTag?: ReactNode; foot?: boolean; name?: string }) {
+export function ModelList({ models, value, pickModel, levels, level, setEffort, featKey, featTag, foot, name, mark }: { models: Model[]; value: string; pickModel: (v: string) => void; levels: string[]; level: string; setEffort: (e: string) => Promise<boolean>; featKey?: ReactNode; featTag?: ReactNode; foot?: boolean; name?: string ; mark?: { value: string; label: string }}) {
   const grouped = new Set(models.map((m) => m.group).filter(Boolean)).size > 1;
   return (
     <>
@@ -717,6 +717,8 @@ export function ModelList({ models, value, pickModel, levels, level, setEffort, 
               <Menu.RadioItem value={m.value} closeOnClick style={{ "--i": i } as CSSProperties} className="flex min-h-8 cursor-default items-center gap-2.5 rounded-md pr-2 pl-2.5 text-base outline-none select-none data-highlighted:bg-fill pointer-coarse:min-h-11">
                 {/* The name alone: no model's blurb under it (the user, 2026-11-06). */}
                 <span className="min-w-0 flex-1 truncate py-1">{m.name}</span>
+                {/* One row marked quietly at its end (the invite menu's default: kumo, 2026-11-15). */}
+                {mark?.value === m.value && <span className="shrink-0 text-xs text-ink-4">{mark.label}</span>}
                 <Menu.RadioItemIndicator className="text-ink">
                   <Check size={14} />
                 </Menu.RadioItemIndicator>
@@ -751,7 +753,7 @@ const PRESET_KEY: Record<string, [Parameters<typeof t>[0], Parameters<typeof t>[
   minimal: ["preset.minimal", "preset.minimalHint"],
   cordis: ["preset.cordis", "preset.cordisHint"],
 };
-const presetName = (id: string, p?: Preset) => p?.name || (PRESET_KEY[id] ? t(PRESET_KEY[id][0]) : id);
+export const presetName = (id: string, p?: Preset) => p?.name || (PRESET_KEY[id] ? t(PRESET_KEY[id][0]) : id);
 const presetHint = (id: string, p?: Preset) => (p?.name ? p.description : PRESET_KEY[id] ? t(PRESET_KEY[id][1]) : p?.description);
 
 /** The agent preset (dsh: the tools and prompt it runs with), where the quota bars would be: dsh

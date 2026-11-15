@@ -1365,10 +1365,12 @@ export interface People {
  * AgentChoices is what a new agent of a kind may be started with at a machine, as the latest
  * session of that kind there said it: its models (each with its own efforts) and efforts. None
  * known (no session of the kind ran there yet): empty, and the agent's own defaults go.
+ * Presets: an agent with presets (dsh): those a session of it there listed last.
  */
 export interface AgentChoices {
   models: Model[];
   efforts: string[];
+  presets?: Presets;
 }
 
 //////////

@@ -128,6 +128,13 @@ func TestChannelOfSeveral(t *testing.T) {
 	if len(choices.Models) != 0 {
 		t.Errorf("choices of a kind that never ran: %+v", choices)
 	}
+	// What was kept is answered at once, with the presets kept beside, no session of it asked.
+	_ = l.s.st.Keep(choicesKey(api.AgentDsh, ""), `{"models":[{"value":"flash","name":"Flash"}],"efforts":[]}`)
+	_ = l.s.st.Keep("presets:dsh:", `{"presets":[{"id":"standard"},{"id":"ptc"}],"default":"standard"}`)
+	l.want(200, "web", "GET", "/v1/internal/agents/dsh/choices", nil, &choices)
+	if len(choices.Models) != 1 || choices.Models[0].Value != "flash" || choices.Presets == nil || len(choices.Presets.Presets) != 2 {
+		t.Errorf("kept choices: %+v", choices)
+	}
 
 	// Nobody named: the channel's own agent alone answers; the second is given nothing.
 	code, r := l.send("web", ch, api.Send{Text: "plain words"})

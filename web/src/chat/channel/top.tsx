@@ -4,12 +4,12 @@
 // logins. The face is the title's key (chat.tsx); on a phone 换头像 is in ⋯.
 import { Menu } from "@base-ui/react/menu";
 import { Popover } from "@base-ui/react/popover";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronRight, ImagePlus, UserPlus, Users } from "lucide-react";
 import { useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { api } from "../../api/client";
 import type { ChannelMembers, Viewer } from "../../api/types.gen";
-import { isComputer, useApps } from "../../data";
+import { agentsQ, isComputer, useApps } from "../../data";
 import { t, useLang } from "../../i18n";
 import { openChat } from "../../route";
 import { useCarried, useList } from "../../store";
@@ -20,6 +20,7 @@ import { MemberFace, pickFace } from "./face";
 import { ContextMark } from "../meters";
 import { mayAct, useMembers } from "./gate";
 import { AgentKinds, ITEM, POPUP } from "./invite";
+import { prefetchChoices } from "./pick";
 import { memberError } from "./key";
 import { ownAgent } from "./lib";
 import { RemoveAsk } from "./members";
@@ -55,6 +56,8 @@ const check = (on: boolean) => <span className="grid size-3.5 place-items-center
  *  the members, a key with their count (agents and people) opening the list of them. */
 export function TopRight({ id }: { id: string }) {
   useLang();
+  const qc = useQueryClient();
+  const kinds = (useQuery(agentsQ).data ?? []).filter((a) => !a.missing).map((a) => a.agent);
   const members = useMembers(id);
   const viewers = useCarried<Viewer[]>(`viewers:${id}`) ?? [];
   const agents = (members?.members ?? []).filter((m) => m.session);
@@ -93,7 +96,8 @@ export function TopRight({ id }: { id: string }) {
           </PopSurface>
         </Popover.Root>
       )}
-      <Menu.Root>
+      {/* Opened, each kind's models are asked for, for 邀请's menus to pop at once (pick.tsx). */}
+      <Menu.Root onOpenChange={(open) => open && prefetchChoices(qc, kinds, { channel: id })}>
         <Tip label={t("channel.members")} side="bottom">
           <Menu.Trigger
             render={
