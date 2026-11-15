@@ -560,7 +560,7 @@ const EVENT_KEYS = ["join", "leave", "rename", "recv", "everyone", "added", "rem
 function EventLine({ m }: { m: Msg }) {
   useLang();
   const d = useApps().data;
-  const words = { ...Object.fromEntries(EVENT_KEYS.map((k) => [k, t(`channel.event.${k}`)])), all: t("channel.recvAll"), at: t("channel.recvAt"), reasons: { 余额不足: t("channel.reason.balance"), 认证失败: t("channel.reason.auth"), 请求太频繁: t("channel.reason.rate") } } as EventWords;
+  const words = { ...Object.fromEntries(EVENT_KEYS.map((k) => [k, t(`channel.event.${k}`)])), all: t("channel.recvAll"), at: t("channel.recvAt"), reasons: { 余额不足: t("channel.reason.balance"), 认证失败: t("channel.reason.auth"), 请求太频繁: t("channel.reason.rate") } } as unknown as EventWords;
   const parts = m.event && eventParts(m.event, words);
   if (!parts) return <Line>{m.text}</Line>;
   const apps = (d?.apps ?? []).map((a) => (a.web ? { ...a, name: t("term.panel") } : a));
