@@ -12,7 +12,7 @@ import { Avatar, cn, Logo } from "../../ui";
 
 /** The face of channel (session) id, round, size across; none given: the agent's logo, as
  *  large as logo, or what else stands for it. */
-export function Face({ id, agent, size, logo, className, none: instead }: { id: string; agent: Agent; size: number; logo?: number; className?: string; none?: ReactNode }) {
+export function Face({ id, agent, size, logo, className, none: instead, low }: { id: string; agent: Agent; size: number; logo?: number; className?: string; none?: ReactNode; low?: boolean }) {
   // Asked again as any face changes (the carried state "avatars", a count).
   const v = useCarried<number>("avatars") ?? 0;
   const src = `/v1/internal/channels/${encodeURIComponent(id)}/avatar?v=${v}`;
@@ -20,7 +20,8 @@ export function Face({ id, agent, size, logo, className, none: instead }: { id: 
   // Something else standing for it (wider than the face): shown until the picture has come.
   const [got, setGot] = useState<string | null>(null);
   if (none === src) return instead ? <span className={cn("grid", className)}>{instead}</span> : <Logo agent={agent} size={logo ?? size} className={className} />;
-  const img = <img src={src} alt="" draggable={false} onLoad={() => setGot(src)} onError={() => setNone(src)} className="absolute inset-0 size-full rounded-full object-cover" />;
+  // low: one of many (the sidebar's rows), fetched after what the open page asks for.
+  const img = <img src={src} alt="" draggable={false} fetchPriority={low ? "low" : undefined} onLoad={() => setGot(src)} onError={() => setNone(src)} className="absolute inset-0 size-full rounded-full object-cover" />;
   if (instead && got !== src)
     return (
       <span className={cn("relative grid", className)}>

@@ -32,7 +32,12 @@ import (
 
 // withSatori serves /v1/ by package satori, the rest by next.
 func (s *Server) withSatori(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	var self http.Handler
+	self = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// A first screen asks its parts of this handler, as its caller (first.go).
+		if r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/first") {
+			r = r.WithContext(context.WithValue(r.Context(), firstKey{}, self))
+		}
 		// A session by its id's start or self (resolve.go).
 		r, err := s.withSessionArg(r)
 		if err != nil {
@@ -62,6 +67,7 @@ func (s *Server) withSatori(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+	return self
 }
 
 type satoriBackend struct{ s *Server }

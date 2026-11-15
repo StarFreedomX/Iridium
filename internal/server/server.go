@@ -188,6 +188,7 @@ func (s *Server) Handler(local bool) http.Handler {
 	})
 	// What carries transcripts goes out with the credentials' values masked (routes_secrets.go).
 	mux.HandleFunc("GET /v1/internal/sessions/{id}", s.masked(s.get))
+	mux.HandleFunc("GET /v1/internal/sessions/{id}/first", s.first)
 	mux.HandleFunc("GET /v1/internal/sessions/{id}/image", s.image)
 	mux.HandleFunc("POST /v1/internal/sessions/{id}/interrupt", s.use(s.interrupt))
 	mux.HandleFunc("POST /v1/internal/sessions/{id}/stop", s.use(s.stop))

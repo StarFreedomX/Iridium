@@ -11,7 +11,9 @@ import { useCarried } from "../../store";
 export function useMembers(id: string, sig = "") {
   const seq = useCarried<number>("channels");
   const qc = useQueryClient();
-  const q = useQuery({ queryKey: ["members", id], queryFn: () => api.members(id), staleTime: 0, retry: false });
+  // Those just asked for (by another part of the page, or come with the first screen) are not
+  // asked for again as each part that reads them is drawn.
+  const q = useQuery({ queryKey: ["members", id], queryFn: () => api.members(id), staleTime: 5_000, retry: false });
   const first = useRef(true);
   useEffect(() => {
     if (first.current) return void (first.current = false);

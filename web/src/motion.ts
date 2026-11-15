@@ -137,7 +137,7 @@ export function pageTurn(order: () => string[], on: () => boolean): Turn {
     const chat = peekChat(to.id);
     // One held: what came since it was seen comes first, so it turns in as it is now.
     if (!chat) ahead(to.id, true);
-    else since(chat);
+    else since(chat, true);
     const coming = peekChat(to.id)?.coming;
     // Its state: waited for if none is held; one held from before is drawn, and freshened.
     const held = !!getCarried(`session:${to.id}`);

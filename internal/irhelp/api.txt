@@ -75,6 +75,7 @@ upload.create {channel_id} -> {field: url}  multipart: files for a session, each
 # sessions
 GET internal/agents/{agent}/choices?machine&channel - -> AgentChoices  the models and efforts a new agent of that kind may start with (at a machine, or where a channel runs), as its latest session there said them; none known: empty
 GET internal/agents - -> AgentInfo[]  agents that can start here, their modes  view=agent,modes,defaultMode,missing
+GET internal/sessions/{id}/first?record&since - -> {session, page?, members?, reads?, log?, sessions?, work?}  a session's first screen in one answer, each part as its own API gives it: state, the record's newest page, members; with another agent in the channel also reads, the log, the others' states and the work under their words
 GET internal/sessions/{id}/image?at&n - -> image  the n-th image a tool result gave the model
 POST internal/sessions/{id}/release {toolUseId, dismiss?} -> {ok}  run a step auto mode denied under manual; person only
 GET internal/sessions/{id}/public - -> PublicLink  the session's public read-only link: ready (public address on), on, by, createdAt

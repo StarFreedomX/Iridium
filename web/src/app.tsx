@@ -11,7 +11,7 @@ import { Toast } from "@base-ui/react/toast";
 import { Tooltip } from "@base-ui/react/tooltip";
 import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType, type CSSProperties, type ReactNode } from "react";
 import { queryClient } from "./api/client";
-import { watchTurns } from "./chats";
+import { firstScreen, watchTurns } from "./chats";
 import { CreatePopover, WsPlus } from "./create";
 import { agentsQ, LOCAL_ME, pushQ, useApps, useHome, useMe, useSettings, useUpdate, useWorkspaces } from "./data";
 import { t, useLang } from "./i18n";
@@ -58,6 +58,15 @@ const setsPageOf = (r: Route): SetsPage => (r.name === "apps" || r.name === "sec
 const Jump = part(() => import("./jump").then((m) => m.Jump));
 const NotesPanel = part(() => import("./notes").then((m) => m.NotesPanel));
 export const loadChat = ChatPage.load;
+// The address names a chat: its code and its first screen are asked for now, ahead of the first
+// draw, the list and the sidebar's faces (chats.ts firstScreen).
+{
+  const at = route();
+  if (at.name === "chat") {
+    void loadChat().catch(() => {});
+    void firstScreen(at.id);
+  }
+}
 /** The settings and the jump box, their code run, the settings' answers asked: once idle, or a
  *  pointer on their key. */
 const loadPanels = () => {

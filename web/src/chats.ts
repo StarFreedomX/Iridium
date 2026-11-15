@@ -4,9 +4,15 @@
 // going back to one draws it at once and fetches only what came since. Also what is fetched ahead
 // (plan "弱网"): a row the mouse rests on, a session whose turn ends off screen, and those the page
 // warms of its own (src/warm.ts picks them): each one's newest page, held apart till it is visited.
-import { api } from "./api/client";
+import { api, queryClient, type First } from "./api/client";
 import type { Block, DraftEvent, MessagePage, Session, SessionState } from "./api/types.gen";
+import { workKey, workOf, type Src } from "./chat/channel/lib";
+import { channelLog, heldLog, several } from "./chat/channel/log";
 import { getCarried, setCarried } from "./store";
+
+/** Whether what came at at (ms) is of just now: a page that opens right after a first screen (or
+ *  a read ahead of its turn) asks for none of it again. */
+export const fresh = (at: number) => Date.now() - at < 3_000;
 
 /** A message of yours sent from this page, till the transcript has it: input, the id the server gave
  *  it (Claude's uuid, which the user block carries); text, as typed; files, upload refs with their
@@ -71,6 +77,8 @@ export class Messages {
   proc = -1;
   /** Bumped at each change, for a view to draw again. */
   version = 0;
+  /** When it was last read to its end (ms). */
+  came = 0;
   /** The last draft the transcript has: a piece of it that comes late (the stream batches drafts,
    *  the transcript may be read first) is not a new draft. */
   private gone = { proc: -1, n: -1 };
@@ -107,21 +115,26 @@ export class Messages {
     if (!this.loaded) {
       const p = await this.get(this.id, {});
       if (this.loaded) return this.newer(); // another came first
-      Object.assign(this, { blocks: p.blocks, start: p.start, end: p.end, more: p.more, loaded: true });
-      this.took(p.blocks, false);
-      if (this.back) this.prefetch();
-      return;
+      return this.take(p);
     }
     for (;;) {
       const from = this.end;
       const p = await this.get(this.id, { after: from });
-      if (p.end <= this.end) return this.recheck();
+      if (p.end <= this.end) return (this.came = Date.now()), this.recheck();
       // Two fetches may ask from the same place: each block goes in once.
       const added = p.blocks.filter((b) => lineOf(b) >= this.end);
       this.blocks = [...this.blocks, ...added];
       this.end = p.end;
       this.took(added, true);
     }
+  }
+
+  /** The newest page, read here or elsewhere (the first screen's): nothing if one came already. */
+  take(p: MessagePage) {
+    if (this.loaded) return;
+    Object.assign(this, { blocks: p.blocks, start: p.start, end: p.end, more: p.more, loaded: true, came: Date.now() });
+    this.took(p.blocks, false);
+    if (this.back) this.prefetch();
   }
 
   /** New blocks: each thing the agent said takes the place of the draft it is, by its words, and of
@@ -312,6 +325,7 @@ export function chatOf(id: string): Chat {
     if (all <= KEPT_BLOCKS || c === it) break;
     all -= c.log.blocks.length;
     kept.delete(k);
+    whole.delete(k);
   }
   return it;
 }
@@ -335,6 +349,9 @@ export function stateAhead(id: string, low = false): Promise<boolean> {
   let p = asking.get(id);
   if (p) return p;
   const key = `session:${id}`;
+  // Its first screen is on its way: the state comes with it.
+  const f = firsts.get(id);
+  if (f) return f.then(() => !!getCarried(key));
   const was = getCarried<SessionState>(key);
   p = api
     .session(id, { priority: low || was ? "low" : "high" } as RequestInit)
@@ -353,19 +370,17 @@ export function stateAhead(id: string, low = false): Promise<boolean> {
 let pressed: Promise<void> | undefined;
 export function ahead(id: string, press = false): void {
   if (!mayPrefetch()) return;
-  if (!getCarried(`session:${id}`)) void stateAhead(id);
-  if (pressed) return;
-  if (!kept.has(id) && early?.id !== id && !warm.has(id)) {
+  if (!pressed && !kept.has(id) && early?.id !== id && !warm.has(id)) {
     behind();
     const stop = new AbortController();
     let signal: AbortSignal | undefined = stop.signal;
     const it = newChat(id, (sid, q) => api.messages(sid, q, { signal, priority: "low" } as RequestInit));
     early = { id, it, stop };
-    it.coming = it.log
-      .newer()
-      .catch(() => {})
-      .finally(() => ((it.coming = undefined), (signal = undefined)));
+    // Its first screen whole (its state too), not the record alone.
+    it.coming = firstScreen(id, it, { signal, priority: "low" } as RequestInit).finally(() => ((it.coming = undefined), (signal = undefined)));
   }
+  if (!getCarried(`session:${id}`)) void stateAhead(id);
+  if (pressed) return;
   if (press && early?.id === id && early.it.coming) pressed = early.it.coming.then(() => void (pressed = undefined));
 }
 
@@ -388,12 +403,80 @@ export function turnEnded(id: string, open: string | null): void {
 /** Brings what chat it held has missed since, unless that is coming already: a turn ended off
  *  screen, or the page turns to it (motion.ts pageTurn), which draws it with them, not without and
  *  then jumping. */
-export function since(it: Chat): void {
+export function since(it: Chat, visit = false): void {
   if (it.coming || !it.log.loaded) return;
-  it.coming = it.log
-    .newer()
+  // Turned to and never drawn whole (warmed: the record alone): the rest of its first screen.
+  if (visit && !isWhole(it.log.id)) return void firstScreen(it.log.id, it);
+  it.coming = Promise.all([it.log.newer(), visit ? heldLog(it.log.id)?.newer() : undefined])
+    .then(() => {})
     .catch(() => {})
     .finally(() => (it.coming = undefined));
+}
+
+/** The sessions whose first screen came: their pages draw at once, and ask only for what came
+ *  since. Gone with the chat as it is let go. */
+const whole = new Set<string>();
+/** Whether session id's page has all of its first screen: its channel's log too, once the
+ *  channel has another agent (the logs kept are fewer than the chats). */
+export const isWhole = (id: string) => whole.has(id) && (!several.has(id) || !!heldLog(id));
+const firsts = new Map<string, Promise<void>>();
+/** When each state the first screens brought came (ms). */
+const stateCame = new Map<string, number>();
+export const freshState = (id: string) => fresh(stateCame.get(id) ?? 0);
+
+/** Session id's first screen, in one answer (GET …/first), put where the page reads each part:
+ *  its state, its record's newest page (into it), its channel's members, and, with another agent
+ *  in the channel, the log, how far each has read, the others' states and the work under their
+ *  words. So the page draws once, with all of it, and asks for
+ *  none of it again. Asked from the address alone: neither the list nor anything drawn is waited
+ *  for. One whose record is held (warmed) asks for the rest, and for what the record missed.
+ *  Failed, the page asks for each part as it did. Never rejects. */
+export function firstScreen(id: string, it: Chat = chatOf(id), init?: RequestInit): Promise<void> {
+  let p = firsts.get(id);
+  if (p) return p;
+  const key = `session:${id}`;
+  const was = getCarried<SessionState>(key);
+  const log = it.log;
+  const have = log.loaded;
+  const top = log.blocks[0]?.time;
+  p = (async () => {
+    try {
+      const [f] = await Promise.all([api.first(id, have ? { have, ...(top !== undefined ? { since: log.more ? top : 0 } : {}) } : {}, init), have ? log.newer().catch(() => {}) : undefined]);
+      if (getCarried(key) === was) setCarried(key, f.session);
+      putFirst(id, f, log);
+      whole.add(id);
+    } catch {
+      // Stopped (the mouse left its row): nothing came. Else the page asks part by part.
+      if (!init?.signal?.aborted) whole.add(id);
+    }
+  })().finally(() => {
+    firsts.delete(id);
+    if (it.coming === p) it.coming = undefined;
+  });
+  firsts.set(id, p);
+  it.coming ??= p;
+  return p;
+}
+
+/** Puts a first screen's parts in. */
+function putFirst(id: string, f: First, log: Messages): void {
+  if (f.page) log.take(f.page);
+  if (f.members) queryClient.setQueryData(["members", id], f.members);
+  for (const [x, st] of Object.entries(f.sessions ?? {})) {
+    if (!getCarried(`session:${x}`)) setCarried(`session:${x}`, st);
+    stateCame.set(x, Date.now());
+  }
+  if (!f.log) return;
+  several.add(id);
+  const ch = channelLog(id).log;
+  ch.take(f.log);
+  if (f.reads && !getCarried(`reads:${id}`)) setCarried(`reads:${id}`, f.reads);
+  // The work under the others' words, as page.tsx Work would have fetched it.
+  const said = new Map(ch.msgs.flatMap((m) => (m.src ? [[workKey(m.src).join(" "), m.text] as const] : [])));
+  for (const w of f.work ?? []) {
+    const src: Src = { session: w.session, ...(w.block ? { block: w.block } : {}), ...(w.from ? { from: w.from } : {}), ...(w.to ? { to: w.to } : {}) };
+    queryClient.setQueryData(workKey(src), workOf(w.blocks, src, said.get(workKey(src).join(" "))));
+  }
 }
 
 /** Watches the list for turns that end: tells turnEnded. */

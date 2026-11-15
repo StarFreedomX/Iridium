@@ -63,6 +63,9 @@ function onState(raw: string) {
   }
   if (e.ignored) ignored.set(e.key, e.ignored);
   else ignored.delete(e.key);
+  // How far a channel is read, which the daemon holds only once someone read it since it began:
+  // none said does not take away what the page asked for itself (chats.ts firstScreen).
+  if (!e.ignored && e.value == null && e.key.startsWith("reads:") && getCarried(e.key)) return;
   setCarried(e.key, e.ignored ? null : e.value);
 }
 

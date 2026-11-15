@@ -17,6 +17,8 @@ export class ChannelLog {
   loaded = false;
   /** Bumped at each change, for a view to draw again. */
   version = 0;
+  /** When it was last read to its end (ms): a page that opens right after asks for nothing. */
+  came = 0;
   private coming: Promise<void> | undefined;
   private again = false;
   /** Where to read on from, when an event's message came further on than the next number: the
@@ -38,6 +40,17 @@ export class ChannelLog {
     if (next === this.msgs) return;
     this.msgs = next;
     this.version++;
+  }
+
+  /** A page read elsewhere (the first screen's, chats.ts): the newest, with those before it that
+   *  came along. Held already: what it has that is new goes in. */
+  take(p: ChannelPage) {
+    const first = this.msgs[0]?.n;
+    if (!this.loaded || (first !== undefined && p.start < first)) this.more = p.more;
+    if (!this.loaded) this.version++;
+    this.loaded = true;
+    this.put(read(p.data));
+    this.came = Date.now();
   }
 
   /** The newest page at first; then what was said after the last held, page after page. One at a
@@ -69,6 +82,7 @@ export class ChannelLog {
           from = last;
         }
       } while (this.again);
+      this.came = Date.now();
     };
     this.coming = run().finally(() => (this.coming = undefined));
     return this.coming;
@@ -107,6 +121,13 @@ export type Kept = { log: ChannelLog; place: { top: number | null }; sent: Sent[
 /** The channels seen lately, so going back to one draws it at once. */
 const kept = new Map<string, Kept>();
 const KEPT = 8;
+
+/** Channels seen here with another agent: the log stays in once it was, so their words do not
+ *  go as an agent leaves (and come back as it returns). */
+export const several = new Set<string>();
+
+/** The log of channel id if it is held and its newest page has come. */
+export const heldLog = (id: string) => (kept.get(id)?.log.loaded ? kept.get(id)!.log : undefined);
 
 export function channelLog(id: string): Kept {
   let it = kept.get(id);

@@ -34,7 +34,7 @@ import { fromSatori, PLACE_DRAG, SESSION_DRAG, sourceOf, yours } from "../refs";
 import { Assistant, Attached, Line, Pending, Said, When, YouBubble } from "../said";
 import { folded } from "../fold";
 import { Stick, toEnd } from "../stick";
-import { askQueue, groupMessages, readMarks, stillWaiting, watchExtra, type AgentRow, type Did, type Group, type Msg, type Src, lineOf, workOf, eventParts, personName, type EventWords } from "./lib";
+import { askQueue, groupMessages, readMarks, stillWaiting, watchExtra, type AgentRow, type Did, type Group, type Msg, type Src, lineOf, workOf, workKey, eventParts, personName, type EventWords } from "./lib";
 import { channelLog } from "./log";
 import { betweenAgents, linesOf } from "./merge";
 import { LongWords } from "../longwords";
@@ -578,7 +578,7 @@ function EventLine({ m }: { m: Msg }) {
 function Work({ src, did, said }: { src: Src; did?: Did; said?: string }) {
   const row = useList()?.find((x) => x.id === src.session);
   const q = useQuery({
-    queryKey: ["work", src.session, src.block ?? "", src.from ?? 0, src.to ?? 0],
+    queryKey: workKey(src),
     queryFn: async () => {
       const page = src.from !== undefined ? await api.messages(src.session, { after: Math.max(0, src.from - 1) }) : await api.messages(src.session, { before: lineOf(src.block!) + 1 });
       return workOf(page.blocks, src, said);

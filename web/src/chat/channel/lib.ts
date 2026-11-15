@@ -159,6 +159,10 @@ export function msgOf(m: ChannelMessage): Msg | undefined {
   return { n, text: b.text ?? "", files: b.files ?? [], author, ...(q ? { quote: Number(q[1]) } : {}), ...(m.created_at ? { time: m.created_at } : {}), ...(m._data?.kind ? { kind: m._data.kind } : {}), ...(author.kind === "person" && m._data?.input ? { input: m._data.input } : {}), ...(author.kind === "agent" && didOf(m.content) ? { did: didOf(m.content)! } : {}), ...(m._data?.event && typeof m._data.event === "object" ? { event: m._data.event as ChEvent } : {}), ...(author.kind === "agent" && m._data?.session ? { src: { session: m._data.session, ...(m._data.block ? { block: m._data.block } : {}), ...(m._data.from ? { from: m._data.from } : {}), ...(m._data.to ? { to: m._data.to } : {}) } } : {}) };
 }
 
+/** The key the work under a message from src is kept by (page.tsx Work; chats.ts firstScreen
+ *  puts in what the first screen brought). */
+export const workKey = (src: Src) => ["work", src.session, src.block ?? "", src.from ?? 0, src.to ?? 0];
+
 const sameSrc = (a?: Src, b?: Src) => a?.session === b?.session && a?.block === b?.block && a?.from === b?.from && a?.to === b?.to;
 
 /** have with more put in: each number once (the later one wins: a message read again, changed:

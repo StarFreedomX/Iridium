@@ -57,7 +57,7 @@ import type {
 } from "./types.gen";
 import type { ShellOutput, ShellRun, ShellStarted } from "./types.gen";
 import type { SecretInfo, Secrets, SetSecret, Usage } from "./types.gen";
-import type { AgentChoices, ChannelMembers, ChannelReads, Injection, MemberPatch, NewMember } from "./types.gen";
+import type { AgentChoices, Block, ChannelMembers, ChannelReads, Injection, MemberPatch, NewMember } from "./types.gen";
 
 /** A message of a channel's log (Satori's message.list): id its number there. */
 export type ChannelMessage = { id: string; content: string; created_at?: number; user?: { id: string; name?: string; nick?: string; is_bot?: boolean }; _data?: { kind?: string; event?: unknown; session?: string; block?: string; from?: number; to?: number; input?: string } };
@@ -207,9 +207,32 @@ function channelPatch(id: string, p: SessionPatch) {
   return { channel_id: id, ...(Object.keys(data).length ? { data } : {}), ...(Object.keys(rest).length ? { _data: rest } : {}) };
 }
 
+/** A session's first screen (GET …/first, docs/api.md): its state, its record's newest page and
+ *  its channel's members; with another agent in the channel, how far each has read, the log as
+ *  far back as the record's page, the others' states, and the work under their words (where in
+ *  whose record, the blocks there). A part the server could not give is absent. */
+export type First = { session: SessionState; page?: MessagePage; members?: ChannelMembers; reads?: ChannelReads; log?: ChannelPage; sessions?: Record<string, SessionState>; work?: { session: string; block?: string; from?: number; to?: number; blocks: Block[] }[] };
+type RawPage<T> = { data: T[]; _data?: { start: number; end: number; more: boolean } };
+
 export const api = {
   // --- served (docs/api.md) ---
   session: (id: string, init?: RequestInit) => get<SessionState>(S(id), init),
+  /** have: the page holds the record already (its page is left out); since: how far back the
+   *  others' words are to go then (the record's first block's time; 0: all of them). */
+  first: async (id: string, q: { have?: boolean; since?: number } = {}, init?: RequestInit): Promise<First> => {
+    const args = q.have ? `?record=0${q.since !== undefined ? `&since=${q.since}` : ""}` : "";
+    const f = await get<{ session: SessionState; page?: RawPage<SatoriMessage>; members?: ChannelMembers; reads?: ChannelReads; log?: RawPage<ChannelMessage>; sessions?: Record<string, SessionState>; work?: { session: string; block?: string; from?: number; to?: number; data: SatoriMessage[] }[] }>(`${S(id)}/first${args}`, init);
+    const at = (p: RawPage<unknown>) => ({ start: p._data?.start ?? 0, end: p._data?.end ?? 0, more: p._data?.more ?? false });
+    return {
+      session: f.session,
+      ...(f.page ? { page: { blocks: f.page.data.map(blockOf), ...at(f.page) } } : {}),
+      ...(f.members ? { members: f.members } : {}),
+      ...(f.reads ? { reads: f.reads } : {}),
+      ...(f.log ? { log: { data: f.log.data, ...at(f.log) } } : {}),
+      ...(f.sessions ? { sessions: f.sessions } : {}),
+      ...(f.work ? { work: f.work.map(({ data, ...w }) => ({ ...w, blocks: data.map(blockOf) })) } : {}),
+    };
+  },
   /** A page of session id's transcript: the newest, the one before line before, or what came after
    *  line after. internal/block.list (docs/satori.md "记录"), a message per block; _data says
    *  where the page is. */

@@ -16,7 +16,7 @@ import { api } from "../api/client";
 import { LinkDot } from "../link";
 import type { Session } from "../api/types.gen";
 import { WsPlus } from "../create";
-import { born, chatOf, compactSent, lineOf, stateAhead, type Draft as Drafted, type Sent } from "../chats";
+import { born, chatOf, compactSent, firstScreen, fresh, isWhole, lineOf, stateAhead, type Draft as Drafted, type Sent } from "../chats";
 import { LOCAL_ME, useAgent, useMachines, useMe, useWhoList, useWorkspaces } from "../data";
 import { t, useLang } from "../i18n";
 import { pushIn } from "../motion";
@@ -32,7 +32,7 @@ import { givenTurn, groupMessages, isMulti, type AgentRow, type GivenTurn, type 
 import { betweenAgents, callerOf, foreignOf, held, HOLD, linesOf, marksAt, named as namedIn, ownAnchors, slotsOf, subsAt, type Anchor } from "./channel/merge";
 import { LongWords } from "./longwords";
 import { SubAtWork } from "./subwork";
-import { alignBack, useSide } from "./channel/side";
+import { alignBack, loadParts, sideReady, useSide } from "./channel/side";
 import { relays, type Relay } from "../satori";
 import { AgentFace } from "./channel/members";
 import { PersonCard, useNamed } from "./channel/person";
@@ -108,9 +108,35 @@ export function ChatPage({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?:
 }
 
 
+/** A session's chat, drawn once its first screen is in (chats.ts firstScreen: its state, its
+ *  record, its members, its channel's side, in one answer): whole at once, not its record and
+ *  then the others' words and their work as each comes; with another agent in its channel, the
+ *  code that draws the others too. Until then its bar alone; one seen before draws at once. */
+function OneChat(p: { id: string; sheet?: number; onSheet?: () => void; onMe?: () => void }) {
+  const [whole, setWhole] = useState(() => isWhole(p.id) && sideReady(p.id));
+  const row = useList()?.find((x) => x.id === p.id);
+  useEffect(() => {
+    if (whole) return;
+    let live = true;
+    // The others' code with it, when the list says already there are others.
+    if (isMulti(row)) void loadParts().catch(() => {});
+    void (isWhole(p.id) ? Promise.resolve() : firstScreen(p.id))
+      .then(() => (sideReady(p.id) ? undefined : loadParts()))
+      .then(() => live && setWhole(true), () => live && setWhole(true));
+    return () => void (live = false);
+  }, [p.id]);
+  if (!whole)
+    return (
+      <div className="relative h-full">
+        <Bar s={row} onSheet={p.onSheet} onMe={p.onMe} />
+      </div>
+    );
+  return <WholeChat {...p} />;
+}
+
 /** A session's chat: its own agent's record, and, once its channel has another agent, what the
  *  others say in their places among it (chat/channel/side.ts, merge.ts). */
-function OneChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: number; onSheet?: () => void; onMe?: () => void }) {
+function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: number; onSheet?: () => void; onMe?: () => void }) {
   useLang();
   const real = useSession(id);
   const list = useList();
@@ -141,13 +167,17 @@ function OneChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: number;
   const members = useMembers(id);
   const may = mayAct(members);
   // Its channel, once it has another agent: the log, the others' states, the reads (side.ts).
-  const side = useSide(id, row, may);
+  // Its agents as the list has them; before the list came, as its members do.
+  const fromMembers = useMemo(() => (members?.members ?? []).flatMap((m) => (m.session ? [{ session: m.session, ...(m.agent ? { agent: m.agent } : {}), ...(m.nick ? { nick: m.nick } : {}) }] : [])), [members]);
+  const chAgents = row ? row.agents : fromMembers;
+  const side = useSide(id, chAgents ? { agents: chAgents } : undefined, may);
 
   // The newest page, or what was kept; then what came since.
   useEffect(() => {
     let live = true;
     const more = () => void (chat.coming ?? log.newer()).then(() => live && changed(), () => {});
-    more();
+    // Read just now (its first screen, or ahead of the turn to it): not again.
+    if (chat.coming || !fresh(log.came)) more();
     const hear = (d: { session: string }) => d.session === id && (log.wrote(d as never), changed());
     const back = () => (log.dropDrafts(), more());
     drafts.add(hear);
@@ -327,7 +357,7 @@ function OneChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: number;
       ? [faceRow]
       : [
           faceRow,
-          ...(row?.agents ?? []).flatMap((a): AgentRow[] => {
+          ...(chAgents ?? []).flatMap((a): AgentRow[] => {
             if (a.session === id) return [];
             const m = members?.members.find((x) => x.session === a.session);
             const of = side.states[side.sessions.indexOf(a.session)] ?? list?.find((x) => x.id === a.session);
