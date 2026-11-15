@@ -2,7 +2,7 @@
 import { describe, expect, test } from "vitest";
 import type { ChannelMessage, ChannelPage } from "../src/api/client";
 import type { Session } from "../src/api/types.gen";
-import { eventParts, personName, type EventWords, channelLamp, givenParts, givenTurn, groupMessages, insertNick, isMulti, linkNicks, invitedOf, matchAgents, mayDM, merge, msgOf, ownAgent, nickOfURL, nickParts, nickSpans, readMarks, stillWaiting, userOf, validNick, watchExtra, workOf } from "../src/chat/channel/lib";
+import { askQueue, eventParts, personName, type EventWords, channelLamp, givenParts, givenTurn, groupMessages, insertNick, isMulti, linkNicks, matchAgents, mayDM, merge, msgOf, ownAgent, nickOfURL, nickParts, nickSpans, readMarks, stillWaiting, userOf, validNick, watchExtra, workOf } from "../src/chat/channel/lib";
 import { ChannelLog } from "../src/chat/channel/log";
 import { buildTree, standing } from "../src/tree";
 
@@ -162,24 +162,41 @@ describe("who has read", () => {
   });
 });
 
+describe("the asks queue", () => {
+  const ask = (id: string) => ({ requestId: id, card: { id: `ask:x:${id}` } }) as { requestId: string; card: { id: string } };
+  test("one queue, oldest first: a later ask of the first agent after an earlier one of the second", () => {
+    const seen = new Map<string, number>();
+    expect(askQueue([{ session: "a", asks: [] }, { session: "b", asks: [ask("1")] }], seen, 10).map((q) => q.ask.requestId)).toEqual(["1"]);
+    const q = askQueue([{ session: "a", asks: [ask("2")] }, { session: "b", asks: [ask("1")] }], seen, 20);
+    expect(q.map((x) => `${x.session}${x.ask.requestId}@${x.at}`)).toEqual(["b1@10", "a2@20"]);
+  });
+  test("seen at once: in the agents' order; one answered leaves the queue and what was seen", () => {
+    const seen = new Map<string, number>();
+    expect(askQueue([{ session: "a", asks: [ask("1"), ask("2")] }, { session: "b", asks: [ask("3")] }], seen, 5).map((q) => q.ask.requestId)).toEqual(["1", "2", "3"]);
+    askQueue([{ session: "a", asks: [ask("2")] }, { session: "b", asks: [ask("3")] }], seen, 6);
+    expect([...seen.keys()]).toEqual(["ask:x:2", "ask:x:3"]);
+  });
+});
+
 describe("the list", () => {
   const s = (id: string, more: Partial<Session> = {}): Session => ({ id, agent: "pi", cwd: "/w", status: "idle", hosted: true, live: false, updatedAt: 1, ...more }) as Session;
   const list = [s("c", { agents: [{ session: "c", nick: "pi" }, { session: "m", nick: "pi2" }], own: true }), s("m", { in: ["c"], spawned: { channel: "c" }, own: true, live: true }), s("o", { own: true })];
-  test("an invited agent is listed under its channel's row too: not its own, not one it started, not an archived one", () => {
-    const byId = new Map(list.map((x) => [x.id, x]));
-    expect(invitedOf(list[0]!, byId).map((x) => x.id)).toEqual(["m"]);
-    expect(invitedOf(list[0]!, byId, [list[1]!])).toEqual([]); // started by it: hung there already
-    expect(invitedOf(list[0]!, new Map([["m", s("m", { archived: true })]]))).toEqual([]);
-    expect(invitedOf(list[0]!, new Map())).toEqual([]); // not in the list
-    expect(invitedOf(list[2]!, byId)).toEqual([]);
-  });
-  test("an agent in another's channel is a session as any: a row of its own in the tree, hung under none (the list puts it under its channel's row besides: invitedOf)", () => {
+  test("an agent in another's channel is a session as any: a row of its own in the tree, hung under none, nor drawn under its channel's row (kumo, 2026-11-15: in the members key)", () => {
     expect(isMulti(list[0])).toBe(true);
     expect(isMulti(list[1])).toBe(false);
     const st = standing(list);
     expect([...st.rows].sort()).toEqual(["c", "m", "o"]);
     expect(st.hung.size).toBe(0);
-    const tree = buildTree([...list, s("sub", { subagent: true, parent: "m", updatedAt: 100 })], [], "未归类", 100);
+    // Spawned for c and still in it: no row (kumo, 2026-11-15), still found by the jump box.
+    const tm = buildTree(list, [], "未归类", 100);
+    expect(tm.workspaces.flatMap((w) => w.rows).map((r) => (r.kind === "session" ? r.s.id : ""))).toEqual(expect.not.arrayContaining(["m"]));
+    expect(tm.member.get("m")).toBe("c");
+    expect(tm.unlisted.has("m")).toBe(false);
+    // Out of it: a row as any.
+    const out = buildTree([list[0]!, { ...list[1]!, in: [] }, list[2]!], [], "未归类", 100);
+    expect(out.member.size).toBe(0);
+    // Invited, not spawned for it: a row of its own.
+    const tree = buildTree([list[0]!, { ...list[1]!, spawned: undefined }, list[2]!, s("sub", { subagent: true, parent: "m", updatedAt: 100 })], [], "未归类", 100);
     expect(
       tree.workspaces
         .flatMap((w) => w.rows)

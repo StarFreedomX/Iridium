@@ -331,14 +331,24 @@ export function matchAgents<T extends { nick: string; name: string }>(rows: T[],
 /** Whether a session is a channel of several agents. */
 export const isMulti = (s?: Pick<Session, "agents">) => (s?.agents?.length ?? 0) > 1;
 
-/** The agents of s's channel beside its own (the user, 2026-11-13), as the list puts them under
- *  its row: each a session there is (byId), not archived, not one it started (those hang there
- *  already). They keep their own rows too, wherever those are. */
-export function invitedOf<S extends Pick<Session, "id" | "agents" | "archived">>(s: S, byId: Map<string, S>, started?: { id: string }[]): S[] {
-  return (s.agents ?? []).flatMap((a) => {
-    const x = a.session !== s.id && !started?.some((h) => h.id === a.session) ? byId.get(a.session) : undefined;
-    return x && !x.archived ? [x] : [];
-  });
+/** One ask in a channel's queue (docs/channels.md "提问"): whose, and when the page first saw it. */
+export type Queued<T> = { session: string; ask: T; at: number };
+
+/** The asks of a channel's agents as one queue, oldest first (kumo, 2026-11-15). An ask has no
+ *  time of its own: the first time the page sees it (seen, by card, kept across draws; those gone
+ *  are dropped from it), in the agents' order for those seen at once. */
+export function askQueue<T extends { requestId: string; card?: { id: string } }>(per: { session: string; asks: T[] }[], seen: Map<string, number>, now = Date.now()): Queued<T>[] {
+  const out: Queued<T>[] = [];
+  const here = new Set<string>();
+  for (const p of per)
+    for (const a of p.asks) {
+      const key = a.card?.id ?? `ask:${p.session}:${a.requestId}`;
+      here.add(key);
+      if (!seen.has(key)) seen.set(key, now);
+      out.push({ session: p.session, ask: a, at: seen.get(key)! });
+    }
+  for (const k of [...seen.keys()]) if (!here.has(k)) seen.delete(k);
+  return out.sort((a, b) => a.at - b.at);
 }
 
 const WORKING = new Set<Status>(["running", "compacting", "starting"]);

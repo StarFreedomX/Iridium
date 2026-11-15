@@ -77,7 +77,6 @@ export const en: Dict = {
   "menu.moveDown": "Move down",
   "menu.unfold": "Open",
   "menu.archiveHere": "Archive the {n} sessions here",
-  "menu.detach": "List on its own",
   "nav.hungCount": "{n} dispatched sessions",
   "menu.rename": "Rename",
   "menu.split": "Split by subfolders",
@@ -359,6 +358,7 @@ export const en: Dict = {
   "mode.workspaceWrite": "Workspace write",
   "mode.fullAccess": "Full access",
 
+  "ask.more": "{n} more",
   "ask.runCommand": "Run command",
   "ask.edit": "Edit file",
   "ask.read": "Read file",

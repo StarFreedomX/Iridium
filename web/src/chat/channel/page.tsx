@@ -33,7 +33,7 @@ import { fromSatori, PLACE_DRAG, SESSION_DRAG, sourceOf, yours } from "../refs";
 import { Assistant, Attached, Line, Pending, Said, When, YouBubble } from "../said";
 import { folded } from "../fold";
 import { Stick, toEnd } from "../stick";
-import { groupMessages, readMarks, stillWaiting, watchExtra, type AgentRow, type Did, type Group, type Msg, type Src, lineOf, workOf, eventParts, personName, type EventWords } from "./lib";
+import { askQueue, groupMessages, readMarks, stillWaiting, watchExtra, type AgentRow, type Did, type Group, type Msg, type Src, lineOf, workOf, eventParts, personName, type EventWords } from "./lib";
 import { channelLog } from "./log";
 import { mayAct, useMembers } from "./gate";
 import { NotJoined } from "./key";
@@ -321,15 +321,15 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
                 </Of>
               ) : null;
             })}
-            {agents.map((a, i) => {
-              const st = states[i];
+            {agents.map((a) => {
               const needs = confirms.filter((c) => c.session === a.session && c.kind !== "ask");
-              return st?.asks.length || needs.length ? (
+              return needs.length ? (
                 <Of key={a.session} a={a} off={!may}>
-                  <Asks session={a.session} asks={st?.asks ?? []} cwd={st?.cwd ?? s.cwd} confirms={needs} />
+                  <Asks session={a.session} asks={[]} cwd={s.cwd} confirms={needs} />
                 </Of>
               ) : null;
             })}
+            <AskQueue agents={agents} states={states} cwd={s.cwd} off={!may} />
             {!may ? <NotJoined /> : null}
             {may && <Composer ref={composer} s={s} turn={false} nicks={agents} people={peopleRows} quote={quote ? { n: quote.n, who: nameOf(quote), text: quote.text } : undefined} unquote={() => setQuote(null)} onSent={onSent} onSentDone={changed} cycleMode={() => {}} openModel={() => {}} openMode={() => {}} openUsage={() => {}} openContext={() => false} cleared={openChat} />}
           </div>
@@ -373,17 +373,49 @@ function ReadMarks({ readers, agents }: { readers: Reader[]; agents: AgentRow[] 
   );
 }
 
-/** Something of one agent's above the composer (its queue, its asks), under its logo and nick.
- *  off: shown, not to be answered (the one looking is not of the channel's people). */
+/** Something of one agent's above the composer (its queue, its asks), under its logo and nick,
+ *  pressed its session. off: shown, not to be answered (the one looking is not of the channel's
+ *  people). */
 function Of({ a, children, off }: { a: AgentRow; children: ReactNode; off?: boolean }) {
   return (
     <div inert={off} className={cn(off && "opacity-60")}>
-      <div className="relative z-10 flex h-6 items-center gap-1.5 px-2 text-xs text-ink-2">
+      <button type="button" onClick={() => openChat(a.session)} className="g-press relative z-10 flex h-6 max-w-full items-center gap-1.5 rounded-md px-2 text-xs text-ink-2 hover:text-ink">
         <Logo agent={a.agent} size={12} />
         <span className="max-w-40 truncate">{a.nick}</span>
-      </div>
+      </button>
       {children}
     </div>
+  );
+}
+
+/** The channel's agents' asks as one queue (docs/channels.md "提问"): the oldest open, the rest one
+ *  line, 还有 N 个, pressed open too. Each under its agent. */
+const SEEN = new Map<string, Map<string, number>>();
+function AskQueue({ agents, states, cwd, off }: { agents: AgentRow[]; states: (LiveSession | undefined)[]; cwd: string; off: boolean }) {
+  const [all, setAll] = useState(false);
+  const key = agents.map((a) => a.session).join(",");
+  let seen = SEEN.get(key);
+  if (!seen) SEEN.set(key, (seen = new Map()));
+  const queue = askQueue(agents.map((a, i) => ({ session: a.session, asks: states[i]?.asks ?? [] })), seen);
+  if (!queue.length) return null;
+  const shown = all ? queue : queue.slice(0, 1);
+  return (
+    <>
+      {shown.map((q) => {
+        const a = agents.find((x) => x.session === q.session)!;
+        const i = agents.indexOf(a);
+        return (
+          <Of key={`${q.session}:${q.ask.requestId}`} a={a} off={off}>
+            <Asks session={q.session} asks={[q.ask]} cwd={states[i]?.cwd ?? cwd} />
+          </Of>
+        );
+      })}
+      {queue.length > 1 && !all && (
+        <button type="button" onClick={() => setAll(true)} className="g-press relative z-10 mb-1 flex h-7 items-center rounded-md px-2 text-xs text-ink-3 hover:text-ink-2 pointer-coarse:h-9">
+          {t("ask.more", { n: queue.length - 1 })}
+        </button>
+      )}
+    </>
   );
 }
 

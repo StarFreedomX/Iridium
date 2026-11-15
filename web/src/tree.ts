@@ -36,7 +36,12 @@ export type Run = { id: string; name: string; phase: string; done: number; total
  *  runs, one row a run (the user, 2026-11-06). hung: the sessions others started, under the topmost
  *  listed one (standing). unlisted: those not listed, in 归档 or found by the jump box (a group at
  *  another machine no one opened a session in, their subagents too). */
-export type Tree = { workspaces: WsNode[]; archived: Session[]; where: Map<string, string>; kids: Map<string, Session[]>; runs: Map<string, Run[]>; hung: Map<string, Session[]>; unlisted: Set<string> };
+export type Tree = { workspaces: WsNode[]; archived: Session[]; where: Map<string, string>; kids: Map<string, Session[]>; runs: Map<string, Run[]>; hung: Map<string, Session[]>; unlisted: Set<string>; member: Map<string, string> };
+
+/** The channel a session was spawned for and is still a member of (Session.spawned, Session.in):
+ *  not a row of its own (kumo, 2026-11-15), reached from that channel's members; the jump box still
+ *  finds it. */
+export const memberOf = (s: Pick<Session, "spawned" | "in">) => (s.spawned?.channel && s.in?.includes(s.spawned.channel) ? s.spawned.channel : undefined);
 
 /** How long a subagent may write nothing and still count as at work: one its parent dropped (a
  *  stop, a crash) never writes its final answer. */
@@ -217,7 +222,10 @@ export function buildTree(all: Session[], workspaces: Workspace[], unsorted: str
   // One that waits on you stays in its place, its lamp breathing amber: no 需要你 group of its own
   // (the user, 2026-11-08).
   const st = standing(all, workspaces);
-  const live = list.filter((s) => st.rows.has(s.id));
+  // Spawned for a channel it is still in: no row (memberOf). Rendering only: where it stands is
+  // the server's too (standing).
+  const member = new Map(list.flatMap((s) => (!s.archived && st.rows.has(s.id) && memberOf(s) ? [[s.id, memberOf(s)!] as const] : [])));
+  const live = list.filter((s) => st.rows.has(s.id) && !member.has(s.id));
   const byWs = new Map<number, Session[]>();
   const where = new Map<string, string>();
   for (const s of live) {
@@ -291,9 +299,9 @@ export function buildTree(all: Session[], workspaces: Workspace[], unsorted: str
     where.set(s.id, w ? (r ? `${w.name}/${r}` : w.name) : (p.split("/").filter(Boolean).pop() ?? p));
   }
   const hung = new Map([...st.hung].filter(([at]) => st.rows.has(at)));
-  const listed = new Set([...live, ...[...hung.values()].flat(), ...archived].map((s) => s.id));
+  const listed = new Set([...live, ...[...hung.values()].flat(), ...archived].map((s) => s.id).concat([...member.keys()]));
   const unlisted = new Set(all.filter((s) => (s.subagent ? !!s.parent && byId.has(s.parent) && !listed.has(s.parent) : !listed.has(s.id))).map((s) => s.id));
-  return { workspaces: nodes, archived, where, kids, runs, hung, unlisted };
+  return { workspaces: nodes, archived, where, kids, runs, hung, unlisted, member };
 }
 
 /** The group listed that holds path (a group path, "<machine>:…" at another machine), as the server
