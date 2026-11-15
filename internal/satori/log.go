@@ -285,10 +285,15 @@ func (s *Service) flush(session, kind, origin string, denied int) {
 
 // note writes a line that is not words into session's channel: an ask (ref its card), an error.
 func (s *Service) note(session, kind, text, ref, origin string) (channel.Message, bool) {
-	m, isNew, err := s.log.Say(channel.Message{ChannelMessage: store.ChannelMessage{Channel: session, Author: store.AgentMember(session),
+	return s.noteIn(session, session, kind, text, ref, origin)
+}
+
+// noteIn is note in channel ch: session's own, or one its agent is in.
+func (s *Service) noteIn(ch, session, kind, text, ref, origin string) (channel.Message, bool) {
+	m, isNew, err := s.log.Say(channel.Message{ChannelMessage: store.ChannelMessage{Channel: ch, Author: store.AgentMember(session),
 		Kind: kind, Text: text, Ref: ref, Origin: origin}, D: channel.Data{Session: session, Card: ref}})
 	if err != nil {
-		s.logf("satori: channel of %s: %v", session, err)
+		s.logf("satori: channel %s of %s: %v", ch, session, err)
 		return channel.Message{}, false
 	}
 	return m, isNew
@@ -318,10 +323,8 @@ func (s *Service) messageGet(_ context.Context, c Caller, body []byte) (any, err
 			m.Channel, m.Guild = ev.Channel, ev.Guild
 			return m, nil
 		}
-		for _, a := range st.Asks {
-			if cardID(st.ID, a.RequestID) == req.MessageID {
-				return s.askMessage(st.Session, a), nil
-			}
+		if m, ok := s.openAsk(st, req.MessageID); ok {
+			return m, nil
 		}
 		return nil, errNoMessage(req.MessageID)
 	}

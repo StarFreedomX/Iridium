@@ -292,10 +292,24 @@ type createError struct{ err error }
 func (e *createError) Error() string { return e.err.Error() }
 func (e *createError) Unwrap() error { return e.err }
 
-// createAs starts session req as c (Satori's channel.create): its id.
+// createAs starts session req as c (Satori's channel.create): its id. One an agent starts from
+// inside its session (ir new) is in that agent's channel (launch).
 func (s *Server) createAs(ctx context.Context, c caller, req api.NewSession) (string, error) {
+	if req.Caller == "" {
+		req.Caller = c.session
+	}
+	alone := req.Agent != "" && req.Caller != "" && req.Members == nil
+	id, err := s.create(ctx, c, req)
+	if alone && id != "" && err == nil {
+		err = s.launch(c, req.Caller, id)
+	}
+	return id, err
+}
+
+// create starts session req as c: its id.
+func (s *Server) create(ctx context.Context, c caller, req api.NewSession) (string, error) {
 	// Started from inside a session (ir's X-Iridium-Session, a session's own TOKEN): that session
-	// is its launcher unless the body names another, so an agent's new session hangs under it.
+	// is its launcher (who started it) unless the body names another.
 	if req.Caller == "" {
 		req.Caller = c.session
 	}

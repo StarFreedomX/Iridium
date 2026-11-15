@@ -40,8 +40,39 @@ import (
 // the words under their number and what the channel said since it last read it (package
 // strategy plans it, assemble writes it, and what was given is kept: store.Injection).
 
-// MaxAgents is how many agents a channel may have.
-const MaxAgents = 8
+// MaxAgents is how many agents a channel may have invited; those its agents launched (Spawned,
+// by an agent in it) are not counted (docs/channels.md "成员"). MaxAll: how many in all.
+const (
+	MaxAgents = 8
+	MaxAll    = 32
+)
+
+// atMost is a channel full at max agents, each counted (a test's).
+func atMost(max int) func([]string) bool {
+	return func(agents []string) bool { return len(agents) >= max }
+}
+
+// full is channel ch's room for one more agent: launched (started by an agent in it) or not.
+// Those counts passes over (archived) are not counted.
+func (s *Server) full(ch string, launched bool) func([]string) bool {
+	return func(agents []string) bool {
+		agents = slices.DeleteFunc(slices.Clone(agents), func(a string) bool { return !s.counts(ch, a) })
+		if len(agents) >= MaxAll {
+			return true
+		}
+		if launched {
+			return false
+		}
+		invited := slices.DeleteFunc(agents, func(a string) bool { return s.launchedIn(ch, a, agents) })
+		return len(invited) >= MaxAgents
+	}
+}
+
+// launchedIn: session a was started for channel ch by one of its agents.
+func (s *Server) launchedIn(ch, a string, agents []string) bool {
+	sp := s.spawnedOf(a)
+	return sp != nil && sp.Channel == ch && sp.By != "" && sp.By != a && slices.Contains(agents, sp.By)
+}
 
 // MaxKinHops is how many times in a row an agent and the one that started it for a channel may
 // pass a message on to each other there since a person last spoke (the user, 2026-11-14): wider
@@ -247,6 +278,17 @@ func (k *calls) add(session string, c called) {
 	k.save(session)
 }
 
+// current is the channel session's agent works for now: that of its latest open call; "" none.
+func (k *calls) current(session string) string {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	cs := k.load(session)
+	if len(cs) == 0 {
+		return ""
+	}
+	return cs[len(cs)-1].Channel
+}
+
 // spoke: session's agent said something in channel, its record at line to by then. It gives
 // the line the stretch that led to it began at (0: not called there), and the next begins at to.
 func (k *calls) spoke(session, channel string, to int64) (from int64) {
@@ -409,6 +451,34 @@ func (s *Server) inChannel(c caller, ch string) error {
 	return errNotMember
 }
 
+// mayAnswer: c may answer session id's asks (docs/channels.md "提问"): it may use the session and
+// is in its channel, or it sees one of the channels the session's agent is in and may act there.
+func (s *Server) mayAnswer(c caller, id string) error {
+	_, err := s.using(c, id)
+	if err == nil {
+		err = s.inChannel(c, id)
+	}
+	if err != nil && s.answersIn(c, id) {
+		return nil
+	}
+	return err
+}
+
+// answersIn: c, a person or an app, sees one of the channels session id's agent is in beside its
+// own, and is one of those who act there.
+func (s *Server) answersIn(c caller, id string) bool {
+	if c.byAgent() {
+		return false // people and apps answer; an agent, only where it may use the session
+	}
+	for _, ch := range s.ch.In(id) {
+		st, err := s.m.State(ch)
+		if err == nil && s.seenBy(c, st.Session) && s.inChannel(c, ch) == nil {
+			return true
+		}
+	}
+	return false
+}
+
 // memberOf is the member c is as a login.
 func memberOf(c caller) string {
 	if c.Login == "" {
@@ -548,8 +618,10 @@ func (s *Server) memberAdd(w http.ResponseWriter, r *http.Request) {
 // the channel's folder) as any session is: listed in its folder, with a channel of its own.
 // Where it was started and by whom is kept (Spawned). The session it is.
 func (s *Server) addAgent(ctx context.Context, c caller, ch string, st *api.SessionState, req api.NewMember) (string, error) {
-	// Before a session is started for it; Join counts again, one at a time.
-	if n := len(slices.DeleteFunc(s.ch.Agents(ch), func(a string) bool { return !s.counts(ch, a) })); n >= MaxAgents {
+	// Before a session is started for it; Join counts again, one at a time. One an agent in it
+	// starts is launched (not counted among those invited).
+	launched := req.Session == "" && c.session != "" && s.ch.Speaks(ch, c.session)
+	if s.full(ch, launched)(s.ch.Agents(ch)) {
 		return "", errFull
 	}
 	if req.Nick != "" && !deliver.ValidNick(req.Nick) {
@@ -575,14 +647,14 @@ func (s *Server) addAgent(ctx context.Context, c caller, ch string, st *api.Sess
 			ns.Machine = req.Machine
 		}
 		var err error
-		if id, err = s.createAs(ctx, c, ns); err != nil {
+		if id, err = s.create(ctx, c, ns); err != nil {
 			return "", err
 		}
 		started = true
 		s.keepSpawned(id, api.Spawned{By: c.session, Channel: ch})
 	}
 	// Its nick with the joining: one that does not join keeps the nick it had.
-	m, err := s.ch.Join(ch, id, req.Recv, req.Nick, s.harnessOf, MaxAgents, func(a string) bool { return s.counts(ch, a) })
+	m, err := s.ch.Join(ch, id, req.Recv, req.Nick, s.harnessOf, s.full(ch, launched))
 	if err != nil {
 		if started {
 			// Not in the channel after all: not started for it either.
@@ -599,6 +671,40 @@ func (s *Server) addAgent(ctx context.Context, c caller, ch string, st *api.Sess
 	s.logf("server: channel %s: %s joined as @%s (%s)", ch, id, m.Nick, m.Recv)
 	s.m.Refresh([]string{ch, id})
 	return id, nil
+}
+
+// launch puts session id, just started by session by's agent (ir new), in the channel by works
+// for (docs/channels.md "拉起"): the one whose call it is answering, else its own. It is there as
+// one invited by it (Spawned, recv at), not counted among those invited. No room: the session
+// goes to the archive, and errFull.
+func (s *Server) launch(c caller, by, id string) error {
+	st, err := s.m.State(by)
+	if err != nil || st.Archived || st.Subagent || st.Bare || by == id {
+		return nil // not an agent's session (a person's shell, one gone): as any new session
+	}
+	ch := s.calls.current(by)
+	if ch == "" || !s.ch.Speaks(ch, by) {
+		ch = by
+	}
+	s.keepSpawned(id, api.Spawned{By: by, Channel: ch})
+	m, err := s.ch.Join(ch, id, channel.RecvAt, "", s.harnessOf, s.full(ch, true))
+	if err != nil {
+		if err := s.st.Keep(spawnedKey(id), ""); err != nil {
+			s.logf("server: forgetting where %s was started: %v", id, err)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		_ = s.m.ArchiveTree(ctx, id, true)
+		if errors.Is(err, channel.ErrFull) {
+			err = errFull
+		}
+		return &createError{err}
+	}
+	s.logf("server: channel %s: %s launched %s as @%s", ch, by, id, m.Nick)
+	s.m.Refresh([]string{ch, id})
+	s.tellMembers(c, ch, fmt.Sprintf("@%s 加入了频道", m.Nick), channel.Event{Type: "join", Member: m.Member, Nick: m.Nick, Name: s.agentName(id)})
+	s.membersChanged()
+	return nil
 }
 
 // counts: session's agent is one channel ch gives messages to and counts among its agents
@@ -732,7 +838,7 @@ func (s *Server) spawnedOf(id string) *api.Spawned {
 	return &sp
 }
 
-var errFull = fmt.Errorf("a channel has at most %d agents", MaxAgents)
+var errFull = fmt.Errorf("a channel has at most %d agents invited, %d in all", MaxAgents, MaxAll)
 
 // peoplePut sets who the channel's people are; the one who sets them stays one.
 func (s *Server) peoplePut(w http.ResponseWriter, r *http.Request) {

@@ -79,6 +79,13 @@ type Resolver interface {
 	Resolve(ctx context.Context, c Caller, id string) (string, error)
 }
 
+// AskSeer is a Backend that lets c answer session's asks where it does not see the session
+// itself: in a channel the session's agent is in, which c sees and may act in (docs/channels.md
+// "提问").
+type AskSeer interface {
+	SeesAsk(c Caller, session string) bool
+}
+
 // Backend is what the protocol needs of Iridium; the server implements it. Errors go out as
 // Fault says.
 type Backend interface {

@@ -362,15 +362,17 @@ func (b satoriBackend) Send(ctx context.Context, c satori.Caller, id, text strin
 func (b satoriBackend) Answer(ctx context.Context, c satori.Caller, a api.CardAnswer) error {
 	rest, _ := strings.CutPrefix(a.Card, "ask:")
 	id, _, _ := strings.Cut(rest, ":")
-	if _, err := b.s.using(callerAs(c), id); err != nil {
-		return err
-	}
-	if err := b.s.inChannel(callerAs(c), id); err != nil {
+	if err := b.s.mayAnswer(callerAs(c), id); err != nil {
 		return err
 	}
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
 	return b.s.m.AnswerCard(ctx, a)
+}
+
+// SeesAsk: c answers session id's asks in a channel its agent is in (mayAnswer).
+func (b satoriBackend) SeesAsk(c satori.Caller, id string) bool {
+	return b.s.answersIn(callerAs(c), id)
 }
 
 func (b satoriBackend) Press(ctx context.Context, c satori.Caller, sid, from, id string) (string, error) {
@@ -467,6 +469,8 @@ func (b satoriBackend) Fault(err error) (int, string) {
 		return http.StatusForbidden, "outside"
 	case errors.Is(err, files.ErrTooLarge), errors.Is(err, files.ErrTooLong):
 		return http.StatusRequestEntityTooLarge, "too_large"
+	case errors.Is(err, errFull):
+		return http.StatusConflict, "full"
 	case errors.As(err, new(*createError)), errors.Is(err, session.ErrBadRequest), errors.Is(err, files.ErrBad), errors.Is(err, files.ErrNotFile),
 		errors.Is(err, pathsafe.ErrRelative), errors.Is(err, files.ErrChecksum):
 		return http.StatusBadRequest, "bad_request"

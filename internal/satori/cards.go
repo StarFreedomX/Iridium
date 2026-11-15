@@ -124,7 +124,7 @@ func (s *Service) press(ctx context.Context, c Caller, id, words string) error {
 		return refuse(http.StatusUnprocessableEntity, "no_such_button", "no button "+id)
 	}
 	card, opt := id[:i], id[i+1:]
-	st, err := s.channel(c, cardSession(card))
+	st, err := s.askState(c, cardSession(card))
 	if err != nil {
 		return err
 	}
@@ -238,6 +238,40 @@ func (s *Service) pressAttached(ctx context.Context, c Caller, rest string) erro
 	return nil
 }
 
+// openAsk is card, an ask still open, as a message of channel st: its own agent's, or one of an
+// agent in it (docs/channels.md "提问").
+func (s *Service) openAsk(st *api.SessionState, card string) (Message, bool) {
+	of := st
+	if id := cardSession(card); id != st.ID {
+		if s.log == nil || !slices.Contains(s.log.In(id), st.ID) {
+			return Message{}, false
+		}
+		var err error
+		if of, err = s.b.Session(id); err != nil {
+			return Message{}, false
+		}
+	}
+	for _, a := range of.Asks {
+		if cardID(of.ID, a.RequestID) == card {
+			return s.askMessage(of.Session, a), true
+		}
+	}
+	return Message{}, false
+}
+
+// askState is session id, whose ask c answers: as any channel c sees, or one c answers in
+// another channel its agent is in (AskSeer).
+func (s *Service) askState(c Caller, id string) (*api.SessionState, error) {
+	st, err := s.channel(c, id)
+	if err == nil {
+		return st, nil
+	}
+	if as, ok := s.b.(AskSeer); ok && as.SeesAsk(c, id) {
+		return s.b.Session(id)
+	}
+	return nil, err
+}
+
 func (s *Service) forget(card string) {
 	s.mu.Lock()
 	delete(s.picks, card)
@@ -321,7 +355,7 @@ func (s *Service) serveInternal(w http.ResponseWriter, r *http.Request, name str
 			s.fail(w, refuse(http.StatusUnprocessableEntity, "no_such_ask", "no ask "+req.ID))
 			return
 		}
-		st, err := s.channel(c, id)
+		st, err := s.askState(c, id)
 		if err == nil {
 			err = s.b.Answer(r.Context(), c, api.CardAnswer{Card: req.ID, Option: req.Option, Choices: req.Choices, Words: req.Words, Message: req.Message})
 		}

@@ -142,11 +142,8 @@ func (s *Service) blockGet(_ context.Context, c Caller, body []byte) (any, error
 		return m, nil
 	}
 	if strings.HasPrefix(req.MessageID, "ask:") {
-		for _, a := range st.Asks {
-			if cardID(st.ID, a.RequestID) == req.MessageID {
-				m := s.askMessage(st.Session, a)
-				return m, nil
-			}
+		if m, ok := s.openAsk(st, req.MessageID); ok {
+			return m, nil
 		}
 		return nil, noMessage
 	}

@@ -213,14 +213,14 @@ func TestSubscriptions(t *testing.T) {
 	if s.Speaks("a", "b") || !s.Speaks("a", "a") || len(s.In("b")) != 0 {
 		t.Fatalf("before anyone joined")
 	}
-	m, err := s.Join("a", "b", "", "", base, 0, nil)
+	m, err := s.Join("a", "b", "", "", base, nil)
 	if err != nil || m.Nick != "claude2" || m.Recv != RecvAt || m.Direct() {
 		t.Fatalf("join: %+v %v", m, err)
 	}
-	if _, err := s.Join("a", "b", "", "", base, 0, nil); !errors.Is(err, ErrMember) {
+	if _, err := s.Join("a", "b", "", "", base, nil); !errors.Is(err, ErrMember) {
 		t.Errorf("joining twice: %v", err)
 	}
-	if _, err := s.Join("a", "a", "", "", base, 0, nil); !errors.Is(err, ErrMember) {
+	if _, err := s.Join("a", "a", "", "", base, nil); !errors.Is(err, ErrMember) {
 		t.Errorf("joining its own: %v", err)
 	}
 	ms, _ := s.Members("a")
@@ -228,7 +228,7 @@ func TestSubscriptions(t *testing.T) {
 		t.Fatalf("members: %+v", ms)
 	}
 	// The same nick in another channel; a third agent's is its own.
-	if m, err := s.Join("c", "b", RecvAll, "", base, 0, nil); err != nil || m.Nick != "claude2" {
+	if m, err := s.Join("c", "b", RecvAll, "", base, nil); err != nil || m.Nick != "claude2" {
 		t.Fatalf("join another: %+v %v", m, err)
 	}
 	if s.Nick("c") != "claude3" || fmt.Sprint(s.In("b")) != "[a c]" || !s.Speaks("c", "b") {
@@ -267,7 +267,7 @@ func TestSubscriptions(t *testing.T) {
 	if ms, _ := s.Members("room"); len(ms) != 1 || ms[0].Member != Everyone || len(s.Agents("room")) != 0 {
 		t.Errorf("a new channel's members: %+v", ms)
 	}
-	if _, err := s.Join("room", "a", "", "", base, 0, nil); err != nil || fmt.Sprint(s.Agents("room")) != "[a]" {
+	if _, err := s.Join("room", "a", "", "", base, nil); err != nil || fmt.Sprint(s.Agents("room")) != "[a]" {
 		t.Errorf("joining a channel of its own: %v %v", err, s.Agents("room"))
 	}
 	if _, _, err := s.Say(Message{ChannelMessage: store.ChannelMessage{Channel: "room", Author: "web", Kind: KindUser, Text: "hi"}}); err != nil || s.End("room") != 1 {

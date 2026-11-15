@@ -93,10 +93,10 @@ func (s *Service) SetNick(session, nick string) error {
 // Join puts session's agent in channel, receiving recv ("": only what names it): a
 // subscription. There it sees what is said and is called by what names it; it has seen nothing
 // of the channel yet. nick, if any, becomes what it is called by. base names a session's
-// harness. max: how many agents the channel may have (0: any number), counting those counts
-// says do (nil: all). One at a time, so that two joining at once do not both find room; a join
-// that fails leaves the nick as it was.
-func (s *Service) Join(channel, session, recv, nick string, base func(session string) string, max int, counts func(session string) bool) (Member, error) {
+// harness. full: given the channel's agents now, there is no room for another (nil: any
+// number). One at a time, so that two joining at once do not both find room; a join that fails
+// leaves the nick as it was.
+func (s *Service) Join(channel, session, recv, nick string, base func(session string) string, full func(agents []string) bool) (Member, error) {
 	s.jmu.Lock()
 	defer s.jmu.Unlock()
 	if s.Speaks(channel, session) {
@@ -111,16 +111,8 @@ func (s *Service) Join(channel, session, recv, nick string, base func(session st
 	if nick != "" && !deliver.ValidNick(nick) {
 		return Member{}, ErrNick
 	}
-	if max > 0 {
-		n := 0
-		for _, a := range s.Agents(channel) {
-			if counts == nil || counts(a) {
-				n++
-			}
-		}
-		if n >= max {
-			return Member{}, ErrFull
-		}
+	if full != nil && full(s.Agents(channel)) {
+		return Member{}, ErrFull
 	}
 	if err := s.written(channel, base); err != nil {
 		return Member{}, err

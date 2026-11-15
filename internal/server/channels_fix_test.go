@@ -417,14 +417,14 @@ func TestChannelJoinFullAndRolledBack(t *testing.T) {
 	// Full but for one place.
 	for i := range MaxAgents - 2 {
 		id := fmt.Sprintf("filler-%d", i)
-		if _, err := l.s.ch.Join(ch, id, "", "", func(string) string { return "filler" }, MaxAgents, nil); err != nil {
+		if _, err := l.s.ch.Join(ch, id, "", "", func(string) string { return "filler" }, atMost(MaxAgents)); err != nil {
 			t.Fatal(err)
 		}
 	}
 	errs := make(chan error, 2)
 	for _, id := range []string{"racer-a", "racer-b"} {
 		go func() {
-			_, err := l.s.ch.Join(ch, id, "", "", func(string) string { return "racer" }, MaxAgents, nil)
+			_, err := l.s.ch.Join(ch, id, "", "", func(string) string { return "racer" }, atMost(MaxAgents))
 			errs <- err
 		}()
 	}
@@ -435,7 +435,7 @@ func TestChannelJoinFullAndRolledBack(t *testing.T) {
 	if n := len(l.s.ch.Agents(ch)); n != MaxAgents {
 		t.Errorf("%d agents in a channel of at most %d", n, MaxAgents)
 	}
-	if _, err := l.s.ch.Join(ch, "late", "", "latecomer", func(string) string { return "late" }, MaxAgents, nil); !errors.Is(err, channel.ErrFull) || l.s.ch.Nick("late") != "" {
+	if _, err := l.s.ch.Join(ch, "late", "", "latecomer", func(string) string { return "late" }, atMost(MaxAgents)); !errors.Is(err, channel.ErrFull) || l.s.ch.Nick("late") != "" {
 		t.Errorf("joining a full channel: %v, its nick %q", err, l.s.ch.Nick("late"))
 	}
 	// A session there is that does not join (what it would receive is no such thing): the nick

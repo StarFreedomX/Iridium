@@ -192,24 +192,31 @@ func (s *Service) handle(n session.Notice, at time.Time) {
 		if err != nil || n.Ask == nil {
 			return
 		}
+		// Told in its own channel and in every one it is in beside (docs/channels.md "提问"):
+		// one card, answered from any of them, closing in all.
 		m := s.askMessage(st.Session, *n.Ask)
 		m.Channel, m.Guild = nil, nil
 		m.CreatedAt = time.Now().UnixMilli()
 		m.User = s.agentOf(n.Session)
-		s.note(n.Session, channel.KindAsk, Plain(Parse(m.Content), nil), m.ID, n.From)
-		s.emit(s.channelSession(n.Session), Event{Type: "message-created", Message: &m, User: m.User}, nil, "ask", n.From)
+		for _, ch := range s.askChannels(n.Session) {
+			s.noteIn(ch, n.Session, channel.KindAsk, Plain(Parse(m.Content), nil), m.ID, n.From)
+			mc := m
+			s.emit(s.channelSession(ch), Event{Type: "message-created", Message: &mc, User: mc.User}, nil, "ask", n.From)
+		}
 	case session.NoticeAskDone:
 		card := cardID(n.Session, n.RequestID)
 		s.forget(card)
-		ss := s.channelSession(n.Session)
-		e, ok := s.out.message(ss.ID, card)
-		if !ok {
-			return
+		for _, ch := range s.askChannels(n.Session) {
+			ss := s.channelSession(ch)
+			e, ok := s.out.message(ss.ID, card)
+			if !ok {
+				continue
+			}
+			m := *e.ev.Message
+			m.Content = closedContent(m.Content)
+			m.UpdatedAt = time.Now().UnixMilli()
+			s.emit(ss, Event{Type: "message-updated", Message: &m, User: m.User}, nil, "ask", "")
 		}
-		m := *e.ev.Message
-		m.Content = closedContent(m.Content)
-		m.UpdatedAt = time.Now().UnixMilli()
-		s.emit(ss, Event{Type: "message-updated", Message: &m, User: m.User}, nil, "ask", "")
 	case session.NoticeError:
 		ss := s.channelSession(n.Session)
 		m := Message{ID: "error:" + n.Session + ":" + fmt.Sprint(time.Now().UnixNano()), Content: Escape(s.b.Mask(n.Text)), CreatedAt: time.Now().UnixMilli()}
@@ -219,6 +226,16 @@ func (s *Service) handle(n session.Notice, at time.Time) {
 		}
 		s.emit(ss, Event{Type: "message-created", Message: &m, User: m.User}, nil, "error", origin)
 	}
+}
+
+// askChannels are the channels session's agent's asks are told in: its own, then each it is in
+// beside (docs/channels.md "提问").
+func (s *Service) askChannels(session string) []string {
+	out := []string{session}
+	if s.log != nil {
+		out = append(out, s.log.In(session)...)
+	}
+	return out
 }
 
 // channelSession is session as the channel its agent's asks and errors are told in: its own.
