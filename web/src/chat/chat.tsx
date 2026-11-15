@@ -86,7 +86,21 @@ export function ChatPage({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?:
   const multi = isMulti(row) || !!row?.bare;
   const [solo, setSolo] = useState(false);
   if (solo && !multi) setSolo(false);
-  if (multi && !solo)
+  // Grown here from one agent to several (an agent invited): the one-agent chat stays until the
+  // channel's code and its newest page are in, then the channel's view in its place at once, not
+  // an empty page between (kumo, 2026-11-15). Opened as several, it is the channel's at once.
+  const wasOne = useRef<string | null>(null);
+  if (!multi) wasOne.current = id;
+  const [ready, setReady] = useState<string | null>(null);
+  const growing = multi && wasOne.current === id && ready !== id;
+  useEffect(() => {
+    if (!growing) return;
+    let live = true;
+    const done = () => live && setReady(id);
+    void Promise.all([import("./channel/page"), import("./channel/log").then((m) => m.channelLog(id).log.newer())]).then(done, done);
+    return () => void (live = false);
+  }, [growing, id]);
+  if (multi && !solo && !growing)
     return (
       <Suspense
         fallback={
@@ -104,7 +118,7 @@ export function ChatPage({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?:
         />
       </Suspense>
     );
-  const back = multi && row ? { label: titleOf(row), run: () => setSolo(false) } : undefined;
+  const back = multi && row && !growing ? { label: titleOf(row), run: () => setSolo(false) } : undefined;
   return <OneChat key="one" id={id} sheet={sheet} onSheet={onSheet} onMe={onMe} back={back} />;
 }
 
