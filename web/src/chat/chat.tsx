@@ -29,7 +29,7 @@ import { errText, toast } from "../toast";
 import { groupPath, working } from "../tree";
 import { agentName, cn, Lamp, lampOf, LogoLamp, LogoStack, sessionStatusText, tilde, Tip, titleOf, untitled } from "../ui";
 import { givenTurn, groupMessages, isMulti, type AgentRow, type GivenTurn, type Msg } from "./channel/lib";
-import { betweenAgents, callerOf, foreignOf, held, HOLD, linesOf, marksAt, named as namedIn, ownAnchors, slotsOf, subsAt, type Anchor } from "./channel/merge";
+import { betweenAgents, callerOf, foreignOf, givenHere, held, HOLD, linesOf, marksAt, named as namedIn, ownAnchors, slotsOf, subsAt, type Anchor } from "./channel/merge";
 import { LongWords } from "./longwords";
 import { SubAtWork } from "./subwork";
 import { alignBack, loadParts, sideReady, useSide } from "./channel/side";
@@ -428,7 +428,7 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
     // As the record says it, a Satori forward (satori.ts relays); else read from its words.
     const relay = b.kind === "user" ? relays.get(b) : undefined;
     // Its own channel's words forwarded to it: drawn from the log, by who said them.
-    if (ready && relay?.channel === id) return [];
+    if (ready && b.kind === "user" && givenHere(id, relay, b.text)) return [];
     rowTimes.push("time" in b ? b.time : undefined);
     stepsOf.push({ key: b.at, steps: b.kind === "fold" ? b.steps.map((x) => ({ id: x.id, name: x.name, input: x.input })) : [] });
     if (b.kind === "assistant") wordsOf.set(b.at, b.text ?? "");

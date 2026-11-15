@@ -61,6 +61,7 @@ export function Stick({ tail, older, place, style, children, scroller, bottom, q
   // till the first page is in.
   const height = useRef(0);
   const pad = useRef(0);
+  const born = useRef(performance.now());
   // Where this put the scroll last, and when the user last scrolled: a chat at rest at its newest
   // may be swiped on to bring the phone's sheet (sheet.tsx).
   const ours = useRef(-1);
@@ -118,8 +119,11 @@ export function Stick({ tail, older, place, style, children, scroller, bottom, q
     }
     if (!atEnd.current) return;
     // Shrunk at the newest: held as tall (settleFloor).
+    // Not as the chat opens: it is drawn whole at once, padded by the stack's height as last
+    // known, and the stack measured (shorter) right after is no shrinking to hold: held, the
+    // conversation went up by the difference and dropped back a moment later.
     const lost = was + padWas - height.current - pad.current;
-    if (col && was > 0 && lost > 0.5 && !paging.current) {
+    if (col && was > 0 && lost > 0.5 && !paging.current && performance.now() - born.current >= SETTLE) {
       col.style.minHeight = `${height.current + lost}px`;
       height.current += lost;
       settleSoon();
@@ -131,7 +135,6 @@ export function Stick({ tail, older, place, style, children, scroller, bottom, q
     const want = was > 0 && !paging.current ? height.current - was + pad.current - padWas : 0;
     glide(want > 0 ? Math.min(want, Math.max(0, by)) : Math.max(want, Math.min(0, by)), settling);
   };
-  const born = useRef(performance.now());
   /** settling: a push even as the chat settles (new blocks or drafts, not a picture loading). */
   const glide = (by: number, settling = false) => {
     // A chat just opened settles in place (its pictures, the composer's cards): nothing glides. What

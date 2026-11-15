@@ -1,7 +1,7 @@
 // One page for a session, one agent or several (kumo, 2026-11-15: 会话页不换页，多一个 agent 只是
 // 多一个成员): the own agent's record as its chat draws it, and what its channel's log has that the
 // record does not, each in its place by time. Pure: chat.tsx draws what these say.
-import type { Msg } from "./lib";
+import { givenTurn, type Msg } from "./lib";
 
 /** The log's messages the record does not hold: not the own agent's (its words are its record's),
  *  not a person's it was given (the record has the input, by its id) or that was read from it, not those before the record's
@@ -15,6 +15,17 @@ export function foreignOf(msgs: Msg[], own: string, inputs: ReadonlySet<string>,
     if (since !== undefined && (m.time ?? 0) < since) return false;
     return true;
   });
+}
+
+/** Whether a user block of the own agent's record is its own channel's message as the agent was
+ *  given it: the log has it, by who said it, and the record does not draw it again. Known by the
+ *  relay the record says it is (satori.ts relays, a page read with block.list), else by its words
+ *  ("#n: …" with the channel's block and no other channel named: a block the session's state
+ *  brought, which says no relay; drawn, a person's words showed twice). */
+export function givenHere(own: string, relay: { channel: string } | undefined, text: string | undefined): boolean {
+  if (relay) return relay.channel === own;
+  const g = givenTurn(text ?? "");
+  return !!g && !g.channel;
 }
 
 /** Where each message goes among rows by their times (undefined: as the next row with one — a

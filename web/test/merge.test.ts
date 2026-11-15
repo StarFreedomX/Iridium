@@ -3,7 +3,7 @@
 import { describe, expect, test } from "vitest";
 import type { ChannelMessage } from "../src/api/client";
 import { merge, msgOf, type Msg } from "../src/chat/channel/lib";
-import { betweenAgents, callerOf, FOLD_AT, FOLD_SHOW, foreignOf, held, HOLD, linesOf, marksAt, named, ownAnchors, slotsOf, subsAt } from "../src/chat/channel/merge";
+import { betweenAgents, callerOf, FOLD_AT, FOLD_SHOW, foreignOf, givenHere, held, HOLD, linesOf, marksAt, named, ownAnchors, slotsOf, subsAt } from "../src/chat/channel/merge";
 
 const OWN = "own";
 const said = (n: number, session: string, text = "hi", time = n * 10, data: ChannelMessage["_data"] = {}): Msg => msgOf({ id: String(n), content: text, user: { id: `agent:${session}`, name: "Claude", nick: session }, created_at: time, _data: { session, ...data } })!;
@@ -147,5 +147,22 @@ describe("words between agents fold, words to a person do not", () => {
   test("lines", () => {
     expect(linesOf("a\nb\n\n")).toBe(2);
     expect(FOLD_AT).toBeGreaterThan(FOLD_SHOW);
+  });
+});
+
+describe("its own channel's message given to the agent is the log's, drawn once", () => {
+  const ctx = "<channel-context>\nYou are claude8 in a channel shared with people and other agents.\n</channel-context>";
+  test("known by its relay, or, a block the state brought, by its words", () => {
+    expect(givenHere("s1", { channel: "s1" }, "123")).toBe(true);
+    expect(givenHere("s1", { channel: "other" }, "123")).toBe(false);
+    // As the record has it (the session's tail says no relay): "#n: words" and the channel's block.
+    expect(givenHere("s1", undefined, `#14: 123\n\n${ctx}`)).toBe(true);
+    expect(givenHere("s1", undefined, "#16: 1233\n\n<channel-context>\n</channel-context>")).toBe(true);
+  });
+  test("not what was typed to it, nor a call from another channel", () => {
+    expect(givenHere("s1", undefined, "123")).toBe(false);
+    expect(givenHere("s1", undefined, "#14 is wrong")).toBe(false);
+    expect(givenHere("s1", undefined, undefined)).toBe(false);
+    expect(givenHere("s1", undefined, '#3: hi\n\n<channel-context>\nYou are claude8, called in the channel "x" (abc), which people and agents share.\n</channel-context>')).toBe(false);
   });
 });

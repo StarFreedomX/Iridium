@@ -218,7 +218,7 @@ function Invite({ id }: { id: string }) {
           const name = a.web ? t("term.panel") : a.name;
           const logins = loginsOf(a.id);
           return (
-            <Sub key={a.id} icon={<Avatar src={a.avatar} name={a.name} size={16} type={a.type} />} label={name} now={hasApp(people, a.id) ? t("channel.everyone") : String(logins.filter((l) => hasLogin(people, a.id, l.id)).length || "")} i={0}>
+            <Sub key={a.id} icon={<Avatar src={a.avatar} name={a.name} size={16} type={a.type} host={!!a.host} />} label={name} now={hasApp(people, a.id) ? t("channel.everyone") : String(logins.filter((l) => hasLogin(people, a.id, l.id)).length || "")} i={0}>
               <Menu.Item closeOnClick={false} disabled={members?.me === appAll(a.id)} onClick={() => setPeople(pressApp(people, ids, idsOf, a.id, members?.me))} className={ITEM}>
                 {check(hasApp(people, a.id))}
                 <span className="flex-1 font-medium">{t("channel.everyone")}</span>

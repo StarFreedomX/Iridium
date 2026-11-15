@@ -376,16 +376,22 @@ const TYPE_MARKS: Record<string, [LucideIcon, Parameters<typeof t>[0]]> = {
 };
 export const typeMark = (type?: string) => (type ? TYPE_MARKS[type] : undefined);
 
-/** An app's or login's avatar, or its initial on a disc (tinted, when given a colour); an app
+/** Whether a channel's member ("<app>/<login>", "<app>/*") or a Satori user id is the host's. */
+export const isHost = (member: string) => member === "local" || member.startsWith("local/");
+
+/** An app's or login's avatar (host: Iridium's mark), or its initial on a disc (tinted, when given a colour); an app
  *  carries its type's mark on the corner (type), or another mark (badge: a device, Monitor, Smartphone). */
-export function Avatar({ src, name, size = 20, type, badge, badgeSize, badgeLabel, tint, over, className }: { src?: string; name?: string; size?: number; type?: string; badge?: LucideIcon; badgeSize?: number; badgeLabel?: string; tint?: string; over?: ReactNode; className?: string }) {
+export function Avatar({ src, name, size = 20, type, badge, badgeSize, badgeLabel, tint, over, className, host }: { src?: string; name?: string; size?: number; type?: string; badge?: LucideIcon; badgeSize?: number; badgeLabel?: string; tint?: string; over?: ReactNode; className?: string; host?: boolean }) {
   const [broken, setBroken] = useState<string | null>(null);
   const typed = badge ? undefined : typeMark(type);
   const mark = badge ?? typed?.[0];
   const label = badgeLabel ?? (typed && t(typed[1]));
   return (
     <span className={cn("relative inline-block shrink-0", className)} style={{ width: size, height: size }}>
-      {src && broken !== src ? (
+      {host ? (
+        // The host is Iridium itself: its mark, never a letter (the owner, 2026-11-15).
+        <IrMark size={size} className="text-ink" />
+      ) : src && broken !== src ? (
         <img src={src} alt="" draggable={false} onError={() => setBroken(src)} className="size-full rounded-full object-cover" style={{ boxShadow: "inset 0 0 0 0.5px var(--edge)" }} />
       ) : (
         <span

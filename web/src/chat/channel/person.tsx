@@ -10,7 +10,7 @@ import { t } from "../../i18n";
 import { openChat } from "../../route";
 import { isComputer, useApps } from "../../data";
 import { errText, toast } from "../../toast";
-import { Avatar, cn } from "../../ui";
+import { Avatar, cn, isHost } from "../../ui";
 import { mayDM, userOf, type AgentRow } from "./lib";
 import { AgentCard } from "./members";
 import { namesOf, type Named } from "./nick";
@@ -33,7 +33,7 @@ export function PersonCard({ user, name, avatar, app, call, dm: other = true }: 
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-3">
-        <Avatar src={avatar} name={name} size={48} />
+        <Avatar src={avatar} name={name} size={48} host={isHost(user)} />
         <div className="flex min-w-0 flex-1 flex-col">
           <span className="truncate text-base font-semibold">{name}</span>
           {app && <span className="truncate text-xs text-ink-3">{app}</span>}

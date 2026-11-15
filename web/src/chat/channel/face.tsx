@@ -8,7 +8,7 @@ import { useApps } from "../../data";
 import { useCarried } from "../../store";
 import { errText, toast } from "../../toast";
 import { t } from "../../i18n";
-import { Avatar, cn, Logo } from "../../ui";
+import { Avatar, cn, isHost, Logo } from "../../ui";
 
 /** The face of channel (session) id, round, size across; none given: the agent's logo, as
  *  large as logo, or what else stands for it. */
@@ -50,7 +50,7 @@ export function MemberFace({ member, name, agent, size }: { member: string; name
   const i = member.indexOf("/");
   const login = d?.logins.find((l) => l.app === member.slice(0, i) && l.id === member.slice(i + 1));
   const app = d?.apps.find((a) => a.id === member.slice(0, i));
-  return <Avatar src={login ? login.avatar : app?.avatar} name={name || login?.name || app?.name || member} size={size} />;
+  return <Avatar src={login ? login.avatar : app?.avatar} name={name || login?.name || app?.name || member} size={size} host={isHost(member) || !!app?.host} />;
 }
 
 const asDataURL = (f: Blob) =>

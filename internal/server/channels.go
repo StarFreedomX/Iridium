@@ -1389,7 +1389,8 @@ func (s *Server) viewersOf(ch string) []api.Viewer {
 // (readPost); its agents, as far as each was given. The agent of a session that is its alone
 // has all of it, whatever it is set to receive (everything said there is sent to it). Among
 // several, the channel's own agent has what it was given and what it said itself: what named
-// another was not given to it, though it receives all that names nobody.
+// another was not given to it, though it receives all that names nobody. Not the host's login:
+// it is Iridium itself on the page, no reader among the people (the owner, 2026-11-15).
 func (s *Server) readsOf(ch string) api.ChannelReads {
 	out := api.ChannelReads{Channel: ch, End: s.ch.End(ch), Readers: []api.Reader{}}
 	rows, err := s.st.ChannelReads(ch)
@@ -1397,6 +1398,9 @@ func (s *Server) readsOf(ch string) api.ChannelReads {
 		s.logf("server: channel %s: who read it: %v", ch, err)
 	}
 	for _, r := range rows {
+		if r.Reader == gate.HostID || strings.HasPrefix(r.Reader, gate.HostID+"/") {
+			continue
+		}
 		out.Readers = append(out.Readers, api.Reader{Member: r.Reader, Name: r.Name, Seq: min(r.Seq, out.End), At: r.At})
 	}
 	ms, _ := s.ch.Members(ch)

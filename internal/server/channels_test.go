@@ -195,14 +195,12 @@ func TestChannelOfSeveral(t *testing.T) {
 	}
 	l.want(400, "web", "POST", "/v1/internal/channels/"+ch+"/read", api.Read{}, nil)
 	l.want(403, "agent-in:"+second, "POST", "/v1/internal/channels/"+ch+"/read", api.Read{Seq: 1}, nil)
+	// The host has read it, and is no reader on the page: it is Iridium itself there (a person's
+	// reads: TestChannelPeople).
 	l.want(200, "web", "POST", "/v1/internal/channels/"+ch+"/read", api.Read{Seq: 3}, &reads)
-	l.want(200, "web", "POST", "/v1/internal/channels/"+ch+"/read", api.Read{Seq: 2}, &reads)
-	if len(reads.Readers) != 3 || reads.Readers[0].Seq != 3 || reads.Readers[0].Member == "" || reads.Readers[0].Name == "" || reads.Readers[0].At == 0 {
-		t.Errorf("reads with a person's: %+v", reads)
-	}
 	l.want(200, "web", "POST", "/v1/internal/channels/"+ch+"/read", api.Read{Seq: 1 << 40}, &reads)
-	if reads.Readers[0].Seq != reads.End {
-		t.Errorf("read past the end: %+v", reads)
+	if len(reads.Readers) != 2 || slices.ContainsFunc(reads.Readers, func(r api.Reader) bool { return !strings.HasPrefix(r.Member, "agent:") }) {
+		t.Errorf("the host among the readers: %+v", reads)
 	}
 	// The channel's own agent taking only what names it has read what it said, not what came
 	// after: the message to the second was not given to it.
@@ -365,6 +363,25 @@ func TestChannelPeople(t *testing.T) {
 		t.Fatalf("everyone speaks: %d", code)
 	}
 	l.waitSaid("web", ch, "ok: from the bot")
+	// A person's place: where they said they read to, never back, never past the end.
+	var reads api.ChannelReads
+	person := func() api.Reader {
+		for _, r := range reads.Readers {
+			if !strings.HasPrefix(r.Member, "agent:") {
+				return r
+			}
+		}
+		return api.Reader{}
+	}
+	l.want(200, bot, "POST", "/v1/internal/channels/"+ch+"/read", api.Read{Seq: 2}, &reads)
+	l.want(200, bot, "POST", "/v1/internal/channels/"+ch+"/read", api.Read{Seq: 1}, &reads)
+	if p := person(); len(reads.Readers) != 2 || p.Seq != 2 || p.Member == "" || p.Name == "" || p.At == 0 {
+		t.Errorf("reads with a person's: %+v", reads)
+	}
+	l.want(200, bot, "POST", "/v1/internal/channels/"+ch+"/read", api.Read{Seq: 1 << 40}, &reads)
+	if person().Seq != reads.End {
+		t.Errorf("read past the end: %+v", reads)
+	}
 
 	// The page chooses the people: itself. The bot reads, and that is all.
 	var ms api.ChannelMembers
