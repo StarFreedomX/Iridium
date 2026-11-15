@@ -104,6 +104,7 @@ export const zh = {
   "chat.newer": "新消息",
   "chat.writingCall": "正在写…",
   "chat.working": "正在工作",
+  "chat.moreLines": "还有 {n} 行",
   "chat.gone": "没有这个会话",
   "chat.where": "在哪干活",
   "chat.whereNamed": "提到过",

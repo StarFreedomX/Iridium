@@ -1,4 +1,5 @@
-// A channel of several agents, or of none (docs/channels.md), as a chat. Its members are a key at
+// A channel of no agent of its own (docs/channels.md), as a chat; a session's page, one agent or
+// several, is chat.tsx's (kumo, 2026-11-15), drawn with the parts exported here. Its members are a key at
 // the bar's right (top.tsx), not a row under the title. The conversation is the channel's log,
 // only what was said: your words a bubble on the right, anyone else's on the left under their
 // face; an agent's as Markdown under its face, nick and what it runs as, its usage (the
@@ -35,6 +36,8 @@ import { folded } from "../fold";
 import { Stick, toEnd } from "../stick";
 import { askQueue, groupMessages, readMarks, stillWaiting, watchExtra, type AgentRow, type Did, type Group, type Msg, type Src, lineOf, workOf, eventParts, personName, type EventWords } from "./lib";
 import { channelLog } from "./log";
+import { betweenAgents, linesOf } from "./merge";
+import { LongWords } from "../longwords";
 import { mayAct, useMembers } from "./gate";
 import { NotJoined } from "./key";
 import { MemberFace } from "./face";
@@ -212,6 +215,9 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
   // (the user, 2026-11-13); another login, an app, a Bot on the left, under its own face.
   const who = personWho(self, terminals, list ?? [], workspaces ?? []);
   const groups = useMemo(() => groupMessages(log.msgs), [log.msgs]);
+  // Words between agents fold when long (merge.ts betweenAgents).
+  const nickSet = new Set(agents.map((a) => a.nick.toLowerCase()).filter(Boolean));
+  const fold = (m: Msg) => betweenAgents(m, log.msgs, nickSet);
   // Each agent's usage after its model's name, a strip of its own as small as a phone's (the
   // user, 2026-11-13): its context's ring, its quota's bars; each pressed, its popover.
   const bars = (session: string) => {
@@ -264,7 +270,7 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
           <div className="mx-auto flex max-w-(--chat-w) flex-col gap-5 px-4 sm:px-6">
             {groups.map((g) => (
               <div key={g.key} className="relative flex min-w-0 flex-col">
-                <GroupView g={g} channel={id} agents={agents} who={who} record={record} call={call} may={may} quote={may ? quoting : undefined} quoted={quoted} bars={bars} />
+                <GroupView g={g} channel={id} agents={agents} who={who} record={record} call={call} may={may} quote={may ? quoting : undefined} quoted={quoted} bars={bars} fold={fold} />
                 {/* In the gap under it, over nothing: coming late, it moves nothing (docs/前端设计规范.md). */}
                 {marks.has(g.key) && <ReadMarks readers={marks.get(g.key)!} agents={agents} />}
               </div>
@@ -476,7 +482,7 @@ function blockFor(m: Msg, agents: AgentRow[]): Block {
 }
 
 /** One speaker's messages: a person's bubble; an agent's words under its head; Iridium's line. */
-export function GroupView({ g, channel, agents, who, record, call, may, quote, quoted, bars }: { g: Group; channel: string; agents: AgentRow[]; who: Who; record: (session: string) => void; call: (nick: string) => void; may: boolean; quote?: (m: Msg) => void; quoted: (n: number) => { who: string; text: string } | undefined; bars: (session: string) => ReactNode }) {
+export function GroupView({ g, channel, agents, who, record, call, may, quote, quoted, bars, fold }: { fold?: (m: Msg) => boolean; g: Group; channel: string; agents: AgentRow[]; who: Who; record: (session: string) => void; call: (nick: string) => void; may: boolean; quote?: (m: Msg) => void; quoted: (n: number) => { who: string; text: string } | undefined; bars: (session: string) => ReactNode }) {
   const list = useList();
   const a = g.author;
   if (a.kind === "iridium")
@@ -523,7 +529,9 @@ export function GroupView({ g, channel, agents, who, record, call, may, quote, q
             {m.src ? <Work src={m.src} did={m.did} /> : m.did && <DidLine did={m.did} />}
             {m.quote !== undefined && <QuoteLine n={m.quote} q={quoted(m.quote)} />}
             <Copyable copy={m.text} quote={quote && (() => quote(m))}>
-              <Assistant b={blockFor(m, agents)} session={a.session} />
+              <LongWords fold={fold?.(m) ?? false} lines={linesOf(m.text)}>
+                <Assistant b={blockFor(m, agents)} session={a.session} />
+              </LongWords>
             </Copyable>
           </div>
         ))}

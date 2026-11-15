@@ -104,6 +104,7 @@ export const en: Dict = {
   "chat.newer": "New messages",
   "chat.writingCall": "Writing…",
   "chat.working": "Working",
+  "chat.moreLines": "{n} more lines",
   "chat.gone": "No such session",
   "chat.where": "Where it works",
   "chat.whereNamed": "Mentioned",

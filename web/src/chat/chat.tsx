@@ -2,7 +2,11 @@
 // the bottom and paged back as you scroll up, the agent's words as it writes them, and the bottom
 // stack: the queue, the confirmation cards, the composer, the mode and model keys. Its blocks come
 // from the transcript (GET messages, after= what the open session's state says was written); its
-// drafts from the stream. Loaded only once a chat opens or the page is idle.
+// drafts from the stream. Loaded only once a chat opens or the page is idle. One page, one agent
+// or several (kumo, 2026-11-15: 会话页不换页，多一个 agent 只是多一个成员): once its channel has
+// another agent, the others' words go in their places among its own (channel/side.ts, merge.ts),
+// their at-work frames under the words that called them; its subagents at work under the steps
+// that started them.
 import { Menu } from "@base-ui/react/menu";
 import { BarChart3, Ellipsis, FolderOpen, Globe, ListTree, Plus, Settings } from "lucide-react";
 import type { Block, Status } from "../api/types.gen";
@@ -25,7 +29,8 @@ import { errText, toast } from "../toast";
 import { groupPath, working } from "../tree";
 import { agentName, cn, Lamp, lampOf, LogoLamp, LogoStack, sessionStatusText, tilde, Tip, titleOf, untitled } from "../ui";
 import { givenTurn, groupMessages, isMulti, type AgentRow, type GivenTurn, type Msg } from "./channel/lib";
-import { callerOf, foreignOf, held, HOLD, marksAt, ownAnchors, slotsOf, subsAt, type Anchor } from "./channel/merge";
+import { betweenAgents, callerOf, foreignOf, held, HOLD, linesOf, marksAt, named as namedIn, ownAnchors, slotsOf, subsAt, type Anchor } from "./channel/merge";
+import { LongWords } from "./longwords";
 import { SubAtWork } from "./subwork";
 import { alignBack, useSide } from "./channel/side";
 import { relays, type Relay } from "../satori";
@@ -385,6 +390,8 @@ function OneChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: number;
   let rowTimes: (number | undefined)[] = [];
   // The steps each row holds: a subagent at work goes under the call that started it.
   const stepsOf: { key: string; steps: { name?: string; input?: string }[] }[] = [];
+  // The own agent's words by row, for the fold of words between agents.
+  const wordsOf = new Map<string, string>();
   let rows: Row<ReactNode, Works>[] = (busy ? shown.filter((b) => b.kind !== "running") : shown).flatMap((b) => {
     // A call from another channel it is in (chat/channel/lib givenTurn): Iridium's message on
     // the left, what follows its work there (Relayed).
@@ -394,6 +401,7 @@ function OneChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: number;
     if (ready && relay?.channel === id) return [];
     rowTimes.push("time" in b ? b.time : undefined);
     stepsOf.push({ key: b.at, steps: b.kind === "fold" ? b.steps.map((x) => ({ name: x.name, input: x.input })) : [] });
+    if (b.kind === "assistant") wordsOf.set(b.at, b.text ?? "");
     const given: GivenTurn | null = relay ? { seq: relay.seq, words: relay.msgs.at(-1)?.text ?? "", context: relay.context, ...(relay.channel !== id ? { channel: { id: relay.channel, name: relay.name } } : {}) } : b.kind === "user" ? givenTurn(b.text ?? "") : null;
     const time = b.kind === "user" ? b.time : undefined;
     if (b.kind !== "user" && "time" in b && b.time) times.set(b.at, b.time);
@@ -458,6 +466,8 @@ function OneChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: number;
     return a && P ? <P.AgentBars a={a} st={stateOf(session)} /> : null;
   };
   let merged = rows;
+  const groupAt = new Map<string, ReturnType<typeof groupMessages>[number]>();
+  const nickSet = new Set(agents.map((a) => a.nick.toLowerCase()).filter(Boolean));
   const anchors: Anchor[] = [];
   const shownSeq = new Set<number>();
   let lastGroup: { session?: string } | undefined;
@@ -471,7 +481,8 @@ function OneChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: number;
         const key = `ch:${g.key}`;
         anchors.push({ key, seq: g.msgs.at(-1)!.n });
         for (const m of g.msgs) shownSeq.add(m.n);
-        merged.push({ key, agent: false, node: <P.GroupView key={key} g={g} channel={id} agents={agents} who={who} record={openChat} call={callAt} may={may} quote={may ? quoting : undefined} quoted={quoted} bars={barsOf} /> });
+        merged.push({ key, agent: false, node: <P.GroupView key={key} g={g} channel={id} agents={agents} who={who} record={openChat} call={callAt} may={may} quote={may ? quoting : undefined} quoted={quoted} bars={barsOf} fold={(m) => betweenAgents(m, msgs, nickSet)} /> });
+        groupAt.set(key, g);
         if (i === rows.length) lastGroup = g.author.kind === "agent" ? { session: g.author.session } : {};
       }
       if (i < rows.length) {
@@ -483,6 +494,22 @@ function OneChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: number;
       anchors.push(a);
       shownSeq.add(a.seq);
     }
+  }
+  // The own agent's words in a stretch another agent began (its words to it, naming it and no
+  // person): words between agents, folded when long; a person's words end such a stretch.
+  if (ready && face.nick) {
+    let byAgent = false;
+    const me = new Set([face.nick.toLowerCase()]);
+    merged = merged.map((r) => {
+      if (!r.agent) {
+        const g = groupAt.get(r.key);
+        const last = g?.msgs.at(-1);
+        byAgent = !!g && g.author.kind === "agent" && !!last && namedIn(last.text, me).agents > 0 && namedIn(last.text, nickSet).people === 0;
+        return r;
+      }
+      const w = wordsOf.get(r.key);
+      return byAgent && w !== undefined ? { ...r, node: <LongWords key={r.key} fold lines={linesOf(w)}>{r.node}</LongWords> } : r;
+    });
   }
   const marks = ready ? marksAt(anchors, side.reads?.readers ?? [], members?.me) : new Map<string, never[]>();
   const turns = turnsOf(merged);
