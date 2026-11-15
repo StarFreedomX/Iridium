@@ -22,9 +22,11 @@ import (
 
 const (
 	// HostID is the host's storage ID (docs/next/decisions.md 4): the machine Iridium runs on, the
-	// local `ir`, and the web page in local-only mode. Shown as HostName.
+	// local `ir`, and the web page in local-only mode. Shown as HostName, Iridium (kumo,
+	// 2026-11-15: never 主机), the tag Iridium's own words have too: those are told apart by
+	// their terminal (api.SourceIridium), never by the tag.
 	HostID   = "local"
-	HostName = "主机"
+	HostName = "Iridium"
 	// WebApp is the built-in app ir_web (package webapp): an app row of its own, with a TOKEN; a
 	// browser with a passkey is one of its logins. It speaks for a login with Satori-User-ID.
 	WebApp = "ir_web"

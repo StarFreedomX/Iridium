@@ -185,7 +185,7 @@ describe("sourceOf", () => {
     expect(sourceOf(undefined, undefined, me, terminals, sessions, ws, { subagent: true, parent: "gone1234567" })).toEqual({ kind: "letter", name: "gone1234", channel: false, session: "gone1234567" });
     // Not a subagent, or tagged: as before.
     expect(sourceOf(undefined, undefined, me, terminals, sessions, ws, { parent: "s2" })).toMatchObject({ kind: "you", local: true });
-    expect(sourceOf("Iridium", undefined, me, terminals, sessions, ws, { subagent: true, parent: "s2" })).toEqual({ kind: "iridium" });
+    expect(sourceOf("Iridium", "Iridium", me, terminals, sessions, ws, { subagent: true, parent: "s2" })).toEqual({ kind: "iridium" });
   });
 });
 

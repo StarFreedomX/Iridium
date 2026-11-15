@@ -238,7 +238,7 @@ func (s *Server) publicMessage(id, token string, b api.Block, local bool) *api.P
 	if b.Kind == api.BlockKindUser {
 		from := b.From
 		switch {
-		case from == "Iridium": // Iridium's own word to the agent, not a person's
+		case b.FromTerminal == api.SourceIridium: // Iridium's own word to the agent, not a person's
 			return nil
 		case strings.HasPrefix(from, "ir:"), strings.HasPrefix(from, "session:"): // another session's ir: not its ID
 			from = "ir"

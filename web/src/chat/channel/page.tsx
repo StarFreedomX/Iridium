@@ -296,15 +296,35 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
             ))}
             {/* Those at work, a line each: its logo, its nick, the dots. One line high even with
                 none, so the conversation does not move as a turn begins or ends. */}
+            {/* Each called agent at work: its face and name at once, as its words will be, the dots
+                under them (kumo, 2026-11-15: not a line of its own without the face); under its
+                own last words, the dots alone. */}
             {log.loaded && (
-              <div className="-mt-2 flex min-h-7 flex-col pointer-coarse:min-h-9">
-                {working.map((a) => (
-                  <div key={a.session} className="g-fade flex h-7 items-center gap-1.5 text-xs text-ink-3 pointer-coarse:h-9" role="status" aria-label={`${a.nick} · ${t("chat.working")}`}>
-                    <Logo agent={a.agent} size={14} />
-                    <span className="mr-1 max-w-40 truncate">{a.nick}</span>
-                    <Waiting on quiet={a.session} />
-                  </div>
-                ))}
+              <div className="-mt-2 flex min-h-7 flex-col gap-5 pointer-coarse:min-h-9">
+                {working.map((a) => {
+                  const last = groups.at(-1)?.author;
+                  if (!sent.length && last?.kind === "agent" && last.session === a.session)
+                    return (
+                      <div key={a.session} className="flex h-7 items-center pl-[38px] pointer-coarse:h-9" role="status" aria-label={`${a.nick} · ${t("chat.working")}`}>
+                        <Waiting on quiet={`${a.session} ${log.end}`} />
+                      </div>
+                    );
+                  return (
+                    <div key={a.session} className="g-fade flex min-w-0 items-start gap-2.5" role="status" aria-label={`${a.nick} · ${t("chat.working")}`}>
+                      <AgentFace channel={id} a={a} call={may ? call : undefined} record={record} may={may} />
+                      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                        <div className="flex h-4 min-w-0 items-center gap-1.5">
+                          <span className="shrink-0 text-xs font-medium text-ink-2">{a.nick}</span>
+                          <span className="min-w-0 truncate text-xs text-ink-4">{a.name}</span>
+                          {bars(a.session)}
+                        </div>
+                        <div className="flex h-7 items-center pointer-coarse:h-9">
+                          <Waiting on quiet={a.session} />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>

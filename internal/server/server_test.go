@@ -206,7 +206,7 @@ func TestTurnOverHTTP(t *testing.T) {
 	}
 
 	page := pageAt(t, c, base, id)
-	if len(page.Blocks) != 2 || page.Blocks[0].From != "主机" || page.Blocks[0].Text != "hello" || page.End != last.End {
+	if len(page.Blocks) != 2 || page.Blocks[0].From != "Iridium" || page.Blocks[0].Text != "hello" || page.End != last.End {
 		t.Fatalf("page: %+v", page)
 	}
 	var full satori.Message
@@ -244,7 +244,7 @@ func TestTurnOverHTTP(t *testing.T) {
 		}
 	}
 	after := waitAfter(page.End)
-	if after.Blocks[0].From != "主机" || after.Blocks[1].Text != "ok: again" {
+	if after.Blocks[0].From != "Iridium" || after.Blocks[1].Text != "ok: again" {
 		t.Errorf("after: %+v", after.Blocks)
 	}
 	// An agent's ir in another session: a letter from that session, still 本机's.

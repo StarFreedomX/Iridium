@@ -377,6 +377,11 @@ function OneChat({ id, sheet = 0, onSheet, onMe, back }: { id: string; sheet?: n
     });
   }
   const turns = turnsOf(rows);
+  // A turn begun with nothing of the agent's under its face yet (what you sent last, or nothing
+  // since): its face and name come first, the first call and the dots under them (kumo,
+  // 2026-11-15), not in a row of their own.
+  const pendingShown = log.sent.some((x) => x.failed !== undefined || !compactSent(x));
+  const headless = busy && !compacting && (turns.at(-1)?.kind !== "agent" || pendingShown);
   // Its usage after its model's name, a strip of its own as small as a phone's (the user,
   // 2026-11-13): the context's ring, the quota's bars; each pressed, its popover.
   // The agent's latest turn: the ring /context opens. None yet: the command is the agent's.
@@ -397,6 +402,7 @@ function OneChat({ id, sheet = 0, onSheet, onMe, back }: { id: string; sheet?: n
   };
   // What changes as the conversation grows: it keeps to the bottom, the dots wait again.
   const grew = `${log.blocks.at(-1)?.at} ${log.drafts.length} ${log.drafts.at(-1)?.text.length} ${log.drafts.at(-1)?.whole} ${log.sent.length}`;
+  const activity = <Activity calls={log.drafts.filter((d) => d.tool && !renamesDraft(d))} running={shown.flatMap((b) => (b.kind === "running" ? [b.tool] : []))} cwd={cwd} quiet={s.status !== "waiting" && !log.drafts.some((d) => !d.whole && !d.tool)} grew={grew} under={headless} />;
   return (
     <Nicks.Provider value={nicks}>
     <div className="relative h-full" data-chat-drop={id} onDragOver={(e) => files(e) || session(e) || place(e)} onDrop={drop}>
@@ -409,7 +415,7 @@ function OneChat({ id, sheet = 0, onSheet, onMe, back }: { id: string; sheet?: n
             x.kind === "one" ? (
               x.node
             ) : x.kind === "agent" ? (
-              <AgentTurn key={x.key} channel={id} a={i === turns.length - 1 ? face : resting} may={may} bars={bars(i === ctxTurn)} talk={talk} time={began(x.rows)}>
+              <AgentTurn key={x.key} channel={id} a={i === turns.length - 1 && !headless ? face : resting} may={may} bars={bars(i === ctxTurn)} talk={talk} time={began(x.rows)}>
                 {x.rows.map((r) => r.node)}
               </AgentTurn>
             ) : (
@@ -439,7 +445,15 @@ function OneChat({ id, sheet = 0, onSheet, onMe, back }: { id: string; sheet?: n
             <div className="-mt-1">
               <Compaction since={compactSince.current} />
             </div>
-          ) : log.loaded && (busy ? <Activity calls={log.drafts.filter((d) => d.tool && !renamesDraft(d))} running={shown.flatMap((b) => (b.kind === "running" ? [b.tool] : []))} cwd={cwd} quiet={s.status !== "waiting" && !log.drafts.some((d) => !d.whole && !d.tool)} grew={grew} /> : s.denials?.length ? <Denials session={id} denials={s.denials} cwd={cwd} stuck={s.status === "waiting" && !s.asks.length} /> : <div aria-hidden className="-mt-3 h-7 pointer-coarse:h-9" />)}
+          ) : log.loaded && (busy ? (
+            headless ? (
+              <AgentTurn channel={id} a={face} may={may} bars={bars(false)} talk={talk}>
+                {activity}
+              </AgentTurn>
+            ) : (
+              activity
+            )
+          ) : s.denials?.length ? <Denials session={id} denials={s.denials} cwd={cwd} stuck={s.status === "waiting" && !s.asks.length} /> : <div aria-hidden className="-mt-3 h-7 pointer-coarse:h-9" />)}
           {s.status === "error" && s.error && <Crash error={s.error} />}
         </div>
       </Stick>
@@ -753,11 +767,12 @@ const renamesDraft = (d: Drafted) => !!d.tool && renameOnly({ name: d.tool.name,
 /** The turn's row at the end of the conversation: the call being written, else the one running
  *  (the newest, how many more beside it), else the dots once it has gone quiet; one line high, even
  *  empty, while the turn lasts. */
-function Activity({ calls, running, cwd, quiet, grew }: { calls: Drafted[]; running: Tool[]; cwd: string; quiet: boolean; grew: string }) {
+/** under: in a turn's frame of its own, under the face and name (the turn's first). */
+function Activity({ calls, running, cwd, quiet, grew, under }: { calls: Drafted[]; running: Tool[]; cwd: string; quiet: boolean; grew: string; under?: boolean }) {
   const writing = calls.at(-1);
   const run = running.at(-1);
   return (
-    <div className="-mt-3 flex h-7 min-w-0 items-center pl-[38px] pointer-coarse:h-9">
+    <div className={cn("flex h-7 min-w-0 items-center pointer-coarse:h-9", under ? "-mt-1" : "-mt-3 pl-[38px]")}>
       {writing?.tool ? (
         <div key={writing.tool.id} className="min-w-0 flex-1">
           <ToolDraft name={writing.tool.name} input={writing.text} whole={writing.whole} />

@@ -228,7 +228,7 @@ func TestClaudeOnlyRule(t *testing.T) {
 	var as api.Apps
 	l.want(200, "agent", "GET", "/v1/internal/apps", nil, &as)
 	// The host first; no ir_web without a public origin.
-	if len(as.Apps) != 3 || !as.Apps[0].Host || as.Apps[0].Name != "主机" || as.Apps[0].Rules.ClaudeOwner == nil || as.Apps[1].Web || as.Apps[2].Web {
+	if len(as.Apps) != 3 || !as.Apps[0].Host || as.Apps[0].Name != "Iridium" || as.Apps[0].Rules.ClaudeOwner == nil || as.Apps[1].Web || as.Apps[2].Web {
 		t.Fatalf("apps: %+v", as)
 	}
 
@@ -304,7 +304,7 @@ func TestConfirmations(t *testing.T) {
 	l.want(200, "socket", "PUT", "/v1/internal/public", api.SetPublic{Origin: "https://ir.example.com"}, nil)
 	var p api.Pending
 	l.want(202, "agent", "POST", "/v1/internal/invites", api.NewInvite{Name: "pad"}, &p)
-	if p.Need.ID == "" || p.Need.Kind != "invite" || p.Need.Asker != "主机" || p.Need.Session != "caller-session" {
+	if p.Need.ID == "" || p.Need.Kind != "invite" || p.Need.Asker != "Iridium" || p.Need.Session != "caller-session" {
 		t.Fatalf("pending: %+v", p)
 	}
 	var cs api.Needs

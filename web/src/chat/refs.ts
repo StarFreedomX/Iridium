@@ -28,7 +28,8 @@ export const yours = (x: Who): Extract<Source, { kind: "you" }> => ({ kind: "you
  *  whose workspace a sender's name leaves out). */
 export function sourceOf(from: string | undefined, terminal: string | undefined, me: Who, terminals: Who[], sessions: Session[], workspaces: { id: number; name: string }[] = [], of?: Pick<Session, "subagent" | "parent" | "workflow" | "workspace">): Source {
   const here = of ? (of.workspace ?? 0) : undefined; // 0: 未归类 (the field left out)
-  if (from === "Iridium") return { kind: "iridium" };
+  // Iridium's own words by their terminal: the host's have the tag Iridium too.
+  if (from === "Iridium" && terminal === "Iridium") return { kind: "iridium" };
   // A subagent's prompt is written by the session that started it (an Agent tool call, a workflow).
   if (!from && of?.subagent) {
     const p = of.parent ? sessions.find((s) => s.id === of.parent) : undefined;

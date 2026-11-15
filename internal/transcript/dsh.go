@@ -132,7 +132,8 @@ func dshBlocks(off int64, raw []byte, max int, sources Sources) []api.Block {
 				b.From, b.Text = s[1], text[len(s[0]):]
 			}
 		}
-		if b.From == api.SourceIridium {
+		// Iridium's own line by its terminal; the tag alone is the host's too (gate.HostName).
+		if b.FromTerminal == api.SourceIridium {
 			b = api.Block{Kind: api.BlockKindSystem, Event: api.SystemEventIridium, Text: b.Text, From: b.From, ID: b.ID}
 		}
 		add(b)

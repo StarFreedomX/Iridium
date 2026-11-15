@@ -766,7 +766,7 @@ func TestChannelQuoteAndAll(t *testing.T) {
 		}
 	}
 	if len(fwds) < 2 || !strings.Contains(fwds[0], `<iridium:relay channel="`+ch+`"`) || !strings.Contains(fwds[0], " full>You are claude2") ||
-		!strings.Contains(fwds[0], `<author id="local" name="主机"/>tell me more</message></message>`) ||
+		!strings.Contains(fwds[0], `<author id="local" name="Iridium"/>tell me more</message></message>`) ||
 		again == "" || strings.Contains(again, " full") || !strings.HasSuffix(again, "@全体Agent roll call</message></message>") {
 		t.Errorf("forwards:\n%s", strings.Join(fwds, "\n"))
 	}
