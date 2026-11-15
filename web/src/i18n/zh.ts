@@ -304,7 +304,6 @@ export const zh = {
   "channel.forward": "聊天记录 · {n} 条",
   "channel.rules": "频道说明",
   "channel.supplement": "上下文补充",
-  "channel.back": "返回频道",
   "queue.title": "待发队列",
   "queue.paused": "已暂停",
   "queue.continue": "继续",

@@ -9,6 +9,8 @@
      g-sheet    on a phone, the sidebar rises from the foot over the composer (sheet.tsx, g-sink)
      g-dialog   the settings rise out of their key at the sidebar's foot (app.tsx)
      g-fade     plain cross-fade
+     g-arrive   a row comes in under the last (an agent called, taking over): its height opens, then it
+                rises in; the conversation above slides up as it opens, never jumps (kumo, 2026-11-15)
      g-wait     a placeholder of what is coming, of its size: comes after a moment, breathes
      g-swap     one icon for another in place, both drawn, cross-faded (a folder shut / open)
      g-lid      the archive bin's lid, hinged at its right end, springs up as it opens
@@ -176,6 +178,22 @@ details[data-shut] > summary .fold-chev {
 
 .g-fade {
   animation: g-fade-in var(--dur-2) var(--ease-out) both;
+}
+/* --- arrive: the one exception to transform and opacity, as a fold's height is: a row's height
+   opens (its grid track from 0fr), then what is in it rises in. The child clips while it opens. --- */
+.g-arrive {
+  display: grid;
+  grid-template-rows: 1fr;
+  animation: g-arrive-open var(--dur-3) var(--ease-out) both;
+}
+.g-arrive > * {
+  min-height: 0;
+  animation: g-rise var(--dur-2) var(--ease-out) var(--dur-2) both;
+}
+@keyframes g-arrive-open {
+  from {
+    grid-template-rows: 0fr;
+  }
 }
 @keyframes g-fade-in {
   from {

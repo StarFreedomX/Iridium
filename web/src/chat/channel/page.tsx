@@ -49,7 +49,7 @@ let lastStackH = 120;
 const ghostOf = (row: Session): LiveSession => ({ ...row, asks: [], tasks: [], denials: [], queue: [], end: 0, proc: -1 });
 
 /** The states of these sessions, as carried; drawn again as any of them changes. */
-function useStates(ids: string[]): (LiveSession | undefined)[] {
+export function useStates(ids: string[]): (LiveSession | undefined)[] {
   const [, redraw] = useState(0);
   const key = ids.join(" ");
   useEffect(() => onCarried((k) => k.startsWith("session:") && ids.includes(k.slice(8)) && redraw((n) => n + 1)), [key]);
@@ -210,27 +210,13 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
 
   // Who said a person's words, and whether it is the one looking: only those are on the right
   // (the user, 2026-11-13); another login, an app, a Bot on the left, under its own face.
-  const who = (m: Extract<Msg["author"], { kind: "person" }>) => {
-    const src = sourceOf(m.name, m.id, self, terminals, list ?? [], workspaces ?? []);
-    // The machine's own words (typed at its terminal, sent with its ir) are the host's.
-    const mine = m.id === self.id || (!!self.host && (m.id === "local" || (src.kind === "you" && !!src.local)));
-    if (src.kind === "you") return { who: src, mine };
-    const known = terminals.find((x) => x.id === m.id);
-    return { who: yours(known ? { ...known, name: m.name || known.name } : { id: m.id, name: m.name, device: "none" }), mine };
-  };
+  const who = personWho(self, terminals, list ?? [], workspaces ?? []);
   const groups = useMemo(() => groupMessages(log.msgs), [log.msgs]);
   // Each agent's usage after its model's name, a strip of its own as small as a phone's (the
   // user, 2026-11-13): its context's ring, its quota's bars; each pressed, its popover.
   const bars = (session: string) => {
     const i = agents.findIndex((a) => a.session === session);
-    const st = states[i];
-    const a = agents[i];
-    return a ? (
-      <span className="flex shrink-0 items-center">
-        <ContextRing session={a.session} summary={st?.context} tokens={st?.tokens} compact />
-        <QuotaBars agent={a.agent} machine={st?.machine} live={st?.live ?? false} using={st ? [st.model, st.pick, modelView(st).name] : []} compact />
-      </span>
-    ) : null;
+    return agents[i] ? <AgentBars a={agents[i]} st={states[i]} /> : null;
   };
   // The message being answered (<quote>), over the composer till it is sent.
   const [quote, setQuote] = useState<Msg | null>(null);
@@ -294,8 +280,6 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
                 drop={() => ((entry.sent = entry.sent.filter((y) => y !== x)), changed())}
               />
             ))}
-            {/* Those at work, a line each: its logo, its nick, the dots. One line high even with
-                none, so the conversation does not move as a turn begins or ends. */}
             {/* Each called agent at work: its face and name at once, as its words will be, the dots
                 under them (kumo, 2026-11-15: not a line of its own without the face); under its
                 own last words, the dots alone. */}
@@ -303,25 +287,10 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
               <div className="-mt-2 flex min-h-7 flex-col gap-5 pointer-coarse:min-h-9">
                 {working.map((a) => {
                   const last = groups.at(-1)?.author;
-                  if (!sent.length && last?.kind === "agent" && last.session === a.session)
-                    return (
-                      <div key={a.session} className="flex h-7 items-center pl-[38px] pointer-coarse:h-9" role="status" aria-label={`${a.nick} · ${t("chat.working")}`}>
-                        <Waiting on quiet={`${a.session} ${log.end}`} />
-                      </div>
-                    );
+                  const alone = !sent.length && last?.kind === "agent" && last.session === a.session;
                   return (
-                    <div key={a.session} className="g-fade flex min-w-0 items-start gap-2.5" role="status" aria-label={`${a.nick} · ${t("chat.working")}`}>
-                      <AgentFace channel={id} a={a} call={may ? call : undefined} record={record} may={may} />
-                      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-                        <div className="flex h-4 min-w-0 items-center gap-1.5">
-                          <span className="shrink-0 text-xs font-medium text-ink-2">{a.nick}</span>
-                          <span className="min-w-0 truncate text-xs text-ink-4">{a.name}</span>
-                          {bars(a.session)}
-                        </div>
-                        <div className="flex h-7 items-center pointer-coarse:h-9">
-                          <Waiting on quiet={a.session} />
-                        </div>
-                      </div>
+                    <div key={a.session} className={cn(!alone && "g-fade")}>
+                      <AtWork a={a} channel={id} alone={alone} quiet={alone ? `${a.session} ${log.end}` : a.session} bars={bars(a.session)} call={may ? call : undefined} record={record} may={may} />
                     </div>
                   );
                 })}
@@ -359,8 +328,60 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
   );
 }
 
+/** Who said a person's words, and whether it is the one looking: only those are on the right
+ *  (the user, 2026-11-13); another login, an app, a Bot on the left, under its own face. */
+export type Who = (a: Extract<Msg["author"], { kind: "person" }>) => { who: ReturnType<typeof yours>; mine: boolean };
+export function personWho(self: Parameters<typeof sourceOf>[2], terminals: Parameters<typeof sourceOf>[3], list: Session[], workspaces: { id: number; name: string }[]): Who {
+  return (m) => {
+    const src = sourceOf(m.name, m.id, self, terminals, list, workspaces);
+    // The machine's own words (typed at its terminal, sent with its ir) are the host's.
+    const mine = m.id === self.id || (!!self.host && (m.id === "local" || (src.kind === "you" && !!src.local)));
+    if (src.kind === "you") return { who: src, mine };
+    const known = terminals.find((x) => x.id === m.id);
+    return { who: yours(known ? { ...known, name: m.name || known.name } : { id: m.id, name: m.name, device: "none" }), mine };
+  };
+}
+
+/** An agent's usage after its model's name, a strip of its own as small as a phone's (the user,
+ *  2026-11-13): its context's ring, its quota's bars; each pressed, its popover. */
+export function AgentBars({ a, st }: { a: AgentRow; st?: LiveSession }) {
+  return (
+    <span className="flex shrink-0 items-center">
+      <ContextRing session={a.session} summary={st?.context} tokens={st?.tokens} compact />
+      <QuotaBars agent={a.agent} machine={st?.machine} live={st?.live ?? false} using={st ? [st.model, st.pick, modelView(st).name] : []} compact />
+    </span>
+  );
+}
+
+/** A called agent at work (kumo, 2026-11-15): its face and name at once, as its words will be,
+ *  the dots under them; under its own last words (alone: no face again), the dots only. */
+export function AtWork({ a, channel, alone, quiet, bars, call, record, may }: { a: AgentRow; channel: string; alone: boolean; quiet: string; bars: ReactNode; call?: (nick: string) => void; record: (session: string) => void; may: boolean }) {
+  useLang();
+  if (alone)
+    return (
+      <div className="flex h-7 items-center pl-[38px] pointer-coarse:h-9" role="status" aria-label={`${a.nick} · ${t("chat.working")}`}>
+        <Waiting on quiet={quiet} />
+      </div>
+    );
+  return (
+    <div className="flex min-w-0 items-start gap-2.5" role="status" aria-label={`${a.nick} · ${t("chat.working")}`}>
+      <AgentFace channel={channel} a={a} call={call} record={record} may={may} />
+      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+        <div className="flex h-4 min-w-0 items-center gap-1.5">
+          <span className="shrink-0 text-xs font-medium text-ink-2">{a.nick}</span>
+          <span className="min-w-0 truncate text-xs text-ink-4">{a.name}</span>
+          {bars}
+        </div>
+        <div className="flex h-7 items-center pointer-coarse:h-9">
+          <Waiting on quiet={quiet} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** Who has read up to here: small faces at the right, under what they last read. */
-function ReadMarks({ readers, agents }: { readers: Reader[]; agents: AgentRow[] }) {
+export function ReadMarks({ readers, agents }: { readers: Reader[]; agents: AgentRow[] }) {
   // The host's login is Iridium on the page, never 主机 (docs/前端设计规范.md "称呼").
   const nameOf = (r: Reader) => r.nick || (r.member === "local" || r.member.startsWith("local/") ? "Iridium" : r.name) || r.member;
   const names = readers.map(nameOf).join(t("channel.event.sep"));
@@ -396,7 +417,7 @@ function ReadMarks({ readers, agents }: { readers: Reader[]; agents: AgentRow[] 
 /** Something of one agent's above the composer (its queue, its asks), under its logo and nick,
  *  pressed its session. off: shown, not to be answered (the one looking is not of the channel's
  *  people). */
-function Of({ a, children, off }: { a: AgentRow; children: ReactNode; off?: boolean }) {
+export function Of({ a, children, off }: { a: AgentRow; children: ReactNode; off?: boolean }) {
   return (
     <div inert={off} className={cn(off && "opacity-60")}>
       <button type="button" onClick={() => openChat(a.session)} className="g-press relative z-10 flex h-6 max-w-full items-center gap-1.5 rounded-md px-2 text-xs text-ink-2 hover:text-ink">
@@ -411,7 +432,7 @@ function Of({ a, children, off }: { a: AgentRow; children: ReactNode; off?: bool
 /** The channel's agents' asks as one queue (docs/channels.md "提问"): the oldest open, the rest one
  *  line, 还有 N 个, pressed open too. Each under its agent. */
 const SEEN = new Map<string, Map<string, number>>();
-function AskQueue({ agents, states, cwd, off }: { agents: AgentRow[]; states: (LiveSession | undefined)[]; cwd: string; off: boolean }) {
+export function AskQueue({ agents, states, cwd, off }: { agents: AgentRow[]; states: (LiveSession | undefined)[]; cwd: string; off: boolean }) {
   const [all, setAll] = useState(false);
   const key = agents.map((a) => a.session).join(",");
   let seen = SEEN.get(key);
@@ -455,7 +476,7 @@ function blockFor(m: Msg, agents: AgentRow[]): Block {
 }
 
 /** One speaker's messages: a person's bubble; an agent's words under its head; Iridium's line. */
-function GroupView({ g, channel, agents, who, record, call, may, quote, quoted, bars }: { g: Group; channel: string; agents: AgentRow[]; who: (a: Extract<Msg["author"], { kind: "person" }>) => { who: ReturnType<typeof yours>; mine: boolean }; record: (session: string) => void; call: (nick: string) => void; may: boolean; quote?: (m: Msg) => void; quoted: (n: number) => { who: string; text: string } | undefined; bars: (session: string) => ReactNode }) {
+export function GroupView({ g, channel, agents, who, record, call, may, quote, quoted, bars }: { g: Group; channel: string; agents: AgentRow[]; who: Who; record: (session: string) => void; call: (nick: string) => void; may: boolean; quote?: (m: Msg) => void; quoted: (n: number) => { who: string; text: string } | undefined; bars: (session: string) => ReactNode }) {
   const list = useList();
   const a = g.author;
   if (a.kind === "iridium")
