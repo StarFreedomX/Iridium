@@ -9,11 +9,11 @@
 // and at its foot the colour tags (colors.ts); a group's: rename, its path, 通知. The mouse resting
 // on a row fetches its chat ahead.
 import { Menu } from "@base-ui/react/menu";
-import { Archive, ArchiveRestore, ArrowDown, ArrowUp, Bot, Check, ChevronRight, Copy, Ellipsis, Ungroup, Folder, FolderOpen, ListIndentDecrease, Moon, Pencil, Pin, PinOff, Plus, RefreshCw, Square, Workflow as WorkflowIcon } from "lucide-react";
+import { Archive, ArchiveRestore, ArrowDown, ArrowUp, Bot, Check, ChevronRight, Copy, Ellipsis, Ungroup, Folder, FolderOpen, Moon, Pencil, Pin, PinOff, Plus, RefreshCw, Square, Workflow as WorkflowIcon } from "lucide-react";
 import { ConfirmIcon, confirmName, confirmTitle } from "./confirmname";
-import { Fragment, lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactElement, type ReactNode, type RefObject } from "react";
+import { Fragment, lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactElement, type ReactNode, type RefObject } from "react";
 import { api } from "./api/client";
-import type { Agent, Color, Guilds, Need, Session, Status } from "./api/types.gen";
+import type { Agent, Color, Guilds, Need, Session } from "./api/types.gen";
 import { NO_GUILDS, placesOf, withGroupOrder, withMark, type Places } from "./guilds";
 import { colorVar, COLORS, useFolderColors } from "./colors";
 import { ahead, behind } from "./chats";
@@ -32,7 +32,7 @@ import { badge, isQuiet, setQuiet, useQuiet, useUnread } from "./unread";
 import { Face } from "./chat/channel/face";
 import { CloudBadge, MachineFace, shownPath, useLate, useMachine, type Machine } from "./machines";
 import { getCarried, setCarried, useCarried, useLink, useList } from "./store";
-import { channelLamp, invitedOf, isMulti } from "./chat/channel/lib";
+import { channelLamp, isMulti } from "./chat/channel/lib";
 import { VoiceDock, VoiceMark } from "./voice/dock";
 import { dropMark, dropTarget, endDrag, listDrop, pinFolder, placeFolder, placeGroup as placeGroupKey, placeSession, sortList, startDrag, useDragged, useOver, type Dragged, type Edge, type Over } from "./reorder";
 
@@ -135,21 +135,21 @@ export function Sidebar(p: Props) {
   const [width, setWidth] = useState(() => clampWidth(Number(kept(WIDTH_KEY)) || WIDTH.start));
   useLayoutEffect(() => void document.documentElement.style.setProperty("--sidebar-w", `${p.phone ? 0 : width}px`), [width, p.phone]);
   const [plusOpen, setPlusOpen] = useState<string | null>(null);
-  // A confirmation an agent's ir asked for lights its session's lamp (one hung under its launcher
-  // too); one of no session listed here is a row of its own at the top (no 需要你 group: the user,
-  // 2026-11-08).
-  const all = useCarried<Session[]>("list");
-  const byId = useMemo(() => new Map((all ?? []).map((x) => [x.id, x])), [all]);
-  const listed = new Set([...p.tree.workspaces.flatMap((w) => w.rows.flatMap((r) => (r.kind === "session" ? [r.s.id] : folderSessions(r.f).map((s) => s.id)))), ...[...p.tree.hung.values()].flat().map((s) => s.id)]);
-  const asked = new Set(p.confirms.flatMap((c) => (c.session && listed.has(c.session) ? [c.session] : [])));
+  // A confirmation an agent's ir asked for lights its session's lamp; one of no session listed
+  // here is a row of its own at the top (no 需要你 group: the user, 2026-11-08). The sessions a
+  // session launched are not rows (kumo, 2026-11-15): theirs, and one of them waiting on you,
+  // light the launcher's.
+  // A member spawned for a channel (tree.ts memberOf) is not a row either: theirs light the channel's.
+  const hungAt = new Map([...[...p.tree.hung].flatMap(([at, ss]) => ss.map((s) => [s.id, at] as const)), ...p.tree.member]);
+  const listed = new Set([...p.tree.workspaces.flatMap((w) => w.rows.flatMap((r) => (r.kind === "session" ? [r.s.id] : folderSessions(r.f).map((s) => s.id)))), ...hungAt.keys()]);
+  const asked = new Set(p.confirms.flatMap((c) => (c.session && listed.has(c.session) ? [hungAt.get(c.session) ?? c.session] : [])));
+  for (const [at, ss] of p.tree.hung) if (ss.some((s) => lampOf(s) === "waiting")) asked.add(at);
   const loose = p.confirms.filter((c) => !c.session || !listed.has(c.session));
   const last = p.tree.workspaces.at(-1);
   const lastOpen = last ? p.expanded(last.key) && last.rows.length > 0 : loose.length > 0;
   // A folder, or a group's root, with many sessions: the first few and a row for the rest (tree.ts
   // foldRest), opened by hand; one open, pinned, at work or waiting on you shown wherever it is.
-  // A launcher too, for one hung under it so.
-  const staysAlone = (s: Session) => s.id === p.selected || asked.has(s.id) || BUSY.has(lampOf(s)) || lampOf(s) === "waiting";
-  const stays = (s: Session) => !!s.pinned || staysAlone(s) || !!p.tree.hung.get(s.id)?.some(staysAlone);
+  const stays = (s: Session) => !!s.pinned || s.id === p.selected || asked.has(s.id) || BUSY.has(lampOf(s)) || lampOf(s) === "waiting";
   const fold = (ss: Session[], key: string) => {
     const f = foldRest(ss, stays);
     const all = p.expanded(`more:${key}`);
@@ -161,7 +161,7 @@ export function Sidebar(p: Props) {
     const f = fold(ss, key);
     return `${f.list.map((s) => s.id)}${f.rest ? `+${f.all}` : ""}`;
   };
-  const shape = [loose.map((c) => c.id).join(","), ...p.tree.workspaces.map((w) => `${w.key}:${p.expanded(w.key)}:${foldShape(roots(w), w.key)}:${allFolders(tops(w)).map((f) => `${f.key}${p.expanded(f.key)}${foldShape(f.sessions, f.key)}`).join(",")}`), p.expanded("archive"), p.tree.archived.length, [...p.tree.kids.values()].flat().map((s) => s.id).join(","), [...p.tree.runs.values()].flat().map((r) => `${r.id}${p.expanded(`run:${r.id}`)}${r.working.map((s) => s.id)}`).join(","), [...p.tree.hung].map(([at, ss]) => `${at}${p.expanded(`hung:${at}`)}>${ss.map((s) => s.id)}`).join(",")].join("|");
+  const shape = [loose.map((c) => c.id).join(","), ...p.tree.workspaces.map((w) => `${w.key}:${p.expanded(w.key)}:${foldShape(roots(w), w.key)}:${allFolders(tops(w)).map((f) => `${f.key}${p.expanded(f.key)}${foldShape(f.sessions, f.key)}`).join(",")}`), p.expanded("archive"), p.tree.archived.length, [...p.tree.kids.values()].flat().map((s) => s.id).join(","), [...p.tree.runs.values()].flat().map((r) => `${r.id}${p.expanded(`run:${r.id}`)}${r.working.map((s) => s.id)}`).join(",")].join("|");
   useFlip(list, shape);
   // Dragged to a new place (reorder.ts): the sessions beside each other, by the key of their
   // group's root or folder, and the groups, as last drawn. The page shows the new order at once.
@@ -221,10 +221,6 @@ export function Sidebar(p: Props) {
       toast(t("err.action"), { error: true, description: errText(e) });
     });
   }, []);
-  // A dispatched session dragged out from under its launcher (anywhere in the list but there), or
-  // its menu's 单独列出: grouped by its own folder, by hand, so never hung again (the user,
-  // 2026-11-10; SessionPatch.detach).
-  const detach = useCallback((id: string) => void api.patch(id, { detach: true }).catch((e: unknown) => toast(t("err.action"), { error: true, description: errText(e) })), []);
   const scrolled = useRef(0);
   useLayoutEffect(() => void (!p.searching && list.current && (list.current.scrollTop = scrolled.current)), [p.searching]);
   // A place pressed elsewhere (a card in a chat, places.ts): its group opened and scrolled to, its
@@ -249,56 +245,38 @@ export function Sidebar(p: Props) {
       }),
     [],
   );
-  // A session's row, and under it the subagents it has at work, then the sessions it started (ir
-  // new), hung under it while not taken out (tree.ts standing): those with theirs, one step in.
+  // A session's row, and under it the subagents it has at work. The sessions it started (ir new)
+  // are not rows (kumo, 2026-11-15), nor the agents of its channel: those in its members key.
   // shown: its machine is said by the group above it (no cloud on its logo, no face after its name).
   // lane: the rows it may be dragged among (reorder.ts), none out of its place.
   // pinLine: at a group's root, a folder dropped on it is pinned, the line at the top of the first.
-  // top: the launcher it hangs under, for one hung; its rows and those under it are that one's.
-  // invited: the agents of its channel beside its own (the user, 2026-11-13): an entry each
-  // under it with those it started, wherever else they are listed; archiving it leaves them be.
-  const row = (s: Session, depth: number, shown = false, flip = `s:${s.id}`, lane?: string, pinLine?: string, top?: string, invited = false) => {
-    const started = top ? undefined : p.tree.hung.get(s.id);
-    const guests = top ? [] : invitedOf(s, byId, started);
-    const hung = started || guests.length ? [...(started ?? []), ...guests] : undefined;
-    const open = !!hung && p.expanded(`hung:${s.id}`);
-    const under = top ?? (hung ? s.id : undefined);
-    return (
-      <Fragment key={flip}>
-        <SessionRow
-          s={s}
-          where={p.tree.where.get(s.id)}
-          depth={depth}
-          flip={flip}
-          selected={p.selected === s.id}
-          onSelect={p.onSelect}
-          chatCode={p.chatCode}
-          asked={asked.has(s.id)}
-          machineShown={shown}
-          lane={lane}
-          place={place}
-          pinLine={pinLine}
-          pinFolder={pinFolderAt}
-          under={under}
-          hungFrom={top}
-          detach={top && !invited ? detach : undefined}
-          hungN={hung?.length}
-          hungOpen={open}
-          hungLamp={hung && summary(hung, asked)}
-          toggle={hung && p.toggle}
-        />
-        {row2(s, depth, flip, under)}
-        {open && hung!.map((h) => row(h, depth + 1, false, `${flip}>${h.id}`, undefined, undefined, s.id, guests.includes(h)))}
-      </Fragment>
-    );
-  };
+  const row = (s: Session, depth: number, shown = false, flip = `s:${s.id}`, lane?: string, pinLine?: string) => (
+    <Fragment key={flip}>
+      <SessionRow
+        s={s}
+        where={p.tree.where.get(s.id)}
+        depth={depth}
+        flip={flip}
+        selected={p.selected === s.id}
+        onSelect={p.onSelect}
+        chatCode={p.chatCode}
+        asked={asked.has(s.id)}
+        machineShown={shown}
+        lane={lane}
+        place={place}
+        pinLine={pinLine}
+        pinFolder={pinFolderAt}
+      />
+      {row2(s, depth, flip)}
+    </Fragment>
+  );
   // Those hung under sessions, all of them: what archiving those archives too (the server's
   // cascade, SessionPatch.archived).
   const hungOf = (ss: Session[]) => ss.flatMap((s) => p.tree.hung.get(s.id) ?? []);
   // Its subagents at work and its workflow runs.
-  const row2 = (s: Session, depth: number, flip: string, under?: string) => (
+  const row2 = (s: Session, depth: number, flip: string) => (
     <>
-      {p.tree.kids.get(s.id)?.map((k) => <SessionRow key={k.id} s={k} depth={depth + 1} flip={`${flip}>${k.id}`} selected={p.selected === k.id} onSelect={p.onSelect} chatCode={p.chatCode} working under={under} />)}
+      {p.tree.kids.get(s.id)?.map((k) => <SessionRow key={k.id} s={k} depth={depth + 1} flip={`${flip}>${k.id}`} selected={p.selected === k.id} onSelect={p.onSelect} chatCode={p.chatCode} working />)}
       {p.tree.runs.get(s.id)?.map((r) => {
         const open = p.expanded(`run:${r.id}`);
         return (
@@ -309,7 +287,6 @@ export function Sidebar(p: Props) {
               // No chevron: the workflow's mark says it holds agents (the user, 2026-11-06).
               expanded={open}
               onClick={() => p.toggle(`run:${r.id}`)}
-              extra={under ? { "data-under": under } : undefined}
               icon={<WorkflowIcon size={15} className="text-ink-2" />}
               label={<span className="font-mono text-sm">{r.name}</span>}
               end={
@@ -323,7 +300,7 @@ export function Sidebar(p: Props) {
               }
               aria={`Workflow ${r.name}${r.phase ? `, ${r.phase}` : ""}, ${r.done}/${r.total} done`}
             />
-            {open && r.working.map((k) => <SessionRow key={k.id} s={k} depth={depth + 2} flip={`${flip}>${r.id}>${k.id}`} selected={p.selected === k.id} onSelect={p.onSelect} chatCode={p.chatCode} working under={under} />)}
+            {open && r.working.map((k) => <SessionRow key={k.id} s={k} depth={depth + 2} flip={`${flip}>${r.id}>${k.id}`} selected={p.selected === k.id} onSelect={p.onSelect} chatCode={p.chatCode} working />)}
           </Fragment>
         );
       })}
@@ -476,7 +453,7 @@ export function Sidebar(p: Props) {
       {/* While searching, the jump box in the tree's place; the tree stays mounted, hidden, and
           comes back scrolled as it was. */}
       {p.searching && <div className="flex min-h-0 flex-1 flex-col">{p.search}</div>}
-      <div ref={list} {...listDrop(detach)} hidden={p.searching} onScroll={(e) => void (scrolled.current = e.currentTarget.scrollTop)} className="relative min-h-0 flex-1 no-bar overflow-y-auto px-2 pb-3" role="tree" aria-label={t("nav.sessions")}>
+      <div ref={list} {...listDrop()} hidden={p.searching} onScroll={(e) => void (scrolled.current = e.currentTarget.scrollTop)} className="relative min-h-0 flex-1 no-bar overflow-y-auto px-2 pb-3" role="tree" aria-label={t("nav.sessions")}>
         <DropLine list={list} />
         {/* 需要你's confirmations: lined up with the groups' folders, apart from the list as a group is. */}
         {loose.length > 0 && (
@@ -513,13 +490,6 @@ export function Sidebar(p: Props) {
       {!p.noFoot && <Foot me={p.me} />}
     </aside>
   );
-}
-
-/** The lamp a launcher folded shows for those hung under it: amber while one needs you, else
- *  green while one works, else none. */
-function summary(ss: Session[], asked: Set<string>): Status {
-  if (ss.some((s) => asked.has(s.id) || lampOf(s) === "waiting")) return "waiting";
-  return ss.some((s) => BUSY.has(lampOf(s))) ? "running" : "idle";
 }
 
 /** The head's key: a new workspace, a "+" (the user, 2026-11-08: back from a folder). No search key
@@ -927,12 +897,7 @@ function RowFace({ s, agents, unread, quiet }: { s: Session; agents?: Agent[]; u
 
 /** Drawn again only as its props change, not with every draw of the list: a page of the phone's
  *  sheet turned drew every row, its menu and its tip, again (the user, 2026-11-08). */
-/** under: the launcher whose rows it is among (itself, those hung under it, theirs): a dispatched
- *  one dragged is not taken out by a drop there. hungFrom: the launcher it hangs under, its drag
- *  and its menu's 单独列出 taking it out (detach). hungN, hungOpen, hungLamp: a launcher's, those
- *  hung under it: how many, shown or folded (toggle, by its chevron), and their lamp, said while
- *  folded. */
-const SessionRow = memo(function SessionRow({ s, where, depth, flip, selected, onSelect, chatCode, working, asked, machineShown, lane, place, pinLine, pinFolder, under, hungFrom, detach, hungN, hungOpen, hungLamp, toggle }: { s: Session; where?: string; depth: number; flip: string; selected: boolean; onSelect: (id: string) => void; chatCode: () => void; working?: boolean; asked?: boolean; machineShown?: boolean; lane?: string; place?: (id: string, target: Session, edge: Edge, lane: string) => void; pinLine?: string; pinFolder?: (path: string, lane: string) => void; under?: string; hungFrom?: string; detach?: (id: string) => void; hungN?: number; hungOpen?: boolean; hungLamp?: Status; toggle?: (key: string) => void }) {
+const SessionRow = memo(function SessionRow({ s, where, depth, flip, selected, onSelect, chatCode, working, asked, machineShown, lane, place, pinLine, pinFolder }: { s: Session; where?: string; depth: number; flip: string; selected: boolean; onSelect: (id: string) => void; chatCode: () => void; working?: boolean; asked?: boolean; machineShown?: boolean; lane?: string; place?: (id: string, target: Session, edge: Edge, lane: string) => void; pinLine?: string; pinFolder?: (path: string, lane: string) => void }) {
   useLang();
   const machines = useMachines();
   const unread = useUnread(s.id);
@@ -997,9 +962,7 @@ const SessionRow = memo(function SessionRow({ s, where, depth, flip, selected, o
   // Dragged to a chat, it is named in that chat's composer (chat.tsx): with a mouse, as a finger's
   // long press is the menu. Nothing changes as it is dragged (the user, 2026-11-06), but the line
   // where it goes among those beside it (reorder.ts).
-  // One hung under its launcher: dropped anywhere in the list but under that launcher, it is taken
-  // out (Sidebar detach, reorder.ts listDrop).
-  const dim = useDragged(hungFrom ? "h" : "s", s.id);
+  const dim = useDragged("s", s.id);
   const drag = fine() && !renaming
     ? {
         draggable: true,
@@ -1007,8 +970,7 @@ const SessionRow = memo(function SessionRow({ s, where, depth, flip, selected, o
           e.dataTransfer.setData(SESSION_DRAG, s.id);
           e.dataTransfer.setData("text/plain", s.id);
           e.dataTransfer.effectAllowed = "all";
-          if (hungFrom) startDrag({ kind: "h", id: s.id, lane: hungFrom });
-          else if (lane) startDrag({ kind: "s", id: s.id, lane });
+          if (lane) startDrag({ kind: "s", id: s.id, lane });
         },
         onDragEnd: endDrag,
         ...(lane && place
@@ -1038,25 +1000,15 @@ const SessionRow = memo(function SessionRow({ s, where, depth, flip, selected, o
       <span className="grid justify-self-end">{lastBusy.current && <Lamp status={lastBusy.current} />}</span>
     </span>
   );
-  // At another machine, out of its group (hung under its launcher, in 归档, in 未归类): a cloud on
+  // At another machine, out of its group (in 归档, in 未归类): a cloud on
   // its logo, as a folder there has, its machine's face after its name (the user, 2026-11-10); in
   // its group, the group's row says both. Not connected now, a grey ring for its lamp.
   const machine = useMachine(s.machine);
   const remote = !!s.machine && !s.subagent && !machineShown;
   // Gone a moment (a proxy's cut, a Mac waking) is not shown as gone (machines.tsx useLate).
   const away = useLate(!!s.offline) && !busy;
-  // A launcher's, those hung under it folded: how many, and their lamp.
-  const folded = !!hungN && !hungOpen && (
-    <Tip label={t("nav.hungCount", { n: hungN })} side="bottom">
-      <span className="flex items-center gap-1.5 text-xs text-ink-3 tabular-nums">
-        {hungN}
-        {hungLamp && <Lamp status={hungLamp} />}
-      </span>
-    </Tip>
-  );
-  const end = slot || mark || lamp || away || folded ? (
+  const end = slot || mark || lamp || away ? (
     <span className="flex items-center gap-1.5">
-      {folded}
       {mark}
       {slot}
       {!busy && (away ? <span className="row-lamp g-pop" data-s="offline" role="img" aria-label={t("status.offline")} /> : <Lamp status={status} />)}
@@ -1071,8 +1023,6 @@ const SessionRow = memo(function SessionRow({ s, where, depth, flip, selected, o
         onClick={() => !renaming && onSelect(s.id)}
         faded={s.archived}
         aria={`${title}, ${told}${s.color ? `, ${t("color.tagged", { color: t(`color.${s.color}`) })}` : ""}${unread ? `, ${t("status.unreadCount", { n: badge(unread) })}` : ""}${quiet ? `, ${t("menu.quiet")}` : ""}`}
-        chevron={hungN ? (hungOpen ? "open" : "closed") : undefined}
-        onChevron={hungN && toggle ? () => toggle(`hung:${s.id}`) : undefined}
         icon={
           <Tip label={[multi ? multi.map((a, i) => `${agentName(members?.[i]?.agent ?? a.agent ?? s.agent)} ${a.nick ?? ""}`.trim()).join(", ") : agentName(s.agent), machine?.name, s.subagent && t("row.subagent"), away ? t("status.offline") : status !== "idle" && told].filter(Boolean).join(" · ")} side="bottom">
             <span className="relative grid">
@@ -1108,9 +1058,9 @@ const SessionRow = memo(function SessionRow({ s, where, depth, flip, selected, o
         face
         dim={dim}
         // data-session: a note may be dropped on it (notes.tsx).
-        extra={{ ...lp, ...hover, ...drag, onClickCapture: lp.onClickCapture, "data-session": s.id, ...(under ? { "data-under": under } : {}) }}
+        extra={{ ...lp, ...hover, ...drag, onClickCapture: lp.onClickCapture, "data-session": s.id }}
       />
-      <SessionMenu s={s} at={menuAt} close={() => setMenuAt(null)} rename={() => setRenaming(true)} detach={hungFrom && detach ? () => detach(s.id) : undefined} />
+      <SessionMenu s={s} at={menuAt} close={() => setMenuAt(null)} rename={() => setRenaming(true)} />
     </>
   );
 });
@@ -1249,11 +1199,8 @@ function FolderRow({ f, ws, depth, label, hung, open, onToggle, newHere, plus, l
   );
 }
 
-/** detach: one hung under its launcher, 单独列出 after archive (the user, 2026-11-10): a finger's
- *  way to take it out, as a mouse drags it. */
-function SessionMenu({ s, at, close, rename, detach }: { s: Session; at: { x: number; y: number } | null; close: () => void; rename: () => void; detach?: () => void }) {
-  const all = sessionActions(s, rename);
-  const items = detach ? [all[0]!, { icon: <ListIndentDecrease size={15} />, label: t("menu.detach"), run: detach }, ...all.slice(1)] : all;
+function SessionMenu({ s, at, close, rename }: { s: Session; at: { x: number; y: number } | null; close: () => void; rename: () => void }) {
+  const items = sessionActions(s, rename);
   const anchor = at && { getBoundingClientRect: () => DOMRect.fromRect({ x: at.x, y: at.y, width: 0, height: 0 }) };
   return (
     <Menu.Root open={at !== null} onOpenChange={(o) => !o && close()}>

@@ -80,7 +80,6 @@ export const zh = {
   "menu.moveDown": "下移",
   "menu.unfold": "展开",
   "menu.archiveHere": "归档这里的 {n} 个会话",
-  "menu.detach": "单独列出",
   "nav.hungCount": "{n} 个派出的会话",
   "menu.pin": "置顶",
   "menu.unpin": "取消置顶",
@@ -360,6 +359,7 @@ export const zh = {
   "mode.fullAccess": "完全放开",
 
   "ask.runCommand": "运行命令",
+  "ask.more": "还有 {n} 个",
   "ask.edit": "改文件",
   "ask.read": "读文件",
   "ask.web": "访问网页",

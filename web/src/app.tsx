@@ -85,8 +85,7 @@ function useExpanded() {
     }
   });
   // Open unless folded, but the archive, a workflow run's agents and the rest of a folder's
-  // sessions (tree.ts foldRest): those wait to be opened. Those hung under a launcher ("hung:")
-  // shown (2026-11-10).
+  // sessions (tree.ts foldRest): those wait to be opened.
   const shut = (k: string) => k === "archive" || k.startsWith("run:") || k.startsWith("more:");
   const expanded = (k: string) => over[k] ?? !shut(k);
   const toggle = (k: string) =>
