@@ -16,7 +16,7 @@ export type Source =
 /** What sourceOf needs to know of who sent a message: an app, a login of ir_web (web), or the host. */
 export type Who = { id: string; name: string; avatar?: string; device?: Device; host?: boolean; web?: boolean; type?: string };
 
-const HOST: Who = { id: "local", name: "主机", host: true };
+const HOST: Who = { id: "local", name: "Iridium", host: true };
 
 /** Your words from terminal x. */
 export const yours = (x: Who): Extract<Source, { kind: "you" }> => ({ kind: "you", name: x.name, avatar: x.avatar, device: x.device ?? "computer", ...(x.host ? { local: true } : {}) });
@@ -52,7 +52,7 @@ export function sourceOf(from: string | undefined, terminal: string | undefined,
   if (e?.id === me.id) return yours(me);
   // Another login of ir_web, or the host (its page with no gate, a person's ir): your words too.
   if (e?.web || e?.host) return yours(e);
-  if (!e && (terminal === "local" || from === "主机" || from === "本机")) return yours(local);
+  if (!e && (terminal === "local" || from === "Iridium" || from === "主机" || from === "本机")) return yours(local);
   // A plugin writes "[name·sender]": the plugin's avatar, the whole tag as the name.
   return { kind: "letter", name: from, avatar: e?.avatar, channel: true, ...(e?.type ? { type: e.type } : {}) };
 }

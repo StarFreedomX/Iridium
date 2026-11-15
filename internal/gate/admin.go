@@ -279,7 +279,7 @@ func SameToken(hash, tok string) bool {
 // IsHostRef: ref names the host (its ID, or one of its reserved names).
 func IsHostRef(ref string) bool {
 	k := nameKey(strings.TrimSpace(ref))
-	for _, n := range []string{HostID, HostName, "host", "本机"} {
+	for _, n := range []string{HostID, HostName, "host", "主机", "本机"} {
 		if k == nameKey(n) {
 			return true
 		}

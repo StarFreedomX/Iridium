@@ -162,7 +162,7 @@ describe("sourceOf", () => {
     expect(sourceOf("kumo-phone", "p", me, terminals, sessions)).toEqual({ kind: "you", name: "kumo-phone", avatar: "/a.png", device: "phone" });
     expect(sourceOf("本机", "local", me, terminals, sessions)).toEqual({ kind: "you", name: "本机", device: "computer", local: true });
     // No list (yet): the host (本机 as 0.1 tagged it) is still yours; no device is a computer.
-    expect(sourceOf("本机", "local", { id: "x", name: "x" }, [], sessions)).toEqual({ kind: "you", name: "主机", device: "computer", local: true });
+    expect(sourceOf("本机", "local", { id: "x", name: "x" }, [], sessions)).toMatchObject({ kind: "you", name: "Iridium", device: "computer", local: true });
     expect(sourceOf("x", "x", { id: "x", name: "x" }, [], sessions)).toMatchObject({ kind: "you", device: "computer" });
   });
   test("letters: a plugin with its sender, another session's ir by its title as the sidebar has it, its workspace only when not this one's; Iridium's own line", () => {

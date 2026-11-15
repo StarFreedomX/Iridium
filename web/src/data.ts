@@ -47,7 +47,7 @@ export function useUpdate(): { data: UpdateState | null | undefined } {
 export const useHome = () => useQuery({ queryKey: ["folders", "~"], queryFn: () => api.folders("~"), staleTime: 60_000, select: (f) => (setHome(f.path), f.path) });
 
 /** The host, as the page is with no gate in front (and while /v1/internal/me has not answered). */
-export const LOCAL_ME: Me = { id: "local", name: "主机", app: "local", host: true, public: false, usedToday: 0, rules: { claudeOwner: { by: "local", at: 0 } } };
+export const LOCAL_ME: Me = { id: "local", name: "Iridium", app: "local", host: true, public: false, usedToday: 0, rules: { claudeOwner: { by: "local", at: 0 } } };
 
 /** Who this page is: GET /v1/internal/me, else the gate's session (a login of ir_web), else the host. */
 export const useMe = () =>
@@ -133,7 +133,7 @@ export function useSaidLine() {
     const e = l.fromTerminal && terminals.find((x) => x.id === l.fromTerminal);
     if (e) return !!(e.web || e.host);
     if (l.fromTerminal === "local") return true;
-    return !l.from || l.from === "主机" || l.from === "本机" || (!l.fromTerminal && terminals.some((x) => x.name === l.from && (x.web || x.host)));
+    return !l.from || l.from === "Iridium" || l.from === "主机" || l.from === "本机" || (!l.fromTerminal && terminals.some((x) => x.name === l.from && (x.web || x.host)));
   };
   const by = (l: LastSaid, of?: Pick<Session, "subagent" | "parent" | "workflow">) => {
     if ((!l.from && of?.subagent) || /^(?:ir|session):/.test(l.from ?? "")) {

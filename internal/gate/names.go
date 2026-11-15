@@ -27,7 +27,7 @@ func (e *NameError) Error() string { return "gate: name " + strings.ReplaceAll(e
 // reservedNames are taken by what is built in: the host (主机, host; 本机 and local as it was
 // called), the app ir_web, Iridium itself (shown as Ir) and unknown sources (未知), in both UI
 // languages (docs/next/decisions.md 5).
-var reservedNames = []string{"host", "主机", "本机", "local", "ir_web", "Ir", "未知", "unknown"}
+var reservedNames = []string{"host", "主机", "本机", "local", "ir_web", "Ir", "Iridium", "未知", "unknown"}
 
 // NormalizeName returns the stored form of a name, or why it cannot be one:
 // full-width ASCII becomes ASCII, spaces are trimmed and collapsed, and what remains must

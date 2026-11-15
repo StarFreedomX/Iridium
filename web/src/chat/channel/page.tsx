@@ -341,18 +341,20 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
 
 /** Who has read up to here: small faces at the right, under what they last read. */
 function ReadMarks({ readers, agents }: { readers: Reader[]; agents: AgentRow[] }) {
-  const names = readers.map((r) => r.nick || r.name || r.member).join(t("channel.event.sep"));
+  // The host's login is Iridium on the page, never 主机 (docs/前端设计规范.md "称呼").
+  const nameOf = (r: Reader) => r.nick || (r.member === "local" || r.member.startsWith("local/") ? "Iridium" : r.name) || r.member;
+  const names = readers.map(nameOf).join(t("channel.event.sep"));
   // Each its own face (an agent's, a login's avatar), as beside what it says.
-  const face = (r: Reader, size: number) => <MemberFace member={r.member} name={r.name} agent={r.agent ?? agents.find((x) => x.member === r.member)?.agent} size={size} />;
+  const face = (r: Reader, size: number) => <MemberFace member={r.member} name={nameOf(r)} agent={r.agent ?? agents.find((x) => x.member === r.member)?.agent} size={size} />;
   return (
     <Popover.Root>
       <Popover.Trigger
         render={
-          <button type="button" aria-label={t("channel.readBy", { names })} className="g-fade absolute top-full right-0 mt-0.5 flex h-4 items-center gap-1 rounded-sm text-xs text-ink-4 hover:text-ink-3">
+          <button type="button" aria-label={t("channel.readBy", { names })} className="g-fade absolute top-full right-0 flex h-5 items-center gap-1 rounded-sm text-xs text-ink-4 hover:text-ink-3">
             <span>{t("channel.read")}</span>
             {readers.slice(0, 8).map((r) => (
               <span key={r.member} className="grid">
-                {face(r, 14)}
+                {face(r, 18)}
               </span>
             ))}
           </button>
@@ -362,8 +364,8 @@ function ReadMarks({ readers, agents }: { readers: Reader[]; agents: AgentRow[] 
         <div className="truncate px-2.5 pt-1 pb-0.5 text-xs text-ink-3">{t("channel.read")}</div>
         {readers.map((r) => (
           <div key={r.member} className="flex h-8 items-center gap-2.5 px-2.5 text-base pointer-coarse:h-11">
-            {face(r, 16)}
-            <span className="min-w-0 flex-1 truncate">{r.nick || r.name || r.member}</span>
+            {face(r, 20)}
+            <span className="min-w-0 flex-1 truncate">{nameOf(r)}</span>
           </div>
         ))}
       </PopSurface>
