@@ -30,6 +30,13 @@
 - 会话列表里：`Session.agents` 是它的频道里的全部 agent（两个以上时；无 agent 的频道一个也列），`Session.in` 是它订阅的频道。
 - 接口见 `docs/api.md`“频道”。agent 自己也能加：`ir api POST internal/channels/self/members agent=codex`。
 
+## 提问（kumo，2026-11-15）
+
+- 频道里的 agent（自己的、订阅来的）和它们拉起的会话（`launcher`，链上一路往上；拖出来的不算）的提问、审批、计划都进这个频道。一个 agent 在几个频道里，几个频道都进；拉起的会话按最上面那个拉起者算。
+- 频道页输入框上方排成一队：按提出的先后，最早的在前面展开，其余收成一行“还有 N 个”。每条带提问者的头像和称呼（拉起的会话写它的名字），点头像进它的会话。只有自己一个 agent 的会话也一样，它拉起的会话的提问排在它的输入框上方。
+- 频道里能答提问的人（见“成员”）和频道里的应用都能答，先答的算；答了或撤了，各处一起结束。
+- 频道记一条（`kind` 是 `ask`），所有成员的未读都加一；应用收到 `message-created`（`_data.kind` 是 `ask`），结束时 `message-updated`。没有指定谁来答：全量推给频道里的人和应用。
+
 ## 频道里的事
 
 成员变了，频道里记一行 Iridium 自己的话（`kind` 是 `note`），文字给只认字的应用看，消息的 `_data.event` 给页面按自己的语言说：`join`（agent 加入：`member`、`nick`、`name`）、`leave`、`rename`（`from` 旧名、`nick` 新名）、`recv`、`people`（`added`、`removed`、`everyone`）、`undelivered`（`seq` 没送到 `nick`）、`stopped`（`seq` 没转交）、`silent`（`nick` 被 `seq` 叫起，回合结束时没在频道发话）；`by` 是谁做的。建会话时一并配好的成员不记。这些行不进给 agent 的上下文。
