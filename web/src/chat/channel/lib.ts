@@ -26,8 +26,11 @@ export const lineOf = (at: string) => Number.parseInt(at, 10);
 /** The work under an agent's message from what its record has around it (newest last): with ir,
  *  the blocks of lines from..to; said straight out, those after the last thing it said or was
  *  given before the block. Its thinking, tool calls, and words it said on the way. */
-export function workOf<B extends { at: string; kind: string; text?: string }>(blocks: B[], src: Src): B[] {
-  if (src.from !== undefined && src.to !== undefined) return blocks.filter((b) => lineOf(b.at) >= src.from! && lineOf(b.at) < src.to! && b.kind !== "user" && b.kind !== "system");
+export function workOf<B extends { at: string; kind: string; text?: string }>(blocks: B[], src: Src, said?: string): B[] {
+  // The words said themselves are drawn under the work: not again in it (a reply said for the
+  // agent at its turn's end is the last words of its stretch).
+  const same = (b: B) => b.kind === "assistant" && !!said?.trim() && b.text?.trim() === said.trim();
+  if (src.from !== undefined && src.to !== undefined) return blocks.filter((b) => lineOf(b.at) >= src.from! && lineOf(b.at) < src.to! && b.kind !== "user" && b.kind !== "system" && !same(b));
   if (!src.block) return [];
   const end = lineOf(src.block);
   const out: B[] = [];

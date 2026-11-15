@@ -61,7 +61,7 @@
 
 - 默认只收点到它的（`recv` 是 `at`）。agent 自己能改：`ir api PATCH internal/channels/<频道>/members/agent:<自己> recv=all` 收人说的每句话（只能改自己的 `recv`）。
 - 跟随：`ir api POST internal/channels/<频道>/follow user=<称呼|用户ID|*> count:=N seconds:=T`，接下来 `user` 说的 N 条（默认 1，至多 50）在 T 秒内（默认 600，至多 3600）不点名也给它。只记在内存里，重启就没了。
-- 发话：`ir api message.create channel_id=<频道> _data.text=@- <<'IR'`，正文在后面几行，`IR` 单独一行收尾（引号里的 here-document，shell 不解释正文）；短的可以直接 `content="…"`。在自己所在的频道里这样发话，手动审批下也不弹审批（`session.speaksOnly`：只认这两种写法，带别的参数、接别的命令照常问）。
+- 发话：`ir api message.create channel_id=<频道> content='正文'`：单引号里可以多行，shell 不解释其中任何字符，正文里的 `'` 写成 `'\''`（kumo，2026-11-15：不再有 `k=@-`，只留这一种写法）。在自己所在的频道里这样发话，手动审批下也不弹审批（`session.speaksOnly`：只认这一条命令：`channel_id`、`content`（或 `_data.text`）各一个，值不带引号，或在单引号里，或在不含 `$`、反引号、`\` 的双引号里；带别的参数、接别的命令照常问）。
 - 发送检查：agent 用 `ir` 发话时，它没读过的消息随回答一起给它（`_data.unseen`，`ir` 直接印出来），已读位置前移。没读过的超过 12 条，或其中有点到它的：不发，回 409 `behind`，正文是这些消息；读完再发。
 
 ## 给 agent 的上下文

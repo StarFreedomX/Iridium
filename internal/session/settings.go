@@ -397,50 +397,28 @@ func renamesOnly(a api.Ask) bool {
 
 // speaksOnly: a shell call that only says something in a channel the agent is in (in: its own,
 // or one it is in by a subscription, docs/channels.md), which is how such an agent speaks
-// there: never asked about. Two ways of writing it:
+// there: never asked about. One way of writing it (kumo, 2026-11-15: no k=@-):
 //
-//	ir api message.create channel_id=<id> content=<words>        (or _data.text=)
-//	ir api message.create channel_id=<id> _data.text=@- <<'W'    then the words, then W alone
+//	ir api message.create channel_id=<id> content='<words>'      (or _data.text=)
 //
-// In the first nothing may chain, pipe, substitute or redirect; in the second the words are the
-// quoted here-document's, which the shell does not read. Any other field (a flag, a file, an
-// attachment, JSON) is asked about as any command is.
+// The words bare, in single quotes (over several lines, a ' in them as '\”), or in double
+// quotes with no $, ` or \ in them: nothing the shell runs or substitutes. Nothing may chain,
+// pipe or redirect; any other field (a flag, a file, an attachment, JSON) is asked about as any
+// command is.
 func speaksOnly(a api.Ask, in func(channel string) bool) bool {
 	input, _ := a.Input.(map[string]any)
 	s, _ := input["command"].(string)
 	if s == "" {
 		s, _ = input["cmd"].(string)
 	}
-	s = strings.TrimSpace(s)
-	if a.Kind != "permission" || s == "" {
+	if a.Kind != "permission" {
 		return false
 	}
-	head, rest, heredoc := strings.Cut(s, "\n")
-	if heredoc {
-		// The here-document: <<'W' ends the first line, W alone is the last, and no line between.
-		i := strings.LastIndex(head, "<<")
-		if i < 0 {
-			return false
-		}
-		word := strings.TrimSpace(head[i+2:])
-		if len(word) < 3 || word[0] != '\'' || word[len(word)-1] != '\'' || strings.ContainsAny(word[1:len(word)-1], "' \t") {
-			return false
-		}
-		word = word[1 : len(word)-1]
-		lines := strings.Split(rest, "\n")
-		if lines[len(lines)-1] != word || slices.Contains(lines[:len(lines)-1], word) {
-			return false
-		}
-		head = strings.TrimSpace(head[:i])
-	}
-	if strings.ContainsAny(head, ";|&`$<>\\") {
+	f, ok := shellWords(strings.TrimSpace(s))
+	if !ok || len(f) < 5 || f[0] != "ir" || f[1] != "api" || f[2] != "message.create" {
 		return false
 	}
-	f := strings.Fields(head)
-	if len(f) < 5 || f[0] != "ir" || f[1] != "api" || f[2] != "message.create" {
-		return false
-	}
-	channels, words := 0, false
+	channels, words := 0, 0
 	for _, w := range f[3:] {
 		switch {
 		case strings.HasPrefix(w, "channel_id="):
@@ -449,16 +427,71 @@ func speaksOnly(a api.Ask, in func(channel string) bool) bool {
 				return false
 			}
 		case strings.HasPrefix(w, "content=") || strings.HasPrefix(w, "_data.text="):
-			_, v, _ := strings.Cut(w, "=")
-			if heredoc != (v == "@-") || words {
-				return false
-			}
-			words = true
-		case heredoc || strings.HasPrefix(w, "-") || strings.HasPrefix(w, "@") || strings.HasPrefix(w, "_data") || strings.Contains(w, ":=") || strings.Contains(w, "=="):
+			words++
+		default:
 			return false
 		}
 	}
-	return channels == 1 && words
+	return channels == 1 && words == 1
+}
+
+// shellWords splits s as sh would into words, if it is one simple command whose words need
+// nothing run, substituted or expanded: bare (letters, digits, non-ASCII and -_.=:/@,+%),
+// '…' (anything but '), "…" (no $, ` or \ inside) and \' outside quotes, joined; blanks
+// between them. ok false for anything else (; | & < > $ ` ( ) a glob, a line end outside
+// quotes, an unclosed quote).
+func shellWords(s string) (words []string, ok bool) {
+	var cur strings.Builder
+	in := false // a word has begun
+	rs := []rune(s)
+	for i := 0; i < len(rs); i++ {
+		r := rs[i]
+		switch {
+		case r == ' ' || r == '\t':
+			if in {
+				words, in = append(words, cur.String()), false
+				cur.Reset()
+			}
+		case r == '\'':
+			j := i + 1
+			for j < len(rs) && rs[j] != '\'' {
+				j++
+			}
+			if j == len(rs) {
+				return nil, false
+			}
+			cur.WriteString(string(rs[i+1 : j]))
+			i, in = j, true
+		case r == '"':
+			j := i + 1
+			for j < len(rs) && rs[j] != '"' {
+				if rs[j] == '$' || rs[j] == '`' || rs[j] == '\\' {
+					return nil, false
+				}
+				j++
+			}
+			if j == len(rs) {
+				return nil, false
+			}
+			cur.WriteString(string(rs[i+1 : j]))
+			i, in = j, true
+		case r == '\\':
+			if i+1 >= len(rs) || rs[i+1] != '\'' {
+				return nil, false
+			}
+			cur.WriteRune('\'')
+			i, in = i+1, true
+		case r > 127 || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("-_.=:/@,+%", r):
+			cur.WriteRune(r)
+			in = true
+		default:
+			return nil, false
+		}
+	}
+	if in {
+		words = append(words, cur.String())
+	}
+	return words, len(words) > 0
 }
 
 // fileTools are the tools whose subject is a file path.

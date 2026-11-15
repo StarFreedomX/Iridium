@@ -49,7 +49,6 @@ type apiCall struct {
 	wait         bool
 	clip         int
 	status       int // the answer's
-	stdin        bool // a value was read from the standard input (k=@-)
 }
 
 func cmdAPI(e *env, args []string) int {
@@ -231,20 +230,7 @@ func (c *apiCall) item(a string) error {
 		}
 		return setPath(c.body, strings.Split(k, "."), x)
 	case strings.HasPrefix(rest, "="):
-		v := rest[1:]
-		// k=@-: the value is what the standard input holds (a message's words, as they are:
-		// nothing of them is the shell's to read), its last line end taken off.
-		if v == "@-" {
-			if c.stdin {
-				return errors.New("one value from the standard input only")
-			}
-			b, err := io.ReadAll(os.Stdin)
-			if err != nil {
-				return err
-			}
-			c.stdin, v = true, strings.TrimRight(string(b), "\r\n")
-		}
-		return setPath(c.body, strings.Split(k, "."), v)
+		return setPath(c.body, strings.Split(k, "."), rest[1:])
 	}
 	return fmt.Errorf("%q: k=v, k:=json or k==v", a)
 }

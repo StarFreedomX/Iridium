@@ -526,7 +526,7 @@ export function GroupView({ g, channel, agents, who, record, call, may, quote, q
         </div>
         {g.msgs.map((m) => (
           <div key={m.n} className={cn(m.kind === "error" && "text-err")}>
-            {m.src ? <Work src={m.src} did={m.did} /> : m.did && <DidLine did={m.did} />}
+            {m.src ? <Work src={m.src} did={m.did} said={m.text} /> : m.did && <DidLine did={m.did} />}
             {m.quote !== undefined && <QuoteLine n={m.quote} q={quoted(m.quote)} />}
             <Copyable copy={m.text} quote={quote && (() => quote(m))}>
               <LongWords fold={fold?.(m) ?? false} lines={linesOf(m.text)}>
@@ -575,13 +575,13 @@ function EventLine({ m }: { m: Msg }) {
  *  its thinking and tool calls from its own record, folded as its own chat folds them. The
  *  count's line until they come, or when the record cannot be read. did: none for a stretch
  *  with no tool call (thinking alone), which has no count to show meanwhile. */
-function Work({ src, did }: { src: Src; did?: Did }) {
+function Work({ src, did, said }: { src: Src; did?: Did; said?: string }) {
   const row = useList()?.find((x) => x.id === src.session);
   const q = useQuery({
     queryKey: ["work", src.session, src.block ?? "", src.from ?? 0, src.to ?? 0],
     queryFn: async () => {
       const page = src.from !== undefined ? await api.messages(src.session, { after: Math.max(0, src.from - 1) }) : await api.messages(src.session, { before: lineOf(src.block!) + 1 });
-      return workOf(page.blocks, src);
+      return workOf(page.blocks, src, said);
     },
     staleTime: Infinity,
     retry: false,

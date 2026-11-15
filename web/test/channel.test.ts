@@ -312,6 +312,9 @@ describe("workOf", () => {
   test("with ir: the lines from..to, but what it was given", () => {
     expect(workOf(bs, { session: "s", from: 10, to: 16 }).map((b) => b.at)).toEqual(["11.0", "12.0", "13.0", "14.0", "15.0"]);
   });
+  test("a reply said for it at its turn's end: its words drawn once, under the work, not in it", () => {
+    expect(workOf(bs, { session: "s", from: 10, to: 16 }, " done\n").map((b) => b.at)).toEqual(["11.0", "12.0", "13.0", "14.0"]);
+  });
 });
 
 describe("a message that answers another", () => {
