@@ -9,7 +9,7 @@
 // and at its foot the colour tags (colors.ts); a group's: rename, its path, 通知. The mouse resting
 // on a row fetches its chat ahead.
 import { Menu } from "@base-ui/react/menu";
-import { Archive, ArchiveRestore, ArrowDown, ArrowUp, Bot, Check, ChevronRight, Copy, Ellipsis, Ungroup, Folder, FolderOpen, Moon, Pencil, Pin, PinOff, Plus, RefreshCw, Square, Workflow as WorkflowIcon } from "lucide-react";
+import { Archive, ArchiveRestore, ArrowDown, ArrowUp, Bot, Check, ChevronRight, Copy, Ellipsis, Ungroup, Folder, FolderOpen, Moon, Pencil, Pin, PinOff, Plus, RefreshCw, Square } from "lucide-react";
 import { ConfirmIcon, confirmName, confirmTitle } from "./confirmname";
 import { Fragment, lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactElement, type ReactNode, type RefObject } from "react";
 import { api } from "./api/client";
@@ -161,7 +161,7 @@ export function Sidebar(p: Props) {
     const f = fold(ss, key);
     return `${f.list.map((s) => s.id)}${f.rest ? `+${f.all}` : ""}`;
   };
-  const shape = [loose.map((c) => c.id).join(","), ...p.tree.workspaces.map((w) => `${w.key}:${p.expanded(w.key)}:${foldShape(roots(w), w.key)}:${allFolders(tops(w)).map((f) => `${f.key}${p.expanded(f.key)}${foldShape(f.sessions, f.key)}`).join(",")}`), p.expanded("archive"), p.tree.archived.length, [...p.tree.kids.values()].flat().map((s) => s.id).join(","), [...p.tree.runs.values()].flat().map((r) => `${r.id}${p.expanded(`run:${r.id}`)}${r.working.map((s) => s.id)}`).join(",")].join("|");
+  const shape = [loose.map((c) => c.id).join(","), ...p.tree.workspaces.map((w) => `${w.key}:${p.expanded(w.key)}:${foldShape(roots(w), w.key)}:${allFolders(tops(w)).map((f) => `${f.key}${p.expanded(f.key)}${foldShape(f.sessions, f.key)}`).join(",")}`), p.expanded("archive"), p.tree.archived.length].join("|");
   useFlip(list, shape);
   // Dragged to a new place (reorder.ts): the sessions beside each other, by the key of their
   // group's root or folder, and the groups, as last drawn. The page shows the new order at once.
@@ -245,7 +245,7 @@ export function Sidebar(p: Props) {
       }),
     [],
   );
-  // A session's row, and under it the subagents it has at work. The sessions it started (ir new)
+  // A session's row (its subagents have none: kumo, 2026-11-15). The sessions it started (ir new)
   // are not rows (kumo, 2026-11-15), nor the agents of its channel: those in its members key.
   // shown: its machine is said by the group above it (no cloud on its logo, no face after its name).
   // lane: the rows it may be dragged among (reorder.ts), none out of its place.
@@ -260,6 +260,7 @@ export function Sidebar(p: Props) {
         selected={p.selected === s.id}
         onSelect={p.onSelect}
         chatCode={p.chatCode}
+        kidsAt={!!p.tree.kids.get(s.id)?.length || !!p.tree.runs.get(s.id)?.length}
         asked={asked.has(s.id)}
         machineShown={shown}
         lane={lane}
@@ -267,46 +268,11 @@ export function Sidebar(p: Props) {
         pinLine={pinLine}
         pinFolder={pinFolderAt}
       />
-      {row2(s, depth, flip)}
     </Fragment>
   );
   // Those hung under sessions, all of them: what archiving those archives too (the server's
   // cascade, SessionPatch.archived).
   const hungOf = (ss: Session[]) => ss.flatMap((s) => p.tree.hung.get(s.id) ?? []);
-  // Its subagents at work and its workflow runs.
-  const row2 = (s: Session, depth: number, flip: string) => (
-    <>
-      {p.tree.kids.get(s.id)?.map((k) => <SessionRow key={k.id} s={k} depth={depth + 1} flip={`${flip}>${k.id}`} selected={p.selected === k.id} onSelect={p.onSelect} chatCode={p.chatCode} working />)}
-      {p.tree.runs.get(s.id)?.map((r) => {
-        const open = p.expanded(`run:${r.id}`);
-        return (
-          <Fragment key={r.id}>
-            <Row
-              depth={depth + 1}
-              flip={`${flip}>${r.id}`}
-              // No chevron: the workflow's mark says it holds agents (the user, 2026-11-06).
-              expanded={open}
-              onClick={() => p.toggle(`run:${r.id}`)}
-              icon={<WorkflowIcon size={15} className="text-ink-2" />}
-              label={<span className="font-mono text-sm">{r.name}</span>}
-              end={
-                <span className="flex items-center gap-1.5">
-                  <span className="text-xs whitespace-nowrap text-ink-3 tabular-nums">
-                    {r.phase && `${r.phase} · `}
-                    {r.done}/{r.total}
-                  </span>
-                  <Lamp status="running" />
-                </span>
-              }
-              aria={`Workflow ${r.name}${r.phase ? `, ${r.phase}` : ""}, ${r.done}/${r.total} done`}
-            />
-            {open && r.working.map((k) => <SessionRow key={k.id} s={k} depth={depth + 2} flip={`${flip}>${r.id}>${k.id}`} selected={p.selected === k.id} onSelect={p.onSelect} chatCode={p.chatCode} working />)}
-          </Fragment>
-        );
-      })}
-    </>
-  );
-
   // The sessions of a folder or a group's root, those folded under one row: "还有 N 个" opens them,
   // "收起" at their foot folds them again.
   const folded = (ss: Session[], key: string, depth: number, draw: (s: Session) => ReactNode) => {
@@ -897,23 +863,24 @@ function RowFace({ s, agents, unread, quiet }: { s: Session; agents?: Agent[]; u
 
 /** Drawn again only as its props change, not with every draw of the list: a page of the phone's
  *  sheet turned drew every row, its menu and its tip, again (the user, 2026-11-08). */
-const SessionRow = memo(function SessionRow({ s, where, depth, flip, selected, onSelect, chatCode, working, asked, machineShown, lane, place, pinLine, pinFolder }: { s: Session; where?: string; depth: number; flip: string; selected: boolean; onSelect: (id: string) => void; chatCode: () => void; working?: boolean; asked?: boolean; machineShown?: boolean; lane?: string; place?: (id: string, target: Session, edge: Edge, lane: string) => void; pinLine?: string; pinFolder?: (path: string, lane: string) => void }) {
+const SessionRow = memo(function SessionRow({ s, where, depth, flip, selected, onSelect, chatCode, kidsAt, asked, machineShown, lane, place, pinLine, pinFolder }: { s: Session; where?: string; depth: number; flip: string; selected: boolean; onSelect: (id: string) => void; chatCode: () => void; kidsAt?: boolean; asked?: boolean; machineShown?: boolean; lane?: string; place?: (id: string, target: Session, edge: Edge, lane: string) => void; pinLine?: string; pinFolder?: (path: string, lane: string) => void }) {
   useLang();
   const machines = useMachines();
   const unread = useUnread(s.id);
   const quiet = useQuiet(s.id);
   const now = useMinute();
   const title = titleOf(s);
-  // A subagent shown is at work, whatever discovery says of its process.
   // A confirmation its agent asked for waits on you too, while it is not at work.
   // A channel of several agents (chat/channel): their logos one over the next, their nicks on a
   // second line, its lamp theirs: lit while any of them works.
   const all = useCarried<Session[]>(s.agents?.length ? "list" : null);
   const multi = isMulti(s) ? s.agents! : undefined;
   const members = multi?.map((a) => all?.find((x) => x.id === a.session));
-  const base = working ? "running" : members ? channelLamp(lampOf(s), members.flatMap((m) => (m && m.id !== s.id ? [lampOf(m)] : []))) : lampOf(s);
+  // Its channel's other agents at work, or its subagents (no rows of their own, kumo 2026-11-15):
+  // its lamp says so.
+  const base = channelLamp(lampOf(s), [...(members ?? []).flatMap((m) => (m && m.id !== s.id ? [lampOf(m)] : [])), ...(kidsAt ? (["running"] as const) : [])]);
   const status = asked && !BUSY.has(base) ? "waiting" : base;
-  const told = working ? statusText("running") : status !== base ? statusText("waiting") : base !== lampOf(s) ? statusText(base) : sessionStatusText(s);
+  const told = status !== base ? statusText("waiting") : base !== lampOf(s) ? statusText(base) : sessionStatusText(s);
   // How long ago it was last active (its turn ended, it was last written to), but in a turn. Unread,
   // it is in ink: no grey dot for it (the user, 2026-11-06).
   const fresh = unread > 0 && !quiet && status === "idle";

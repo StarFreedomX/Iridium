@@ -22,10 +22,11 @@ import { MenuItems, Rename, sessionActions, sessionTags } from "../sidebar";
 import { useConfirms, useList, useSession } from "../store";
 import { drafts, opened } from "../stream";
 import { errText, toast } from "../toast";
-import { groupPath } from "../tree";
+import { groupPath, working } from "../tree";
 import { agentName, cn, Lamp, lampOf, LogoLamp, LogoStack, sessionStatusText, tilde, Tip, titleOf, untitled } from "../ui";
 import { givenTurn, groupMessages, isMulti, type AgentRow, type GivenTurn, type Msg } from "./channel/lib";
-import { callerOf, foreignOf, held, HOLD, marksAt, ownAnchors, slotsOf, type Anchor } from "./channel/merge";
+import { callerOf, foreignOf, held, HOLD, marksAt, ownAnchors, slotsOf, subsAt, type Anchor } from "./channel/merge";
+import { SubAtWork } from "./subwork";
 import { alignBack, useSide } from "./channel/side";
 import { relays, type Relay } from "../satori";
 import { AgentFace } from "./channel/members";
@@ -381,8 +382,10 @@ function OneChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: number;
   const began = (rs: { key: string }[]) => rs.map((r) => times.get(r.key)).find(Boolean);
   const ready = side.ready;
   // When each row was written, for the others' words to go in their places (merge.ts slotsOf).
-  const rowTimes: (number | undefined)[] = [];
-  const rows: Row<ReactNode, Works>[] = (busy ? shown.filter((b) => b.kind !== "running") : shown).flatMap((b) => {
+  let rowTimes: (number | undefined)[] = [];
+  // The steps each row holds: a subagent at work goes under the call that started it.
+  const stepsOf: { key: string; steps: { name?: string; input?: string }[] }[] = [];
+  let rows: Row<ReactNode, Works>[] = (busy ? shown.filter((b) => b.kind !== "running") : shown).flatMap((b) => {
     // A call from another channel it is in (chat/channel/lib givenTurn): Iridium's message on
     // the left, what follows its work there (Relayed).
     // As the record says it, a Satori forward (satori.ts relays); else read from its words.
@@ -390,6 +393,7 @@ function OneChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: number;
     // Its own channel's words forwarded to it: drawn from the log, by who said them.
     if (ready && relay?.channel === id) return [];
     rowTimes.push("time" in b ? b.time : undefined);
+    stepsOf.push({ key: b.at, steps: b.kind === "fold" ? b.steps.map((x) => ({ name: x.name, input: x.input })) : [] });
     const given: GivenTurn | null = relay ? { seq: relay.seq, words: relay.msgs.at(-1)?.text ?? "", context: relay.context, ...(relay.channel !== id ? { channel: { id: relay.channel, name: relay.name } } : {}) } : b.kind === "user" ? givenTurn(b.text ?? "") : null;
     const time = b.kind === "user" ? b.time : undefined;
     if (b.kind !== "user" && "time" in b && b.time) times.set(b.at, b.time);
@@ -417,6 +421,25 @@ function OneChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: number;
         </div>
       ),
     });
+  }
+  // Its subagents at work (kumo, 2026-11-15: members that only read, no rows in the sidebar):
+  // each under the step that started it, coming in as one called does; those whose step is not
+  // shown, at the end.
+  const subs = (list ?? []).filter((x) => x.subagent && x.parent === id && working(x, row, Date.now()));
+  const placed = subsAt(stepsOf, subs);
+  if (placed.at.size) {
+    const r2: typeof rows = [];
+    const t2: typeof rowTimes = [];
+    rows.forEach((r, i) => {
+      r2.push(r);
+      t2.push(rowTimes[i]);
+      for (const x of placed.at.get(r.key) ?? []) {
+        r2.push({ key: `sub:${x.id}`, agent: true, node: <div key={`sub:${x.id}`} className="g-arrive"><div><SubAtWork s={x} /></div></div> });
+        t2.push(undefined);
+      }
+    });
+    rows = r2;
+    rowTimes = t2;
   }
   // The others' words (once its channel has another agent): each where it was said among the
   // own agent's rows, a speaker's in a row under one head (merge.ts); the read marks under the
@@ -496,7 +519,7 @@ function OneChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: number;
     return ch ? titleOf(ch) : (g.channel?.name ?? "");
   };
   // What changes as the conversation grows: it keeps to the bottom, the dots wait again.
-  const grew = `${log.blocks.at(-1)?.at} ${log.drafts.length} ${log.drafts.at(-1)?.text.length} ${log.drafts.at(-1)?.whole} ${log.sent.length} ${ready?.kept.log.end ?? 0} ${atWork.map((a) => a.session).join(",")}`;
+  const grew = `${log.blocks.at(-1)?.at} ${log.drafts.length} ${log.drafts.at(-1)?.text.length} ${log.drafts.at(-1)?.whole} ${log.sent.length} ${ready?.kept.log.end ?? 0} ${atWork.map((a) => a.session).join(",")} ${subs.map((x) => x.id).join(",")}`;
   const activity = <Activity calls={log.drafts.filter((d) => d.tool && !renamesDraft(d))} running={shown.flatMap((b) => (b.kind === "running" ? [b.tool] : []))} cwd={cwd} quiet={s.status !== "waiting" && !log.drafts.some((d) => !d.whole && !d.tool)} grew={grew} under={headless} />;
   const turnNode = (x: (typeof turns)[number], i: number) =>
             x.kind === "one" ? (
@@ -574,6 +597,13 @@ function OneChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: number;
                 </div>
               );
             })}
+          {placed.rest.map((x) => (
+            <div key={x.id} className="g-arrive -mt-2">
+              <div>
+                <SubAtWork s={x} />
+              </div>
+            </div>
+          ))}
           {s.status === "error" && s.error && <Crash error={s.error} />}
         </div>
       </Stick>

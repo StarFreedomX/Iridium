@@ -248,6 +248,7 @@ export const en: Dict = {
   "shell.ended": "Ended",
 
   "channel.agents": "Agents",
+  "channel.subsAtWork": "Subagents at work",
   "channel.event.join": "{nick} joined",
   "channel.event.leave": "{nick} removed",
   "channel.event.rename": "{from} renamed {nick}",

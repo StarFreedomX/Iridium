@@ -13,6 +13,7 @@ import { isComputer, useApps } from "../../data";
 import { t, useLang } from "../../i18n";
 import { openChat } from "../../route";
 import { useCarried, useList } from "../../store";
+import { working } from "../../tree";
 import { toast } from "../../toast";
 import { agentName, Avatar, cn, Lamp, Logo, PopSurface, Tip } from "../../ui";
 import { MemberFace, pickFace } from "./face";
@@ -129,6 +130,8 @@ function MemberList({ id, remove }: { id: string; remove: (m: { member: string; 
   const run = (f: () => Promise<ChannelMembers>) => void f().then(set, (e) => toast(memberError(e), { error: true }));
   const agents = (members?.members ?? []).filter((m) => m.session);
   const people = peopleOf(members);
+  const own = list?.find((x) => x.id === id);
+  const subs = (list ?? []).filter((x) => x.subagent && x.parent === id && working(x, own, Date.now()));
   const logins = useApps().data?.logins ?? [];
   const recvWord = (r: string) => (r === "all" ? t("channel.recvAll") : t("channel.recvAt"));
   return (
@@ -170,6 +173,16 @@ function MemberList({ id, remove }: { id: string; remove: (m: { member: string; 
           </Sub>
         );
       })}
+      {/* Its subagents at work (kumo, 2026-11-15): members that only read, pressed their record;
+          no @, no menu. */}
+      {subs.length > 0 && <div className={HEAD}>{t("channel.subsAtWork")}</div>}
+      {subs.map((x) => (
+        <Menu.Item key={x.id} onClick={() => openChat(x.id)} className={ITEM}>
+          <Logo agent={x.agent} size={16} />
+          <span className="min-w-0 flex-1 truncate">{x.workflow?.name ? `${x.workflow.name}${x.title ? ` · ${x.title}` : ""}` : x.title || t("row.subagent")}</span>
+          <Lamp status="running" />
+        </Menu.Item>
+      ))}
       <div className={HEAD}>{t("channel.people")}</div>
       <div className="flex h-8 items-center px-2.5 text-base text-ink-2 pointer-coarse:h-11">{everyone(people) ? t("channel.everyone") : t("channel.peopleN", { n: peopleCount(people, logins) })}</div>
       {may && <Invite id={id} />}

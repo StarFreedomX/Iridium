@@ -90,3 +90,26 @@ export function callerOf(msgs: Msg[], nick: string, session: string): number | u
   }
   return undefined;
 }
+
+/** A subagent at work, under the step that started it (kumo, 2026-11-15: subagents are members
+ *  that only read): the Agent (Task) call whose description is its title, by the row that holds
+ *  the call; those whose call is not among the rows (still running, on a page not loaded) go at
+ *  the end (rest). */
+export function subsAt<S extends { id: string; title?: string }>(rows: { key: string; steps: { name?: string; input?: string }[] }[], subs: S[]): { at: Map<string, S[]>; rest: S[] } {
+  const at = new Map<string, S[]>();
+  const rest: S[] = [];
+  const told = (input?: string) => {
+    try {
+      const v = JSON.parse(input ?? "") as { description?: unknown };
+      return typeof v.description === "string" ? v.description : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+  for (const s of subs) {
+    const row = s.title ? rows.findLast((r) => r.steps.some((x) => (x.name === "Agent" || x.name === "Task") && told(x.input) === s.title)) : undefined;
+    if (row) at.set(row.key, [...(at.get(row.key) ?? []), s]);
+    else rest.push(s);
+  }
+  return { at, rest };
+}

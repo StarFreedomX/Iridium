@@ -248,6 +248,7 @@ export const zh = {
   "shell.ended": "已结束",
 
   "channel.agents": "Agent",
+  "channel.subsAtWork": "在干活的子代理",
   "channel.event.join": "{nick} 已加入",
   "channel.event.leave": "{nick} 已移出",
   "channel.event.rename": "{from} 改名 {nick}",
