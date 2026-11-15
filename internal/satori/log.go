@@ -282,12 +282,8 @@ func (s *Service) flush(session, kind, origin string, denied int) {
 	s.tell(held, kind, origin, denied)
 }
 
-// note writes a line that is not words into session's channel: an ask (ref its card), an error.
-func (s *Service) note(session, kind, text, ref, origin string) (channel.Message, bool) {
-	return s.noteIn(session, session, kind, text, ref, origin)
-}
-
-// noteIn is note in channel ch: session's own, or one its agent is in.
+// noteIn writes a line that is not words into channel ch (session's own, or one its agent is
+// in): an ask (ref its card), an error.
 func (s *Service) noteIn(ch, session, kind, text, ref, origin string) (channel.Message, bool) {
 	m, isNew, err := s.log.Say(channel.Message{ChannelMessage: store.ChannelMessage{Channel: ch, Author: store.AgentMember(session),
 		Kind: kind, Text: text, Ref: ref, Origin: origin}, D: channel.Data{Session: session, Card: ref}})

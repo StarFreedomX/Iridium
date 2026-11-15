@@ -552,7 +552,7 @@ function QuoteLine({ n, q, right }: { n: number; q?: { who: string; text: string
   );
 }
 
-const EVENT_KEYS = ["join", "leave", "rename", "recv", "everyone", "added", "removed", "undelivered", "stopped", "silent", "by", "sep"] as const;
+const EVENT_KEYS = ["join", "leave", "rename", "recv", "everyone", "added", "removed", "undelivered", "stopped", "silent", "silentWhy", "by", "sep"] as const;
 
 /** A line of Iridium's own: what happened to the channel (who joined, left, was renamed, what one
  *  receives, its people), in the page's words, the agent in it as its nick is drawn elsewhere;
@@ -560,7 +560,7 @@ const EVENT_KEYS = ["join", "leave", "rename", "recv", "everyone", "added", "rem
 function EventLine({ m }: { m: Msg }) {
   useLang();
   const d = useApps().data;
-  const words = { ...Object.fromEntries(EVENT_KEYS.map((k) => [k, t(`channel.event.${k}`)])), all: t("channel.recvAll"), at: t("channel.recvAt") } as EventWords;
+  const words = { ...Object.fromEntries(EVENT_KEYS.map((k) => [k, t(`channel.event.${k}`)])), all: t("channel.recvAll"), at: t("channel.recvAt"), reasons: { 余额不足: t("channel.reason.balance"), 认证失败: t("channel.reason.auth"), 请求太频繁: t("channel.reason.rate") } } as EventWords;
   const parts = m.event && eventParts(m.event, words);
   if (!parts) return <Line>{m.text}</Line>;
   const apps = (d?.apps ?? []).map((a) => (a.web ? { ...a, name: t("term.panel") } : a));

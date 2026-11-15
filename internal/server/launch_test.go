@@ -7,6 +7,7 @@ import (
 
 	"github.com/kumoSleeping/iridium/internal/api"
 	"github.com/kumoSleeping/iridium/internal/satori"
+	"github.com/kumoSleeping/iridium/internal/session"
 )
 
 // memberIDs are channel ch's agents' sessions.
@@ -131,6 +132,27 @@ func TestAskInEveryChannel(t *testing.T) {
 	var st api.SessionState
 	if l.want(200, "web", "GET", "/v1/internal/sessions/"+agent, nil, &st); len(st.Asks) != 0 {
 		t.Errorf("still asking: %+v", st.Asks)
+	}
+
+	// Its errors are told where its asks are: in the room too.
+	l.s.sat.Notice(session.Notice{Session: agent, Kind: session.NoticeError, Text: "API Error: 402 Insufficient Balance"})
+	w.event(func(ev satori.Event) bool {
+		return ev.Type == "message-created" && ev.XData != nil && ev.XData.Kind == "error" && ev.Channel != nil && ev.Channel.ID == room
+	})
+}
+
+// A turn ended in an error is said short: the usual ones by name, else its first line.
+func TestErrorWords(t *testing.T) {
+	for in, want := range map[string]string{
+		"API Error: 402 Insufficient Balance (request_id: x)": "余额不足",
+		"401 Unauthorized":                  "认证失败",
+		"Error: rate limit exceeded, retry": "请求太频繁",
+		"the process crashed\nstack trace":  "the process crashed",
+		"":                                  "",
+	} {
+		if got := errorWords(in); got != want {
+			t.Errorf("errorWords(%q) = %q, want %q", in, got, want)
+		}
 	}
 }
 

@@ -218,13 +218,16 @@ func (s *Service) handle(n session.Notice, at time.Time) {
 			s.emit(ss, Event{Type: "message-updated", Message: &m, User: m.User}, nil, "ask", "")
 		}
 	case session.NoticeError:
-		ss := s.channelSession(n.Session)
-		m := Message{ID: "error:" + n.Session + ":" + fmt.Sprint(time.Now().UnixNano()), Content: Escape(s.b.Mask(n.Text)), CreatedAt: time.Now().UnixMilli()}
-		m.User = s.agentOf(n.Session)
-		if l, ok := s.note(n.Session, channel.KindError, n.Text, "", origin); ok {
-			m.ID = strconv.FormatInt(l.Seq, 10)
+		// Told where its asks are (kumo, 2026-11-15): its own channel and each it is in beside,
+		// so those who called it see why it stopped.
+		for _, ch := range s.askChannels(n.Session) {
+			m := Message{ID: "error:" + n.Session + ":" + fmt.Sprint(time.Now().UnixNano()), Content: Escape(s.b.Mask(n.Text)), CreatedAt: time.Now().UnixMilli()}
+			m.User = s.agentOf(n.Session)
+			if l, ok := s.noteIn(ch, n.Session, channel.KindError, n.Text, "", origin); ok {
+				m.ID = strconv.FormatInt(l.Seq, 10)
+			}
+			s.emit(s.channelSession(ch), Event{Type: "message-created", Message: &m, User: m.User}, nil, "error", origin)
 		}
-		s.emit(ss, Event{Type: "message-created", Message: &m, User: m.User}, nil, "error", origin)
 	}
 }
 

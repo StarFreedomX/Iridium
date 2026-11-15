@@ -252,20 +252,20 @@ describe("didOf", () => {
 });
 
 describe("a channel's events", () => {
-  const w: EventWords = { join: "{nick} 已加入", leave: "{nick} 已移出", rename: "{from} 改名 {nick}", recv: "{nick} 接收{recv}", everyone: "人：全部", added: "已加入：{added}", removed: "已移出：{removed}", undelivered: "#{seq} 未送达 {nick}", stopped: "#{seq} 未转交", silent: "#{seq} {nick} 未发话", by: "（{by}）", sep: "，", all: "全部", at: "@我" };
+  const w: EventWords = { join: "{nick} 已加入", leave: "{nick} 已移出", rename: "{from} 改名 {nick}", recv: "{nick} 接收{recv}", everyone: "人：全部", added: "已加入：{added}", removed: "已移出：{removed}", undelivered: "#{seq} 未送达 {nick}", stopped: "#{seq} 未转交", silent: "#{seq} {nick} 未发话", silentWhy: "#{seq} {nick} 未发话：{reason}", by: "（{by}）", sep: "，", all: "全部", at: "@我", reasons: { 余额不足: "no balance left" } };
   test("join and leave: the agent, then who did it", () => {
-    expect(eventParts({ type: "join", member: "agent:s", nick: "pi2", name: "pi Low", by: "主机" }, w)).toEqual([{ nick: "pi2" }, " 已加入（主机）"]);
+    expect(eventParts({ type: "join", member: "agent:s", nick: "pi2", name: "pi Low", by: "主机" }, w)).toEqual([{ nick: "pi2" }, " 已加入（Iridium）"]);
     expect(eventParts({ type: "leave", nick: "pi2" }, w)).toEqual([{ nick: "pi2" }, " 已移出"]);
   });
   test("rename: the old nick as words, the new one the agent", () => {
-    expect(eventParts({ type: "rename", from: "pi2", nick: "bob", by: "主机" }, w)).toEqual(["@pi2 改名 ", { nick: "bob" }, "（主机）"]);
+    expect(eventParts({ type: "rename", from: "pi2", nick: "bob", by: "主机" }, w)).toEqual(["@pi2 改名 ", { nick: "bob" }, "（Iridium）"]);
   });
   test("recv: what it receives now", () => {
     expect(eventParts({ type: "recv", nick: "pi", recv: "all" }, w)).toEqual([{ nick: "pi" }, " 接收全部"]);
     expect(eventParts({ type: "recv", nick: "pi", recv: "at" }, w)).toEqual([{ nick: "pi" }, " 接收@我"]);
   });
   test("people: everyone, or those added and removed", () => {
-    expect(eventParts({ type: "people", everyone: true, by: "主机" }, w)).toEqual(["人：全部（主机）"]);
+    expect(eventParts({ type: "people", everyone: true, by: "主机" }, w)).toEqual(["人：全部（Iridium）"]);
     expect(eventParts({ type: "people", added: ["ir_web/a"], removed: ["bot/*", "ir_web/b"] }, w)).toEqual(["已加入：", { people: ["ir_web/a"] }, "，已移出：", { people: ["bot/*", "ir_web/b"] }]);
     expect(eventParts({ type: "people" }, w)).toBeUndefined();
   });
@@ -273,6 +273,9 @@ describe("a channel's events", () => {
     expect(eventParts({ type: "undelivered", seq: 12, nick: "pi2" }, w)).toEqual(["#12 未送达 ", { nick: "pi2" }]);
     expect(eventParts({ type: "stopped", seq: 9 }, w)).toEqual(["#9 未转交"]);
     expect(eventParts({ type: "silent", seq: 7, nick: "pi2" }, w)).toEqual(["#7 ", { nick: "pi2" }, " 未发话"]);
+    // Its turn ended in an error: why, a usual reason in the page's words, another as it came.
+    expect(eventParts({ type: "silent", seq: 8, nick: "pi12", reason: "余额不足" }, w)).toEqual(["#8 ", { nick: "pi12" }, " 未发话：no balance left"]);
+    expect(eventParts({ type: "silent", seq: 9, nick: "pi12", reason: "boom" }, w)).toEqual(["#9 ", { nick: "pi12" }, " 未发话：boom"]);
   });
   test("one not known: none, its own text is shown", () => {
     expect(eventParts({ type: "later" }, w)).toBeUndefined();

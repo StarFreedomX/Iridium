@@ -377,7 +377,13 @@ func (s *Server) closeCalls(id, reply string, over []called) {
 			s.logf("server: channel %s: saying %s's reply: %v", c.Channel, id, err)
 		}
 		nick := s.ch.Nick(id)
-		s.sat.Note(c.Channel, fmt.Sprintf("@%s 被叫起（#%d），未在频道发话", nick, c.Seq), "", &channel.Event{Type: "silent", Member: store.AgentMember(id), Nick: nick, Seq: c.Seq})
+		// Its turn ended in an error (no balance left, a key refused): the channel is told why
+		// (kumo, 2026-11-15: not a bare 未发话).
+		why, words := s.turnError(id), ""
+		if why != "" {
+			words = "：" + why
+		}
+		s.sat.Note(c.Channel, fmt.Sprintf("@%s 被叫起（#%d），未在频道发话%s", nick, c.Seq, words), "", &channel.Event{Type: "silent", Member: store.AgentMember(id), Nick: nick, Seq: c.Seq, Reason: why})
 		// Started by another agent for this channel: that one is told too.
 		if sp := s.spawnedOf(id); sp != nil && sp.By != "" && sp.By != id && sp.Channel == c.Channel {
 			if in, err := assemble.ChannelSilent(nick, cmp.Or(s.channelName(c.Channel), c.Channel), c.Seq); err == nil {
@@ -389,6 +395,55 @@ func (s *Server) closeCalls(id, reply string, over []called) {
 			}
 		}
 	}
+}
+
+// turnError is why session id's last turn ended in an error, in a few words: its process ended
+// badly (its state's error), or the turn's last block is the API's error. "" for none.
+func (s *Server) turnError(id string) string {
+	if st, err := s.m.State(id); err == nil && st.Status == api.StatusError && st.Error != "" {
+		return errorWords(s.MaskText(st.Error))
+	}
+	p, err := s.m.Messages(id, -1, -1)
+	if err != nil {
+		return ""
+	}
+	for i := len(p.Blocks) - 1; i >= 0; i-- {
+		b := p.Blocks[i]
+		switch {
+		case b.Kind == api.BlockKindSystem && b.Event == api.SystemEventAPIError:
+			return errorWords(s.MaskText(b.Text))
+		case b.Kind == api.BlockKindUser, b.Kind == api.BlockKindAssistant && strings.TrimSpace(b.Text) != "":
+			return ""
+		}
+	}
+	return ""
+}
+
+// errorWords is an error said short: the usual ones by name (an API's 402, 401, 429), else its
+// first line, at most 80 characters.
+func errorWords(text string) string {
+	low := strings.ToLower(text)
+	has := func(words ...string) bool {
+		for _, w := range words {
+			if strings.Contains(low, w) {
+				return true
+			}
+		}
+		return false
+	}
+	switch {
+	case has("402", "insufficient balance", "insufficient_quota", "余额不足", "credit balance"):
+		return "余额不足"
+	case has("401", "unauthorized", "invalid api key", "authentication", "invalid_api_key"):
+		return "认证失败"
+	case has("429", "rate limit", "too many requests", "rate_limit"):
+		return "请求太频繁"
+	}
+	line, _, _ := strings.Cut(strings.TrimSpace(text), "\n")
+	if r := []rune(line); len(r) > 80 {
+		line = string(r[:80]) + "…"
+	}
+	return line
 }
 
 func (s *Server) channelRoutes(mux *http.ServeMux) {

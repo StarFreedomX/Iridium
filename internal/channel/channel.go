@@ -83,8 +83,8 @@ type Data struct {
 // joined: Member, Nick, Name), "leave" (Member, Nick), "rename" (Member, Nick its new one, From
 // its old), "recv" (Member, Nick, Recv), "people" (Added, Removed: member strings; Everyone:
 // now everyone), "undelivered" (Seq not given to Nick), "stopped" (Seq not passed on: too many
-// agents in a row), "silent" (Member, Nick was called for Seq and said nothing in the channel).
-// By: who did it, by name.
+// agents in a row), "silent" (Member, Nick was called for Seq and said nothing in the channel;
+// Reason: why, when its turn ended in an error: 余额不足, an API's words…). By: who did it, by name.
 type Event struct {
 	Type     string   `json:"type"`
 	Member   string   `json:"member,omitempty"`
@@ -96,6 +96,7 @@ type Event struct {
 	Removed  []string `json:"removed,omitempty"`
 	Everyone bool     `json:"everyone,omitempty"`
 	Seq      int64    `json:"seq,omitempty"`
+	Reason   string   `json:"reason,omitempty"`
 	By       string   `json:"by,omitempty"`
 }
 
