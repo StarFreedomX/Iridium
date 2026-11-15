@@ -111,9 +111,11 @@ type Session struct {
 	// while it holds an Own session not archived.
 	Own bool `json:"own,omitempty"`
 	// Subagent: an Agent tool's subtask (Claude) or a subagent's thread (Codex), listed as a
-	// session of its own, read-only; Parent: the session that started it.
+	// session of its own, read-only; Parent: the session that started it; Call: the id of the
+	// tool call in Parent's record that started it (Claude's Agent tool), when known.
 	Subagent bool   `json:"subagent,omitempty"`
 	Parent   string `json:"parent,omitempty"`
+	Call     string `json:"call,omitempty"`
 	// Bare: a channel that is no session's (docs/channels.md): no agent of its own, no record;
 	// what is said in it is its messages. Listed as a session is, in its folder.
 	Bare bool `json:"bare,omitempty"`

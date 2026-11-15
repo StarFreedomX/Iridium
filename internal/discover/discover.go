@@ -558,7 +558,7 @@ func (x *Index) row(e *entry) api.Session {
 	s := api.Session{
 		ID: e.id, Agent: e.agent, Cwd: e.cwd, Title: e.title, Status: api.StatusIdle,
 		Last: e.last, UpdatedAt: e.mtime.UnixMilli(), Launcher: x.launcherOf(e),
-		Subagent: e.sub, Parent: e.parent, Done: e.sub && e.done, Workflow: e.flow,
+		Subagent: e.sub, Parent: e.parent, Call: e.call, Done: e.sub && e.done, Workflow: e.flow,
 	}
 	if e.machine != "" {
 		s.Machine, s.Offline = e.machine, true

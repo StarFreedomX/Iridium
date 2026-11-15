@@ -92,6 +92,9 @@ describe("the hand-over", () => {
     expect(callerOf(ms, "codex", "codex")).toBe(3);
     expect(callerOf(ms, "pi", "pi")).toBeUndefined();
     expect(callerOf([person(1, "@codex2 go")], "codex", "codex")).toBeUndefined();
+    // All the agents called at once: each held on that message as on its own @.
+    expect(callerOf([person(1, "@全体Agent roll call")], "codex", "codex")).toBe(1);
+    expect(callerOf([person(3, "@全体Agents")], "codex", "codex")).toBeUndefined();
   });
 });
 
@@ -106,6 +109,14 @@ describe("subagents at work", () => {
     const { at, rest } = subsAt(rows, [{ id: "a", title: "count files" }, { id: "b", title: "lint" }, { id: "c", title: "not called here" }, { id: "d" }]);
     expect(Object.fromEntries([...at].map(([k, ss]) => [k, ss.map((s) => s.id)]))).toEqual({ "1.0": ["a"], "3.0": ["b"] });
     expect(rest.map((s) => s.id)).toEqual(["c", "d"]);
+  });
+  test("by the id of the call that started it first: two calls with one description each get their own", () => {
+    const rows = [
+      { key: "1.0", steps: [{ id: "t1", ...call("same") }] },
+      { key: "2.0", steps: [{ id: "t2", ...call("same") }] },
+    ];
+    const { at } = subsAt(rows, [{ id: "a", title: "same", call: "t1" }, { id: "b", title: "same", call: "t2" }]);
+    expect(Object.fromEntries([...at].map(([k, ss]) => [k, ss.map((s) => s.id)]))).toEqual({ "1.0": ["a"], "2.0": ["b"] });
   });
 });
 

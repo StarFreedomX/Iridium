@@ -136,10 +136,12 @@ export interface Session {
   own?: boolean;
   /**
    * Subagent: an Agent tool's subtask (Claude) or a subagent's thread (Codex), listed as a
-   * session of its own, read-only; Parent: the session that started it.
+   * session of its own, read-only; Parent: the session that started it; Call: the id of the
+   * tool call in Parent's record that started it (Claude's Agent tool), when known.
    */
   subagent?: boolean;
   parent?: string;
+  call?: string;
   /**
    * Bare: a channel that is no session's (docs/channels.md): no agent of its own, no record;
    * what is said in it is its messages. Listed as a session is, in its folder.

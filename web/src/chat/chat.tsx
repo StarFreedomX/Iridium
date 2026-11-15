@@ -389,7 +389,7 @@ function OneChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: number;
   // When each row was written, for the others' words to go in their places (merge.ts slotsOf).
   let rowTimes: (number | undefined)[] = [];
   // The steps each row holds: a subagent at work goes under the call that started it.
-  const stepsOf: { key: string; steps: { name?: string; input?: string }[] }[] = [];
+  const stepsOf: { key: string; steps: { id?: string; name?: string; input?: string }[] }[] = [];
   // The own agent's words by row, for the fold of words between agents.
   const wordsOf = new Map<string, string>();
   let rows: Row<ReactNode, Works>[] = (busy ? shown.filter((b) => b.kind !== "running") : shown).flatMap((b) => {
@@ -400,7 +400,7 @@ function OneChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: number;
     // Its own channel's words forwarded to it: drawn from the log, by who said them.
     if (ready && relay?.channel === id) return [];
     rowTimes.push("time" in b ? b.time : undefined);
-    stepsOf.push({ key: b.at, steps: b.kind === "fold" ? b.steps.map((x) => ({ name: x.name, input: x.input })) : [] });
+    stepsOf.push({ key: b.at, steps: b.kind === "fold" ? b.steps.map((x) => ({ id: x.id, name: x.name, input: x.input })) : [] });
     if (b.kind === "assistant") wordsOf.set(b.at, b.text ?? "");
     const given: GivenTurn | null = relay ? { seq: relay.seq, words: relay.msgs.at(-1)?.text ?? "", context: relay.context, ...(relay.channel !== id ? { channel: { id: relay.channel, name: relay.name } } : {}) } : b.kind === "user" ? givenTurn(b.text ?? "") : null;
     const time = b.kind === "user" ? b.time : undefined;
@@ -857,7 +857,7 @@ function Bar({ s, onSheet, onMe, spots, asked }: { s?: Session; onSheet?: () => 
                 </Menu.Positioner>
               </Menu.Portal>
             </Menu.Root>
-            <PublicLink key={s.id} session={s.id} anchor={more} open={publicOpen} onOpenChange={setPublicOpen} />
+            <PublicLink key={`public:${s.id}`} session={s.id} anchor={more} open={publicOpen} onOpenChange={setPublicOpen} />
           </span>
         )}
       </div>

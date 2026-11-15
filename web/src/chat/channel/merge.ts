@@ -83,24 +83,26 @@ export function held(h: Hold, shown: (seq: number) => boolean, writing: boolean,
   return h.called !== undefined && !shown(h.called);
 }
 
-/** The message that called agent nick: the latest at or after from naming @nick, by another. */
+/** The message that called agent nick: the latest naming @nick, or all the agents (@全体Agent,
+ *  @全体成员, as the log's text has them), by another. */
 export function callerOf(msgs: Msg[], nick: string, session: string): number | undefined {
   if (!nick) return undefined;
-  const at = new RegExp(`(^|[^\\p{L}\\p{N}_-])@${nick.replace(/[-]/g, "\\-")}(?![\\p{L}\\p{N}_-])`, "u");
+  const word = (w: string) => new RegExp(`(^|[^\\p{L}\\p{N}_-])@${w.replace(/[-]/g, "\\-")}(?![\\p{L}\\p{N}_-])`, "u");
+  const calls = [word(nick), word("全体Agent"), word("全体成员")];
   for (let i = msgs.length - 1; i >= 0; i--) {
     const m = msgs[i]!;
     if (m.author.kind === "agent" && m.author.session === session) continue;
     if (m.author.kind === "iridium") continue;
-    if (at.test(m.text)) return m.n;
+    if (calls.some((c) => c.test(m.text))) return m.n;
   }
   return undefined;
 }
 
 /** A subagent at work, under the step that started it (kumo, 2026-11-15: subagents are members
- *  that only read): the Agent (Task) call whose description is its title, by the row that holds
- *  the call; those whose call is not among the rows (still running, on a page not loaded) go at
- *  the end (rest). */
-export function subsAt<S extends { id: string; title?: string }>(rows: { key: string; steps: { name?: string; input?: string }[] }[], subs: S[]): { at: Map<string, S[]>; rest: S[] } {
+ *  that only read): the call that started it, by its id (Session.call, from Claude's meta), else
+ *  the Agent (Task) call whose description is its title; by the row that holds the call. Those
+ *  whose call is not among the rows (still running, on a page not loaded) go at the end (rest). */
+export function subsAt<S extends { id: string; title?: string; call?: string }>(rows: { key: string; steps: { id?: string; name?: string; input?: string }[] }[], subs: S[]): { at: Map<string, S[]>; rest: S[] } {
   const at = new Map<string, S[]>();
   const rest: S[] = [];
   const told = (input?: string) => {
@@ -112,7 +114,8 @@ export function subsAt<S extends { id: string; title?: string }>(rows: { key: st
     }
   };
   for (const s of subs) {
-    const row = s.title ? rows.findLast((r) => r.steps.some((x) => (x.name === "Agent" || x.name === "Task") && told(x.input) === s.title)) : undefined;
+    const byCall = s.call ? rows.find((r) => r.steps.some((x) => x.id === s.call)) : undefined;
+    const row = byCall ?? (s.title ? rows.findLast((r) => r.steps.some((x) => (x.name === "Agent" || x.name === "Task") && told(x.input) === s.title)) : undefined);
     if (row) at.set(row.key, [...(at.get(row.key) ?? []), s]);
     else rest.push(s);
   }

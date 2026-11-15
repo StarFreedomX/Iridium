@@ -5,6 +5,8 @@
 // peer sent; Iridium's own lines
 // centred and faint; the agent's words as Markdown with the files they name; tool calls and
 // thoughts folded to a line.
+import { LongWords } from "./longwords";
+import { linesOf } from "./channel/merge";
 import { Archive, ArchiveRestore, ArrowUpRight, BookOpen, Bot, BotMessageSquare, ChartColumn, Check, ChevronRight, CircleStop, CircleX, Clock, CloudDownload, CloudUpload, Copy, Cpu, Earth, FileCode, FileDiff, FilePen, Files as FilesIcon, FileText, FlaskConical, FolderGit2, FolderOpen, Folders, FoldVertical, GitBranch, GitCommitHorizontal, GitPullRequest, Globe, Hammer, History, Hourglass, KeyRound, Laptop, Link2, List, ListChecks, LoaderCircle, MessagesSquare, LockKeyhole, MessageCircleQuestionMark, MessageSquarePlus, Monitor, MonitorSmartphone, MousePointerClick, Network, Package, PencilLine, Plug, RotateCcw, RotateCw, Search, Send, ServerCog, SlidersHorizontal, Smartphone, SquareTerminal, StickyNote, Terminal, Trash2, type LucideIcon, UserRound, Workflow as WorkflowIcon, Wrench, X } from "lucide-react";
 import { Copyable } from "./copyable";
 import { Children, forwardRef, memo, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
@@ -795,7 +797,15 @@ function StepCard({ s, session }: { s: Step; session: string }) {
               <Clipped text={s.input ?? ""} length={s.length} at={s.at} session={session} fields />
             </Part>
             <Part label={t("msg.output")} copy={s.result?.text} error={s.result?.error}>
-              {s.result ? <ResultView r={s.result} session={session} /> : <span className="text-xs text-ink-3">{t("msg.noResult")}</span>}
+              {/* A subagent's result is its words to the agent, not to you: folded when long
+                  (kumo, 2026-11-15: 子代理交回的结果折起). */}
+              {s.result ? (
+                <LongWords fold={s.name === "Agent" || s.name === "Task"} lines={linesOf(s.result.text)}>
+                  <ResultView r={s.result} session={session} />
+                </LongWords>
+              ) : (
+                <span className="text-xs text-ink-3">{t("msg.noResult")}</span>
+              )}
             </Part>
             {/* The sessions it names by id, each a card going there (ir send, ir wait); not a list's
                 many (ir ls): the sidebar has those. ir new's is under its line (Opened). */}

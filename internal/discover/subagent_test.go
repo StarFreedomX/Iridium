@@ -29,12 +29,16 @@ func TestSubagentWatchedIntoItsParentsWorkspace(t *testing.T) {
 		t.Fatal(err)
 	}
 	line := `{"parentUuid":null,"isSidechain":true,"type":"user","message":{"role":"user","content":"count the files"},"cwd":"/elsewhere","sessionId":"` + idC + `","agentId":"a1"}` + "\n"
+	// Claude's meta beside it: the call that started it, for the page to put it under that step.
+	if err := os.WriteFile(filepath.Join(sub, "agent-a1.meta.json"), []byte(`{"description":"count the files","toolUseId":"toolu_1"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(sub, "agent-a1.jsonl"), []byte(line), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	wait("the subagent listed", func() bool {
 		s := r.sessions()["agent-a1"]
-		return s.Subagent && s.Parent == idC && s.Title == "count the files"
+		return s.Subagent && s.Parent == idC && s.Title == "count the files" && s.Call == "toolu_1"
 	})
 	wait("it in C's workspace", func() bool { a, _ := r.assignment("agent-a1"); return a.Workspace == ws.ID })
 }

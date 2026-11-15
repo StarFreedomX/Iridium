@@ -32,6 +32,7 @@ type glimpse struct {
 	parent string
 	done   bool // a subagent that has finished
 	flow   *api.SessionWorkflow
+	call   string // a Claude subagent's: the id of the Agent tool call that started it
 }
 
 var (
@@ -141,20 +142,21 @@ func isDir(p string) bool {
 }
 
 // claudeMeta is what Claude writes beside a subagent's transcript (agent-<id>.meta.json): the
-// description its parent gave the Agent tool.
-func claudeMeta(transcript string) (description, phase string) {
+// description its parent gave the Agent tool, and that call's id.
+func claudeMeta(transcript string) (description, phase, call string) {
 	b, err := os.ReadFile(strings.TrimSuffix(transcript, ".jsonl") + ".meta.json")
 	if err != nil {
-		return "", ""
+		return "", "", ""
 	}
 	var m struct {
 		Description   string `json:"description"`
 		WorkflowPhase string `json:"workflowPhase"`
+		ToolUseID     string `json:"toolUseId"`
 	}
 	if json.Unmarshal(b, &m) != nil {
-		return "", ""
+		return "", "", ""
 	}
-	return oneLine(m.Description), oneLine(m.WorkflowPhase)
+	return oneLine(m.Description), oneLine(m.WorkflowPhase), m.ToolUseID
 }
 
 // workflowOf is the run a workflow's agent is of, from where its transcript lies
@@ -258,11 +260,11 @@ func (x *Index) glance(d onDisk) glimpse {
 		}
 		out := glimpse{cwd: g.Cwd, title: g.Title, last: g.Last, sub: g.Sidechain, parent: g.Parent, done: g.Ended}
 		if out.sub {
-			desc, phase := claudeMeta(d.path)
+			desc, phase, call := claudeMeta(d.path)
 			if desc != "" {
 				out.title = cut(desc, transcript.TitleLen)
 			}
-			out.flow = workflowOf(d.path, phase)
+			out.flow, out.call = workflowOf(d.path, phase), call
 		}
 		return out
 	case api.AgentCodex:
