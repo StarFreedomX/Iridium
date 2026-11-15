@@ -33,10 +33,12 @@ describe("in its place by time", () => {
       [3, [40]],
     ]);
   });
-  test("a row with no time is as the one before it; what is being written stays last", () => {
-    const slots = slotsOf([10, undefined, Infinity], [{ time: 12 }]);
-    expect([...slots.keys()]).toEqual([2]);
-    expect([...slotsOf([undefined, 5], [{ time: 1 }]).keys()]).toEqual([1]);
+  test("a row with no time goes with the next that has one (a turn's thinking with its words); none after, as the one before; what is being written stays last", () => {
+    // Messages said between two turns go above the later turn's thinking, not under it.
+    expect([...slotsOf([10, undefined, 20], [{ time: 15 }, { time: 16 }]).keys()]).toEqual([1]);
+    expect([...slotsOf([undefined, 5], [{ time: 1 }]).keys()]).toEqual([0]);
+    expect([...slotsOf([10, undefined], [{ time: 12 }]).keys()]).toEqual([2]);
+    expect([...slotsOf([10, undefined, Infinity], [{ time: 12 }]).keys()]).toEqual([1]);
   });
   test("one at the same time as a row goes after it", () => {
     expect([...slotsOf([10, 20], [{ time: 10 }]).keys()]).toEqual([1]);

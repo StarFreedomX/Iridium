@@ -17,13 +17,18 @@ export function foreignOf(msgs: Msg[], own: string, inputs: ReadonlySet<string>,
   });
 }
 
-/** Where each message goes among rows by their times (undefined: as the row before; Infinity: at
- *  the end, what is being written): before the first row later than it, in the log's order. By
- *  the row it goes before (rows.length: after them all). */
+/** Where each message goes among rows by their times (undefined: as the next row with one — a
+ *  turn's thinking is written just before its words, so it goes with them, not with the turn
+ *  before; with none after, as the row before; Infinity: at the end, what is being written):
+ *  before the first row later than it, in the log's order. By the row it goes before
+ *  (rows.length: after them all). */
 export function slotsOf<M extends { time?: number }>(times: (number | undefined)[], ms: M[]): Map<number, M[]> {
+  const ahead: (number | undefined)[] = [];
+  let next: number | undefined;
+  for (let i = times.length - 1; i >= 0; i--) ahead[i] = times[i] ?? next, (next = times[i] ?? next);
   const eff: number[] = [];
   let last = -Infinity;
-  for (const t of times) eff.push(t === undefined ? last : (last = t === Infinity ? Infinity : Math.max(last, t)));
+  for (const t of ahead) eff.push(t === undefined ? last : (last = t === Infinity ? Infinity : Math.max(last, t)));
   const out = new Map<number, M[]>();
   for (const m of ms) {
     const at = m.time ?? Infinity;
