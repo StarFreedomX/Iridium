@@ -193,6 +193,10 @@ func TestSatori(t *testing.T) {
 	if said == nil || said.Message.ID != sent[0].ID || said.User.ID != "alice" || said.Message.Content != "hello &amp; bye" {
 		t.Fatalf("the person's message: %+v", said)
 	}
+	// Its _data as message.list has it: the input it was sent as, for a page hearing it live.
+	if d, ok := said.Message.Data.(map[string]any); !ok || d["input"] == nil || d["input"] == "" {
+		t.Errorf("the person's message has no input: %+v", said.Message.Data)
+	}
 	if reply.Message.Content != "ok: hello &amp; bye" || reply.Channel.ID != id || reply.Login.User.ID != "alice" || reply.User.ID != "agent:"+id || reply.XData.Origin != app.App.ID {
 		t.Fatalf("the reply: %+v %+v", reply, reply.Message)
 	}

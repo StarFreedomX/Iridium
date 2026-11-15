@@ -223,10 +223,9 @@ func (s *Service) tell(m channel.Message, kind, origin string, denied int) {
 	if err != nil {
 		return
 	}
-	msg := Message{ID: strconv.FormatInt(m.Seq, 10), Content: s.logContent(m), User: s.authorOf(m, nil), CreatedAt: m.At}
-	if m.Kind == channel.KindNote {
-		msg.Data = logData(m)
-	}
+	// Its _data as message.list gives it (a person's input, an agent's session and block): a page
+	// that hears it live tells it apart as one that reads it later does.
+	msg := Message{ID: strconv.FormatInt(m.Seq, 10), Content: s.logContent(m), User: s.authorOf(m, nil), CreatedAt: m.At, Data: logData(m)}
 	if denied > 0 {
 		msg.Content = Escape(s.b.Mask(strings.TrimSpace(m.Text + fmt.Sprintf("\n\n（auto 拦了 %d 步）", denied))))
 	}

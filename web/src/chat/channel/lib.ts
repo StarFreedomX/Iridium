@@ -154,17 +154,17 @@ export function msgOf(m: ChannelMessage): Msg | undefined {
 const sameSrc = (a?: Src, b?: Src) => a?.session === b?.session && a?.block === b?.block && a?.from === b?.from && a?.to === b?.to;
 
 /** have with more put in: each number once (the later one wins: a message read again, changed:
- *  its words, or where it is from in its agent's record, which one heard as it was said has not
- *  yet), in order. The same array when nothing changed. */
+ *  its words, or where it is from in its agent's record, or a person's input id, which one heard
+ *  as it was said may not have), in order. The same array when nothing changed. */
 export function merge(have: Msg[], more: Msg[]): Msg[] {
   if (!more.length) return have;
   const by = new Map(have.map((m) => [m.n, m]));
   let changed = false;
   for (const m of more) {
     const was = by.get(m.n);
-    if (was && was.text === m.text && was.files.length === m.files.length && was.kind === (m.kind ?? was.kind) && !was.did === !m.did && !was.event === !m.event && was.quote === m.quote && (!m.src || sameSrc(was.src, m.src))) continue;
+    if (was && was.text === m.text && was.files.length === m.files.length && was.kind === (m.kind ?? was.kind) && !was.did === !m.did && !was.event === !m.event && was.quote === m.quote && (!m.src || sameSrc(was.src, m.src)) && (!m.input || was.input === m.input)) continue;
     // What a reading does not say (the kind, the source) stays as it was known.
-    by.set(m.n, was ? { ...m, ...(!m.kind && was.kind ? { kind: was.kind } : {}), ...(!m.src && was.src ? { src: was.src } : {}) } : m);
+    by.set(m.n, was ? { ...m, ...(!m.kind && was.kind ? { kind: was.kind } : {}), ...(!m.src && was.src ? { src: was.src } : {}), ...(!m.input && was.input ? { input: was.input } : {}) } : m);
     changed = true;
   }
   return changed ? [...by.values()].sort((a, b) => a.n - b.n) : have;

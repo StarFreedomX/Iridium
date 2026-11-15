@@ -2,7 +2,7 @@
 // own agent's record (src/chat/channel/merge.ts).
 import { describe, expect, test } from "vitest";
 import type { ChannelMessage } from "../src/api/client";
-import { msgOf, type Msg } from "../src/chat/channel/lib";
+import { merge, msgOf, type Msg } from "../src/chat/channel/lib";
 import { betweenAgents, callerOf, FOLD_AT, FOLD_SHOW, foreignOf, held, HOLD, linesOf, marksAt, named, ownAnchors, slotsOf, subsAt } from "../src/chat/channel/merge";
 
 const OWN = "own";
@@ -19,6 +19,15 @@ describe("what of the log the record does not hold", () => {
     const typed = msgOf({ id: "1", content: "typed", user: { id: "terminal", name: "t" }, created_at: 1, _data: {} })!;
     expect(typed.input).toBeUndefined();
     expect(foreignOf([typed], OWN, new Set())).toEqual([]);
+  });
+  test("yours to another agent only, heard live then read: kept, its input known (#8 @pi12 vanished for its sender)", () => {
+    // As it was heard: an event's message once had no _data (no input), so it was taken for words
+    // typed at the agent's terminal and left out; reading it again did not put its input in.
+    const heard = person(8, "@pi12 look", undefined);
+    const read = person(8, "@pi12 look", "in8");
+    const held = merge(merge([], [heard]), [read]);
+    expect(held[0]!.input).toBe("in8");
+    expect(foreignOf(held, OWN, new Set()).map((m) => m.n)).toEqual([8]);
   });
   test("since: none older than the record's first block loaded", () => {
     expect(foreignOf([said(1, "codex"), said(2, "codex")], OWN, new Set(), 15).map((m) => m.n)).toEqual([2]);
