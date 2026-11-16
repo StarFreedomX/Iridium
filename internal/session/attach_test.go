@@ -161,13 +161,19 @@ func TestLocalHost(t *testing.T) {
 	if p, in, err := h.Prepare("omd-ptc", "sys"); err != nil || !in || len(p) != 1 || p[0] != good {
 		t.Errorf("prepare: %q %v %v", p, in, err)
 	}
-	x := startHolderAs(t, hub, []string{wire.CapPrepare}, wire.HeldLive{}, "this-pc", []string{bad})
-	_ = x
-	launch = agent.SpawnOptions{Session: "y", Cwd: dir}
-	if err := ch.Prepare(bg, harness.Ref{ID: "y", As: "y", Agent: api.AgentDsh}, &launch); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := launch.Host.Prepare("omd-ptc", ""); err == nil || !strings.Contains(err.Error(), "not this user's own file") {
+	startHolderAs(t, hub, []string{wire.CapPrepare}, wire.HeldLive{}, "this-pc", []string{bad})
+	// The machine's hello was there before this one came (the first's): till the hub has this
+	// one, a launch may still find the first, whose patch is good (it failed so on CI).
+	var err error
+	waitFor(t, "the second holder", func() bool {
+		launch = agent.SpawnOptions{Session: "y", Cwd: dir}
+		if e := ch.Prepare(bg, harness.Ref{ID: "y", As: "y", Agent: api.AgentDsh}, &launch); e != nil {
+			t.Fatal(e)
+		}
+		_, _, err = launch.Host.Prepare("omd-ptc", "")
+		return err != nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "not this user's own file") {
 		t.Errorf("a patch others may write: %v", err)
 	}
 }
