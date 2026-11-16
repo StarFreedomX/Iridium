@@ -1,15 +1,13 @@
 package join
 
 import (
-	"context"
-	"encoding/binary"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
-	"unicode/utf16"
 )
 
 func TestAddress(t *testing.T) {
@@ -131,136 +129,61 @@ func TestFindAgents(t *testing.T) {
 	}
 }
 
-func TestWinQuote(t *testing.T) {
-	for in, want := range map[string]string{
-		`C:\x\iridium.exe`:         `C:\x\iridium.exe`,
-		`C:\Program Files\a b\`:    `"C:\Program Files\a b\\"`,
-		`say "hi"`:                 `"say \"hi\""`,
-		``:                         `""`,
-		`C:\Users\a b\x\"`:         `"C:\Users\a b\x\\\""`,
-		`https://ir.example.com/x`: `https://ir.example.com/x`,
-	} {
-		if got := winQuote(in); got != want {
-			t.Errorf("winQuote(%q) = %s, want %s", in, got, want)
-		}
-	}
-}
-
-// --install writes the system's way of starting at login and starts it; --uninstall undoes it.
-func TestResident(t *testing.T) {
+// A login entry left from before (--install) goes when it runs: stopped and removed, the
+// one-time run by it removing it without stopping itself and ending cleanly.
+func TestRemoveOld(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", cfg)
-	t.Setenv("PATH", "/usr/bin:/a b")
-	o := Options{URL: "https://ir.example.com", Name: "home pc", Roots: []string{"/w", "/x"}, Base: "/state/join"}
+	unit := filepath.Join(cfg, "systemd", "user", "iridium-join-ir.example.com.service")
+	write := func() {
+		if err := os.MkdirAll(filepath.Dir(unit), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(unit, []byte("[Service]\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
 	var ran []string
 	run := func(name string, args ...string) error {
 		ran = append(ran, name+" "+strings.Join(args, " "))
 		return nil
 	}
-
-	r := residentFor(o, "iridium-test-join")
-	r.goos = "linux"
-	if err := r.install(run); err != nil {
-		t.Fatal(err)
+	o := Options{URL: "https://ir.example.com"}
+	if ok, err := removeEntry("linux", o.oldName(), run, true); ok || err != nil || len(ran) != 0 {
+		t.Fatalf("none there: %v %v %q", ok, err, ran)
 	}
-	unit, err := os.ReadFile(filepath.Join(cfg, "systemd", "user", "iridium-test-join.service"))
-	if err != nil {
-		t.Fatal(err)
+	write()
+	if ok, err := removeEntry("linux", o.oldName(), run, true); !ok || err != nil {
+		t.Fatalf("removed: %v %v", ok, err)
 	}
-	for _, want := range []string{
-		` join https://ir.example.com --resident --state /state/join --name "home pc" --roots /w,/x` + "\n",
-		`Environment="PATH=/usr/bin:/a b"`, "Restart=on-failure", "WantedBy=default.target",
-	} {
-		if !strings.Contains(string(unit), want) {
-			t.Errorf("the unit has no %q:\n%s", want, unit)
-		}
+	if _, err := os.Stat(unit); !os.IsNotExist(err) {
+		t.Errorf("the unit kept: %v", err)
 	}
-	if want := []string{"systemctl --user daemon-reload", "systemctl --user enable iridium-test-join.service", "systemctl --user restart iridium-test-join.service"}; !slices.Equal(ran, want) {
+	if want := []string{"systemctl --user disable --now iridium-join-ir.example.com.service", "systemctl --user daemon-reload"}; !slices.Equal(ran, want) {
 		t.Errorf("ran %q", ran)
 	}
 	ran = nil
-	if err := r.uninstall(run); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(r.file()); !os.IsNotExist(err) || len(ran) != 2 {
-		t.Errorf("uninstalled: %v %q", err, ran)
-	}
-	if err := r.uninstall(run); err != errNotInstalled {
-		t.Errorf("twice: %v", err)
-	}
-
-	r.goos, r.log = "darwin", "/state/join/ir.example.com/join.log"
-	p := r.plist()
-	for _, want := range []string{"<string>iridium-test-join</string>", "<string>home pc</string>", "<string>--resident</string>", "<key>SuccessfulExit</key>\n\t\t<false/>", "<string>/usr/bin:/a b</string>"} {
-		if !strings.Contains(p, want) {
-			t.Errorf("the plist has no %q:\n%s", want, p)
-		}
-	}
-
-	r.goos, r.user = "windows", `PC\kumo`
-	r.argv = []string{`C:\Users\kumo\iridium.exe`, "join", "https://ir.example.com", "--name", "home pc"}
-	b := r.taskXML()
-	if len(b) < 2 || b[0] != 0xFF || b[1] != 0xFE {
-		t.Fatal("no UTF-16 BOM")
-	}
-	u := make([]uint16, (len(b)-2)/2)
-	for i := range u {
-		u[i] = binary.LittleEndian.Uint16(b[2+2*i:])
-	}
-	x := string(utf16.Decode(u))
-	for _, want := range []string{
-		`encoding="UTF-16"`, "<UserId>PC\\kumo</UserId>", "<LogonType>InteractiveToken</LogonType>",
-		"<ExecutionTimeLimit>PT0S</ExecutionTimeLimit>", "conhost.exe</Command>",
-		`<Arguments>--headless C:\Users\kumo\iridium.exe join https://ir.example.com --name &#34;home pc&#34;</Arguments>`,
-	} {
-		if !strings.Contains(x, want) {
-			t.Errorf("the task has no %q:\n%s", want, x)
-		}
-	}
-}
-
-// ir-computer: run again at login by its own name, its tray kept; the switch in its tray adds
-// and removes the login entry, the running one left alone.
-func TestResidentComputer(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", cfg)
-	tray := func(context.Context, Tray) error { return nil }
-	o := Options{URL: "https://ir.example.com", Base: "/state/join", Prog: Program{Name: "ir-computer", Self: "ir-computer", Tray: tray}}
-	r := residentFor(o, "iridium-test-computer")
-	if r.argv[1] != "https://ir.example.com" || slices.Contains(r.argv, "--headless") || !r.tray {
-		t.Fatalf("argv %q tray %v", r.argv, r.tray)
-	}
-	r.goos = "darwin"
-	if p := r.plist(); !strings.Contains(p, "<string>Interactive</string>") {
-		t.Errorf("not interactive:\n%s", p)
-	}
-	o.Headless = true
-	if r := residentFor(o, "x"); !slices.Contains(r.argv, "--headless") || r.tray {
-		t.Errorf("headless: %q", r.argv)
-	}
-
-	var ran []string
-	run := func(name string, args ...string) error {
-		ran = append(ran, name+" "+strings.Join(args, " "))
-		return nil
-	}
-	r.goos = "linux"
-	r.dir = filepath.Join(cfg, "systemd", "user")
-	if r.enabled(run) {
-		t.Fatal("enabled before")
-	}
-	if err := r.setEnabled(run, true); err != nil {
-		t.Fatal(err)
-	}
-	if !r.enabled(run) || slices.ContainsFunc(ran, func(s string) bool { return strings.Contains(s, "restart") || strings.Contains(s, "--now") }) {
-		t.Fatalf("on: %v %q", r.enabled(run), ran)
+	write()
+	if ok, _ := removeEntry("linux", o.oldName(), run, false); !ok || slices.ContainsFunc(ran, func(s string) bool { return strings.Contains(s, "--now") }) {
+		t.Errorf("not to stop: %v %q", ok, ran)
 	}
 	ran = nil
-	if err := r.setEnabled(run, false); err != nil {
-		t.Fatal(err)
+	if ok, _ := removeEntry("windows", o.oldName(), run, false); !ok || !slices.Equal(ran, []string{"schtasks /Query /TN iridium-join-ir.example.com", "schtasks /Delete /TN iridium-join-ir.example.com /F"}) {
+		t.Errorf("windows: %v %q", ok, ran)
 	}
-	if r.enabled(run) || slices.ContainsFunc(ran, func(s string) bool { return strings.Contains(s, "--now") || strings.Contains(s, "stop") }) {
-		t.Fatalf("off: %v %q", r.enabled(run), ran)
+
+	// Run by the entry: removed, and it ends cleanly.
+	if runtime.GOOS == "linux" {
+		sysRun = run
+		defer func() { sysRun = runCmd }()
+		write()
+		var out, errs strings.Builder
+		if code := IRJoin.Main([]string{"https://ir.example.com", "--resident", "--state", "/s", "--headless"}, &out, &errs); code != 0 {
+			t.Fatalf("exit %d: %s", code, errs.String())
+		}
+		if _, err := os.Stat(unit); !os.IsNotExist(err) || !strings.Contains(out.String(), "ir join https://ir.example.com") {
+			t.Errorf("left: %v %q", err, out.String())
+		}
 	}
 }
 

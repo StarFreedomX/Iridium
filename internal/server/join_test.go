@@ -46,7 +46,7 @@ func (b *lockedBuffer) String() string {
 
 // ir join, end to end: a machine with dsh on its PATH pairs with a public Iridium, a panel allows
 // it, and it connects with its agents; run again it connects with the TOKEN it kept; once its Bot
-// is removed, a resident run forgets the TOKEN and ends.
+// is removed, it forgets the TOKEN and asks to pair again.
 func TestJoin(t *testing.T) {
 	executors := &remote.Hub{Logf: t.Logf}
 	l := startWith(t, func(s *Server, _ config.Config, _ string) { s.Remote = executors })
@@ -154,17 +154,18 @@ func TestJoin(t *testing.T) {
 	cancel()
 	<-done
 
-	// Its Bot removed: a resident forgets the TOKEN and ends, unpaired.
+	// Its Bot removed: it forgets the TOKEN and asks to pair again.
 	l.want(200, "socket", "DELETE", "/v1/internal/apps/win-pc", nil, nil)
-	o.Resident = true
-	_, done = run(o)
-	select {
-	case err := <-done:
-		if err == nil || !strings.Contains(err.Error(), "未配对") {
-			t.Fatalf("refused: %v", err)
+	cancel, done = run(o)
+	defer func() { cancel(); <-done }()
+	for end := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		l.want(200, "socket", "GET", "/v1/internal/needs", nil, &cs)
+		if len(cs.Pending) == 1 && strings.Contains(out.String(), "不再接受这台电脑") {
+			break
 		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("a refused resident runs on")
+		if time.Now().After(end) {
+			t.Fatalf("not asked again: %+v; it said:\n%s", cs.Pending, out.String())
+		}
 	}
 	if _, err := os.Stat(tokFile); !os.IsNotExist(err) {
 		t.Fatalf("the TOKEN kept: %v", err)

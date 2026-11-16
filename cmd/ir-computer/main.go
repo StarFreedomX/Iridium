@@ -1,6 +1,7 @@
-// Command ir-computer makes this computer run agents for an Iridium (docs/exec.md): ir join as a
-// program of its own, small, with its state in the status bar (Windows, macOS). The agents it
-// starts get it as their ir (by that name it is the CLI; not on Windows).
+// Command ir-computer makes this computer run agents for an Iridium while it runs in a terminal
+// (docs/exec.md "ir-computer"): ir join as a program of its own, fetched and started by the line
+// the Iridium gives (<address>/join). The agents it starts get it as their ir (by that name it is
+// the CLI; not on Windows).
 package main
 
 import (
@@ -13,15 +14,13 @@ import (
 	"github.com/kumoSleeping/iridium/internal/version"
 )
 
-const usage = `usage: ir-computer <address> [--name name] [--roots dir,…] [--shell] [--headless] [--install | --uninstall]
-  Run agents for an Iridium: pair once (a code to match on its page), then stay connected.
+const usage = `usage: ir-computer <address> [--name name] [--roots dir,…] [--shell]
+  Run agents for an Iridium while this runs: pair once (a code to match on its page), then stay
+  connected till it is stopped (Ctrl-C, the window closed), the agents it started with it.
   --name      this computer's name there (default: the host name, 12 characters at most)
   --roots     the directories it may read and write files under (default: the home directory)
   --shell     command lines from that Iridium run here: a person's on its page and its agents' (ir sh);
               without it only the agents start here
-  --headless  no icon in the status bar
-  --install   start at login (Windows: a scheduled task; macOS: a LaunchAgent; Linux: a systemd user unit)
-  --uninstall stop starting at login
 `
 
 func main() {
@@ -38,6 +37,6 @@ func main() {
 			return
 		}
 	}
-	p := join.Program{Name: "ir-computer", Self: "ir-computer", Usage: usage, Tray: tray}
+	p := join.Program{Name: "ir-computer", Self: "ir-computer", Usage: usage}
 	os.Exit(p.Main(os.Args[1:], os.Stdout, os.Stderr))
 }

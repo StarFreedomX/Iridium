@@ -1,8 +1,8 @@
 // Package join is `ir join <address>`: this machine as an executor of another Iridium
 // (docs/exec.md). The first time it pairs (a code to match on that Iridium's page), then it keeps
 // the TOKEN and runs the executor (internal/remote/executor), connecting again whenever the
-// connection ends. --install makes it start at login (resident.go). On Windows it is all of
-// Iridium there is.
+// connection ends. It runs in the foreground only: the window closed, it ends, and the agents it
+// started with it. On Windows it is all of Iridium there is.
 package join
 
 import (
@@ -23,8 +23,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
@@ -36,14 +36,13 @@ import (
 )
 
 // Usage is ir join's help.
-const Usage = `usage: ir join <address> [--name name] [--roots dir,…] [--shell] [--install | --uninstall]
-  Run agents for another Iridium: pair once (a code to match on its page), then stay connected.
+const Usage = `usage: ir join <address> [--name name] [--roots dir,…] [--shell]
+  Run agents for another Iridium while this runs: pair once (a code to match on its page), then
+  stay connected till it is stopped (Ctrl-C, the window closed), the agents it started with it.
   --name     this machine's name there (default: the host name, 12 characters at most)
   --roots    the directories it may read and write files under (default: the home directory)
   --shell    command lines from that Iridium run here: a person's on its page and its agents' (ir sh);
              without it only the agents start here
-  --install  start at login (Windows: a scheduled task; macOS: a LaunchAgent; Linux: a systemd user unit)
-  --uninstall  stop starting at login
 `
 
 // Options are one join.
@@ -61,9 +60,6 @@ type Options struct {
 	HTTP   *http.Client // nil: a client with timeouts
 	Out    io.Writer    // what a person reads
 	Logf   func(string, ...any)
-	// Resident: started at login, no one to match a code. It never pairs, and ends (cleanly, not
-	// to be started again) once it has no TOKEN.
-	Resident bool
 	// Bot: pair as an app that is not a computer (ir pair): its name, Type and Program only.
 	Bot     bool
 	Type    string
@@ -72,72 +68,17 @@ type Options struct {
 	Where   string // the Iridium as a person reads it; "": URL
 	// Prog is the program that runs it: the zero value is ir join.
 	Prog Program
-	// Headless: no tray (Program.Tray), at login too.
-	Headless bool
-	// Status, if set, is kept up to date (a tray shows it).
-	Status *Status
 }
 
-// Program is a program that joins: ir join (in iridium), or ir-computer, which also shows it in
-// the status bar (cmd/ir-computer).
+// Program is a program that joins: ir join (in iridium), or ir-computer (cmd/ir-computer).
 type Program struct {
-	Name  string   // as a person types it: ir join, ir-computer
-	Self  string   // what it says it is in its pairing and hello, before the version: iridium
-	Args  []string // after the executable, to run it again (at login): join
+	Name  string // as a person types it: ir join, ir-computer
+	Self  string // what it says it is in its pairing and hello, before the version: iridium
 	Usage string
-	// Tray, if set, shows the join while it runs, on the goroutine Main was called on, until ctx
-	// ends; it returns at once with an error where it has nothing to show on.
-	Tray func(ctx context.Context, t Tray) error
 }
 
 // IRJoin is ir join.
-var IRJoin = Program{Name: "ir join", Self: "iridium", Args: []string{"join"}, Usage: Usage}
-
-// Tray is what a tray shows of a join, and does with it.
-type Tray struct {
-	URL    string // the Iridium: opened in a browser
-	Status *Status
-	// AtLogin: it starts at login; SetAtLogin changes that, the one running left as it is.
-	AtLogin    func() bool
-	SetAtLogin func(on bool) error
-	Quit       func()
-}
-
-// State is a join's state as a tray shows it: a state word or two (已连接、配对码 1234).
-type State struct {
-	Text   string
-	Online bool
-}
-
-// Status is a join's latest State: Changed has a value once it changes.
-type Status struct {
-	mu      sync.Mutex
-	state   State
-	changed chan struct{}
-}
-
-func NewStatus() *Status { return &Status{changed: make(chan struct{}, 1)} }
-
-func (s *Status) Get() State {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.state
-}
-
-func (s *Status) Changed() <-chan struct{} { return s.changed }
-
-func (s *Status) set(st State) {
-	if s == nil {
-		return
-	}
-	s.mu.Lock()
-	s.state = st
-	s.mu.Unlock()
-	select {
-	case s.changed <- struct{}{}:
-	default:
-	}
-}
+var IRJoin = Program{Name: "ir join", Self: "iridium", Usage: Usage}
 
 func (o *Options) prog() Program {
 	if o.Prog.Name == "" {
@@ -154,25 +95,15 @@ func Main(args []string, stdout, stderr io.Writer) int { return IRJoin.Main(args
 
 // Main runs p with args.
 func (p Program) Main(args []string, stdout, stderr io.Writer) int {
+	if slices.Contains(args, "--resident") {
+		return p.leftover(args, stdout, stderr)
+	}
 	fs := flag.NewFlagSet(p.Name, flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	name := fs.String("name", "", "")
 	roots := fs.String("roots", "", "")
 	shell := fs.Bool("shell", false, "")
-	// The older two, still taken (an installed resident's command line has them): shell is
-	// --agent-shell without --no-shell.
-	noShell := fs.Bool("no-shell", false, "")
-	agentShell := fs.Bool("agent-shell", false, "")
-	// --no-agents is gone (agents are turned off in the app's page there); an installed resident's
-	// command line may still have it: taken, and ignored.
-	noAgents := fs.Bool("no-agents", false, "")
-	install := fs.Bool("install", false, "")
-	uninstall := fs.Bool("uninstall", false, "")
-	base := fs.String("state", "", "")  // where joins keep their state (tests)
-	unit := fs.String("unit", "", "")   // the resident's name (tests: iridium-test-*)
-	logFile := fs.String("log", "", "") // the resident writes here
-	resident := fs.Bool("resident", false, "")
-	headless := fs.Bool("headless", false, "") // no tray (ir-computer)
+	base := fs.String("state", "", "") // where joins keep their state (tests)
 	var pos []string
 	for {
 		if err := fs.Parse(args); err != nil {
@@ -188,7 +119,7 @@ func (p Program) Main(args []string, stdout, stderr io.Writer) int {
 		}
 		pos, args = append(pos, fs.Arg(0)), fs.Args()[1:]
 	}
-	if len(pos) != 1 || (*install && *uninstall) {
+	if len(pos) != 1 {
 		fmt.Fprint(stderr, p.Usage)
 		return 2
 	}
@@ -197,7 +128,7 @@ func (p Program) Main(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "%s: %v\n", p.Name, err)
 		return 2
 	}
-	o := Options{URL: u, Name: *name, Shell: (*shell || *agentShell) && !*noShell, Base: *base, Out: stdout, Resident: *resident, Prog: p, Headless: *headless}
+	o := Options{URL: u, Name: *name, Shell: *shell, Base: *base, Out: stdout, Prog: p}
 	if o.Base == "" {
 		o.Base, err = BaseDir()
 	} else {
@@ -219,57 +150,15 @@ func (p Program) Main(args []string, stdout, stderr io.Writer) int {
 			}
 		}
 	}
-	if *logFile != "" {
-		f, err := os.OpenFile(*logFile, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o600)
-		if err != nil {
-			fmt.Fprintf(stderr, "%s: %v\n", p.Name, err)
-			return 1
-		}
-		defer f.Close()
-		stdout, stderr = f, f
-		o.Out = f
-	}
 	logger := log.New(stderr, "", log.LstdFlags)
 	o.Logf = logger.Printf
-	if *noAgents {
-		o.Logf("%s: --no-agents is ignored: turn agents off in the app's page in 应用管理", p.Name)
-	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	// Interrupted, or the window closed (a hang-up; on Windows its close comes as SIGTERM).
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
-	r := residentFor(o, *unit)
-	switch {
-	case *uninstall:
-		if err := r.uninstall(runCmd); err != nil {
-			fmt.Fprintf(stderr, "%s: %v\n", p.Name, err)
-			return 1
-		}
-		fmt.Fprintf(stdout, "已取消登录时运行：%s\n", r.name)
-		return 0
-	case *install:
-		if _, err := o.token(ctx); err != nil {
-			fmt.Fprintf(stderr, "%s: %v\n", p.Name, err)
-			return 1
-		}
-		if err := r.install(runCmd); err != nil {
-			fmt.Fprintf(stderr, "%s: %v\n", p.Name, err)
-			return 1
-		}
-		fmt.Fprintf(stdout, "已设为登录时运行：%s\n", r.name)
-		if r.log != "" {
-			fmt.Fprintf(stdout, "日志：%s\n", r.log)
-		}
-		return 0
+	if err := o.removeOld(sysRun); err != nil {
+		o.logf("%s: %v", p.Name, err)
 	}
-	if p.Tray != nil && !*headless {
-		err = o.runTray(ctx, r)
-	} else {
-		err = o.Run(ctx)
-	}
-	switch {
-	case errors.Is(err, errUnpaired):
-		fmt.Fprintf(stderr, "%s: %v\n", p.Name, err)
-		return 0 // not to be started again
-	case err != nil && ctx.Err() == nil:
+	if err := o.Run(ctx); err != nil && ctx.Err() == nil {
 		fmt.Fprintf(stderr, "%s: %v\n", p.Name, err)
 		return 1
 	}
@@ -374,25 +263,6 @@ func MachineName() string {
 
 func (o *Options) program() string { return o.prog().Self + " " + version.Version }
 
-// runTray runs the join with its tray; without one to show on, as it is.
-func (o *Options) runTray(ctx context.Context, r resident) error {
-	ctx, quit := context.WithCancel(ctx)
-	defer quit()
-	o.Status = NewStatus()
-	o.Status.set(State{Text: "连接中"})
-	done := make(chan error, 1)
-	go func() { done <- o.Run(ctx); quit() }()
-	t := Tray{
-		URL: o.URL, Status: o.Status, Quit: quit,
-		AtLogin:    func() bool { return r.enabled(runCmd) },
-		SetAtLogin: func(on bool) error { return r.setEnabled(runCmd, on) },
-	}
-	if err := o.prog().Tray(ctx, t); err != nil {
-		o.logf("%s: no tray: %v", o.prog().Name, err)
-	}
-	return <-done
-}
-
 // Run pairs if there is no TOKEN, then runs the executor till ctx ends. A TOKEN the Iridium turns
 // down is forgotten and it pairs again.
 func (o *Options) Run(ctx context.Context) error {
@@ -409,7 +279,17 @@ func (o *Options) Run(ctx context.Context) error {
 	if err := os.MkdirAll(o.stateDir(), 0o700); err != nil {
 		return err
 	}
-	unlock, err := lock(filepath.Join(o.stateDir(), "lock"))
+	// One left from when it ran at login may take a moment to end (removeOld).
+	var unlock func()
+	var err error
+	for i := 0; ; i++ {
+		if unlock, err = lock(filepath.Join(o.stateDir(), "lock")); err == nil || i == 20 {
+			break
+		}
+		if !sleep(ctx, 500*time.Millisecond) {
+			return ctx.Err()
+		}
+	}
 	if err != nil {
 		return fmt.Errorf("another %s runs here: %v", o.again(), err)
 	}
@@ -422,11 +302,7 @@ func (o *Options) Run(ctx context.Context) error {
 		ex, err := executor.New(executor.Options{
 			URL: wsURL(o.URL), Token: tok, State: o.stateDir(), Roots: o.Roots, Deny: []string{o.tokenDir()},
 			Agents: o.Agents, Shell: o.Shell, Program: o.program(), HTTPClient: o.HTTP, Logf: o.logf, IR: selfExe(),
-			Connected: func(name string) {
-				o.say("已连接 %s（%s）", o.URL, name)
-				o.Status.set(State{Text: "已连接", Online: true})
-			},
-			Disconnected: func(error) { o.Status.set(State{Text: "已断开"}) },
+			Connected: func(name string) { o.say("已连接 %s（%s）：关闭此窗口即断开", o.URL, name) },
 		})
 		if err != nil {
 			return err
@@ -438,9 +314,6 @@ func (o *Options) Run(ctx context.Context) error {
 		}
 		if err := os.Remove(o.tokenFile()); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
-		}
-		if o.Resident {
-			return fmt.Errorf("%w：%s 不再接受这台电脑，在终端里运行 %s", errUnpaired, o.URL, o.again())
 		}
 		o.say("%s 不再接受这台电脑，重新配对", o.URL)
 	}
@@ -457,9 +330,6 @@ func wsURL(base string) string {
 func (o *Options) token(ctx context.Context) (string, error) {
 	if b, err := os.ReadFile(o.tokenFile()); err == nil && len(bytes.TrimSpace(b)) > 0 {
 		return string(bytes.TrimSpace(b)), nil
-	}
-	if o.Resident {
-		return "", fmt.Errorf("%w：在终端里运行 %s", errUnpaired, o.again())
 	}
 	tok, err := o.pair(ctx)
 	if err != nil {
@@ -478,9 +348,6 @@ func (o *Options) token(ctx context.Context) (string, error) {
 	o.say("已配对 %s", o.URL)
 	return tok, nil
 }
-
-// errUnpaired: a resident has no TOKEN; a person runs ir join again to pair.
-var errUnpaired = errors.New("未配对")
 
 // errDenied: a person declined the pairing.
 var errDenied = errors.New("配对被拒绝")
@@ -522,7 +389,6 @@ func (o *Options) pair(ctx context.Context) (string, error) {
 		if err == nil && code == http.StatusForbidden && (refusal.Code == "pair_closed" || refusal.Code == "too_many_pending") {
 			if !closed {
 				o.say("%s 没开配对：在那边的应用管理里打开配对；等待中", o.where())
-				o.Status.set(State{Text: "未开配对"})
 				closed = true
 			}
 			if !sleep(ctx, pairClosedWait) {
@@ -550,7 +416,6 @@ func (o *Options) pair(ctx context.Context) (string, error) {
 			continue
 		}
 		o.say("配对码 %s：在 %s 的网页上核对后允许", p.Code, o.where())
-		o.Status.set(State{Text: "配对码 " + p.Code})
 	poll:
 		for {
 			if !sleep(ctx, pairPoll) {

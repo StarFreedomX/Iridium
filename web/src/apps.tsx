@@ -119,51 +119,37 @@ export function AppsPage({ onBack }: { onBack: () => void }) {
   );
 }
 
-/** ir-computer's releases (scripts/release.sh): the latest, a bare binary each system. */
-const COMPUTER_DOWNLOAD = "https://github.com/kumoSleeping/Iridium/releases/latest/download/";
+/** A computer's system, as its join line is written: macOS and Linux one (sh), Windows another. */
+export type JoinOS = "unix" | "win";
 
-/** A computer's system, as its join line is written. */
-export type JoinOS = "mac" | "linux" | "win";
-
-/** The line that makes a computer join this Iridium (docs/exec.md "ir-computer"), one line: fetch
- *  ir-computer, pair, start at login. The flags last, where the line is shown from. */
-export function joinScript(os: JoinOS, at: string, flags = ""): string {
-  const run = `--install ${at} ${flags}`.trim();
-  if (os === "win")
-    return [
-      '$d = "$env:LOCALAPPDATA\\iridium"',
-      '$a = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "arm64" } else { "amd64" }',
-      "New-Item -ItemType Directory -Force $d | Out-Null",
-      `Invoke-WebRequest "${COMPUTER_DOWNLOAD}ir-computer-windows-$a.exe" -OutFile "$d\\ir-computer.exe"`,
-      `& "$d\\ir-computer.exe" ${run}`,
-    ].join("; ");
-  const arch = os === "mac" ? "$(uname -m | sed s/x86_64/amd64/)" : "$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')";
-  return [
-    "mkdir -p ~/.local/bin",
-    `curl -fsSL -o ~/.local/bin/ir-computer ${COMPUTER_DOWNLOAD}ir-computer-${os === "mac" ? "darwin" : "linux"}-${arch}`,
-    "chmod +x ~/.local/bin/ir-computer",
-    `~/.local/bin/ir-computer ${run}`,
-  ].join(" && ");
+/** The line that makes a computer join this Iridium while its terminal stays open (docs/exec.md
+ *  "ir-computer"): it fetches the script this Iridium writes (internal/joinscript), which fetches
+ *  ir-computer and runs it there. The options in the query, the address quoted once there is one.
+ *  Windows: from cmd or PowerShell alike. */
+export function joinScript(os: JoinOS, at: string, query = ""): string {
+  const url = `${at}/join${os === "win" ? ".ps1" : ""}${query ? `?${query}` : ""}`;
+  const arg = query ? `'${url}'` : url;
+  return os === "win" ? `powershell -c "irm ${arg} | iex"` : `curl -fsSL ${arg} | sh`;
 }
 
 /** The 电脑 group's +, a page: the line to run on a computer, for its system; as it is, with only
  *  some folders, with commands. Each its copy key in its title's row; the line one line high,
  *  scrolled sideways (to its end at first), no room kept beside it (docs/前端设计规范.md "命令"). */
 function AddComputer({ onBack }: { onBack: () => void }) {
-  const [os, setOs] = useState<JoinOS>(/Win/.test(navigator.platform) ? "win" : /Linux/.test(navigator.platform) ? "linux" : "mac");
+  const [os, setOs] = useState<JoinOS>(/Win/.test(navigator.platform) ? "win" : "unix");
   const at = location.origin;
   const system = (v: JoinOS, label: string) => ({ v, label, icon: <span className="px-1 text-xs">{label}</span> });
   return (
     <Page title={t("apps.addComputer")} onBack={onBack} backLabel={t("settings.terminals")}>
-      <Segmented label={t("apps.system")} value={os} onChange={(v) => setOs(v as JoinOS)} items={[system("mac", "macOS"), system("linux", "Linux"), system("win", "Windows")]} />
+      <Segmented label={t("apps.system")} value={os} onChange={(v) => setOs(v as JoinOS)} items={[system("unix", "macOS / Linux"), system("win", "Windows")]} />
       {(
         [
           ["apps.joinPlain", ""],
-          ["apps.joinRoots", '--roots "~/work,~/notes"'],
-          ["apps.joinShell", "--shell"],
+          ["apps.joinRoots", "roots=~/work,~/notes"],
+          ["apps.joinShell", "shell"],
         ] as const
-      ).map(([label, flags]) => {
-        const line = joinScript(os, at, flags);
+      ).map(([label, query]) => {
+        const line = joinScript(os, at, query);
         return (
           <Group key={label} title={t(label)} action={<CopyKey text={line} />}>
             <Line text={line} lang={os === "win" ? "powershell" : "sh"} />

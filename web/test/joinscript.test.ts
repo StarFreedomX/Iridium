@@ -3,19 +3,12 @@ import { joinScript, shortVersion } from "../src/apps";
 
 // The 电脑 group's + (apps.tsx): one line a person pastes on the computer that joins.
 describe("joinScript", () => {
-  it("is one line: fetches ir-computer for the system, runs it to start at login, the flags last", () => {
-    const mac = joinScript("mac", "https://ir.example.com", '--roots "~/work"');
-    expect(mac).not.toContain("\n");
-    expect(mac).toContain("releases/latest/download/ir-computer-darwin-$(uname -m | sed s/x86_64/amd64/)");
-    expect(mac.endsWith(' && ~/.local/bin/ir-computer --install https://ir.example.com --roots "~/work"')).toBe(true);
-    const linux = joinScript("linux", "https://ir.example.com");
-    expect(linux).toContain("ir-computer-linux-$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')");
-    expect(linux.endsWith(" && ~/.local/bin/ir-computer --install https://ir.example.com")).toBe(true);
-    const win = joinScript("win", "https://ir.example.com", "--shell");
-    expect(win).not.toContain("\n");
-    expect(win).toContain('$d = "$env:LOCALAPPDATA\\iridium"');
-    expect(win).toContain("ir-computer-windows-$a.exe");
-    expect(win.endsWith('; & "$d\\ir-computer.exe" --install https://ir.example.com --shell')).toBe(true);
+  it("fetches this Iridium's script and runs it there, the options in its query", () => {
+    expect(joinScript("unix", "https://ir.example.com")).toBe("curl -fsSL https://ir.example.com/join | sh");
+    expect(joinScript("unix", "https://ir.example.com", "roots=~/work")).toBe("curl -fsSL 'https://ir.example.com/join?roots=~/work' | sh");
+    expect(joinScript("win", "https://ir.example.com")).toBe('powershell -c "irm https://ir.example.com/join.ps1 | iex"');
+    expect(joinScript("win", "https://ir.example.com", "shell")).toBe(`powershell -c "irm 'https://ir.example.com/join.ps1?shell' | iex"`);
+    for (const os of ["unix", "win"] as const) expect(joinScript(os, "https://ir.example.com", "shell")).not.toContain("--install");
   });
 });
 
