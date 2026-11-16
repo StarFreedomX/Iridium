@@ -35,8 +35,6 @@ const systems: Record<string, string> = {
   linux: "Linux",
 };
 
-/** An agent's version as a row has room for: its number alone ("2.1.34 (Claude Code)": 2.1.34). */
-export const shortVersion = (v?: string) => /\d+(?:\.\d+)*/.exec(v ?? "")?.[0] ?? "";
 
 /** The apps on the same machine as id, after it (Computer.under): listed next to it, not under it. */
 const sameMachine = (apps: App[], id: string) => apps.filter((a) => a.computer?.under === id);
@@ -259,17 +257,31 @@ function AppRow({ a, onOpen }: { a: App; onOpen: () => void }) {
   );
 }
 
-/** A row's second line: online or when last seen; 网页's logins, a computer's system. The host: its
- *  system only. */
+/** A row's second line: online or when last seen; 网页's logins, a computer's system, then the
+ *  agents it brings as their marks (no versions: the user, 2026-11-16). The host: its system and
+ *  agents only. */
 function Seen({ a }: { a: App }) {
-  const used = a.host ? "" : a.online ? t("term.online") : ago(a.lastSeenAt || a.createdAt || 0);
+  // A computer is online while its executor is connected (Computer.online); another app, while it
+  // has a connection (App.online counts them).
+  const online = a.computer ? a.computer.online : !!a.online;
+  const used = a.host ? "" : online ? t("term.online") : ago(Math.max(a.computer?.seenAt ?? 0, a.lastSeenAt ?? 0) || a.createdAt || 0);
+  const agents = a.computer ? marked(a.computer) : [];
   return (
-    // One line, cut at its end, never wrapped into columns (the panel is narrow).
+    // One line, the words cut at their end, the marks kept; never wrapped (the panel is narrow).
     <span className="flex min-w-0 items-center gap-1.5 text-xs text-ink-3 tabular-nums">
-      {a.online && !a.host ? <span className="size-1.5 shrink-0 rounded-full bg-run" aria-hidden /> : null}
+      {online && !a.host ? <span className="size-1.5 shrink-0 rounded-full bg-run" aria-hidden /> : null}
       <span className="min-w-0 truncate">
         {[used, a.web && a.logins ? t("apps.loginCount", { n: a.logins }) : "", a.computer?.os ? (systems[a.computer.os] ?? a.computer.os) : ""].filter(Boolean).join(" · ")}
       </span>
+      {agents.length > 0 && (
+        <span className="ml-0.5 flex shrink-0 items-center gap-1.5">
+          {agents.map((x) => (
+            <Tip key={x.agent} label={agentName(x.agent as Agent)}>
+              <Logo agent={x.agent as Agent} size={12} />
+            </Tip>
+          ))}
+        </span>
+      )}
     </span>
   );
 }
@@ -328,21 +340,6 @@ function ItemRow({ a }: { a: App }) {
           </span>
           <Seen a={a} />
         </span>
-        {/* A computer's agents as their marks, each its version after it, short and grey: on the
-            row itself, not in a tip (docs/前端设计规范.md "电脑列表"). (Whether it may use the
-            owner's Claude is asked when it does: no mark for it here.) */}
-        {a.computer && marked(a.computer).length > 0 && (
-          <span className="flex shrink-0 items-center gap-2">
-            {marked(a.computer).map((x) => (
-              <Tip key={x.agent} label={agentName(x.agent as Agent)}>
-                <span className="flex shrink-0 items-center gap-1">
-                  <Logo agent={x.agent as Agent} size={14} />
-                  {shortVersion(x.version) && <span className="text-xs text-ink-4 tabular-nums">{shortVersion(x.version)}</span>}
-                </span>
-              </Tip>
-            ))}
-          </span>
-        )}
         {a.host ? (
           <span className="size-7 shrink-0 pointer-coarse:size-10" aria-hidden />
         ) : (
