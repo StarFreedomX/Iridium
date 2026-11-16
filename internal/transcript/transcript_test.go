@@ -310,3 +310,13 @@ func TestClaudeProjectDir(t *testing.T) {
 		t.Error("a path past 200 is Claude's to cut")
 	}
 }
+
+// What Claude Code writes itself where a turn ended with no words is not the agent's.
+func TestNoReply(t *testing.T) {
+	if !NoReply("<synthetic>", "No response requested.\n") {
+		t.Error("the CLI's own line taken as the agent's")
+	}
+	if NoReply("claude-opus", "No response requested.") || NoReply("<synthetic>", "API Error: 529") {
+		t.Error("an agent's words, or an error's, left out")
+	}
+}

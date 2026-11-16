@@ -732,6 +732,7 @@ func (d *Driver) assistant(f *frame) {
 		return
 	}
 	var m struct {
+		Model   string `json:"model"`
 		Usage   *usage `json:"usage"`
 		Content []struct {
 			Type  string `json:"type"`
@@ -742,6 +743,11 @@ func (d *Driver) assistant(f *frame) {
 		} `json:"content"`
 	}
 	if json.Unmarshal(f.Message, &m) != nil {
+		return
+	}
+	// The CLI's own words where a turn ended with none ("No response requested.", model
+	// "<synthetic>"): not the agent's reply, and its zero usage not the context's size.
+	if m.Model == "<synthetic>" && len(m.Content) == 1 && strings.TrimSpace(m.Content[0].Text) == "No response requested." {
 		return
 	}
 	if m.Usage != nil {

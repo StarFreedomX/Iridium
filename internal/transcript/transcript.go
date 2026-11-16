@@ -523,7 +523,15 @@ type claudeLine struct {
 
 type claudeMessage struct {
 	Role    string          `json:"role"`
+	Model   string          `json:"model"`
 	Content json.RawMessage `json:"content"`
+}
+
+// NoReply: text is what Claude Code itself writes as the assistant's words (model
+// "<synthetic>") where a turn ended with none, to keep the record's turns in order: "No
+// response requested." Not the agent's words: not shown, not said in a channel.
+func NoReply(model, text string) bool {
+	return model == "<synthetic>" && strings.TrimSpace(text) == "No response requested."
 }
 
 type attachment struct {
@@ -699,7 +707,7 @@ func blocksOf(off int64, raw []byte, max int, sources Sources) []api.Block {
 		for _, i := range items {
 			switch i.Type {
 			case "text":
-				if strings.TrimSpace(i.Text) != "" {
+				if strings.TrimSpace(i.Text) != "" && !(l.Message != nil && NoReply(l.Message.Model, i.Text)) {
 					add(api.Block{Kind: api.BlockKindAssistant, Text: i.Text})
 				}
 			case "thinking": // Claude's are mostly empty
