@@ -102,3 +102,15 @@ test("a channel that names me counts though it is quiet, and the chat in front h
   setCarried("ats", { gone: { seq: 2 } });
   expect([atOf("hers"), attention()]).toEqual([undefined, 0]);
 });
+
+test("a chat opened by go is read at once (kumo, 2026-11-16: the badge stayed)", async () => {
+  const { go } = await import("../src/route");
+  go({ name: "home" });
+  w = watchUnread();
+  w.take([s("a", { last: { role: "assistant", text: "x", at: 1 } })], me);
+  w.take([s("a", { last: { role: "assistant", text: "y", at: 2 } })], me);
+  expect(unreadOf("a")).toBe(1);
+  go({ name: "chat", id: "a" });
+  expect(unreadOf("a")).toBe(0);
+  go({ name: "home" });
+});

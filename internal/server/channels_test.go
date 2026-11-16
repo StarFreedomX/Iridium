@@ -963,3 +963,30 @@ func TestInjectionsWhole(t *testing.T) {
 		t.Errorf("system %v, message %v: %+v", system, msg, ins)
 	}
 }
+
+// A channel of no agent of its own is listed with its last words, as a session is: an agent's
+// with its nick (kumo, 2026-11-16: the reply there was not shown under its name).
+func TestBareChannelLast(t *testing.T) {
+	t.Parallel()
+	l := start(t)
+	var made satori.Channel
+	l.wantSat(200, "web", "channel.create", map[string]any{"data": map[string]any{"name": "room"}, "_data": map[string]any{"cwd": l.work}}, &made)
+	room := made.ID
+	l.want(200, "web", "POST", "/v1/internal/channels/"+room+"/members", api.NewMember{Agent: api.AgentClaude, Nick: "fish"}, nil)
+	l.send("web", room, api.Send{Text: "@fish hello there"})
+	l.waitSaid("web", room, "@fish ", "ok: #")
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(50 * time.Millisecond) {
+		var row *api.Session
+		for _, ss := range l.sessions("web") {
+			if ss.ID == room {
+				row = &ss
+			}
+		}
+		if row != nil && row.Last != nil && row.Last.Role == "assistant" && row.Last.Nick == "fish" && strings.HasPrefix(row.Last.Text, "ok: #") {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the room as listed: %+v", row)
+		}
+	}
+}

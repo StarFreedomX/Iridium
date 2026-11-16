@@ -101,6 +101,10 @@ export interface Session {
   title?: string;
   status: Status;
   /**
+   * CompactingSince: while it compacts, when that began (ms): every page counts from it.
+   */
+  compactingSince?: number /* int64 */;
+  /**
    * Hosted: Iridium runs (or ran) it through a holder. Live: an agent process runs now.
    */
   hosted: boolean;
@@ -201,6 +205,10 @@ export interface LastSaid {
    */
   fromTerminal?: string;
   at?: number /* int64 */;
+  /**
+   * Nick: an agent's words in a channel of no agent of its own, who said them (its nick).
+   */
+  nick?: string;
 }
 /**
  * SessionState is the carried state "session:<id>": the open session.

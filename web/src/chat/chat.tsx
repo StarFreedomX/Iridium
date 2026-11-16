@@ -70,7 +70,7 @@ import { placesIn, PLACE_DRAG, SESSION_DRAG, sourceOf, yours } from "./refs";
 import { placeDropped, type NamedPlace } from "./at";
 import { PlaceIcon, placeOf } from "./mention";
 import { spotsOf, type Spot } from "./where";
-import { Compaction, Pending, Relayed, Running, Said, useWhenRow, When } from "./said";
+import { Compaction, Earlier, Pending, Relayed, Running, Said, useWhenRow, When } from "./said";
 import { turnsOf, type Row } from "./turns";
 import { Stick, toEnd } from "./stick";
 import { VoiceDock } from "../voice/dock";
@@ -228,8 +228,11 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
   }, [busy]);
   // Compacting, or a /compact on its way: the compaction's line, since when.
   const compacting = s?.status === "compacting" || log.sent.some((x) => x.failed === undefined && compactSent(x));
+  // Counted from when the agent began (the daemon's time), not from when this page saw it.
+  const liveTurn = useRef("");
   const compactSince = useRef(0);
   if (!compacting) compactSince.current = 0;
+  else if (s?.compactingSince) compactSince.current = s.compactingSince;
   else if (!compactSince.current) compactSince.current = Date.now();
   // Its agent cleared itself (Claude's own /clear): the conversation goes on in another session,
   // and the page with it, as after Iridium's /clear. Only as it happens here, not on opening one
@@ -604,18 +607,37 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
   // The own agent's stop key, on its row at work; starting is no turn yet.
   const stop = may && s.status !== "starting" && !s.subagent && !elsewhere ? <StopKey session={id} esc /> : null;
   const activity = <Activity stop={stop} calls={log.drafts.filter((d) => d.tool && !renamesDraft(d))} running={shown.flatMap((b) => (b.kind === "running" ? [b.tool] : []))} cwd={cwd} quiet={s.status !== "waiting" && !log.drafts.some((d) => !d.whole && !d.tool)} grew={grew} under={headless} />;
+  // A turn's rows: those before its last words under one line once it has ended (Earlier), when
+  // they are more than one line already (words, or several rows).
+  const stepsAt = new Map(stepsOf.map((x) => [x.key, x.steps.length]));
+  // The turn at work as this page last saw it: once it ends, what it folds folds before you.
+  // (none of its rows yet: the turn after the last row, keyed by it, turns.ts)
+  const lastTurn = turns.at(-1);
+  if (busy && lastTurn) liveTurn.current = lastTurn.kind === "one" ? `${lastTurn.key}:a` : lastTurn.key;
+  const rowsOf = (rs: Row<ReactNode, Works>[], done: boolean, key: string) => {
+    const last = rs.findLastIndex((r) => wordsOf.has(r.key));
+    const before = last > 0 ? rs.slice(0, last) : [];
+    const words = before.filter((r) => wordsOf.has(r.key)).length;
+    if (!words && before.length < 2) return rs.map((r) => r.node);
+    return [
+      <Earlier key={`earlier:${rs[0]!.key}`} done={done} fresh={key === liveTurn.current} words={words} steps={before.reduce((n, r) => n + (stepsAt.get(r.key) ?? 0), 0)}>
+        {before.map((r) => r.node)}
+      </Earlier>,
+      ...rs.slice(last).map((r) => r.node),
+    ];
+  };
   const turnNode = (x: (typeof turns)[number], i: number) =>
             x.kind === "one" ? (
               x.node
             ) : x.kind === "agent" ? (
               <AgentTurn key={x.key} channel={id} a={i === turns.length - 1 && !headless ? face : resting} may={may} bars={bars(i === ctxTurn)} talk={talk} time={began(x.rows)}>
-                {x.rows.map((r) => r.node)}
+                {rowsOf(x.rows, !(busy && i === turns.length - 1), x.key)}
               </AgentTurn>
             ) : (
               <Relayed key={x.key} given={x.works.given} relay={x.works.relay} name={nameOf(x.works.given)} time={x.works.time} onJump={openChat}>
                 {x.rows.length > 0 && (
                   <AgentTurn channel={id} a={resting} may={may} bars={bars(i === ctxTurn)} talk={talk} time={began(x.rows)}>
-                    {x.rows.map((r) => r.node)}
+                    {rowsOf(x.rows, !(busy && i === turns.length - 1), x.key)}
                   </AgentTurn>
                 )}
               </Relayed>

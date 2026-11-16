@@ -49,9 +49,15 @@ export type Turn = (from: Route, to: Route, draw: () => void) => void;
 let turn: Turn = (_from, _to, draw) => draw();
 export const onTurn = (t: Turn) => void (turn = t);
 
+/** Told at once whenever the route changes, by the address or by go (pushState fires no
+ *  hashchange): unread.ts reads a chat as it opens. */
+const movers = new Set<() => void>();
+export const onMove = (f: () => void) => (movers.add(f), () => void movers.delete(f));
+
 const moved = (from: Route) => {
   const to = current;
   visited(to);
+  movers.forEach((f) => f());
   turn(from, to, () => ((shown = to), subs.forEach((f) => f())));
 };
 addEventListener("hashchange", () => {

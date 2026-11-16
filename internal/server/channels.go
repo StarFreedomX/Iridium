@@ -868,8 +868,22 @@ func (s *Server) cleared(old, next string) {
 func (s *Server) bareChannels() []api.Session {
 	var out []api.Session
 	for _, c := range s.ch.Owns() {
-		out = append(out, api.Session{ID: c.ID, Cwd: c.Cwd, Machine: c.Machine, Title: c.Name, Status: api.StatusIdle, Bare: true,
-			UpdatedAt: max(c.Created, s.st.ChannelTouched(c.ID))})
+		row := api.Session{ID: c.ID, Cwd: c.Cwd, Machine: c.Machine, Title: c.Name, Status: api.StatusIdle, Bare: true,
+			UpdatedAt: max(c.Created, s.st.ChannelTouched(c.ID))}
+		// Its last words under its name in the list, as a session's are (kumo, 2026-11-16: an
+		// agent's reply there was not shown): who said them, what.
+		if m, ok := s.ch.Latest(c.ID); ok {
+			last := &api.LastSaid{Role: "user", Text: head(m.Text, 200), From: m.Name, At: m.At}
+			if id, agent := store.SessionOfMember(m.Author); agent {
+				last.Role, last.From, last.Nick = "assistant", "", cmp.Or(s.ch.Nick(id), m.Name)
+			} else if _, login, ok := strings.Cut(m.Author, "/"); ok {
+				last.FromTerminal = login
+			} else {
+				last.FromTerminal = m.Author
+			}
+			row.Last = last
+		}
+		out = append(out, row)
 	}
 	return out
 }

@@ -88,6 +88,8 @@ type Session struct {
 	Name   string `json:"name,omitempty"`
 	Title  string `json:"title,omitempty"`
 	Status Status `json:"status"`
+	// CompactingSince: while it compacts, when that began (ms): every page counts from it.
+	CompactingSince int64 `json:"compactingSince,omitempty"`
 	// Hosted: Iridium runs (or ran) it through a holder. Live: an agent process runs now.
 	Hosted    bool  `json:"hosted"`
 	Live      bool  `json:"live"`
@@ -156,6 +158,8 @@ type LastSaid struct {
 	// or pi's glance): the page tells it by this, a name being unique only in its scope.
 	FromTerminal string `json:"fromTerminal,omitempty"`
 	At           int64  `json:"at,omitempty"`
+	// Nick: an agent's words in a channel of no agent of its own, who said them (its nick).
+	Nick string `json:"nick,omitempty"`
 }
 
 // SessionState is the carried state "session:<id>": the open session.

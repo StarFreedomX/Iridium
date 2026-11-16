@@ -1016,3 +1016,38 @@ export function Running({ tool, cwd }: { tool: Tool; cwd: string }) {
     </div>
   );
 }
+
+/** What an agent's finished turn did and said before its last words, as one line (kumo,
+ *  2026-11-16: so its face is by its answer): how many words and steps; pressed, all of it, its
+ *  height gliding, pressed again, the line. A turn that ends in front of you folds as it ends; one
+ *  still at work is open. */
+export function Earlier({ done, fresh, words, steps, children }: { done: boolean; fresh?: boolean; words: number; steps: number; children: ReactNode }) {
+  // fresh: its turn ended in front of you as it came to have something to fold: drawn open, then
+  // folding, not gone at once.
+  const [open, setOpen] = useState(!done || !!fresh);
+  const was = useRef(done);
+  useEffect(() => {
+    if (!done || !fresh) return;
+    const f = requestAnimationFrame(() => requestAnimationFrame(() => setOpen(false)));
+    return () => cancelAnimationFrame(f);
+  }, []);
+  useEffect(() => {
+    if (done !== was.current) setOpen(!done);
+    was.current = done;
+  }, [done]);
+  const said = t("msg.earlier", { what: [words > 0 && t("msg.earlierWords", { n: words }), steps > 0 && t("msg.earlierSteps", { n: steps })].filter(Boolean).join(" · ") });
+  return (
+    <div className="flex min-w-0 flex-col">
+      <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className={cn(ROW, "-my-0.5 w-full text-left")}>
+        <span className="min-w-0 truncate">{said}</span>
+        <ChevronRight size={13} className={cn("shrink-0 text-ink-4 transition-transform duration-(--dur-2)", open && "rotate-90")} />
+      </button>
+      <div inert={!open || undefined} aria-hidden={!open || undefined} className={cn("grid transition-[grid-template-rows] duration-(--dur-2) ease-(--ease-out)", open ? "grid-rows-[1fr]" : "grid-rows-[0fr]")}>
+        <div className="flex min-h-0 min-w-0 flex-col gap-5 overflow-hidden">
+          <div aria-hidden className="h-0" />
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -592,6 +592,21 @@ func (s *Service) List(channel string, before, after int64, limit int) ([]Messag
 	return out, nil
 }
 
+// Latest is channel's last message that someone said (a person's, an agent's; not Iridium's own
+// lines), if any; it does not touch the channel (List does).
+func (s *Service) Latest(channel string) (Message, bool) {
+	rows, err := s.st.ChannelMessages(channel, 0, -1, 20)
+	if err != nil {
+		return Message{}, false
+	}
+	for i := len(rows) - 1; i >= 0; i-- {
+		if m := read(rows[i]); m.Kind == KindUser || m.Kind == KindSaid {
+			return m, true
+		}
+	}
+	return Message{}, false
+}
+
 // Search are channel's messages that have all of words, the latest limit of them, in order.
 func (s *Service) Search(channel, words string, limit int) ([]Message, error) {
 	s.Touch(channel)

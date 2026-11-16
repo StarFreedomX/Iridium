@@ -19,7 +19,7 @@
 import { useSyncExternalStore } from "react";
 import { api } from "./api/client";
 import type { ChannelAt, ChannelAts, LastSaid, Me, Session } from "./api/types.gen";
-import { route } from "./route";
+import { onMove, route } from "./route";
 import { getCarried, onCarried } from "./store";
 import { keep, kept, lampOf } from "./ui";
 
@@ -208,13 +208,16 @@ export function watchUnread(here: () => Here = page, read: (id: string, seq: num
     }
     if (moved) (changed(), later());
   };
-  for (const e of ["hashchange", "focus", "blur"]) addEventListener(e, look);
+  for (const e of ["focus", "blur"]) addEventListener(e, look);
   document.addEventListener("visibilitychange", look);
+  // A chat opened is read at once (go moves by pushState, no hashchange).
+  const unmove = onMove(look);
   look();
   return {
     take,
     stop: () => {
-      for (const e of ["hashchange", "focus", "blur"]) removeEventListener(e, look);
+      for (const e of ["focus", "blur"]) removeEventListener(e, look);
+      unmove();
       document.removeEventListener("visibilitychange", look);
       if (timer) (clearTimeout(timer), save());
       off();

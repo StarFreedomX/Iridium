@@ -902,7 +902,8 @@ const SessionRow = memo(function SessionRow({ s, where, depth, flip, selected, o
   // Under its name, who last spoke and what (the user, 2026-11-13): you, a person by name, its
   // agent by its nick, else its kind; nothing said yet, its agents.
   const nicks = multi?.map((a) => a.nick).filter(Boolean).join(" · ");
-  const speaker = s.agents?.find((a) => a.session === s.id)?.nick || agentName(s.agent);
+  // A channel of no agent of its own: the agent that spoke there, by its nick (s.last.nick).
+  const speaker = s.last?.nick || s.agents?.find((a) => a.session === s.id)?.nick || agentName(s.agent);
   const line = s.last ? (s.last.role === "user" ? saidNow(s.last, s) : `${speaker}: ${s.last.text}`) : nicks || (s.bare ? "" : agentName(s.agent));
   const [menuAt, setMenuAt] = useMenuAt();
   const [renaming, setRenaming] = useState(false);

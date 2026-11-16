@@ -108,6 +108,7 @@ type Hosted struct {
 	starting   bool
 	stopAsked  bool
 	turn       agent.State // where the agent's turn is
+	turnSince  time.Time   // when turn became what it is
 	asks       []api.Ask
 	tasks      []api.Task
 	model      string
@@ -729,6 +730,9 @@ func (h *Hosted) onEvent(e agent.Event) {
 			}
 		}
 	case agent.StateChange:
+		if h.turn != e.State {
+			h.turnSince = time.Now()
+		}
 		h.turn = e.State
 		h.lastActive = time.Now()
 		if !replay {
@@ -1008,6 +1012,9 @@ func (h *Hosted) summaryLocked(o store.Overlay, archived bool) api.Session {
 		Pinned: o.Pinned, Archived: archived, Workspace: o.Workspace, Color: api.Color(o.Color), Order: o.Order,
 		Launcher: h.meta.Launcher, Last: h.said.last, UpdatedAt: h.shownAt.UnixMilli(), CreatedAt: h.meta.Created,
 		Machine: h.meta.Machine, Offline: h.offline(),
+	}
+	if s.Status == api.StatusCompacting && !h.turnSince.IsZero() {
+		s.CompactingSince = h.turnSince.UnixMilli()
 	}
 	s.Own = ownOf(s, o)
 	return s
