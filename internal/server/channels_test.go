@@ -289,10 +289,19 @@ func TestChannelOfSeveral(t *testing.T) {
 	// Its record in outline: a turn a line, the channel's message by its words alone. Once its
 	// turns have settled (what it said with ir woke the first, whose echo may call it back):
 	// the outline's end is then the record's.
-	l.idle(ch)
-	l.idle(second)
+	// Settled: no turn after the outline's end (an echo may wake one more after idle; again).
 	var outline api.Outline
-	l.wantSat(200, "agent-in:"+ch, "internal/block.outline", map[string]any{"channel_id": second}, &outline)
+	for k := 0; ; k++ {
+		l.idle(ch)
+		l.idle(second)
+		l.wantSat(200, "agent-in:"+ch, "internal/block.outline", map[string]any{"channel_id": second}, &outline)
+		var after api.Outline
+		l.wantSat(200, "web", "internal/block.outline", map[string]any{"channel_id": second, "from": fmt.Sprint(outline.End)}, &after)
+		if len(after.Turns) == 0 || k == 20 {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 	if len(outline.Turns) < 1 || !strings.HasPrefix(outline.Turns[0].Asked, fmt.Sprintf("#%d: now @claude2 look", r.Seq)) || strings.Contains(outline.Turns[0].Asked, "channel-context") ||
 		!strings.HasPrefix(outline.Turns[0].Said, "ok: #") || outline.Turns[0].Words != 1 || outline.Turns[0].At == "" || outline.End == 0 {
 		t.Errorf("outline: %+v", outline)
@@ -673,7 +682,10 @@ func TestChannelSendCheckAndFollows(t *testing.T) {
 	for i := range 2 * MaxKinHops {
 		words := fmt.Sprintf("@claude tell @kid turn%d", i)
 		code, _, raw := say("agent-in:"+kid, ch, words)
-		if code == 409 { // something on its way to it names it: read, again
+		// Something on its way to it names it (the fake agents echo what they get, its sender's
+		// tag "[@nick]" too): read, again; on a slow machine more than once.
+		for k := 0; code == 409 && k < 10; k++ {
+			time.Sleep(50 * time.Millisecond)
 			code, _, raw = say("agent-in:"+kid, ch, words)
 		}
 		if code == 400 && strings.Contains(raw, fmt.Sprint(MaxKinHops)) {
