@@ -587,10 +587,11 @@ export function attachedKeys(s: LiveSession, place: string, lang: string): Attac
   return out;
 }
 
-/** The model, its thinking level and its features (UltraCode), under the composer, each in use at
- *  once. A model picked closes the menu; the level and a feature at its foot are tuned in place, it
- *  stays. */
-export function ModelKey({ s, open, onOpenChange }: { s: LiveSession; open?: boolean; onOpenChange?: (o: boolean) => void }) {
+/** A session's model menu, wherever it is opened (the composer's key, an agent's face's menu:
+ *  kumo, 2026-11-16, one menu, the same in both): its models (those a session of its kind said
+ *  last, before its own agent says), the effort track, its features (UltraCode). What a pick
+ *  wants is shown at once, till the session says it is so. */
+export function useModelMenu(s: LiveSession) {
   const lang = useLang();
   // A model just picked: the row shown, and what was sent for it ("": the agent's own).
   const [want, setWant] = useState<{ value: string; sent: string } | null>(null);
@@ -613,7 +614,6 @@ export function ModelKey({ s, open, onOpenChange }: { s: LiveSession; open?: boo
   if (reached.length) setPressWant((m) => Object.fromEntries(Object.entries(m).filter(([p]) => !reached.includes(p))));
   const v = modelView(said || !asked?.models.length ? s : { ...s, models: asked.models, efforts: s.efforts ?? asked.efforts, ran: asked.ran, effortOwn: asked.effort }, want?.value);
   const { models, levels, level } = v;
-  if (!models.length && !v.name) return null;
   // Not known yet: the agent's name alone, till it says its model.
   const label = v.name || agentName(s.agent);
   const pickModel = async (model: string) => {
@@ -679,6 +679,25 @@ export function ModelKey({ s, open, onOpenChange }: { s: LiveSession; open?: boo
     </span>
   );
   const on = feat?.pressed ? [feat] : [];
+  return { v, models, levels, level, label, name, feat, cur, on, featKey, featTag, pickModel, setEffort };
+}
+
+/** The model menu's inside for a session (useModelMenu): the composer's key's and an agent's
+ *  face's menu's. */
+export function SessionModels({ m }: { m: ReturnType<typeof useModelMenu> }) {
+  return <ModelList models={m.models} value={m.v.value} pickModel={(x) => void m.pickModel(x)} levels={m.levels} level={m.level} setEffort={m.setEffort} featKey={m.featKey} featTag={m.featTag} foot={!!m.feat} name={m.name} />;
+}
+
+/** The model menu's popup, the composer's and a face's menu's submenu alike. */
+export const MODEL_POPUP = "g-unfold glass thick float flex max-h-[min(640px,calc(var(--available-height)-40px))] w-72 max-w-[calc(100vw-16px)] flex-col rounded-lg p-1.5 text-ink outline-none";
+
+/** The model, its thinking level and its features (UltraCode), under the composer, each in use at
+ *  once. A model picked closes the menu; the level and a feature at its foot are tuned in place, it
+ *  stays. */
+export function ModelKey({ s, open, onOpenChange }: { s: LiveSession; open?: boolean; onOpenChange?: (o: boolean) => void }) {
+  const m = useModelMenu(s);
+  const { models, levels, level, label, name, feat, cur, on } = m;
+  if (!models.length && !m.v.name) return null;
   return (
     <Menu.Root open={open} onOpenChange={onOpenChange}>
       <Tip label={t("composer.model")}>
@@ -703,8 +722,8 @@ export function ModelKey({ s, open, onOpenChange }: { s: LiveSession; open?: boo
       </Tip>
       <Menu.Portal>
         <Menu.Positioner side="top" align="start" sideOffset={6} collisionPadding={8} className="z-50">
-          <Menu.Popup finalFocus={false} className="g-unfold glass thick float flex max-h-[min(640px,calc(var(--available-height)-40px))] w-72 max-w-[calc(100vw-16px)] flex-col rounded-lg p-1.5 text-ink outline-none">
-            <ModelList models={models} value={v.value} pickModel={(x) => void pickModel(x)} levels={levels} level={level} setEffort={setEffort} featKey={featKey} featTag={featTag} foot={!!feat} name={name} />
+          <Menu.Popup finalFocus={false} className={MODEL_POPUP}>
+            <SessionModels m={m} />
           </Menu.Popup>
         </Menu.Positioner>
       </Menu.Portal>

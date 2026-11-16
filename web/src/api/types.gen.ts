@@ -1247,6 +1247,16 @@ export interface NewMember {
   intro?: string;
   avatar?: string;
   background?: string;
+  /**
+   * Text: its first words, said in the channel by the one inviting it as "@nick text" once it
+   * is in (one call: no @ before it has joined). Given, it does not greet.
+   */
+  text?: string;
+  /**
+   * Greet: it is asked to say a line as it joins, hello and who it is (the page's invites,
+   * kumo, 2026-11-16).
+   */
+  greet?: boolean;
 }
 /**
  * MemberPatch changes a member: its nick, what it receives.

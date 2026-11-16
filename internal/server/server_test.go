@@ -76,6 +76,8 @@ func setupWith(t *testing.T, edit func(*session.Options)) (*Server, config.Confi
 	work := filepath.Join(root, "work")
 	os.MkdirAll(work, 0o700)
 	srv = New(cfg, m, h, t.Logf)
+	// The tests call agents by the numbered nicks (claude2); TestDefaultNick has the others.
+	srv.ch.Numbered = true
 	t.Cleanup(srv.Close)
 	return srv, cfg, work
 }

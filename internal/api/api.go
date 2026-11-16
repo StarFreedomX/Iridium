@@ -460,6 +460,9 @@ type NewSession struct {
 	Intro      string `json:"intro,omitempty"`
 	Avatar     string `json:"avatar,omitempty"`
 	Background string `json:"background,omitempty"`
+	// Name: the name channel.create gives it (its data.name), for one an agent starts to be
+	// called by in its channel when it gives no Nick. Not of the JSON: set by the Satori side.
+	Name string `json:"-"`
 }
 
 // Send gives the session a message: a new turn when idle; while a turn runs it waits in the

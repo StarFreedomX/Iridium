@@ -293,6 +293,25 @@ func (s *Service) Attach(session, path string) (api.FileRef, error) {
 	return info, nil
 }
 
+// Refs are the attachments refs of session as the page draws them (a channel's message keeps
+// them: kumo, 2026-11-16, files in a channel with no agent too); one no longer there is left out.
+func (s *Service) Refs(session string, refs []string) []api.FileRef {
+	var out []api.FileRef
+	for _, r := range refs {
+		p, err := s.Lookup(session, r)
+		if err != nil {
+			continue
+		}
+		info, err := s.Info(p)
+		if err != nil {
+			continue
+		}
+		info.Ref = r
+		out = append(out, info)
+	}
+	return out
+}
+
 // Info is what is known of the file at path without reading it whole: no Ref, no Sha256.
 func (s *Service) Info(path string) (api.FileRef, error) {
 	st, err := os.Stat(path)

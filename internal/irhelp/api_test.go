@@ -91,7 +91,7 @@ func TestFindAndCommon(t *testing.T) {
 	// A route, by method and path, by path alone (as sent too), or a Satori method's name: its
 	// line and notes.
 	full := Find([]string{"GET", "internal/sessions/{id}"})
-	if !strings.HasPrefix(full, "GET internal/sessions/{id} -") || !strings.Contains(full, "\n  --wait: until its turn ends") || strings.Contains(full, "\nPOST internal/sessions") {
+	if !strings.HasPrefix(full, "GET internal/sessions/{id} -") || !strings.Contains(full, "\n  --wait: holds your turn until its turn ends") || strings.Contains(full, "\nPOST internal/sessions") {
 		t.Errorf("a route: %q", full)
 	}
 	if f := Find([]string{"/v1/internal/sessions/abc/rules"}); !strings.Contains(f, "GET internal/sessions/{id}/rules - ") || !strings.Contains(f, "DELETE internal/sessions/{id}/rules - ") {
@@ -104,7 +104,7 @@ func TestFindAndCommon(t *testing.T) {
 		t.Errorf("a Satori method: %q", f)
 	}
 	// Notes stay out of lists; a word found in one brings that note along.
-	if f := Find([]string{"common"}); strings.Contains(f, "\n  ") || !strings.Contains(f, "guild_id?} -> Channel  start a session, a child of yours; _data.cwd=. your folder; --wait for its reply  [more]\n") {
+	if f := Find([]string{"common"}); strings.Contains(f, "\n  ") || !strings.Contains(f, "guild_id?} -> Channel  start a session, a child of yours; _data.cwd=. your folder. Another agent to work with in this chat: invite it instead (POST internal/channels/{id}/members)  [more]\n") {
 		t.Errorf("a topic with notes: %q", f)
 	}
 	if f := Find([]string{"launcher"}); !strings.Contains(f, "\n  data.parent_id: the session it hangs under") || !strings.Contains(f, "\n  data.parent_id:=null") || strings.Contains(f, "\n  _data.cwd:") {

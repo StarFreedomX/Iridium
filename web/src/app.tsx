@@ -17,7 +17,8 @@ import { agentsQ, LOCAL_ME, pushQ, useApps, useHome, useMe, useSettings, useUpda
 import { t, useLang } from "./i18n";
 import { applyTheme, initialTheme, keepTheme, MeKey, useTellLang, type ThemePref } from "./me";
 import { motion, pageTurn } from "./motion";
-import { prefetch } from "./prefetch";
+import { prefetch, settled } from "./prefetch";
+import { prefetchRoles } from "./roles";
 import { close, go, onTurn, openChat, over, quietDialog, route, setUsageMachine, usagePoint, useRoute, type Route } from "./route";
 import { Pager, TABS_H } from "./pager";
 import { atLeft, atRight, GRIP, Sheet } from "./sheet";
@@ -79,6 +80,9 @@ const loadPanels = () => {
 // Once idle, the later parts' files into the cache (vite.config.ts LATER); then their code runs from
 // it, so a turn that ends fetches its chat on the list too, and the settings and the jump box open at
 // once. Not after one failed: a module that failed to load stays failed in the browser.
+// What the "+" popover draws (its roles), asked for once idle, apart from the files: drawn
+// whole as it opens, nothing pushed in after (docs/前端设计规范.md "后到的不撑开").
+void settled().then(() => (prefetchRoles(), void queryClient.prefetchQuery(agentsQ)));
 void prefetch().then((all) => {
   if (!all) return;
   void loadChat().catch(() => {});

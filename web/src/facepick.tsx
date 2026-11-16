@@ -5,12 +5,33 @@
 // Used by 编辑资料 (chat/channel/edit.tsx) and this panel's own profile (profile.tsx).
 import { ImagePlus, LoaderCircle, Palette, Smile, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { COLOURS, EMOJI, emojiOf, MAX_IMAGE } from "./facevalue";
+import { COLOURS, EMOJI, emojiOf } from "./facevalue";
 import { t } from "./i18n";
 import { errText, toast } from "./toast";
 import { cn, IconKey } from "./ui";
 
-const asDataURL = (f: Blob) =>
+/** A picture made small enough to send (kumo, 2026-11-16: the page shrinks it, never the user):
+ *  within fit across and down (a background is kept at 720×270, a face at 128), then as WebP,
+ *  lower in quality till it is under SEND (a data: URL in a JSON body the daemon reads up to
+ *  1 MiB; base64 a third more). One already small enough goes as it is. */
+const SEND = 700 << 10;
+export async function shrink(f: Blob, fit = 1440): Promise<Blob> {
+  const bmp = await createImageBitmap(f);
+  const k = Math.min(1, fit / Math.max(bmp.width, bmp.height));
+  if (k === 1 && f.size <= SEND) return (bmp.close(), f);
+  const c = document.createElement("canvas");
+  c.width = Math.max(1, Math.round(bmp.width * k));
+  c.height = Math.max(1, Math.round(bmp.height * k));
+  c.getContext("2d")!.drawImage(bmp, 0, 0, c.width, c.height);
+  bmp.close();
+  for (const q of [0.9, 0.8, 0.65, 0.5, 0.35]) {
+    const b = await new Promise<Blob | null>((done) => c.toBlob(done, "image/webp", q));
+    if (b && b.size <= SEND) return b;
+  }
+  throw new Error(t("profile.tooBig"));
+}
+
+export const asDataURL = (f: Blob) =>
   new Promise<string>((done, fail) => {
     const r = new FileReader();
     r.onload = () => done(String(r.result));
@@ -19,8 +40,9 @@ const asDataURL = (f: Blob) =>
   });
 
 /** label: what it is (头像, 背景); preview: how it looks now; set: the value given, as the
- *  daemon takes it (a data: URL, an emoji, a colour, "" for none), saved at once. */
-export function FacePick({ label, preview, set, disabled }: { label: string; preview: ReactNode; set: (v: string) => Promise<unknown>; disabled?: boolean }) {
+ *  daemon takes it (a data: URL, an emoji, a colour, "" for none), saved at once. upload: a
+ *  picture chosen goes there instead (a face: cropped first, as the face itself does). */
+export function FacePick({ label, preview, set, disabled, upload }: { label: string; preview: ReactNode; set: (v: string) => Promise<unknown>; disabled?: boolean; upload?: (f: File) => void }) {
   const [open, setOpen] = useState<"emoji" | "colour" | null>(null);
   // What was open stays drawn while it folds away.
   const [shown, setShown] = useState<"emoji" | "colour">("emoji");
@@ -71,8 +93,9 @@ export function FacePick({ label, preview, set, disabled }: { label: string; pre
             const f = e.target.files?.[0];
             e.target.value = "";
             if (!f) return;
-            if (f.size > MAX_IMAGE) return void toast(t("profile.tooBig"), { error: true });
-            void asDataURL(f).then(give, (err) => toast(t("err.action"), { error: true, description: errText(err) }));
+            if (upload) return upload(f);
+            void shrink(f)
+              .then(asDataURL).then(give, (err) => toast(t("err.action"), { error: true, description: errText(err) }));
           }}
         />
         <span className="flex shrink-0 items-center gap-0.5">

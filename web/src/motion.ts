@@ -2,7 +2,7 @@
 // that move or appear, a sent message rising in, and the quick swap between two chats. All read
 // their timings from the CSS tokens and move only transform and opacity; with reduced motion they
 // fall back to a short fade.
-import { useLayoutEffect, useRef, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { flushSync } from "react-dom";
 import { ahead, peekChat, since, stateAhead } from "./chats";
 import { getCarried } from "./store";
@@ -153,4 +153,34 @@ export function pageTurn(order: () => string[], on: () => boolean): Turn {
     if (still || !wait.some(Boolean)) return start();
     void Promise.race([Promise.all(wait), new Promise((r) => setTimeout(r, WAIT_FOR_PAGE))]).then(start);
   };
+}
+
+/** items, with those just gone kept a while where they were, marked leaving (drawn .g-depart: they
+ *  fade, then close), so that a row that goes does not vanish at once. key names an item. */
+export function useLeaving<T>(items: T[], key: (x: T) => string): { item: T; leaving: boolean }[] {
+  const last = useRef<{ item: T; leaving: boolean }[]>([]);
+  const gone = useRef(new Map<string, number>());
+  const [, tick] = useState(0);
+  const now = new Set(items.map(key));
+  const out: { item: T; leaving: boolean }[] = [];
+  // In the order they were: those still here as they are now, the gone where they stood.
+  const fresh = new Map(items.map((x) => [key(x), x]));
+  for (const x of last.current) {
+    const k = key(x.item);
+    if (now.has(k)) out.push({ item: fresh.get(k)!, leaving: false });
+    else {
+      if (!gone.current.has(k)) gone.current.set(k, Date.now());
+      if (Date.now() - gone.current.get(k)! < motion.dur(2) + motion.dur(3)) out.push({ item: x.item, leaving: true });
+    }
+  }
+  for (const x of items) if (!out.some((o) => !o.leaving && key(o.item) === key(x))) out.push({ item: x, leaving: false });
+  for (const k of [...gone.current.keys()]) if (now.has(k) || !out.some((o) => o.leaving && key(o.item) === k)) gone.current.delete(k);
+  last.current = out;
+  const leaving = out.some((o) => o.leaving);
+  useEffect(() => {
+    if (!leaving) return;
+    const t = setTimeout(() => tick((n) => n + 1), motion.dur(2) + motion.dur(3) + 20);
+    return () => clearTimeout(t);
+  });
+  return out;
 }

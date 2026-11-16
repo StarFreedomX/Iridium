@@ -29,7 +29,8 @@ export const POPUP = "g-unfold glass thick float rounded-lg text-ink outline-non
 /** How many agents a channel holds (internal/server MaxAgents). */
 export const MAX_AGENTS = 8;
 
-/** Adds an agent to channel id and keeps the members it answers with. as: as a role (what
+/** Adds an agent to channel id and keeps the members it answers with; it says hello as it
+ *  joins (greet; kumo, 2026-11-16). as: as a role (what
  *  roleStart gives; busy is then "role:<id>"). */
 export function useAdd(id: string) {
   const qc = useQueryClient();
@@ -37,7 +38,7 @@ export function useAdd(id: string) {
   const add = async (agent: Agent, model: string, effort: string, preset = "", as?: ReturnType<typeof roleStart>) => {
     setBusy(as ? `role:${as.role}` : agent);
     try {
-      qc.setQueryData<ChannelMembers>(["members", id], await api.addMember(id, as ?? { agent, ...(model ? { model } : {}), ...(effort ? { effort } : {}), ...(preset ? { preset } : {}) }));
+      qc.setQueryData<ChannelMembers>(["members", id], await api.addMember(id, { ...(as ?? { agent, ...(model ? { model } : {}), ...(effort ? { effort } : {}), ...(preset ? { preset } : {}) }), greet: true }));
     } catch (e) {
       toast(memberError(e), { error: true });
     } finally {

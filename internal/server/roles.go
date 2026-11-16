@@ -196,7 +196,7 @@ func strp(v string) *string {
 
 func (s *Server) rolesChanged() {
 	s.hub.Set("roles", s.rolesSeq.Add(1))
-	s.cardsChanged()
+	s.cardsChanged(true)
 }
 
 func (s *Server) rolePatch(w http.ResponseWriter, r *http.Request) {

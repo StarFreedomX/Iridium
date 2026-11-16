@@ -97,9 +97,9 @@ func (s *Service) logContent(m channel.Message) string {
 func (s *Service) logMessage(c Caller, m channel.Message, ch *Channel, guild *Guild, seen map[string]*User) Message {
 	out := Message{ID: strconv.FormatInt(m.Seq, 10), Content: s.logContent(m), Channel: ch, Guild: guild,
 		User: s.authorOf(m, seen), CreatedAt: m.At, UpdatedAt: m.Edited, Data: logData(m)}
-	if m.D.Session != "" {
-		out.Content += fileElements(c.App, c.Login, m.D.Session, m.D.Files)
-	}
+	// Its files, of the agent's session that said it, else the channel's own (a person's
+	// attachments: kumo, 2026-11-16).
+	out.Content += fileElements(c.App, c.Login, cmp.Or(m.D.Session, m.Channel), m.D.Files)
 	// The files' paths only for the pages (ir_web, the host): an app gets the counts.
 	out.Content += activityElement(s.placed(m), c.Only)
 	return out

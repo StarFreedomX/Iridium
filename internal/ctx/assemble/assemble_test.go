@@ -138,12 +138,13 @@ func TestRecord(t *testing.T) {
 			t.Errorf("no %s in the record:\n%s", s, b)
 		}
 	}
-	if strings.Contains(string(b), "hosted by Iridium") {
-		t.Error("the text in the record")
+	// Its text whole (kumo, 2026-11-16: the record shows what the agent got).
+	if !strings.Contains(string(b), "hosted by Iridium") {
+		t.Error("no text in the record")
 	}
 	msg, _ := Message("web", "t1", "hi", "in-1")
 	b, _ = json.Marshal(msg.Record())
-	if want := `{"kind":"message","parts":[{"source":"prompts:message.tag","hash":"` + msg.Parts()[0].Hash + `","values":{"tag":"web"}},{"source":"input","hash":"` + prompts.Hash("hi") + `","refs":[{"kind":"input","id":"in-1"}]}]}`; string(b) != want {
+	if want := `{"kind":"message","parts":[{"source":"prompts:message.tag","hash":"` + msg.Parts()[0].Hash + `","values":{"tag":"web"}},{"source":"input","hash":"` + prompts.Hash("hi") + `","refs":[{"kind":"input","id":"in-1"}]}],"text":"[web] hi"}`; string(b) != want {
 		t.Errorf("record %s\n  want %s", b, want)
 	}
 	// Parts are a copy.

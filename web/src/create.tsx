@@ -4,23 +4,24 @@
 import { Menu } from "@base-ui/react/menu";
 import { Popover } from "@base-ui/react/popover";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, ChevronRight, Folder, FolderPlus, LoaderCircle, Users } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactElement, type ReactNode } from "react";
-import type { NewSession as NewSessionReq, Workspace } from "./api/types.gen";
+import { Bot, Check, ChevronDown, ChevronRight, Folder, FolderPlus, LoaderCircle, Play, UserMinus } from "lucide-react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactElement, type ReactNode } from "react";
+import type { NewMember, NewSession as NewSessionReq, Workspace } from "./api/types.gen";
 import { api, missing } from "./api/client";
 import { born } from "./chats";
 import { openChat } from "./route";
 import type { Agent, Role } from "./api/types.gen";
 import { t } from "./i18n";
 import { agentsQ, isComputer, useApps, useHome, useMachines } from "./data";
-import { DraftNamed } from "./chat/choices";
-import { appAll, everyone, hasApp, hasLogin, pressApp, pressLogin } from "./chat/channel/setup";
+import { choicesQ, draftDefault, DraftNamed } from "./chat/choices";
+import { appAll, hasApp, hasLogin, pressApp, pressLogin } from "./chat/channel/setup";
 import { agentsAt, atMachine, homeAt, MachineBadge, MachineFace, pageAt, type Machine } from "./machines";
 import { onCreateAt } from "./places";
-import { RoleCard, roleStart, useRoles, type RolePick } from "./roles";
+import { effortName, picked, prefetchRoles, RoleFace, RoleLine, RoleModels, roleStart, useRoles, type RolePick } from "./roles";
+import { validNick } from "./chat/channel/lib";
+import { ProfileCard } from "./chat/channel/profilecard";
 import { errText, toast } from "./toast";
-import { AGENTS, agentName, Avatar, cn, homeOf, IconKey, Logo, PopSurface, tilde, Tip } from "./ui";
-import { VoiceEntry } from "./voice/dock";
+import { AGENTS, agentName, Avatar, cn, homeOf, IconKey, Logo, own, PopSurface, tilde, Tip, useLongPress, useMenuAt } from "./ui";
 
 const join = (dir: string, name: string) => (dir.endsWith("/") ? dir + name : `${dir}/${name}`);
 /** One folder's listing; prefetched before it is shown (the popover opening, a row hovered), so the
@@ -259,30 +260,72 @@ export const subName = (v: string) => {
   return n && n !== "." && n !== ".." && !/[/\\\0]/.test(n) ? n : null;
 };
 
-/** Pick an agent; the folder line opens the picker for a subfolder. Picking an agent opens the chat.
- *  A folder offers its own machine's agents only (docs/exec.md "远端工作区", 2026-11-10): this
- *  machine's in a folder here; another's, its face on their logos and its name over them, in a folder
- *  there, faded and saying so while it is not connected. A group of a machine no more there (its Bot
- *  gone) offers none. A pick of this machine's comes with no Target. onMake: a subfolder of the
- *  folder made (at its machine too), the folder then; its key beside the folder's line (the user,
- *  2026-11-10). Above the agents, the roles whose agent the folder's machine has, as cards
- *  (roles.tsx; kumo, 2026-11-16): a press starts as that role (as), as a press of an agent does. */
+/** A new session's lineup (kumo, 2026-11-16: never started by one press; several agents, roles
+ *  more than once): the folder line (pressed: the picker; its key beside it: a subfolder, made
+ *  at its machine too, the user, 2026-11-10); the Bots and people (PeopleRow); the lineup, a row
+ *  each, added by pressing an agent (the folder's machine's only: docs/exec.md "远端工作区") or a
+ *  role, the channel with no agent first among the agents; 开始. Each row: its face, its 称呼
+ *  (typed; none: the server's, numbered), its model line (pressed: the model and effort menu),
+ *  what it receives (点名 or 全部; the first agent, the session's own, 全部 till changed, the rest
+ *  点名); its menu (right button, a finger held) to take it out. One row: a session as before;
+ *  more: the first its own agent, the rest invited with it (NewSession members); no agent: a
+ *  channel, every row invited. The last role added shows its card, as others will see it. */
 export function NewSession({ ws, folder, onFolder, onPick, busy, onMake }: { ws: string; folder: string; onFolder: () => void; onPick: (a: Agent, to?: Target, people?: string[], as?: As) => void; busy: string | null; onMake?: (name: string) => Promise<boolean> }) {
   // Its people (the user, 2026-11-13): the panel's logins and the host's unless changed here.
   const [people, setPeople] = useState<string[] | null>(null);
   // The agents the daemon can host (GET /v1/internal/agents); all four before it says. One not installed
-  // is shown faded: picking it says so, no session is made.
+  // is shown faded: picking it says so, nothing is added.
   const info = useQuery({ ...agentsQ, refetchOnMount: "always" }).data; // installed since: the next open knows
   const agents = info?.map((a) => a.agent) ?? AGENTS;
   const missing = (a: Agent) => !!info?.find((x) => x.agent === a)?.missing;
-  const pick = (a: Agent) => (missing(a) ? toast(t("new.notInstalled", { name: agentName(a) }), { error: true }) : onPick(a, undefined, people ?? undefined));
   const machines = useMachines();
   const whose = agentsAt(folder, machines);
   const there = typeof whose === "object" ? whose : undefined;
   const roles = useRoles().filter((r) => (there ? there.m.agents.some((a) => a.agent === r.agent) : agents.includes(r.agent)));
-  const pickRole = (r: Role, p: RolePick) => {
-    if (there) return !there.m.online ? toast(t("new.offline", { name: there.m.name }), { error: true }) : onPick(r.agent, { m: there.m, cwd: there.cwd }, people ?? undefined, roleStart(r, p));
-    return missing(r.agent) ? toast(t("new.notInstalled", { name: agentName(r.agent) }), { error: true }) : onPick(r.agent, undefined, people ?? undefined, roleStart(r, p));
+  const at = there ? { machine: there.m.id } : NO_PLACE;
+  // The lineup; bare: the channel with no agent of its own is in it (first), every row invited.
+  const [seats, setSeats] = useState<Seat[]>([]);
+  const [bare, setBare] = useState<"on" | "going" | "off">("off");
+  const next = useRef(0);
+  const [last, setLast] = useState<number | null>(null);
+  const shown = seats.filter((x) => !x.going);
+  const add = (agent: Agent, role?: Role) => {
+    if (there && !there.m.online) return void toast(t("new.offline", { name: there.m.name }), { error: true });
+    if (!there && missing(agent)) return void toast(t("new.notInstalled", { name: agentName(agent) }), { error: true });
+    const key = next.current++;
+    // The session's own agent receives all, as a session's always has; one invited, what names it.
+    const own = bare === "off" && !shown.length;
+    setSeats((ss) => [...ss, { key, agent, role, pick: {}, nick: "", recv: own ? "all" : "at" }]);
+    setLast(role ? key : null);
+  };
+  const change = (key: number, p: Partial<Seat>) => setSeats((ss) => ss.map((x) => (x.key === key ? { ...x, ...p } : x)));
+  // Taken out: folded away first, then gone.
+  const remove = (key: number) => {
+    change(key, { going: true });
+    if (last === key) setLast(null);
+    window.setTimeout(() => setSeats((ss) => ss.filter((x) => x.key !== key)), 320);
+  };
+  const toggleBare = () => {
+    if (bare === "on") {
+      setBare("going");
+      window.setTimeout(() => setBare("off"), 320);
+    } else setBare("on");
+  };
+  const typed = (x: Seat) => x.nick.trim();
+  const dup = (x: Seat) => !!typed(x) && shown.some((y) => y !== x && typed(y).toLowerCase() === typed(x).toLowerCase());
+  const bad = (x: Seat) => (!!typed(x) && !validNick(typed(x))) || dup(x);
+  const lastRole = shown.find((x) => x.key === last && x.role);
+  const ready = bare === "on" || shown.length > 0;
+  const start = () => {
+    if (!ready || busy !== null) return;
+    if (shown.some(bad)) return void toast(t(shown.some(dup) ? "channel.nickTaken" : "channel.nickBad"), { error: true });
+    if (there && !there.m.online) return void toast(t("new.offline", { name: there.m.name }), { error: true });
+    const to = there ? { m: there.m, cwd: there.cwd } : undefined;
+    const ps = people ?? undefined;
+    if (bare === "on") return onPick("" as Agent, to, ps, shown.length ? { agents: shown.map(member) } : undefined);
+    const [first, ...rest] = shown;
+    const as: As = { ...runs(first!), ...(typed(first!) ? { nick: typed(first!) } : {}), ...(first!.recv !== "all" ? { recv: first!.recv } : {}), ...(rest.length ? { agents: rest.map(member) } : {}) };
+    onPick(first!.agent, to, ps, as);
   };
   // A subfolder being named, in the folder's line (the user, 2026-11-10). What it holds now is read
   // by its blur too: Enter or Escape has closed it by then.
@@ -316,7 +359,7 @@ export function NewSession({ ws, folder, onFolder, onPick, busy, onMake }: { ws:
       </div>
     );
   return (
-    <div ref={box} tabIndex={-1} className="flex w-[min(288px,calc(100vw-16px))] flex-col gap-1 p-1.5 outline-none">
+    <div ref={box} tabIndex={-1} className="flex w-[min(320px,calc(100vw-16px))] flex-col gap-1 p-1.5 outline-none">
       {naming !== null ? (
         <div className="g-fade flex h-9 items-center gap-2 rounded-md bg-fill px-2 pointer-coarse:h-11">
           <FolderPlus size={16} className="shrink-0 text-ink-3" />
@@ -357,15 +400,16 @@ export function NewSession({ ws, folder, onFolder, onPick, busy, onMake }: { ws:
         </div>
       )}
       <PeopleRow people={people ?? DEFAULT_PEOPLE} set={setPeople} />
-      {roles.length > 0 && (
-        <div role="group" aria-label={t("role.title")} className="g-stagger no-bar grid max-h-[min(264px,40vh)] grid-cols-2 gap-1.5 overflow-y-auto pb-0.5">
-          {roles.map((r, n) => (
-            <RoleCard key={r.id} role={r} at={there ? { machine: there.m.id } : NO_PLACE} busy={busy === `role:${r.id}`} off={busy !== null} faded={there ? !there.m.online : missing(r.agent)} onStart={(p) => pickRole(r, p)} style={{ "--i": n } as CSSProperties} />
-          ))}
-        </div>
-      )}
+      {roles.length > 0 && <RolesRow roles={roles} at={at} add={(r) => add(r.agent, r)} />}
       {!there ? (
         <div role="group" aria-label={t("new.agent")} className="g-stagger grid grid-cols-5 gap-1">
+          {/* First, a channel with no agent (docs/channels.md; kumo, 2026-11-16: first): in the
+              lineup or not, pressed again to take it out. */}
+          <Tip label={t("new.noAgent")}>
+            <button type="button" aria-label={t("new.noAgent")} aria-pressed={bare === "on"} disabled={busy !== null} onClick={toggleBare} style={{ "--i": i++ } as CSSProperties} className="g-press grid h-12 place-items-center rounded-md hover:bg-fill disabled:opacity-50 aria-pressed:bg-fill pointer-coarse:h-14">
+              <Logo agent={"" as Agent} size={22} />
+            </button>
+          </Tip>
           {agents.map((a) => {
             const n = i++;
             // Each by its name and the model a new one will run (never "default", the user, 2026-11-16).
@@ -373,81 +417,112 @@ export function NewSession({ ws, folder, onFolder, onPick, busy, onMake }: { ws:
               <DraftNamed key={a} agent={a} at={NO_PLACE}>
                 {(name) => (
                   <Tip label={missing(a) ? t("new.notInstalled", { name: agentName(a) }) : name}>
-                    <button type="button" aria-label={name} disabled={busy !== null} onClick={() => pick(a)} style={{ "--i": n } as CSSProperties} className="g-press grid h-14 place-items-center rounded-md hover:bg-fill disabled:opacity-50">
-                      {busy === a ? <LoaderCircle size={20} className="animate-spin text-ink-3" /> : <Logo agent={a} size={24} className={cn(missing(a) && "opacity-30 grayscale")} />}
+                    <button type="button" aria-label={name} disabled={busy !== null} onClick={() => add(a)} style={{ "--i": n } as CSSProperties} className="g-press grid h-12 place-items-center rounded-md hover:bg-fill disabled:opacity-50 pointer-coarse:h-14">
+                      <Logo agent={a} size={24} className={cn(missing(a) && "opacity-30 grayscale")} />
                     </button>
                   </Tip>
                 )}
               </DraftNamed>
             );
           })}
-          {/* Last, a channel with no agent (docs/channels.md; the user, 2026-11-13). */}
-          <Tip label={t("new.noAgent")}>
-            <button type="button" aria-label={t("new.noAgent")} disabled={busy !== null} onClick={() => onPick("" as Agent, undefined, people ?? undefined)} style={{ "--i": i++ } as CSSProperties} className="g-press grid h-14 place-items-center rounded-md hover:bg-fill disabled:opacity-50">
-              {busy === "" ? <LoaderCircle size={20} className="animate-spin text-ink-3" /> : <Logo agent={"" as Agent} size={22} />}
-            </button>
-          </Tip>
         </div>
       ) : (
-        <MachineAgents m={there.m} busy={busy} onPick={(a) => (!there.m.online ? toast(t("new.offline", { name: there.m.name }), { error: true }) : onPick(a, { m: there.m, cwd: there.cwd }, people ?? undefined))} />
+        <MachineAgents m={there.m} onPick={(a) => add(a)} />
       )}
+      {/* The lineup: each row glides open as it is added and shut as it is taken out. */}
+      <div role="list" aria-label={t("new.lineup")} className="flex flex-col">
+        <Grow open={bare === "on"}>
+          {bare !== "off" && <BareRow remove={toggleBare} />}
+        </Grow>
+        {seats.map((x) => (
+          <Grow key={x.key} open={!x.going}>
+            <SeatRow seat={x} at={at} recv={bare !== "off" || shown.length > 1 || x.recv !== "all"} own={bare === "off" && shown[0]?.key === x.key} bad={bad(x)} set={(p) => change(x.key, p)} remove={() => remove(x.key)} />
+          </Grow>
+        ))}
+      </div>
+      {/* The last role added: its card, as others will see it (kumo, 2026-11-16). */}
+      <Fold open={!!lastRole}>{lastRole?.role && <RolePreview role={picked(lastRole.role, lastRole.pick)} nick={typed(lastRole) && !bad(lastRole) ? typed(lastRole) : ""} at={at} />}</Fold>
+      <Fold open={ready}>
+        <button type="button" disabled={busy !== null} onClick={start} className="g-press mt-1 flex h-8 w-full items-center justify-center gap-1.5 rounded-md bg-fill text-sm hover:bg-fill-2 disabled:opacity-50 pointer-coarse:h-10">
+          {busy !== null ? <LoaderCircle size={14} className="animate-spin" /> : <Play size={14} className="text-ink-2" />}
+          {t("new.start")}
+        </button>
+      </Fold>
     </div>
   );
 }
 
-/** A start as a role: the role and what this one session changes of it (roles.tsx roleStart). */
-export type As = ReturnType<typeof roleStart>;
+/** One of the lineup: its agent, or a role (as which it starts); its model, effort, preset for
+ *  this once (pick); its 称呼 ("": the server's); what it receives; going: being taken out. */
+type Seat = { key: number; agent: Agent; role?: Role; pick: RolePick; nick: string; recv: string; going?: boolean };
 
-/** What starting a session sends (channel.create's _data): the agent in the folder, in its
- *  group, at its machine, with its people; as a role, the role and what was changed of it. */
-export const startRequest = (agent: Agent, cwd: string, workspace?: number, machine?: string, people?: string[], as?: As): NewSessionReq => ({ agent, cwd, ...(workspace ? { workspace } : {}), ...(machine ? { machine } : {}), ...(people ? { members: { people } } : {}), ...as });
+/** What a seat starts with: as its role (what pick changes of it), else its agent's model,
+ *  effort, preset as picked. */
+const runs = (x: Seat): { role?: string; model?: string; effort?: string; preset?: string } =>
+  x.role ? roleStart(x.role, x.pick) : { ...(x.pick.model ? { model: x.pick.model } : {}), ...(x.pick.effort ? { effort: x.pick.effort } : {}), ...(x.pick.preset ? { preset: x.pick.preset } : {}) };
 
-const DEFAULT_PEOPLE = [appAll("ir_web"), appAll("local")];
-/** This machine, no channel: where a new session of the page's own runs (chat/choices.ts At). */
-const NO_PLACE = {};
-const ROW = "flex h-8 cursor-default items-center gap-2.5 rounded-md px-2.5 text-base outline-none select-none data-highlighted:bg-fill data-popup-open:bg-fill pointer-coarse:h-11";
+/** A seat invited with the session (NewSession members.agents). */
+const member = (x: Seat): NewMember => ({ agent: x.agent, ...runs(x), ...(x.nick.trim() ? { nick: x.nick.trim() } : {}), recv: x.recv });
 
-/** A new session's people (internal/server DefaultPeople unless changed): the panel's logins
- *  and the host's at first, no Bot's; pressed, each app and its logins to add or take out. */
-function PeopleRow({ people, set }: { people: string[]; set: (p: string[]) => void }) {
-  const d = useApps().data;
-  const apps = (d?.apps ?? []).filter((a) => !isComputer(a));
-  const ids = apps.map((a) => a.id);
-  const loginsOf = (app: string) => (d?.logins ?? []).filter((l) => l.app === app);
-  const idsOf = (app: string) => loginsOf(app).map((l) => l.id);
-  const shown = everyone(people) ? t("channel.everyone") : apps.filter((a) => hasApp(people, a.id) || loginsOf(a.id).some((l) => hasLogin(people, a.id, l.id))).map((a) => (a.web ? t("term.panel") : a.name)).join("、") || t("term.local");
-  const check = (on: boolean) => <span className="grid size-3.5 place-items-center text-ink">{on && <Check size={14} />}</span>;
+/** What a start adds: its 称呼 (nick); as a role, the role and what this one session changes of
+ *  it (roles.tsx roleStart); its model, effort, preset; what its own agent receives (recv); the
+ *  agents invited with it (agents). */
+export type As = Partial<ReturnType<typeof roleStart>> & { nick?: string; recv?: string; agents?: NewMember[] };
+
+/** What opens and shuts in the "+" (a role's card, 开始): its height glides, nothing jumps. */
+function Fold({ open, children }: { open: boolean; children: ReactNode }) {
+  return (
+    <div aria-hidden={!open || undefined} inert={!open || undefined} className={cn("grid transition-[grid-template-rows,opacity] duration-(--dur-3) ease-(--ease-out)", open ? "grid-rows-[1fr]" : "grid-rows-[0fr] opacity-0")}>
+      <div className="min-h-0 overflow-hidden">{children}</div>
+    </div>
+  );
+}
+
+/** A row of the lineup coming and going: shut as it is first drawn, opened the frame after;
+ *  shut again before it goes (the caller removes it once that is done). */
+function Grow({ open, children }: { open: boolean; children: ReactNode }) {
+  const [on, setOn] = useState(false);
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setOn(open));
+    return () => cancelAnimationFrame(id);
+  }, [open]);
+  return <Fold open={on && open}>{children}</Fold>;
+}
+
+/** The roles, to add to the lineup: a row; pressed, each by its face, name and line, a press
+ *  adding one (again and again: a role may be in it more than once). */
+function RolesRow({ roles, at, add }: { roles: Role[]; at: object; add: (r: Role) => void }) {
   return (
     <Menu.Root>
       <Menu.Trigger
         render={
           <button type="button" className="flex h-8 min-w-0 items-center gap-2 rounded-md px-2 text-left hover:bg-fill data-popup-open:bg-fill pointer-coarse:h-10">
-            <Users size={15} className="shrink-0 text-ink-3" />
-            <span className="shrink-0 text-sm">{t("channel.members")}</span>
-            <span className="min-w-0 flex-1 truncate text-right text-xs text-ink-3">{shown}</span>
+            <span className="flex shrink-0 -space-x-1.5">
+              {roles.slice(0, 3).map((r) => (
+                <span key={r.id} className="grid rounded-full ring-2 ring-(--paper)">
+                  <RoleFace role={r} size={16} />
+                </span>
+              ))}
+            </span>
+            <span className="min-w-0 flex-1 truncate text-sm">{t("role.title")}</span>
             <ChevronRight size={14} className="shrink-0 text-ink-4" />
           </button>
         }
       />
       <Menu.Portal>
         <Menu.Positioner side="bottom" align="start" sideOffset={4} collisionPadding={8} className="z-50">
-          <Menu.Popup finalFocus={false} className="g-unfold glass thick float no-bar max-h-[min(480px,var(--available-height))] min-w-56 max-w-[calc(100vw-16px)] overflow-y-auto rounded-lg p-1.5 text-ink outline-none">
-            {apps.map((a) => (
-              <div key={a.id} className="flex flex-col">
-                <Menu.Item closeOnClick={false} onClick={() => set(pressApp(people, ids, idsOf, a.id))} className={ROW}>
-                  {check(hasApp(people, a.id))}
-                  <Avatar src={a.avatar} name={a.name} size={16} type={a.type} />
-                  <span className="min-w-0 flex-1 truncate font-medium">{a.web ? t("term.panel") : a.name}</span>
+          <Menu.Popup finalFocus={false} className="g-unfold glass thick float no-bar max-h-[min(480px,var(--available-height))] w-[min(288px,calc(100vw-16px))] overflow-y-auto rounded-lg p-1.5 text-ink outline-none">
+            <div className="g-stagger flex flex-col">
+              {roles.map((r, i) => (
+                <Menu.Item key={r.id} onClick={() => add(r)} style={{ "--i": i } as CSSProperties} className={cn(ROW, "h-auto min-h-10 py-1 pointer-coarse:min-h-12")}>
+                  <RoleFace role={r} size={24} />
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    <span className="truncate text-sm">{r.name}</span>
+                    <RoleLine role={r} at={at} logo className="text-xs text-ink-3" />
+                  </span>
                 </Menu.Item>
-                {loginsOf(a.id).map((l) => (
-                  <Menu.Item key={l.id} closeOnClick={false} onClick={() => set(pressLogin(people, ids, idsOf, a.id, l.id))} className={cn(ROW, "pl-8")}>
-                    {check(hasLogin(people, a.id, l.id))}
-                    <Avatar src={l.avatar} name={l.name} size={16} />
-                    <span className="min-w-0 flex-1 truncate">{l.name}</span>
-                  </Menu.Item>
-                ))}
-              </div>
-            ))}
+              ))}
+            </div>
           </Menu.Popup>
         </Menu.Positioner>
       </Menu.Portal>
@@ -455,8 +530,238 @@ function PeopleRow({ people, set }: { people: string[]; set: (p: string[]) => vo
   );
 }
 
-/** Another machine's agents, under its face and name. */
-function MachineAgents({ m, busy, onPick }: { m: Machine; busy: string | null; onPick: (a: Agent) => void }) {
+/** A row's menu, at the right button or a finger held: what it receives, and 移出. */
+function RowMenu({ at, close, recv, setRecv, remove }: { at: { x: number; y: number } | null; close: () => void; recv?: string; setRecv?: (r: string) => void; remove: () => void }) {
+  const anchor = at && { getBoundingClientRect: () => DOMRect.fromRect({ x: at.x, y: at.y, width: 0, height: 0 }) };
+  return (
+    <Menu.Root open={at !== null} onOpenChange={(o) => !o && close()}>
+      <Menu.Portal>
+        <Menu.Positioner anchor={anchor} side="bottom" align="start" sideOffset={4} collisionPadding={8} className="z-50">
+          <Menu.Popup finalFocus={false} className="g-unfold glass thick float min-w-44 rounded-lg p-1.5 text-ink outline-none">
+            {recv !== undefined && setRecv && (
+              <Menu.RadioGroup value={recv} onValueChange={(v) => setRecv(v as string)} className="flex flex-col">
+                {(["at", "all"] as const).map((r) => (
+                  <Menu.RadioItem key={r} value={r} closeOnClick className={ROW}>
+                    <span className="min-w-0 flex-1 truncate">{t(r === "all" ? "channel.recvAll" : "channel.recvAt")}</span>
+                    <Menu.RadioItemIndicator className="text-ink">
+                      <Check size={14} />
+                    </Menu.RadioItemIndicator>
+                  </Menu.RadioItem>
+                ))}
+                <div role="separator" className="mx-2.5 my-1 border-t border-(--edge)" />
+              </Menu.RadioGroup>
+            )}
+            <Menu.Item onClick={remove} className={cn(ROW, "text-err")}>
+              <UserMinus size={15} />
+              {t("channel.remove")}
+            </Menu.Item>
+          </Menu.Popup>
+        </Menu.Positioner>
+      </Menu.Portal>
+    </Menu.Root>
+  );
+}
+
+/** The menu a row opens at the right button, or a finger held on it (where it was held); not
+ *  over its 称呼 being typed, which keeps the text's own menu. */
+function useRowMenu() {
+  const [menuAt, setMenuAt] = useMenuAt();
+  const held = useRef({ x: 0, y: 0 });
+  const lp = useLongPress(() => setMenuAt(held.current));
+  const props = {
+    ...lp,
+    onPointerDown: (e: React.PointerEvent) => {
+      held.current = { x: e.clientX, y: e.clientY };
+      lp.onPointerDown(e);
+    },
+    onContextMenu: (e: React.MouseEvent) => {
+      const was = e.defaultPrevented;
+      lp.onContextMenu(e);
+      // Opened by the finger held already.
+      if (e.defaultPrevented && !was) return;
+      if (!own(e) || (e.target as HTMLElement).closest("input")) return;
+      e.preventDefault();
+      setMenuAt({ x: e.clientX, y: e.clientY });
+    },
+  };
+  return { menuAt, setMenuAt, props };
+}
+
+/** The channel with no agent of its own, first in the lineup: its mark and name; its menu takes
+ *  it out (as pressing it among the agents again). */
+function BareRow({ remove }: { remove: () => void }) {
+  const m = useRowMenu();
+  return (
+    <div role="listitem" {...m.props} className="flex h-10 items-center gap-2 rounded-md px-1.5 select-none pointer-coarse:h-12">
+      <span className="grid size-6 shrink-0 place-items-center rounded-full bg-fill">
+        <Logo agent={"" as Agent} size={14} />
+      </span>
+      <span className="min-w-0 flex-1 truncate text-sm">{t("new.noAgent")}</span>
+      <RowMenu at={m.menuAt} close={() => m.setMenuAt(null)} remove={() => (m.setMenuAt(null), remove())} />
+    </div>
+  );
+}
+
+const DraftModels = lazy(() => import("./chat/channel/pick").then((x) => ({ default: x.DraftModels })));
+
+/** One row of the lineup: its face, its 称呼 typed (its role's name or its agent's in grey: the
+ *  server's then), its model line (pressed: the model and effort menu, this once), what it
+ *  receives (a key: 点名 or 全部; shown once there is more than one, or changed); its menu (right
+ *  button, a finger held) to take it out. own: the session's own agent. */
+function SeatRow({ seat, at, recv, own: mine, bad, set, remove }: { seat: Seat; at: object; recv: boolean; own: boolean; bad: boolean; set: (p: Partial<Seat>) => void; remove: () => void }) {
+  const m = useRowMenu();
+  const asked = useQuery(choicesQ(seat.agent, at)).data;
+  const role = seat.role && picked(seat.role, seat.pick);
+  // A kind's line: the model it runs and its effort (its face says which agent).
+  const model = seat.pick.model ? (asked?.models.find((x) => x.value === seat.pick.model)?.name ?? seat.pick.model) : draftDefault(asked).def?.name;
+  const kindLine = [model ?? agentName(seat.agent), seat.pick.effort ? effortName(seat.pick.effort) : ""].filter(Boolean).join(" · ");
+  const recvLabel = t(seat.recv === "all" ? "new.recvAll" : "new.recvAt");
+  return (
+    <div role="listitem" {...m.props} className="flex min-h-11 items-center gap-2 rounded-md px-1.5 py-1 pointer-coarse:min-h-13">
+      {seat.role ? (
+        <RoleFace role={seat.role} size={28} />
+      ) : (
+        <span className="grid size-7 shrink-0 place-items-center rounded-full bg-fill">
+          <Logo agent={seat.agent} size={16} />
+        </span>
+      )}
+      <span className="flex min-w-0 flex-1 flex-col">
+        <input
+          aria-label={t("channel.nick")}
+          aria-invalid={bad || undefined}
+          value={seat.nick}
+          maxLength={32}
+          placeholder={seat.role?.name ?? agentName(seat.agent)}
+          onChange={(e) => set({ nick: e.target.value })}
+          className={cn("no-ring -mx-1 h-6 min-w-0 rounded-sm bg-transparent px-1 text-sm placeholder:text-ink-3 focus:bg-fill", bad && "text-err")}
+        />
+        <Menu.Root>
+          <Menu.Trigger aria-label={t("role.options")} className="g-press -mx-1 flex max-w-full min-w-0 items-center gap-1 rounded-sm px-1 text-xs text-ink-3 hover:bg-fill hover:text-ink-2 data-popup-open:bg-fill">
+            {role ? <RoleLine role={role} at={at} logo className="min-w-0" /> : <span className="min-w-0 truncate">{kindLine}</span>}
+            <ChevronDown size={12} className="shrink-0 text-ink-4" />
+          </Menu.Trigger>
+          <Menu.Portal>
+            <Menu.Positioner side="bottom" align="start" sideOffset={4} collisionPadding={8} className="z-50">
+              <Menu.Popup finalFocus={false} className="g-unfold glass thick float flex max-h-[min(560px,var(--available-height))] w-[min(300px,calc(100vw-16px))] flex-col rounded-lg p-1.5 text-ink outline-none">
+                {seat.role ? (
+                  <RoleModels role={seat.role} at={at} pick={seat.pick} set={(p) => set({ pick: p })} />
+                ) : (
+                  <Suspense fallback={<LoaderCircle size={15} className="mx-auto my-2.5 animate-spin text-ink-4" />}>
+                    <DraftModels agent={seat.agent} at={at} model={seat.pick.model ?? ""} effort={seat.pick.effort ?? ""} preset={seat.pick.preset} set={(x) => set({ pick: { ...seat.pick, ...x } })} />
+                  </Suspense>
+                )}
+              </Menu.Popup>
+            </Menu.Positioner>
+          </Menu.Portal>
+        </Menu.Root>
+      </span>
+      {/* What it receives: pressed, the other (kumo, 2026-11-16: a choice, never assumed). */}
+      {recv && (
+        <Tip label={`${t("channel.recv")} · ${t(seat.recv === "all" ? "channel.recvAll" : "channel.recvAt")}`}>
+          <button type="button" aria-label={`${t("channel.recv")}: ${recvLabel}`} onClick={() => set({ recv: seat.recv === "all" ? "at" : "all" })} className="g-press h-6 shrink-0 rounded-full bg-fill px-2 text-xs text-ink-2 hover:bg-fill-2 pointer-coarse:h-8">
+            <span key={seat.recv} className="g-fade">
+              {recvLabel}
+            </span>
+          </button>
+        </Tip>
+      )}
+      {mine && !recv && <span className="shrink-0 px-1 text-xs text-ink-4">{t("new.own")}</span>}
+      <RowMenu at={m.menuAt} close={() => m.setMenuAt(null)} recv={seat.recv} setRecv={(r) => set({ recv: r })} remove={() => (m.setMenuAt(null), remove())} />
+    </div>
+  );
+}
+
+/** The card a session started as role will have (the one card, chat/channel/profilecard.tsx):
+ *  its background, its face, its 称呼 (the one typed, else the role's name), its line, its
+ *  intro. Nothing on it to press: the row above changes it. */
+function RolePreview({ role, nick, at }: { role: Role; nick: string; at: object }) {
+  return (
+    <div key={role.id} className="g-fade mt-1 overflow-hidden rounded-lg bg-paper shadow-[0_0_0_0.5px_var(--edge)]">
+      <ProfileCard face={<RoleFace role={role} size={56} />} name={nick || role.name} sub={<RoleLine role={role} at={at} logo className="min-w-0" />} intro={role.intro} background={role.background} keys={[]} />
+    </div>
+  );
+}
+
+/** What starting a session sends (channel.create's _data): the agent in the folder, in its
+ *  group, at its machine, with its people; as a role, the role and what was changed of it. */
+export const startRequest = (agent: Agent, cwd: string, workspace?: number, machine?: string, people?: string[], as?: As): NewSessionReq => {
+  const { agents, recv, ...card } = as ?? {};
+  const members = people || agents?.length || recv ? { ...(people ? { people } : {}), ...(agents?.length ? { agents } : {}), ...(recv ? { recv } : {}) } : undefined;
+  return { agent, cwd, ...(workspace ? { workspace } : {}), ...(machine ? { machine } : {}), ...(members ? { members } : {}), ...card };
+};
+
+const DEFAULT_PEOPLE = [appAll("ir_web"), appAll("local")];
+/** This machine, no channel: where a new session of the page's own runs (chat/choices.ts At). */
+const NO_PLACE = {};
+const ROW = "flex h-8 cursor-default items-center gap-2.5 rounded-md px-2.5 text-base outline-none select-none data-highlighted:bg-fill data-popup-open:bg-fill pointer-coarse:h-11";
+
+/** A new session's people (internal/server DefaultPeople unless changed): the panel's logins
+ *  and the host's at first, no Bot's. A row of its own for the Bots (kumo, 2026-11-16: 选 bot):
+ *  it says those brought in; pressed, the connected apps that are no computer and not the
+ *  panel, each app (all its logins) and its logins to bring in or leave out; under them the
+ *  panel's, as before. */
+function PeopleRow({ people, set }: { people: string[]; set: (p: string[]) => void }) {
+  const d = useApps().data;
+  const apps = (d?.apps ?? []).filter((a) => !isComputer(a));
+  const bots = apps.filter((a) => !a.web);
+  const panel = apps.filter((a) => a.web);
+  const ids = apps.map((a) => a.id);
+  const loginsOf = (app: string) => (d?.logins ?? []).filter((l) => l.app === app);
+  const idsOf = (app: string) => loginsOf(app).map((l) => l.id);
+  const inBots = bots.flatMap((a) => (hasApp(people, a.id) ? [a.name] : loginsOf(a.id).filter((l) => hasLogin(people, a.id, l.id)).map((l) => l.name)));
+  const shown = inBots.join("、") || t("new.botNone");
+  const check = (on: boolean) => <span className="grid size-3.5 place-items-center text-ink">{on && <Check size={14} />}</span>;
+  // An app of one login is one row, pressed once (kumo, 2026-11-16); one of several, its row
+  // (all of it) and each login's.
+  const rows = (list: typeof apps) =>
+    list.map((a) => {
+      const logins = loginsOf(a.id);
+      const one = logins.length <= 1;
+      return (
+        <div key={a.id} className="flex flex-col">
+          <Menu.Item closeOnClick={false} onClick={() => set(pressApp(people, ids, idsOf, a.id))} className={ROW}>
+            {check(hasApp(people, a.id) || (one && !!logins[0] && hasLogin(people, a.id, logins[0].id)))}
+            <Avatar src={a.avatar} name={a.name} size={16} type={a.type} />
+            <span className="min-w-0 flex-1 truncate font-medium">{a.web ? t("term.panel") : a.name}</span>
+          </Menu.Item>
+          {!one &&
+            logins.map((l) => (
+              <Menu.Item key={l.id} closeOnClick={false} onClick={() => set(pressLogin(people, ids, idsOf, a.id, l.id))} className={cn(ROW, "pl-8")}>
+                {check(hasLogin(people, a.id, l.id))}
+                <Avatar src={l.avatar} name={l.name} size={16} />
+                <span className="min-w-0 flex-1 truncate">{l.name}</span>
+              </Menu.Item>
+            ))}
+        </div>
+      );
+    });
+  return (
+    <Menu.Root>
+      <Menu.Trigger
+        render={
+          <button type="button" className="flex h-8 min-w-0 items-center gap-2 rounded-md px-2 text-left hover:bg-fill data-popup-open:bg-fill pointer-coarse:h-10">
+            <Bot size={15} className="shrink-0 text-ink-3" />
+            <span className="shrink-0 text-sm">{t("new.bot")}</span>
+            <span key={shown} className="g-fade min-w-0 flex-1 truncate text-right text-xs text-ink-3">{shown}</span>
+            <ChevronRight size={14} className="shrink-0 text-ink-4" />
+          </button>
+        }
+      />
+      <Menu.Portal>
+        <Menu.Positioner side="bottom" align="start" sideOffset={4} collisionPadding={8} className="z-50">
+          <Menu.Popup finalFocus={false} className="g-unfold glass thick float no-bar max-h-[min(480px,var(--available-height))] min-w-56 max-w-[calc(100vw-16px)] overflow-y-auto rounded-lg p-1.5 text-ink outline-none">
+            {/* No headings (kumo, 2026-11-16: no 人 to sort them under): the apps, the bots first. */}
+            {rows(bots)}
+            {rows(panel)}
+          </Menu.Popup>
+        </Menu.Positioner>
+      </Menu.Portal>
+    </Menu.Root>
+  );
+}
+
+/** Another machine's agents, under its face and name: a press adds one to the lineup. */
+function MachineAgents({ m, onPick }: { m: Machine; onPick: (a: Agent) => void }) {
   return (
     <div role="group" aria-label={m.name} className="flex flex-col gap-1">
       <div className={cn("flex items-center gap-1.5 px-2 pt-1 text-xs", m.online ? "text-ink-2" : "text-ink-4")}>
@@ -474,15 +779,11 @@ function MachineAgents({ m, busy, onPick }: { m: Machine; busy: string | null; o
             <DraftNamed key={key} agent={a} at={{ machine: m.id }}>
               {(name) => (
                 <Tip label={says(name)}>
-                  <button type="button" aria-label={says(name)} disabled={busy !== null} onClick={() => onPick(a)} style={{ "--i": i } as CSSProperties} className="g-press grid h-14 place-items-center rounded-md hover:bg-fill disabled:opacity-50">
-                    {busy === key ? (
-                      <LoaderCircle size={20} className="animate-spin text-ink-3" />
-                    ) : (
-                      <span className={cn("relative grid", !m.online && "opacity-30 grayscale")}>
-                        <Logo agent={a} size={24} />
-                        <MachineBadge m={m} size={13} />
-                      </span>
-                    )}
+                  <button type="button" aria-label={says(name)} onClick={() => onPick(a)} style={{ "--i": i } as CSSProperties} className="g-press grid h-12 place-items-center rounded-md hover:bg-fill disabled:opacity-50 pointer-coarse:h-14">
+                    <span className={cn("relative grid", !m.online && "opacity-30 grayscale")}>
+                      <Logo agent={a} size={24} />
+                      <MachineBadge m={m} size={13} />
+                    </span>
                   </button>
                 </Tip>
               )}
@@ -499,7 +800,7 @@ function MachineAgents({ m, busy, onPick }: { m: Machine; busy: string | null; o
 export function useStart(opened: (id: string) => void) {
   const [busy, setBusy] = useState<string | null>(null);
   const start = async (agent: Agent, cwd: string, workspace?: number, machine?: string, people?: string[], as?: As) => {
-    setBusy(as ? `role:${as.role}` : machine ? `${machine}/${agent}` : agent);
+    setBusy(as?.agents?.length ? "lineup" : as?.role ? `role:${as.role}` : machine ? `${machine}/${agent}` : agent);
     try {
       const { id } = await api.create(startRequest(agent, cwd, workspace, machine, people, as));
       born.add(id);
@@ -661,20 +962,17 @@ export function WsPlus({ w, trigger, open, setOpen, opened }: { w: Workspace; tr
   const sub = useSubfolder(folder, setFolder, open);
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
-      <Popover.Trigger render={trigger} />
+      {/* Its roles asked for as the "+" is pointed at or pressed (and once idle, app.tsx), not as
+          it opens: the popover is drawn whole. */}
+      <Popover.Trigger render={trigger} onPointerEnter={prefetchRoles} onPointerDown={prefetchRoles} onFocus={prefetchRoles} />
       <PopSurface side="bottom" align="end" finalFocus={false}>
         {/* Page to page, sliding the way you went: into the folder, back to the agents (the user, 2026-11-06). */}
         <div key={page} data-dir={page === "session" ? "back" : undefined} className={page !== "session" || stepped ? "g-slide" : ""}>
           {page === "session" ? (
-            <>
+            // What still comes late (a role made elsewhere since) glides the popover's height.
+            <Tall>
               <NewSession ws={w.name} folder={folder} busy={busy} onFolder={() => (setStepped(true), setPage("folder"))} onMake={sub.make} onPick={(a, to, people, as) => void sub.settled(to).then((at) => at && start(a, at.to?.cwd ?? at.folder, w.id, at.to?.m.id, people, as))} />
-              {/* The group's voice (the user, 2026-11-12: its way in is here). */}
-              {w.id > 0 && (
-                <div className="border-t-[0.5px] border-(--edge) p-1.5">
-                  <VoiceEntry guild={w.id} done={() => setOpen(false)} />
-                </div>
-              )}
-            </>
+            </Tall>
           ) : (
             <FolderPicker
               machine={there?.m}

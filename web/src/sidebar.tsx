@@ -33,7 +33,7 @@ import { Face } from "./chat/channel/face";
 import { CloudBadge, MachineFace, shownPath, useLate, useMachine, type Machine } from "./machines";
 import { getCarried, setCarried, useCarried, useLink, useList } from "./store";
 import { channelLamp, isMulti } from "./chat/channel/lib";
-import { VoiceDock, VoiceMark } from "./voice/dock";
+import { useVoiceItem, VoiceDock, VoiceMark } from "./voice/dock";
 import { dropMark, dropTarget, endDrag, listDrop, pinFolder, placeFolder, placeGroup as placeGroupKey, placeSession, sortList, startDrag, useDragged, useOver, type Dragged, type Edge, type Over } from "./reorder";
 
 const STEP = 18;
@@ -375,7 +375,7 @@ export function Sidebar(p: Props) {
             w.id !== 0 &&
             !gone(w.root) && (
               <>
-                {/* Who is in the group's voice; the way in is in its "+". */}
+                {/* Who is in the group's voice; the way in is its menu. */}
                 <VoiceMark guild={w.id} />
                 {p.wsPlus(
               w,
@@ -682,7 +682,10 @@ function WsRow({ flip, id, name, root, sessions, hung, machine, remote, folders,
   });
   const anchor = at && { getBoundingClientRect: () => DOMRect.fromRect({ x: at.x, y: at.y, width: 0, height: 0 }) };
   const failed = (e: unknown) => toast(t("err.action"), { error: true, description: errText(e) });
+  // The group's voice, its way in (kumo, 2026-11-16).
+  const voice = useVoiceItem(id);
   const items = [
+    ...(id > 0 ? [voice] : []),
     ...(notes ? [{ icon: <NoteMark size={15} />, label: t("note.view"), run: () => setNotesAt(at) }] : []),
     // Those hung under its sessions go with them (the server's cascade): counted, not sent. The way
     // a group at another machine is no longer listed (the user, 2026-11-10).

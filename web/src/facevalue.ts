@@ -36,9 +36,6 @@ export function faceKind(v: string): FaceKind | undefined {
   return isEmoji(x) ? "emoji" : undefined;
 }
 
-/** The most an image given may weigh (internal/gate MaxAvatarBytes). */
-export const MAX_IMAGE = 2 << 20;
-
 /** The colours and the emoji offered to pick from; any other is typed or chosen. */
 export const COLOURS = ["#2f4f6f", "#3d6b5c", "#7a5c3e", "#8a4b5a", "#5b4f8a", "#c9772e", "#4a4a4a", "#d8dee6"];
 export const EMOJI = ["🙂", "🤖", "🧪", "🛠️", "📚", "🔍", "✍️", "🎨", "🧭", "🌱", "🔥", "🌙", "🐱", "🦊", "🐙", "🍀"];

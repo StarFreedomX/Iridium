@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -380,6 +381,11 @@ func (s *Server) closeCalls(id, reply string, over []called) {
 		// Its turn ended in an error (no balance left, a key refused): the channel is told why
 		// (kumo, 2026-11-15: not a bare 未发话).
 		why, words := s.turnError(id), ""
+		// Called by another agent and nothing to say: nothing is told either (kumo, 2026-11-16);
+		// only one a person called, or one whose turn failed, leaves its line.
+		if why == "" && s.agentSaid(c.Channel, c.Seq) {
+			continue
+		}
 		if why != "" {
 			words = "：" + why
 		}
@@ -395,6 +401,16 @@ func (s *Server) closeCalls(id, reply string, over []called) {
 			}
 		}
 	}
+}
+
+// agentSaid: message seq of channel ch is an agent's words.
+func (s *Server) agentSaid(ch string, seq int64) bool {
+	m, ok := s.ch.Get(ch, seq)
+	if !ok {
+		return false
+	}
+	_, agent := store.SessionOfMember(m.Author)
+	return agent
 }
 
 // turnError is why session id's last turn ended in an error, in a few words: its process ended
@@ -661,7 +677,21 @@ func (s *Server) memberAdd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if m, ok := s.memberRow(ch, store.AgentMember(id)); ok {
-		s.tellMembers(c, ch, fmt.Sprintf("@%s 加入了频道", m.Nick), channel.Event{Type: "join", Member: m.Member, Nick: m.Nick, Name: s.agentName(id)})
+		seq := s.tellMembers(c, ch, fmt.Sprintf("@%s 加入了频道", m.Nick), channel.Event{Type: "join", Member: m.Member, Nick: m.Nick, Name: s.agentName(id)})
+		switch {
+		case strings.TrimSpace(req.Text) != "":
+			// Invited with words (an agent bringing one in to work with: kumo, 2026-11-16): said
+			// by the one inviting, calling it, as any message there is.
+			if _, err := s.sendAs(ctx, c, s.fromOf(c, ""), ch, api.Send{Text: "@" + m.Nick + " " + req.Text}); err != nil {
+				// It is in all the same; the words were not said (409 behind: read, then say them).
+				s.logf("server: channel %s: the words for @%s: %v", ch, m.Nick, err)
+				s.membersChanged()
+				s.memberFault(w, err)
+				return
+			}
+		case seq > 0 && req.Greet:
+			s.greet(c, ch, id, seq)
+		}
 	}
 	out, err := s.membersOf(c, ch)
 	if err != nil {
@@ -735,11 +765,15 @@ func (s *Server) addAgent(ctx context.Context, c caller, ch string, st *api.Sess
 // launch puts session id, just started by session by's agent (ir new), in the channel by works
 // for (docs/channels.md "拉起"): the one whose call it is answering, else its own. It is there as
 // one invited by it (Spawned, recv at), not counted among those invited. No room: the session
-// goes to the archive, and errFull.
-func (s *Server) launch(c caller, by, id string) error {
+// goes to the archive, and errFull. first: the words it was started with, given it as a call
+// from by in that channel (as by's own words there would be), its answer said there (kumo,
+// 2026-11-16: not kept in its own session, a face that flashed up and went).
+func (s *Server) launch(c caller, by, id, first string) error {
 	st, err := s.m.State(by)
 	if err != nil || st.Archived || st.Subagent || st.Bare || by == id {
-		return nil // not an agent's session (a person's shell, one gone): as any new session
+		// Not an agent's session (a person's shell, one gone): as any new session, its words
+		// its own.
+		return s.firstWords(c, by, id, first)
 	}
 	ch := s.calls.current(by)
 	if ch == "" || !s.ch.Speaks(ch, by) {
@@ -761,9 +795,34 @@ func (s *Server) launch(c caller, by, id string) error {
 	}
 	s.logf("server: channel %s: %s launched %s as @%s", ch, by, id, m.Nick)
 	s.m.Refresh([]string{ch, id})
-	s.tellMembers(c, ch, fmt.Sprintf("@%s 加入了频道", m.Nick), channel.Event{Type: "join", Member: m.Member, Nick: m.Nick, Name: s.agentName(id)})
+	seq := s.tellMembers(c, ch, fmt.Sprintf("@%s 加入了频道", m.Nick), channel.Event{Type: "join", Member: m.Member, Nick: m.Nick, Name: s.agentName(id)})
 	s.membersChanged()
+	if strings.TrimSpace(first) == "" {
+		return nil
+	}
+	if seq == 0 {
+		return s.firstWords(c, by, id, first)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	from := session.From(gate.HostID, "@"+s.ch.Nick(by))
+	if _, err := s.deliverTo(ctx, ch, id, seq, first, "", from, false, nil, s.reach(ch, by, id, s.chain.of(ch, by))); err != nil {
+		s.logf("server: channel %s: %s's first words to %s: %v", ch, by, id, err)
+		return s.firstWords(c, by, id, first)
+	}
 	return nil
+}
+
+// firstWords gives session id, started by session by, the words it was started with, as its
+// own (no channel).
+func (s *Server) firstWords(c caller, by, id, first string) error {
+	if strings.TrimSpace(first) == "" {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	_, err := s.sendAs(ctx, c, s.fromOf(c, by), id, api.Send{Text: first})
+	return err
 }
 
 // counts: session's agent is one channel ch gives messages to and counts among its agents
@@ -938,9 +997,9 @@ func (s *Server) peoplePut(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if ev.Everyone != slices.Contains(before, channel.Everyone) || len(ev.Added)+len(ev.Removed) > 0 {
-		text := "成员改为所有人"
+		text := "成员改为全体"
 		if !ev.Everyone {
-			text = fmt.Sprintf("成员改为 %d 人", len(after))
+			text = fmt.Sprintf("成员改为 %d 个", len(after))
 		}
 		s.tellMembers(c, ch, text, ev)
 	}
@@ -1144,9 +1203,32 @@ func (s *Server) agentName(id string) string {
 
 // tellMembers says in channel ch that its members changed: a line of Iridium's own (text, for
 // those that only read words) with ev, which c did.
-func (s *Server) tellMembers(c caller, ch, text string, ev channel.Event) {
+func (s *Server) tellMembers(c caller, ch, text string, ev channel.Event) int64 {
 	ev.By = s.satoriUser(c).Name
-	s.sat.Note(ch, text, c.ID(), &ev)
+	// An agent's ir: the agent, by its nick (not the app its session was opened from).
+	if c.session != "" {
+		if nick := s.ch.Nick(c.session); nick != "" {
+			ev.By = nick
+		}
+	}
+	return s.sat.Note(ch, text, c.ID(), &ev)
+}
+
+// greet asks session id's agent, just invited into channel ch by c (its line there, seq), to
+// say a line there: hello, and who it is (kumo, 2026-11-16: an agent invited says a word, not
+// a face that flashes up and goes). A turn of its own, as a message given to it is; not waited
+// for.
+func (s *Server) greet(c caller, ch, id string, seq int64) {
+	by := s.satoriUser(c).Name
+	words := fmt.Sprintf("%s 邀请你加入了这个频道。用一两句话跟大家打个招呼，说说你是谁。", cmp.Or(by, "Iridium"))
+	lk := s.chain.person(ch, c.ID())
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		if _, err := s.deliverTo(ctx, ch, id, seq, words, "", session.From(gate.HostID, ""), false, nil, lk); err != nil {
+			s.logf("server: channel %s: greeting from %s: %v", ch, id, err)
+		}
+	}()
 }
 
 // DefaultPeople are a new channel's people when its maker names none (the user, 2026-11-13):
@@ -1410,7 +1492,9 @@ func (s *Server) viewersOf(ch string) []api.Viewer {
 	for _, v := range s.viewers.of[ch] {
 		out = append(out, *v)
 	}
-	slices.SortFunc(out, func(a, b api.Viewer) int { return cmp.Or(cmp.Compare(a.Since, b.Since), cmp.Compare(a.Member, b.Member)) })
+	slices.SortFunc(out, func(a, b api.Viewer) int {
+		return cmp.Or(cmp.Compare(a.Since, b.Since), cmp.Compare(a.Member, b.Member))
+	})
 	return out
 }
 
@@ -1823,11 +1907,15 @@ func (s *Server) sendChannelAs(ctx context.Context, c caller, from, ch string, r
 				if err != nil {
 					return api.SendReply{}, err
 				}
+				s.irGiven(sender, ch, in)
 				s.seen(ch, sender, upTo)
 				return api.SendReply{}, &behindError{in.String()}
 			}
 			if in, err := assemble.ChannelUnseen(cc); err == nil {
 				unseen = in.String()
+				if unseen != "" {
+					s.irGiven(sender, ch, in)
+				}
 			}
 			given = upTo
 		}
@@ -1867,6 +1955,8 @@ func (s *Server) sendChannelAs(ctx context.Context, c caller, from, ch string, r
 	// An agent's words are an agent's (kind "said"), marked as sent; a reply said for it is its
 	// turn's last.
 	of := channel.Data{Quote: quote, Sent: sender != "", Final: sender != "" && relay}
+	// Its files, as the page draws them (the words given to the agents name them already).
+	of.Files = s.files.Refs(ch, req.Attachments)
 	if sender != "" && sender != ch {
 		// Where it is from: the stretch of the agent's own record since it was called here.
 		of.Session = sender
@@ -1889,6 +1979,10 @@ func (s *Server) sendChannelAs(ctx context.Context, c caller, from, ch string, r
 	s.follows.take(ch, u.ID, sender, true)
 	if sender == "" {
 		lk = s.chain.person(ch, c.ID())
+	} else {
+		// An agent's words reach the others under its nick, as routeSaid gives them, not its
+		// ir's tag (a session's id: kumo, 2026-11-16).
+		from = session.From(gate.HostID, "@"+s.ch.Nick(sender))
 	}
 	out := api.SendReply{Input: req.ID, Seq: seq, Said: true, Unseen: unseen}
 	var firstErr error
@@ -1952,7 +2046,8 @@ func quoted(text string) string {
 	return b.String() + "\n"
 }
 
-// lastInjection is the record of the last thing channel ch gave session's agent, if it is kept.
+// lastInjection is the record of the last message channel ch gave session's agent, if it is
+// kept (not what its ir was answered with there).
 func (s *Server) lastInjection(session, ch string) (assemble.Record, bool) {
 	rows, err := s.st.Injections(session, 0)
 	if err != nil {
@@ -1966,9 +2061,24 @@ func (s *Server) lastInjection(session, ch string) (assemble.Record, bool) {
 		if json.Unmarshal([]byte(in.Record), &r) != nil {
 			return assemble.Record{}, false
 		}
+		if r.Kind != assemble.KindTurnPrefix {
+			continue
+		}
 		return r, true
 	}
 	return assemble.Record{}, false
+}
+
+// irGiven keeps what session's ir was answered with in channel ch (what was said there since it
+// last read it, a send refused): it is in the agent's context as much as a message is.
+func (s *Server) irGiven(session, ch string, in assemble.Injection) {
+	b, err := json.Marshal(in.Record())
+	if err != nil {
+		return
+	}
+	if err := s.st.AddInjection(store.Injection{Session: session, Channel: ch, Record: string(b)}); err != nil {
+		s.logf("server: channel %s: keeping what %s's ir was answered: %v", ch, session, err)
+	}
 }
 
 // compactedSince: session's agent compacted its context after line of its record.
@@ -2054,6 +2164,8 @@ func (s *Server) deliverTo(ctx context.Context, ch, to string, seq int64, said, 
 	if st, err := s.m.State(to); err == nil && st.Machine != "" && !s.m.HasIR(to) {
 		cc.Pull = false // at another machine, with no ir to read the channel with
 	}
+	// Still under the name Iridium gave it: it names itself first, where it has ir to.
+	cc.Rename = channel.IsDefaultNick(me.Nick) && s.m.HasIR(to)
 	var keys []string
 	for _, a := range list {
 		ca := assemble.ChannelAgent{Nick: a.Nick}
@@ -2131,7 +2243,7 @@ func (s *Server) unread(ch string, me channel.Member, before int64, by map[strin
 			continue
 		}
 		id, agent := store.SessionOfMember(m.Author)
-		msgs = append(msgs, strategy.Msg{Seq: m.Seq, Who: whoOf(m, by), Agent: agent, Text: m.Text, At: m.At})
+		msgs = append(msgs, strategy.Msg{Seq: m.Seq, Who: whoOf(m, by), Agent: agent, Text: fileNames(m.Text, m.D.Files), At: m.At})
 		if me.Nick != "" && len(deliver.Mentions(m.Text, []string{me.Nick})) > 0 {
 			named = true
 		}
@@ -2144,6 +2256,35 @@ func (s *Server) unread(ch string, me channel.Member, before int64, by map[strin
 		}
 	}
 	return msgs, did, work, named, upTo, nil
+}
+
+// fileLine is a line that names a file by its path ("[附件] `path`", an agent's "[文件] `path`").
+var fileLine = regexp.MustCompile("^\\[(?:附件|文件|file|attachment)\\] `([^`]+)`$")
+
+// fileNames is text, said earlier, as an agent is given it among what it has not read (kumo,
+// 2026-11-16): its files by their names alone, not their paths, so that one it was not
+// called by does not go and read them; message.get has them whole. The message that calls an
+// agent keeps them (deliverTo's said).
+func fileNames(text string, files []api.FileRef) string {
+	var names []string
+	var kept []string
+	for _, l := range strings.Split(text, "\n") {
+		if m := fileLine.FindStringSubmatch(strings.TrimSpace(l)); m != nil {
+			names = append(names, filepath.Base(m[1]))
+			continue
+		}
+		kept = append(kept, l)
+	}
+	for _, f := range files {
+		if n := cmp.Or(f.Name, filepath.Base(f.Path)); n != "" && !slices.Contains(names, n) {
+			names = append(names, n)
+		}
+	}
+	out := strings.TrimSpace(strings.Join(kept, "\n"))
+	if len(names) == 0 {
+		return out
+	}
+	return strings.TrimSpace(out + "\n（附件：" + strings.Join(names, "、") + "）")
 }
 
 // routeSaid: an agent said m in its channel. In a channel of several, the agents it names are

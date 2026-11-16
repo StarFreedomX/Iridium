@@ -3,6 +3,7 @@ package channel
 import (
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -55,26 +56,66 @@ func (s *Service) nickOf(session string, base func(session string) string) (stri
 	if n := s.Nick(session); n != "" {
 		return n, nil
 	}
-	stem := strings.Map(func(r rune) rune {
-		if deliver.ValidNick(string(r)) {
-			return r
-		}
-		return -1
-	}, strings.ToLower(base(session)))
-	if stem == "" {
-		stem = "agent"
-	}
 	taken := map[string]bool{}
 	for _, n := range s.members().nicks {
 		taken[strings.ToLower(n)] = true
 	}
-	nick := stem
-	for i := 2; taken[nick]; i++ {
-		nick = fmt.Sprintf("%s%d", stem, i)
+	var nick string
+	if s.Numbered {
+		stem := strings.Map(func(r rune) rune {
+			if deliver.ValidNick(string(r)) {
+				return r
+			}
+			return -1
+		}, strings.ToLower(base(session)))
+		if stem == "" {
+			stem = "agent"
+		}
+		nick = stem
+		for i := 2; taken[nick]; i++ {
+			nick = fmt.Sprintf("%s%d", stem, i)
+		}
+	} else {
+		nick = DefaultNick(base(session), session, func(n string) bool { return taken[strings.ToLower(n)] })
 	}
 	defer s.changed()
 	return nick, s.st.SetNick(session, nick)
 }
+
+// stems are the names a default nick begins with, by harness.
+var stems = map[string]string{"claude": "Claude", "codex": "Codex", "pi": "Pi", "dsh": "DeepSeek"}
+
+// defaultNick is what DefaultNick makes: a name, "-", hex digits.
+var defaultNick = regexp.MustCompile(`^[A-Z][A-Za-z]*-[0-9a-f]{4,}$`)
+
+// DefaultNick is the nick an agent goes by till it gives itself one (kumo, 2026-11-16: not
+// claude2): its harness's name and four hex digits of its session's id (Claude-b134), more
+// digits while taken says it is taken.
+func DefaultNick(harness, session string, taken func(string) bool) string {
+	stem := stems[harness]
+	if stem == "" {
+		stem = "Agent"
+	}
+	hex := strings.Map(func(r rune) rune {
+		if (r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') {
+			return r
+		}
+		return -1
+	}, strings.ToLower(strings.TrimPrefix(session, "session-"))) // dsh's ids begin so
+	for n := 4; n <= len(hex); n++ {
+		if nick := stem + "-" + hex[:n]; !taken(nick) {
+			return nick
+		}
+	}
+	for i := 2; ; i++ {
+		if nick := fmt.Sprintf("%s-%s%d", stem, hex, i); !taken(nick) {
+			return nick
+		}
+	}
+}
+
+// IsDefaultNick: nick is one DefaultNick gave, not one the agent or a person chose.
+func IsDefaultNick(nick string) bool { return defaultNick.MatchString(nick) }
 
 // SetNick makes nick what session's agent is called by, in every channel.
 func (s *Service) SetNick(session, nick string) error {

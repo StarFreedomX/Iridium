@@ -32,6 +32,9 @@ type ProfileChange struct{ Who, What, To string }
 // subscription (docs/channels.md "订阅"): what it says in its turn stays in its own session, and
 // it speaks in the channel with ir; none: the channel is the agent's own.
 type Channel struct {
+	// Rename: You is a nick Iridium gave it for now (channel.IsDefaultNick): it is asked to give
+	// itself one first (kumo, 2026-11-16). Only to one with ir.
+	Rename bool
 	ID     string
 	Name   string
 	You    string
@@ -229,6 +232,9 @@ func channelPieces(c Channel, seq int64, said, input string) []piece {
 		ps = append(ps, text(idChannelQuote, "seq", n(q.Seq), "who", q.Who), words(w, Ref{Kind: "message", ID: n(q.Seq)}), text(idChannelQuoteEnd))
 	}
 	ps = append(ps, words(said, append(refs, Ref{Kind: "message", ID: n(seq)})...), text(idChannelOpen))
+	if c.Rename {
+		ps = append(ps, text(idChannelRename, "you", c.You))
+	}
 	static := staticPieces(c)
 	switch {
 	case !c.Brief:

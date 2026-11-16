@@ -13,9 +13,10 @@ import { cn } from "../../ui";
 export const CARD_POP = "w-[min(320px,calc(100vw-16px))] overflow-hidden p-0";
 
 /** A member's card as the daemon has it (GET members/{who}): asked again as any card changes
- *  (the carried "avatars"). who: an agent's "agent:<session>", a person's login or app id. */
+ *  (the carried "cards"). who: an agent's "agent:<session>", a person's login or app id. */
 export function useCard(who: string) {
-  const seq = useCarried<number>("avatars");
+  // Again as any card changes (its name, intro, face): "cards", not only "avatars".
+  const seq = useCarried<number>("cards");
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["card", who], queryFn: () => api.memberCard(who), staleTime: 5_000, retry: false, enabled: !!who });
   const first = useRef(true);

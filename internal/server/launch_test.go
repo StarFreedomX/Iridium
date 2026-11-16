@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"slices"
 	"strings"
 	"testing"
@@ -68,6 +69,26 @@ func TestLaunchJoinsChannel(t *testing.T) {
 	if sp := l.s.spawnedOf(grand); sp == nil || sp.By != parent || sp.Channel != room {
 		t.Errorf("where it was started: %+v", sp)
 	}
+}
+
+// One an agent starts in its channel with words and a name (channel.create data.name): called
+// by the name, the words said to it in the channel, its answer said there (kumo, 2026-11-16:
+// not claude2, not kept in its own session).
+func TestLaunchSpeaksInChannel(t *testing.T) {
+	t.Parallel()
+	l := start(t)
+	parent := l.create(200, "web", api.NewSession{Agent: api.AgentClaude, Cwd: l.work, Text: "first"})
+	l.waitReply("web", parent, "ok: first")
+	// As Satori's channel.create gives it (data.name as Name).
+	c := caller{Identity: localIdentity, socket: true, agent: true, session: parent}
+	id, err := l.s.createAs(context.Background(), c, api.NewSession{Agent: api.AgentClaude, Cwd: l.work, Text: "say hi", Name: "子会话 helper"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if nick := l.s.ch.Nick(id); nick != "子会话helper" {
+		t.Errorf("its nick: %q", nick)
+	}
+	l.waitSaid("web", parent, "@子会话helper", "ok: #", "say hi")
 }
 
 // An agent's ask is told in every channel it is in: an app there gets it and may answer it

@@ -410,9 +410,14 @@ func (s *Server) profileNote(c caller, ch, member, nick string, what []string) {
 	s.sat.Note(ch, text, c.ID(), &ev)
 }
 
-// cardsChanged tells the pages cards changed: the faces again, the members again.
-func (s *Server) cardsChanged() {
-	s.hub.Set("avatars", s.avatarsSeq.Add(1))
+// cardsChanged tells the pages cards changed: the cards again ("cards"), the members again; the
+// faces ("avatars", which every face's address carries) only when faces did (kumo, 2026-11-16: a
+// name given to one session reloaded every face in the list).
+func (s *Server) cardsChanged(faces bool) {
+	if faces {
+		s.hub.Set("avatars", s.avatarsSeq.Add(1))
+	}
+	s.hub.Set("cards", s.cardsSeq.Add(1))
 	s.membersChanged()
 }
 
@@ -489,7 +494,7 @@ func (s *Server) patchAgent(c caller, id, in string, p api.ProfilePatch) error {
 	for _, ch := range s.noteChannels(c, id, in) {
 		s.profileNote(c, ch, store.AgentMember(id), s.ch.Nick(id), what)
 	}
-	s.cardsChanged()
+	s.cardsChanged(len(faces) > 0)
 	return nil
 }
 
@@ -565,7 +570,7 @@ func (s *Server) patchChannel(ctx context.Context, c caller, ch string, p api.Pr
 	if s.multi(ch) {
 		s.profileNote(c, ch, "", "", what)
 	}
-	s.cardsChanged()
+	s.cardsChanged(len(faces) > 0)
 	return nil
 }
 
@@ -584,13 +589,14 @@ func (s *Server) patchPerson(c caller, p api.ProfilePatch) error {
 		}
 		prof.Intro = v
 	}
-	if _, err := s.setFaces(c, key, &prof, nil, p.Background, "", ""); err != nil {
+	faces, err := s.setFaces(c, key, &prof, nil, p.Background, "", "")
+	if err != nil {
 		return err
 	}
 	if err := s.st.SetProfile(key, prof); err != nil {
 		return err
 	}
-	s.cardsChanged()
+	s.cardsChanged(len(faces) > 0)
 	return nil
 }
 

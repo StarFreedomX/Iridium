@@ -7,11 +7,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../api/client";
 import type { ChannelMembers } from "../../api/types.gen";
 import { t } from "../../i18n";
-import { go, openChat } from "../../route";
+import { openChat } from "../../route";
 import { isComputer, useApps } from "../../data";
 import { errText, toast } from "../../toast";
 import { Avatar, isHost } from "../../ui";
 import { mayDM, userOf, type AgentRow } from "./lib";
+import { SelfEdit } from "./edit";
 import { AgentCard } from "./members";
 import { lendActs } from "./menu";
 import { namesOf, type Named } from "./nick";
@@ -20,9 +21,12 @@ import { hasApp, hasLogin, peopleOf } from "./setup";
 
 /** user: their Satori user id (a login's, "local" the host's); app: the app they came by. dm:
  *  false for the one looking (no channel of one). The one card (profilecard.tsx): their
- *  background, face, name, signature; 编辑资料 on one's own, which is this panel's profile. */
+ *  background, face, name, signature; 编辑资料 on one's own, this panel's profile in place
+ *  (edit.tsx SelfEdit). */
 export function PersonCard({ user, name, avatar, app, call, dm: other = true }: { user: string; name: string; avatar?: string; app?: string; call?: (name: string) => void; dm?: boolean }) {
   const [busy, setBusy] = useState(false);
+  // 编辑资料 of one's own: the card turns into it in place (kumo, 2026-11-16: no settings page).
+  const [edit, setEdit] = useState(false);
   const dm = mayDM(user, useApps().data?.logins ?? []) && other;
   const card = useCard(user);
   const talk = () => {
@@ -35,7 +39,8 @@ export function PersonCard({ user, name, avatar, app, call, dm: other = true }: 
   const keys: CardKey[] = [];
   if (dm) keys.push({ icon: <MessageCircle size={14} />, label: t("channel.dm"), run: talk, disabled: busy });
   if (call) keys.push({ icon: <AtSign size={14} />, label: t("channel.call"), run: () => call(name) });
-  if (card?.mine) keys.push({ icon: <PencilLine size={14} />, label: t("profile.edit"), run: () => go({ name: "settings" }) });
+  if (card?.mine) keys.push({ icon: <PencilLine size={14} />, label: t("profile.edit"), run: () => setEdit(true) });
+  if (edit) return <SelfEdit back={() => setEdit(false)} />;
   return <ProfileCard face={<Avatar src={avatar ?? card?.avatar} name={name} size={56} host={isHost(user)} />} name={name} sub={app} intro={card?.intro} background={card?.background} keys={keys} />;
 }
 

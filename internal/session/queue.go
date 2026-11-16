@@ -173,7 +173,11 @@ func (h *Hosted) writeLine(ctx context.Context, in store.Input, line assemble.In
 	case <-ctx.Done():
 		return ctx.Err()
 	}
-	return h.drv.Send(ctx, agent.Message{ID: in.ID, Text: line, Human: true, Images: images})
+	if err := h.drv.Send(ctx, agent.Message{ID: in.ID, Text: line, Human: true, Images: images}); err != nil {
+		return err
+	}
+	h.m.given(h.id, in.ID, line)
+	return nil
 }
 
 // release sends what waits in the queue, in order, as one turn: the queued ones, and the paused

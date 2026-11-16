@@ -19,13 +19,14 @@ const (
 	idAskDenied        = "ask.denied"         // a no without words
 
 	// A channel of several agents (channel.go).
-	idChannelSystem     = "channel.system"             // in place of title: one agent of several
-	idChannelMessage    = "channel.message"            // before the words: the message's number
-	idChannelQuote      = "channel.quote"              // then the message it answers: its number, who said it
+	idChannelSystem     = "channel.system"  // in place of title: one agent of several
+	idChannelMessage    = "channel.message" // before the words: the message's number
+	idChannelQuote      = "channel.quote"   // then the message it answers: its number, who said it
 	idChannelQuoteEnd   = "channel.quote-end"
 	idChannelGuest      = "channel.context.guest"      // who it is in a channel it is in by a subscription, and how it speaks there
 	idChannelGuestBare  = "channel.context.guest-bare" // the same for an agent with no ir: its reply is said there for it
 	idChannelAgain      = "channel.context.again"      // in place of those, given before: which channel this is
+	idChannelRename     = "channel.context.rename"     // its nick is a default one: name itself first
 	idChannelSendUnseen = "channel.send.unseen"        // heads what an agent's ir is answered with: said since it last read
 	idChannelSendBehind = "channel.send.behind"        // its ir refused: too far behind
 	idChannelSendNamed  = "channel.send.named"         // its ir refused: something unseen names it

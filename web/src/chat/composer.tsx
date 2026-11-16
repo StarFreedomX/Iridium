@@ -176,9 +176,9 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
   // On a computer the caret is here as a chat opens; a phone would bring up its keyboard.
   useEffect(() => void (fine() && box.current?.focus({ preventScroll: true })), [s.id]);
 
-  // A channel with no agent takes no files yet (docs/channels.md "还没做"): none picked, pasted
-  // or dropped, and no key for it.
-  const noFiles = !!s.bare;
+  // Every chat takes files, a channel with no agent too (kumo, 2026-11-16: uploaded to the
+  // channel, kept with its message).
+  const noFiles = false;
   const attach = (files: File[]) => {
     if (noFiles) return;
     const add = files.map((file): Att => ({ key: crypto.randomUUID(), file, sent: 0, url: file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined, stop: new AbortController() }));

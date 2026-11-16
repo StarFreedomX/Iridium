@@ -8,6 +8,7 @@
 // their at-work frames under the words that called them; its subagents at work under the steps
 // that started them.
 import { Menu } from "@base-ui/react/menu";
+import { Popover } from "@base-ui/react/popover";
 import { BarChart3, Ellipsis, FolderOpen, Globe, ListTree, Plus, Settings } from "lucide-react";
 import type { Block, Status } from "../api/types.gen";
 import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type DragEvent, type ReactNode } from "react";
@@ -27,7 +28,7 @@ import { useConfirms, useList, useSession } from "../store";
 import { drafts, opened } from "../stream";
 import { errText, toast } from "../toast";
 import { groupPath, working } from "../tree";
-import { agentName, cn, Lamp, lampOf, LogoLamp, LogoStack, sessionStatusText, tilde, Tip, titleOf, untitled } from "../ui";
+import { agentName, cn, Lamp, lampOf, Leaving, LogoLamp, LogoStack, PopSurface, sessionStatusText, tilde, Tip, titleOf, untitled } from "../ui";
 import { givenTurn, groupMessages, isMulti, type AgentRow, type GivenTurn, type Msg } from "./channel/lib";
 import { betweenAgents, callerOf, foreignOf, givenHere, held, HOLD, linesOf, marksAt, named as namedIn, ownAnchors, slotsOf, subsAt, type Anchor, type RowTime } from "./channel/merge";
 import { LongWords } from "./longwords";
@@ -38,14 +39,16 @@ import { relays, type Relay } from "../satori";
 import { AgentFace } from "./channel/members";
 import { PersonCard, useNamed } from "./channel/person";
 import { Nicks } from "./channel/nick";
-import { openEdit, useEditing } from "./channel/editing";
+import { closeEdit, useEditing } from "./channel/editing";
+import { EditBody } from "./channel/edit";
+import { ChannelCard } from "./channel/channelcard";
+import { CARD_POP } from "./channel/profilecard";
 import { Face } from "./channel/face";
 import { mayAct, useMembers } from "./channel/gate";
 // A channel's parts, fetched apart: ⋯'s 编辑资料 on a phone (ChannelMenu), those looking and the
 // members at the bar's right (TopRight), the line in the composer's place for one not joined.
 const ChannelMenu = lazy(() => import("./channel/top"));
 // 编辑资料, the page drawn over the chat while a card is being changed (channel/edit.tsx).
-const EditPage = lazy(() => import("./channel/edit"));
 const TopRight = lazy(() => import("./channel/top").then((m) => ({ default: m.TopRight })));
 const NotJoined = lazy(() => import("./channel/key").then((m) => ({ default: m.NotJoined })));
 // A channel of several agents: its own code, fetched as one is first opened.
@@ -67,14 +70,16 @@ import { placesIn, PLACE_DRAG, SESSION_DRAG, sourceOf, yours } from "./refs";
 import { placeDropped, type NamedPlace } from "./at";
 import { PlaceIcon, placeOf } from "./mention";
 import { spotsOf, type Spot } from "./where";
-import { Compaction, Pending, Relayed, Running, Said, When } from "./said";
+import { Compaction, Pending, Relayed, Running, Said, useWhenRow, When } from "./said";
 import { turnsOf, type Row } from "./turns";
 import { Stick, toEnd } from "./stick";
 import { VoiceDock } from "../voice/dock";
 
 const BUSY = new Set(["running", "compacting", "starting", "waiting"]);
 /** Another agent of the channel at work: its frame under the conversation. */
-const WORKING = new Set(["running", "compacting", "starting"]);
+// At work: in a turn. Not "starting" (its harness coming up, no turn yet: an invited agent's face
+// flashed up as if to speak and went; kumo, 2026-11-16).
+const WORKING = new Set(["running", "compacting"]);
 /** A turn is on: at work, or waiting on an ask. Waiting only on a step auto mode denied, the turn is
  *  over (session/release.go): no stop key, no activity row. */
 const turning = (s: { status: string; asks: unknown[]; denials?: unknown[] }) => BUSY.has(s.status) && !(s.status === "waiting" && !s.asks.length && !!s.denials?.length);
@@ -108,28 +113,15 @@ export function ChatPage({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?:
         >
           <ChannelPage key="channel" id={id} sheet={sheet} record={openChat} bar={(s) => <Bar s={s} onSheet={onSheet} onMe={onMe} />} />
         </Suspense>
-        <EditSlot id={id} />
-      </>
+        </>
     );
   return (
     <>
       <OneChat key="one" id={id} sheet={sheet} onSheet={onSheet} onMe={onMe} />
-      <EditSlot id={id} />
     </>
   );
 }
 
-/** 编辑资料 over the chat (docs/next/group.md "改资料": a page, not a popover), while a card of
- *  this chat's is being changed; the chat stays as it is under it. */
-function EditSlot({ id }: { id: string }) {
-  const editing = useEditing(id);
-  if (!editing) return null;
-  return (
-    <Suspense fallback={null}>
-      <EditPage key={editing.agent ?? ""} editing={editing} />
-    </Suspense>
-  );
-}
 
 
 /** A session's chat, drawn once its first screen is in (chats.ts firstScreen: its state, its
@@ -430,11 +422,14 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
   const resting: AgentRow = { ...face, status: "idle" };
   // Another person's face opens their card (people and agents are peers, the user, 2026-11-13):
   // their Satori user id, a login's (an app's) or the panel login's.
+  // Your own face the same card as others see (kumo, 2026-11-16: not the settings): no 私聊, no
+  // 提及; 编辑资料 in it.
   const personCard = (b: Block) => {
     const user = b.fromLogin || b.fromTerminal;
-    if (!user || user === self.id || (self.host && user === "local")) return undefined;
+    if (!user) return undefined;
     const src = source(b);
-    return <PersonCard user={user} name={b.from || user} avatar={src.kind === "you" ? src.avatar : undefined} call={may ? (name) => composer.current?.insert(`@${name}`) : undefined} />;
+    const own = user === self.id || (self.host && user === "local");
+    return <PersonCard user={user} name={b.from || user} avatar={src.kind === "you" ? src.avatar : undefined} dm={!own} call={may && !own ? (name) => composer.current?.insert(`@${name}`) : undefined} />;
   };
   // When each of the agent's rows was written: its turn's head says the first's.
   const times = new Map<string, number>();
@@ -678,17 +673,23 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
           {/* The others at work (kumo, 2026-11-15): one called comes in under the words that
               called it, once they are whole (g-arrive: its height opens, then it rises in); under
               its own last words, the dots alone. */}
-          {P &&
-            atWork.map((a) => {
-              const alone = !pending.length && lastGroup?.session === a.session;
-              return (
-                <div key={a.session} className={cn(!alone && "g-arrive", "-mt-2")}>
-                  <div>
-                    <P.AtWork a={a} channel={id} alone={alone} quiet={alone ? `${a.session} ${ready?.kept.log.end}` : a.session} bars={barsOf(a.session)} call={may ? callAt : undefined} record={openChat} may={may} />
+          {/* One that goes with nothing said (ir's interrupt of itself) fades and closes (Leaving). */}
+          {P && (
+            <Leaving
+              items={atWork}
+              keyOf={(a) => a.session}
+              draw={(a, leaving) => {
+                const alone = !pending.length && lastGroup?.session === a.session;
+                return (
+                  <div className={cn(!alone && !leaving && "g-arrive", "-mt-2")}>
+                    <div>
+                      <P.AtWork a={a} channel={id} alone={alone} quiet={alone ? `${a.session} ${ready?.kept.log.end}` : a.session} bars={barsOf(a.session)} call={may ? callAt : undefined} record={openChat} may={may} />
+                    </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              }}
+            />
+          )}
           {placed.rest.map((x) => (
             <div key={x.id} className="g-arrive -mt-2">
               <div>
@@ -924,6 +925,8 @@ function Bar({ s, onSheet, onMe, spots, asked }: { s?: Session; onSheet?: () => 
               </Menu.Portal>
             </Menu.Root>
             <PublicLink key={`public:${s.id}`} session={s.id} anchor={more} open={publicOpen} onOpenChange={setPublicOpen} />
+            {/* ⋯'s 编辑资料 (on a phone, where the title's face is Iridium's mark): out of ⋯. */}
+            <EditAt id={s.id} anchor={more} />
           </span>
         )}
       </div>
@@ -932,23 +935,42 @@ function Bar({ s, onSheet, onMe, spots, asked }: { s?: Session; onSheet?: () => 
   );
 }
 
-/** The channel's face before the title, pressed: 编辑资料 (its name, intro, face, background;
- *  the user, 2026-11-16; before, another face at once). Only for one of
- *  its people: one who only reads sees it, and it is no key. */
+/** 编辑资料 asked from a menu with no face to open out of (⋯ on a phone; editing.ts): the same
+ *  as a card's, out of anchor. */
+function EditAt({ id, anchor }: { id: string; anchor: React.RefObject<HTMLElement | null> }) {
+  const editing = useEditing(id);
+  // The last one asked stays drawn while it folds away.
+  const last = useRef(editing);
+  if (editing) last.current = editing;
+  return (
+    <Popover.Root open={!!editing} onOpenChange={(o) => !o && closeEdit()}>
+      <PopSurface anchor={anchor.current} align="end" className={CARD_POP}>
+        {last.current && <EditBody key={last.current.agent ?? ""} editing={last.current} done={closeEdit} />}
+      </PopSurface>
+    </Popover.Root>
+  );
+}
+
+/** The channel's face before the title, pressed: its card in a popover out of the face (kumo,
+ *  2026-11-16: a face pops its card, it never opens a page; docs/前端设计规范.md); 编辑资料 is a
+ *  key of the card, for one of its people. */
 function FaceKey({ s, stack, className, ...rest }: { s: Session; stack?: Session["agent"][] } & ComponentProps<"button">) {
-  const may = mayAct(useMembers(s.id));
+  const [open, setOpen] = useState(false);
   const face = <LogoLamp agent={s.agent} status={lampOf(s)} size={18} mark={<Face key={s.id} id={s.id} agent={s.agent} size={18} none={stack && <LogoStack agents={stack} size={18} />} />} />;
   // rest: what the tip around it gives its trigger.
-  if (!may)
-    return (
-      <span {...(rest as ComponentProps<"span">)} className={cn("-m-1 grid place-items-center p-1", className)}>
-        {face}
-      </span>
-    );
   return (
-    <button {...rest} type="button" aria-label={t("profile.edit")} onClick={() => openEdit({ channel: s.id })} className={cn("g-press -m-1 grid place-items-center rounded-full p-1 hover:bg-fill", className)}>
-      {face}
-    </button>
+    <Popover.Root open={open} onOpenChange={setOpen}>
+      <Popover.Trigger
+        render={
+          <button {...rest} type="button" aria-label={titleOf(s)} className={cn("g-press -m-1 grid place-items-center rounded-full p-1 hover:bg-fill data-popup-open:bg-fill", className)}>
+            {face}
+          </button>
+        }
+      />
+      <PopSurface className={CARD_POP}>
+        <ChannelCard id={s.id} agent={s.agent} done={() => setOpen(false)} />
+      </PopSurface>
+    </Popover.Root>
   );
 }
 
@@ -1003,8 +1025,9 @@ type Works = { given: GivenTurn; relay?: Relay; time?: number };
 /** bars: its usage, after its model's name (the user, 2026-11-13: as the composer's foot had it,
  *  as small as a phone's). */
 function AgentTurn({ channel, a, may, bars, talk, time, children }: { channel: string; a: AgentRow; may: boolean; bars?: ReactNode; talk?: () => void; time?: number; children: ReactNode }) {
+  const row = useWhenRow();
   return (
-    <div className="flex min-w-0 items-start gap-2.5">
+    <div {...row} className={cn(row.className, "flex min-w-0 items-start gap-2.5")}>
       <AgentFace channel={channel} a={a} may={may} talk={talk} />
       <div className="flex min-w-0 flex-1 flex-col gap-5">
         <div className="-mb-3.5 flex h-4 min-w-0 items-center gap-1.5">

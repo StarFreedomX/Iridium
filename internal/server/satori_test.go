@@ -115,7 +115,7 @@ func TestSatori(t *testing.T) {
 	}
 	l.want(200, "socket", "POST", "/v1/internal/needs/"+l.pending().ID, api.NeedAnswer{Allow: true}, nil)
 	var lg satori.Login
-	if code, e := l.satoriCall(app, "alice", "login.get", nil, &lg); code != 200 || lg.Platform != app.App.ID || lg.User.ID != "alice" {
+	if code, e := l.satoriCall(app, "alice", "login.get", nil, &lg); code != 200 || lg.Platform != satori.Platform || lg.User.ID != "alice" {
 		t.Fatalf("login.get: %d %+v %+v", code, e, lg)
 	}
 	// The platform is the app's ID; no login, no say; the host and a bad TOKEN are no apps.
@@ -142,7 +142,7 @@ func TestSatori(t *testing.T) {
 		var hl satori.Login
 		json.NewDecoder(resp.Body).Decode(&hl)
 		resp.Body.Close()
-		if hl.Platform != "local" || hl.User == nil || hl.User.ID != "local" {
+		if hl.Platform != satori.Platform || hl.User == nil || hl.User.ID != "local" {
 			t.Errorf("the host's login: %+v", hl)
 		}
 	}

@@ -722,6 +722,20 @@ func (s *Store) AddInjection(in Injection) error {
 	return err
 }
 
+// InjectionOf is what session was given as input, if it is kept.
+func (s *Store) InjectionOf(session, input string) (Injection, bool) {
+	var in Injection
+	err := s.db.QueryRow(`SELECT id, session, channel, input, seq, at, record FROM injections WHERE session = ? AND input = ? ORDER BY id DESC LIMIT 1`, session, input).
+		Scan(&in.ID, &in.Session, &in.Channel, &in.Input, &in.Seq, &in.At, &in.Record)
+	return in, err == nil
+}
+
+// SetInjectionRecord puts record in place of injection id's.
+func (s *Store) SetInjectionRecord(id int64, record string) error {
+	_, err := s.db.Exec(`UPDATE injections SET record = ? WHERE id = ?`, record, id)
+	return err
+}
+
 // RemoveInjection drops what session was to be given as input: it was not given.
 func (s *Store) RemoveInjection(session, input string) error {
 	_, err := s.db.Exec(`DELETE FROM injections WHERE session = ? AND input = ?`, session, input)

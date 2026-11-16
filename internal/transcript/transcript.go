@@ -395,8 +395,13 @@ func (f *File) Title() (string, error) {
 
 // withoutChannelContext is a message an agent was given of a channel (internal/ctx/assemble
 // ChannelTurn: "#n: words", then a <channel-context> block) as its words alone; any other text
-// as it is.
+// as it is. One its sender's tag comes before ("[@nick] #n: …") is the same.
 func withoutChannelContext(text string) string {
+	if strings.HasPrefix(text, "[") {
+		if _, rest, ok := strings.Cut(text, "] "); ok && strings.HasPrefix(rest, "#") {
+			text = rest
+		}
+	}
 	if !strings.HasPrefix(text, "#") {
 		return text
 	}

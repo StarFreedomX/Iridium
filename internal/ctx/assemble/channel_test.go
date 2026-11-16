@@ -21,7 +21,7 @@ func TestChannelTurn(t *testing.T) {
 	want := `#11: @codex look
 
 <channel-context>
-You are codex in a channel shared with people and other agents. Its agents: claude (Claude Opus), codex. Only what you say reaches the channel: your thinking and tool calls stay yours, and you do not see theirs. To call another agent, write @ and its name in what you say; without that no agent is called. Between agents, @ another only when you need its answer; when the exchange has said what it needs to, reply without @ and it ends there (agents passing it on without a person stop after a few turns anyway).
+You are codex in a channel shared with people and other agents. Its agents: claude (Claude Opus), codex. Only what you say reaches the channel: your thinking and tool calls stay yours, and you do not see theirs. To call another agent, write @ and its name in what you say; without that no agent is called. Between agents, @ another only when you need its answer; when the exchange has said what it needs to, reply without @ and it ends there (agents passing it on without a person stop after a few turns anyway). After you @ an agent, end your turn: its answer comes in the channel, and one that answers you calls you. Do not restate what the channel already shows, nor ids, folders or states. To name one without calling it, write its name without @. Called with nothing to say (thanks, an acknowledgement): end your turn with ir api POST internal/sessions/self/interrupt; nothing is said for you.
 #1–#4: 4 earlier messages, not shown.
 Listed by turn (who asked, their first words, who answered):
 #5–#8 kumo: fix the build (answered by claude)
@@ -53,7 +53,7 @@ More of the channel: ir api message.list channel_id=self [next=<number> limit=<n
 	}
 	// Nothing unseen: who is there, nothing else.
 	in, _ = ChannelTurn(Channel{You: "a", Agents: []ChannelAgent{{Nick: "a"}}}, 1, "hi", "")
-	if got := in.String(); got != "#1: hi\n\n<channel-context>\nYou are a in a channel shared with people and other agents. Its agents: a. Only what you say reaches the channel: your thinking and tool calls stay yours, and you do not see theirs. To call another agent, write @ and its name in what you say; without that no agent is called. Between agents, @ another only when you need its answer; when the exchange has said what it needs to, reply without @ and it ends there (agents passing it on without a person stop after a few turns anyway).\n</channel-context>" {
+	if got := in.String(); got != "#1: hi\n\n<channel-context>\nYou are a in a channel shared with people and other agents. Its agents: a. Only what you say reaches the channel: your thinking and tool calls stay yours, and you do not see theirs. To call another agent, write @ and its name in what you say; without that no agent is called. Between agents, @ another only when you need its answer; when the exchange has said what it needs to, reply without @ and it ends there (agents passing it on without a person stop after a few turns anyway). After you @ an agent, end your turn: its answer comes in the channel, and one that answers you calls you. Do not restate what the channel already shows, nor ids, folders or states. To name one without calling it, write its name without @. Called with nothing to say (thanks, an acknowledgement): end your turn with ir api POST internal/sessions/self/interrupt; nothing is said for you.\n</channel-context>" {
 		t.Errorf("bare: %q", got)
 	}
 }

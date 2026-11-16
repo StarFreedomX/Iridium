@@ -2,7 +2,7 @@
 // members (what each receives, each agent's context as a ring) at the bar's right, each a key of
 // its own; 邀请 among the members: agents (invite.tsx) and people, an app a submenu of its
 // logins. An agent's row opens the menu its face has (members.tsx MemberItems: one
-// implementation). The face is the title's key (chat.tsx): 编辑资料, which on a phone is in ⋯.
+// implementation). The face is the title's key (chat.tsx): its card, 编辑资料 in it; on a phone in ⋯.
 import { Menu } from "@base-ui/react/menu";
 import { Popover } from "@base-ui/react/popover";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -28,7 +28,7 @@ import type { AgentRow } from "./lib";
 import { MemberAsks, MemberItems, type Ask } from "./members";
 import { actsOf } from "./menu";
 import { subName, SubTag } from "../subwork";
-import { appAll, everyone, hasApp, hasLogin, loginOf, peopleCount, peopleOf, pressApp, pressLogin } from "./setup";
+import { appAll, hasApp, hasLogin, loginOf, peopleCount, peopleOf, pressApp, pressLogin } from "./setup";
 
 const SUB = "no-bar max-h-[min(480px,var(--available-height))] min-w-52 max-w-[calc(100vw-16px)] overflow-y-auto p-1.5";
 const HEAD = "truncate px-2.5 pt-2 pb-0.5 text-xs text-ink-3 select-none first:pt-1";
@@ -128,16 +128,14 @@ export function TopRight({ id }: { id: string }) {
 }
 
 /** The members: each agent a submenu, the menu its face has (members.tsx MemberItems; what it
- *  asks with, ask, drawn by the bar), what it receives at its row's end; then the people. */
+ *  asks with, ask, drawn by the bar), what it receives at its row's end; then 邀请. */
 function MemberList({ id, ask }: { id: string; ask: (a: Ask) => void }) {
   const list = useList();
   const members = useMembers(id);
   const may = mayAct(members);
   const agents = (members?.members ?? []).filter((m) => m.session);
-  const people = peopleOf(members);
   const own = list?.find((x) => x.id === id);
   const subs = (list ?? []).filter((x) => x.subagent && x.parent === id && working(x, own, Date.now()));
-  const logins = useApps().data?.logins ?? [];
   // What the channel's page lends: its composer's @, its way to a session's record.
   const lent = actsOf(id);
   return (
@@ -162,8 +160,7 @@ function MemberList({ id, ask }: { id: string; ask: (a: Ask) => void }) {
           <Lamp status="running" />
         </Menu.Item>
       ))}
-      <div className={HEAD}>{t("channel.people")}</div>
-      <div className="flex h-8 items-center px-2.5 text-base text-ink-2 pointer-coarse:h-11">{everyone(people) ? t("channel.everyone") : t("channel.peopleN", { n: peopleCount(people, logins) })}</div>
+      {/* No 人 / 所有人 here (kumo, 2026-11-16): who the people are is 邀请's to show and set. */}
       {may && <Invite id={id} />}
     </>
   );
@@ -188,7 +185,6 @@ function Invite({ id }: { id: string }) {
       <Sub icon={<UserPlus size={15} />} label={t("channel.invite")} i={0}>
         <div className={HEAD}>{t("channel.agents")}</div>
         <AgentKinds id={id} />
-        {apps.length > 0 && <div className={HEAD}>{t("channel.people")}</div>}
         {apps.map((a) => {
           const name = a.web ? t("term.panel") : a.name;
           const logins = loginsOf(a.id);
@@ -212,8 +208,8 @@ function Invite({ id }: { id: string }) {
   );
 }
 
-/** ⋯'s part: on a phone, where the title's logo opens the list, 编辑资料 (the page the bar's
- *  face opens elsewhere). from: the place of its item among the menu's, for the stagger. */
+/** ⋯'s part: on a phone, where the title's logo opens the list, 编辑资料 (out of ⋯: chat.tsx
+ *  EditAt; elsewhere the face's card turns into it). from: the place of its item among the menu's, for the stagger. */
 export default function ChannelMenu({ id, from = 0, face }: { id: string; from?: number; face?: boolean }) {
   useLang();
   const members = useMembers(id);

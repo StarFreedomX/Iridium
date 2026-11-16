@@ -1,20 +1,24 @@
-// 编辑资料 (docs/next/group.md "改资料", "资料卡"): the one page a card is changed on, drawn
-// over the chat (chat.tsx EditSlot; a page, not a popover: docs/前端设计规范.md), back at its
-// top left. An agent's: what it is called by, its intro, its face, its background; the role it
-// is kept as; what it chose to remember. A channel's own: its name in place of the nick; for a
-// session's channel the rest is its agent's. Each is saved as it is changed.
+// 编辑资料 (docs/next/group.md "改资料", "资料卡"; kumo, 2026-11-16: never a page of its own):
+// what a card turns into in its own popover (g-slide, back to the card at its top left), or what
+// pops out of a menu's item. An agent's: what it is called by, its intro, its face, its
+// background; the role it is kept as; what it chose to remember. A channel's own: its name in
+// place of the nick; for a session's channel the rest is its agent's. Each is saved as it is
+// changed. The face itself changes the face (docs/前端设计规范.md "点头像就是换头像"): a picture
+// chosen, cropped round as this panel's own avatar is (profile.tsx Crop). Yours (a person's):
+// SelfEdit, this panel's own profile (profile.tsx), in the same frame.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft, LoaderCircle, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api } from "../../api/client";
 import { IntroMax, type Agent, type Profile, type ProfilePatch } from "../../api/types.gen";
-import { BannerThumb, FacePick, Field } from "../../facepick";
+import { asDataURL, BannerThumb, FacePick, Field } from "../../facepick";
 import { t, useLang } from "../../i18n";
+import { AvatarCrop, Crop, Profile as Own, ProfileMore } from "../../profile";
 import { openChat } from "../../route";
 import { useCarried, useList } from "../../store";
 import { errText, toast } from "../../toast";
-import { agentName, cn, IconKey, Tip } from "../../ui";
-import { closeEdit, type Editing } from "./editing";
+import { agentName, cn, FaceChangeOver, IconKey, Tip } from "../../ui";
+import type { Editing } from "./editing";
 import { Face } from "./face";
 import { memberError } from "./key";
 import { validNick } from "./lib";
@@ -31,13 +35,33 @@ function useAgain(state: string, key: unknown[]) {
   }, [seq, k, qc]);
 }
 
-export default function EditPage({ editing }: { editing: Editing }) {
+/** The popover's frame for 编辑资料: its head (back to the card, when it came from one; its
+ *  name), what scrolls under it. */
+function Frame({ back, children }: { back?: () => void; children: ReactNode }) {
+  return (
+    <div className="g-slide flex max-h-[min(600px,var(--available-height))] flex-col" role="dialog" aria-label={t("profile.edit")}>
+      <header className="flex h-10 shrink-0 items-center gap-0.5 px-1.5 pointer-coarse:h-12">
+        {back && (
+          <IconKey label={t("nav.back")} onClick={back} tipSide="bottom" className="size-7 pointer-coarse:size-9">
+            <ChevronLeft size={16} />
+          </IconKey>
+        )}
+        <h2 className={cn("m-0 min-w-0 flex-1 truncate text-sm font-semibold", !back && "px-2")}>{t("profile.edit")}</h2>
+      </header>
+      <div className="no-bar min-h-0 flex-1 overflow-y-auto px-3.5 pb-3.5">{children}</div>
+    </div>
+  );
+}
+
+/** 编辑资料 of a channel's own card, or of agent's (editing.agent). back: to the card it came
+ *  from; done: the popover put away (going to a channel from a memory). */
+export function EditBody({ editing, back, done }: { editing: Editing; back?: () => void; done: () => void }) {
   useLang();
   const { channel, agent } = editing;
   const qc = useQueryClient();
   const key = ["profile", channel, agent ?? ""];
-  const q = useQuery({ queryKey: key, queryFn: () => (agent ? api.memberCard(`agent:${agent}`).then((c): Profile => c) : api.channelProfile(channel)), staleTime: 0, retry: false });
-  useAgain("avatars", key);
+  const q = useQuery({ queryKey: key, queryFn: () => (agent ? api.memberCard(`agent:${agent}`).then((c): Profile => c) : (api.channelProfile(channel) as unknown as Promise<Profile>)), staleTime: 0, retry: false });
+  useAgain("cards", key);
   const p = q.data;
   const row = useList()?.find((x) => x.id === (agent ?? channel));
   const kind = (p?.agent ?? row?.agent ?? "") as Agent;
@@ -50,67 +74,104 @@ export default function EditPage({ editing }: { editing: Editing }) {
     void qc.invalidateQueries({ queryKey: ["members", channel] });
     void qc.invalidateQueries({ queryKey: ["card"] });
   };
-  useEffect(() => {
-    const esc = (e: KeyboardEvent) => e.key === "Escape" && !e.defaultPrevented && closeEdit();
-    addEventListener("keydown", esc);
-    return () => removeEventListener("keydown", esc);
-  }, []);
+  // A picture chosen for the face, being cropped (in the popover, as a page of it).
+  const [picture, setPicture] = useState<string | null>(null);
+  const file = useRef<HTMLInputElement>(null);
+  // Any size: the crop sends 256px.
+  const chosen = (f: File) => setPicture(URL.createObjectURL(f));
+  const cropped = (b: Blob) =>
+    void asDataURL(b)
+      .then((v) => save({ avatar: v }))
+      .then(
+        () => setPicture(null),
+        (e) => toast(t("me.avatar"), { error: true, description: memberError(e) }),
+      );
   const name = p?.name ?? "";
-  return (
-    <div className="absolute inset-0 z-30 bg-paper" role="dialog" aria-label={t("profile.edit")}>
-      <div className="g-slide flex h-full flex-col">
-        <header className="flex h-12 shrink-0 items-center gap-1 px-2 pointer-coarse:h-13">
-          <IconKey label={t("nav.back")} onClick={closeEdit} tipSide="bottom">
-            <ChevronLeft size={18} />
-          </IconKey>
-          <h1 className="m-0 min-w-0 flex-1 truncate text-base font-semibold">{t("profile.edit")}</h1>
-        </header>
-        <div className="no-bar min-h-0 flex-1 overflow-y-auto pb-28">
-          <div className="mx-auto flex w-full max-w-[560px] flex-col px-4">
-            {q.error ? (
-              <p className="m-0 py-10 text-center text-sm text-err">{errText(q.error)}</p>
-            ) : !p ? (
-              <div className="grid h-40 place-items-center text-ink-3">
-                <LoaderCircle size={18} className="animate-spin" />
-              </div>
-            ) : (
-              <>
-                {/* As its card shows it: the background, the face on its lower edge. */}
-                <div className="relative mb-9 h-24 rounded-lg bg-fill-2">
-                  {p.background && <img key={p.background} src={p.background} alt="" draggable={false} className="g-fade absolute inset-0 size-full rounded-lg object-cover" />}
-                  <span className="absolute -bottom-7 left-4 grid size-[62px] place-items-center rounded-full bg-paper">
-                    <span className="grid size-14 place-items-center rounded-full bg-fill">
-                      <Face id={face} agent={kind} size={56} logo={30} />
-                    </span>
-                  </span>
-                </div>
-                <Field
-                  label={t(agent ? "channel.nick" : "profile.name")}
-                  value={name}
-                  max={agent ? 32 : 80}
-                  bad={(v) => (!v.trim() ? " " : agent && !validNick(v) ? t("channel.nickBad") : "")}
-                  save={(v) => save(agent ? { nick: v } : { name: v.trim() })}
-                  explain={memberError}
-                />
-                <Field label={t("profile.intro")} value={p.intro ?? ""} max={IntroMax} multi count save={(v) => save({ intro: v })} explain={memberError} />
-                <FacePick
-                  label={t("profile.avatar")}
-                  preview={
-                    <span className="grid size-7 place-items-center overflow-hidden rounded-full bg-fill">
-                      <Face id={face} agent={kind} size={28} logo={16} />
-                    </span>
-                  }
-                  set={(v) => save({ avatar: v })}
-                />
-                <FacePick label={t("profile.background")} preview={<BannerThumb src={p.background} />} set={(v) => save({ background: v })} />
-                {session && <RoleRow session={session} role={p.role} name={name || agentName(kind)} again={() => void qc.invalidateQueries({ queryKey: key })} channel={channel} />}
-                {session && <Memories session={session} />}
-              </>
-            )}
-          </div>
-        </div>
+  if (picture)
+    return (
+      <div className="g-slide">
+        <Crop src={picture} onCancel={() => setPicture(null)} onDone={cropped} />
       </div>
-    </div>
+    );
+  return (
+    <Frame back={back}>
+      <input
+        ref={file}
+        type="file"
+        accept="image/png,image/jpeg,image/webp"
+        hidden
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          e.target.value = "";
+          if (f) chosen(f);
+        }}
+      />
+      {q.error ? (
+        <p className="m-0 py-10 text-center text-sm text-err">{errText(q.error)}</p>
+      ) : !p ? (
+        <div className="grid h-40 place-items-center text-ink-3">
+          <LoaderCircle size={18} className="animate-spin" />
+        </div>
+      ) : (
+        <>
+          {/* As its card shows it: the background, the face on its lower edge; the face is the
+              key that changes it. */}
+          <div className="relative mb-9 h-20 rounded-lg bg-fill-2">
+            {p.background && <img key={p.background} src={p.background} alt="" draggable={false} className="g-fade absolute inset-0 size-full rounded-lg object-cover" />}
+            <Tip label={t("profile.avatarChange")}>
+              <button type="button" aria-label={t("profile.avatarChange")} onClick={() => file.current?.click()} className="group g-press absolute -bottom-7 left-3.5 grid size-[62px] place-items-center rounded-full bg-paper">
+                <span className="relative grid size-14 place-items-center overflow-hidden rounded-full bg-fill">
+                  <Face id={face} agent={kind} size={56} logo={30} />
+                  <FaceChangeOver size={56} />
+                </span>
+              </button>
+            </Tip>
+          </div>
+          <Field
+            label={t(agent ? "channel.nick" : "profile.name")}
+            value={name}
+            max={agent ? 32 : 80}
+            bad={(v) => (!v.trim() ? " " : agent && !validNick(v) ? t("channel.nickBad") : "")}
+            save={(v) => save(agent ? { nick: v } : { name: v.trim() })}
+            explain={memberError}
+          />
+          <Field label={t("profile.intro")} value={p.intro ?? ""} max={IntroMax} multi count save={(v) => save({ intro: v })} explain={memberError} />
+          {/* The face's other ways (an emoji, a colour, none); its picture cropped as the face's. */}
+          <FacePick
+            label={t("profile.avatar")}
+            preview={
+              <span className="grid size-7 place-items-center overflow-hidden rounded-full bg-fill">
+                <Face id={face} agent={kind} size={28} logo={16} />
+              </span>
+            }
+            set={(v) => save({ avatar: v })}
+            upload={chosen}
+          />
+          <FacePick label={t("profile.background")} preview={<BannerThumb src={p.background} />} set={(v) => save({ background: v })} />
+          {session && <RoleRow session={session} role={p.role} name={name || agentName(kind)} again={() => void qc.invalidateQueries({ queryKey: key })} channel={channel} />}
+          {session && <Memories session={session} done={done} />}
+        </>
+      )}
+    </Frame>
+  );
+}
+
+/** 编辑资料 of your own card (a person's): this panel's own profile (profile.tsx: the face a key
+ *  that changes it, cropped; the name; the intro, the background), in the same frame. */
+export function SelfEdit({ back }: { back?: () => void }) {
+  useLang();
+  const [picture, setPicture] = useState<string | null>(null);
+  if (picture)
+    return (
+      <div className="g-slide">
+        <AvatarCrop src={picture} onBack={() => setPicture(null)} />
+      </div>
+    );
+  return (
+    <Frame back={back}>
+      <Own onPicture={setPicture} />
+      <ProfileMore />
+    </Frame>
   );
 }
 
@@ -159,7 +220,7 @@ const day = (ms: number, lang: string) => new Date(ms).toLocaleString(lang === "
 
 /** 记忆: what the agent chose to remember, the newest first: its words, when, the channel and
  *  the message it was at (pressed: that channel), and a key that deletes it, pressed twice. */
-function Memories({ session }: { session: string }) {
+function Memories({ session, done }: { session: string; done: () => void }) {
   const lang = useLang();
   const qc = useQueryClient();
   const key = ["memory", session];
@@ -192,7 +253,7 @@ function Memories({ session }: { session: string }) {
               <div className="flex min-w-0 flex-wrap items-center gap-x-2 text-xs leading-5 text-ink-3 tabular-nums">
                 <span>{day(m.at, lang)}</span>
                 {m.channel && (
-                  <button type="button" onClick={() => (closeEdit(), openChat(m.channel!))} className="min-w-0 truncate rounded-sm underline decoration-ink-4 underline-offset-2 hover:text-ink hover:decoration-ink-2">
+                  <button type="button" onClick={() => (done(), openChat(m.channel!))} className="min-w-0 truncate rounded-sm underline decoration-ink-4 underline-offset-2 hover:text-ink hover:decoration-ink-2">
                     {[m.name || m.channel.slice(0, 8), m.seq ? `#${m.seq}` : ""].filter(Boolean).join(" ")}
                   </button>
                 )}

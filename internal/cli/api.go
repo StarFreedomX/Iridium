@@ -397,7 +397,7 @@ func (e *env) then(c *apiCall, raw []byte) int {
 		if json.Unmarshal(raw, &p) != nil || p.Need.ID == "" {
 			return -1
 		}
-		fmt.Fprintf(e.err, "需要人决定：%s（%s）\n", p.Need.ID, p.Need.Kind)
+		fmt.Fprintf(e.err, "等你决定：%s（%s）\n", p.Need.ID, p.Need.Kind)
 		for {
 			var st api.NeedState
 			if err := e.do("GET", "/v1/internal/needs/"+url.PathEscape(p.Need.ID)+"?wait=60", nil, &st); err != nil {

@@ -94,6 +94,8 @@ type Server struct {
 	channelsSeq atomic.Int64
 	// avatarsSeq: the state "avatars", up by one at each change of a face.
 	avatarsSeq atomic.Int64
+	// cardsSeq: the state "cards", up by one at each change of a card (its name, intro, face).
+	cardsSeq atomic.Int64
 	// memorySeq: the state "memory", up by one when an agent's memory changes; rolesSeq: the
 	// state "roles", when a role does.
 	memorySeq atomic.Int64
@@ -310,9 +312,19 @@ func (s *Server) createAs(ctx context.Context, c caller, req api.NewSession) (st
 		req.Caller = c.session
 	}
 	alone := req.Agent != "" && req.Caller != "" && req.Members == nil
+	first := ""
+	if alone {
+		// Called by the name it was given (kumo, 2026-11-16: not claude2), unless it was given a
+		// nick; its first words not its own session's but a call in the channel it joins, so
+		// that what it answers is said there (launch).
+		if req.Nick == "" && req.Role == "" {
+			req.Nick = deliver.NickFrom(req.Name)
+		}
+		first, req.Text = req.Text, ""
+	}
 	id, err := s.create(ctx, c, req)
 	if alone && id != "" && err == nil {
-		err = s.launch(c, req.Caller, id)
+		err = s.launch(c, req.Caller, id, first)
 	}
 	return id, err
 }
@@ -475,7 +487,16 @@ func (s *Server) sendAs(ctx context.Context, c caller, from, id string, req api.
 func (s *Server) interrupt(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
-	s.done(w, s.m.Interrupt(ctx, r.PathValue("id")))
+	id := r.PathValue("id")
+	// An agent ending its own turn (ir api POST internal/sessions/self/interrupt; kumo,
+	// 2026-11-16): called with nothing to say, it says nothing. The calls it was answering are
+	// closed as answered: nothing is said for it, no line that it said nothing.
+	if c := callerOf(r); c.session != "" && c.session == id {
+		unlock := s.chain.lock(id)
+		s.calls.take(id, func(called) bool { return true })
+		unlock()
+	}
+	s.done(w, s.m.Interrupt(ctx, id))
 }
 
 func (s *Server) stop(w http.ResponseWriter, r *http.Request) {

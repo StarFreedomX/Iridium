@@ -2,10 +2,10 @@
 // dock itself, key.tsx, comes only once in a room), the entry in a folder group's "+", and the
 // count on a group's row of who is in its voice.
 import { AudioLines, PhoneOff } from "lucide-react";
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, type ReactNode } from "react";
 import { t } from "../i18n";
 import { useVoiceRooms } from "../store";
-import { cn, Tip } from "../ui";
+import { Tip } from "../ui";
 import { join, leave, useVoice } from "./state";
 
 const Part = lazy(() => import("./key").then((m) => ({ default: m.VoiceDock })));
@@ -20,18 +20,15 @@ export function VoiceDock(p: { side?: "top" | "bottom"; className?: string }) {
   );
 }
 
-/** A folder group's voice, in its "+": into it (how many are there, if any), or out of it. */
-export function VoiceEntry({ guild, done }: { guild: number; done: () => void }) {
+
+/** The group's voice as an item of its row's menu (kumo, 2026-11-16: in the group's right-click
+ *  menu, not the new-session popover): 语音 (and how many are in it), or 离开 while you are. */
+export function useVoiceItem(guild: number): { icon: ReactNode; label: string; run: () => void } {
   const v = useVoice();
   const there = useVoiceRooms()?.[String(guild)]?.length ?? 0;
   const here = v.room === String(guild) && v.status !== "off";
-  return (
-    <button type="button" onClick={() => ((here ? leave() : join(String(guild))), done())} className={cn("flex h-9 w-full items-center gap-2 rounded-md px-2 text-left text-sm hover:bg-fill pointer-coarse:h-11", here && "text-err")}>
-      {here ? <PhoneOff size={16} className="shrink-0" /> : <AudioLines size={16} className="shrink-0 text-ink-3" />}
-      <span className="min-w-0 flex-1 truncate">{here ? t("voice.leave") : t("voice.join")}</span>
-      {there > 0 && <span className="shrink-0 text-xs text-run tabular-nums">{t("voice.count", { n: there })}</span>}
-    </button>
-  );
+  if (here) return { icon: <PhoneOff size={15} className="text-err" />, label: t("voice.leave"), run: () => leave() };
+  return { icon: <AudioLines size={15} />, label: there > 0 ? `${t("voice.join")} · ${t("voice.count", { n: there })}` : t("voice.join"), run: () => join(String(guild)) };
 }
 
 /** On a folder group's row: how many are in its voice, to those not in it too; pressed, into it. */

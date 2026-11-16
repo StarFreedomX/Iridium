@@ -221,7 +221,7 @@ func outcome(st api.NeedState) string {
 	case "denied":
 		return "已拒绝。"
 	case "expired":
-		return "已过期，无人处理。"
+		return "已过期，未处理。"
 	}
 	return "没成：" + st.Error
 }

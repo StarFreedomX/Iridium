@@ -190,6 +190,28 @@ details[data-shut] > summary .fold-chev {
   min-height: 0;
   animation: g-rise var(--dur-2) var(--ease-out) var(--dur-2) both;
 }
+/* --- depart: arrive the other way (kumo, 2026-11-16: an agent that ends its turn with nothing to
+   say does not just vanish): what is in it fades out, then its height closes. --- */
+.g-depart {
+  display: grid;
+  grid-template-rows: 1fr;
+  animation: g-depart-close var(--dur-3) var(--ease-out) var(--dur-2) both;
+  pointer-events: none;
+}
+.g-depart > * {
+  min-height: 0;
+  animation: g-fade-out var(--dur-2) var(--ease-out) both;
+}
+@keyframes g-depart-close {
+  to {
+    grid-template-rows: 0fr;
+  }
+}
+@keyframes g-fade-out {
+  to {
+    opacity: 0;
+  }
+}
 @keyframes g-arrive-open {
   from {
     grid-template-rows: 0fr;

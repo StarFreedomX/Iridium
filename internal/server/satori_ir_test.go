@@ -56,7 +56,7 @@ func TestSatoriOnSocket(t *testing.T) {
 	// Who ir is: meta names the one login it speaks as.
 	var meta satori.Meta
 	if code, raw := l.irSatori("socket", "", "meta", nil, &meta); code != 200 || len(meta.Logins) != 1 ||
-		meta.Logins[0].Platform != "local" || meta.Logins[0].User == nil || meta.Logins[0].User.ID != "local" {
+		meta.Logins[0].Platform != satori.Platform || meta.Logins[0].User == nil || meta.Logins[0].User.ID != "local" {
 		t.Fatalf("meta: %d %s", code, raw)
 	}
 	// The headers are Satori's: none, refused.

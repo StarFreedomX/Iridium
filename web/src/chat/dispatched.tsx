@@ -16,7 +16,7 @@ import { backAt, firstWords, handBack, launchOf, messageOf, reportsOf, toldOf, t
 import type { Tool } from "./fold";
 import { LongWords } from "./longwords";
 import { Markdown } from "./markdown";
-import { When } from "./said";
+import { useWhenRow, When } from "./said";
 import { Dispatching, SubFace, SubFaceKey, SubHead, useSub } from "./subwork";
 
 /** Text the page may have only the start of: more, where its whole is and how to read it. */
@@ -117,8 +117,9 @@ export function HandBack({ at, start, name, session, took, used, time, failed, t
   const read = useReport(sub.session, n.total, n.fromLast, !!text);
   const r = read.report;
   const said = useWhole(text || r?.text || "", text ? more : r?.length && sub.session ? { session: sub.session.id, at: r.at, length: r.length, read: (whole) => (r.tool ? messageOf(whole) : whole) } : undefined);
+  const row = useWhenRow();
   return (
-    <div className="flex min-w-0 items-start gap-2.5">
+    <div {...row} className={cn(row.className, "flex min-w-0 items-start gap-2.5")}>
       <SubFaceKey sub={sub} />
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
         <SubHead name={sub.name}>

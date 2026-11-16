@@ -78,7 +78,7 @@ func Glance(path string, sources Sources) (Glimpse, error) {
 		if g.Title == "" {
 			for _, b := range blocksOf(at, raw, Clip, sources) {
 				if b.Kind == api.BlockKindUser {
-					g.Title = cut(oneLine(b.Text), TitleLen)
+					g.Title = cut(oneLine(withoutChannelContext(b.Text)), TitleLen)
 					break
 				}
 			}

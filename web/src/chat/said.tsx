@@ -51,9 +51,54 @@ export const clock = (ms?: number) => {
   return f.format(ms);
 };
 
-/** When a message was said, after its sender's name: always there, small and grey, not in a tip
- *  (docs/前端设计规范.md "点击，不靠悬停"). */
-export const When = ({ time }: { time?: number }) => (time ? <span className="shrink-0 text-xs leading-4 text-ink-4 tabular-nums">{clock(time)}</span> : null);
+/** When a message was said, on its head's inner side (beside the name, toward the middle; kumo,
+ *  2026-11-16): not shown till a pointer is over its row (WhenRow), or a finger presses the row's
+ *  blank, which shows it till pressed again. Its place is kept: showing it moves nothing. */
+export const When = ({ time }: { time?: number }) =>
+  time ? <span className="shrink-0 text-xs leading-4 text-ink-4 tabular-nums opacity-0 transition-opacity duration-(--dur-2) group-hover/msg:opacity-100 group-data-[when]/msg:opacity-100">{clock(time)}</span> : null;
+
+/** Whether a press at e is on a message's blank: not on its words, a key, a link, a picture, code
+ *  or a bubble, and no words being selected. */
+function onBlank(e: React.MouseEvent): boolean {
+  const el = e.target as Element;
+  if (el.closest("button,a,input,textarea,select,label,summary,img,svg,video,audio,pre,code,[role=button],[data-bubble-bg]")) return false;
+  if (getSelection()?.toString()) return false;
+  // A word under the point: its own box, not the block it is in, which is as wide as the row.
+  const d = document as Document & { caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null };
+  const at = d.caretPositionFromPoint?.(e.clientX, e.clientY) ?? (() => {
+    const r = document.caretRangeFromPoint?.(e.clientX, e.clientY);
+    return r ? { offsetNode: r.startContainer, offset: r.startOffset } : null;
+  })();
+  const node = at?.offsetNode;
+  if (node?.nodeType === Node.TEXT_NODE) {
+    const len = node.textContent?.length ?? 0;
+    const r = document.createRange();
+    for (const o of [at!.offset - 1, at!.offset]) {
+      if (o < 0 || o >= len) continue;
+      r.setStart(node, o);
+      r.setEnd(node, o + 1);
+      for (const b of r.getClientRects()) if (e.clientX >= b.left && e.clientX <= b.right && e.clientY >= b.top && e.clientY <= b.bottom) return false;
+    }
+  }
+  return true;
+}
+
+/** A message's row, where its time (When) shows: over it with a pointer; pressed on its blank,
+ *  till pressed there again (a phone has no hover). Spread on the row's element. */
+export function useWhenRow() {
+  const [on, setOn] = useState(false);
+  return { className: "group/msg", "data-when": on ? "" : undefined, onClick: (e: React.MouseEvent) => onBlank(e) && setOn((x) => !x) };
+}
+
+/** A message's row as an element of its own (useWhenRow), where a hook is not to hand. */
+export function MsgRow({ className, children }: { className?: string; children: ReactNode }) {
+  const row = useWhenRow();
+  return (
+    <div {...row} className={cn(row.className, className)}>
+      {children}
+    </div>
+  );
+}
 
 const FACE = 28;
 const BADGE = 12;
@@ -95,8 +140,8 @@ function Face({ who }: { who: You | From }) {
 }
 
 /** One message of the user's side, QQ-like: the face beside it, the name above, yours on the right.
- *  jump: a key to the sending session, on the face and the name. Your own face opens the settings
- *  (the user, 2026-11-08). */
+ *  jump: a key to the sending session, on the face and the name. Your own face pops your card
+ *  (card), the one others see (kumo, 2026-11-16; before, the settings). */
 /** left: another's words in a channel others speak in too, on the left: only yours are on the
  *  right there (the user, 2026-11-13). */
 /** card: what its face opens, pressed (a person's card in a channel, chat/channel/person.tsx). */
@@ -109,10 +154,11 @@ const Sender = forwardRef<HTMLDivElement, { who: You | From; time?: number; jump
   const tip = mine ? t("msg.fromPanel", { name: deviceOf(who) ? `${name} · ${t(deviceOf(who)![1])}` : name }) : jump ? t("msg.jump", { name: whole }) : who.channel ? t("msg.viaChannel", { name }) : whole;
   const face = <Face who={who} />;
   const press = jump ?? (mine && !left ? () => go({ name: "settings" }) : undefined);
+  const row = useWhenRow();
   // Every sender on the right, a letter as your words are: on the left it read as the agent's own
   // (the user, 2026-11-06).
   return (
-    <div ref={ref} className={cn("flex items-start gap-2.5", left ? "pr-6 sm:pr-10" : "flex-row-reverse pl-6 sm:pl-10")}>
+    <div ref={ref} {...row} className={cn(row.className, "flex items-start gap-2.5", left ? "pr-6 sm:pr-10" : "flex-row-reverse pl-6 sm:pl-10")}>
       {card ? (
         <Popover.Root>
           <Popover.Trigger
@@ -141,6 +187,8 @@ const Sender = forwardRef<HTMLDivElement, { who: You | From; time?: number; jump
       )}
       <div className={cn("flex min-w-0 flex-col gap-1", left ? "items-start" : "items-end")}>
         <div className="flex max-w-full min-w-0 items-center gap-1">
+          {/* The time on the inner side: after the name on the left, before it on the right. */}
+          {!left && <When time={time} />}
           {jump ? (
             <button type="button" onClick={jump} className="group flex min-w-0 items-center gap-0.5 rounded-sm px-0.5 text-xs leading-4 text-ink-3 hover:text-ink-2">
               <span className="min-w-0 truncate">{name}</span>
@@ -149,7 +197,7 @@ const Sender = forwardRef<HTMLDivElement, { who: You | From; time?: number; jump
           ) : (
             <span className="min-w-0 truncate px-0.5 text-xs leading-4 text-ink-3">{name}</span>
           )}
-          <When time={time} />
+          {left && <When time={time} />}
         </div>
         {children}
       </div>
@@ -373,9 +421,10 @@ export function Relayed({ given, relay, name, time, onJump, children }: { given:
   const ch = { ...given.channel!, name };
   const [rules, setRules] = useState(false);
   const head = `${t("channel.relayed", { name: ch.name })} · #${given.seq}`;
+  const row = useWhenRow();
   return (
     <div className="flex min-w-0 flex-col gap-5">
-      <div className="flex min-w-0 items-start gap-2.5">
+      <div {...row} className={cn(row.className, "flex min-w-0 items-start gap-2.5")}>
         <span className="grid size-7 shrink-0 place-items-center rounded-full bg-fill text-ink">
           <IrMark size={14} />
         </span>

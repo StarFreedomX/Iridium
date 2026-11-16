@@ -399,8 +399,20 @@ func TestResources(t *testing.T) {
 	r.f.sessions["s2"].Name = "named"
 
 	var lg Login
-	if r.as("u2", "login.get", nil, &lg); lg.Platform != "app1" || lg.User == nil || lg.User.ID != "u2" || lg.SN != 2 || *lg.Status != StatusOnline {
+	if r.as("u2", "login.get", nil, &lg); lg.Platform != Platform || lg.User == nil || lg.User.ID != "u2" || lg.SN != 2 || *lg.Status != StatusOnline {
 		t.Errorf("login.get: %+v", lg)
+	}
+	// An app's login is a bot of Iridium's: its name, its mark; the login's own name its nick.
+	if u := lg.User; u == nil || u.Name != "Iridium" || !strings.HasPrefix(u.Avatar, "data:image/svg+xml;base64,") || !u.IsBot {
+		t.Errorf("login.get's user: %+v", lg.User)
+	}
+	// Satori-Platform: the app's ID, or iridium; nothing else.
+	var again Login
+	if code, e := r.call("app1", Platform, "u2", "login.get", nil, &again); code != 200 || again.User == nil || again.User.ID != "u2" {
+		t.Errorf("login.get as iridium: %d %+v", code, e)
+	}
+	if code, _ := r.call("app1", "qq", "u2", "login.get", nil, nil); code != 403 {
+		t.Errorf("login.get as qq: %d", code)
 	}
 	var meta Meta
 	r.call("app1", "", "", "meta", nil, &meta)
@@ -602,7 +614,7 @@ func TestHandshake(t *testing.T) {
 	w.send(OpIdentify, Identify{Token: "ir_good"})
 	var ready Ready
 	w.want(OpReady, &ready)
-	if len(ready.Logins) != 2 || ready.Logins[0].Platform != "app1" || ready.Logins[1].User.ID != "u2" || ready.Logins[1].SN != 2 || ready.ProxyURLs == nil {
+	if len(ready.Logins) != 2 || ready.Logins[0].Platform != Platform || ready.Logins[1].User.ID != "u2" || ready.Logins[1].SN != 2 || ready.ProxyURLs == nil {
 		t.Fatalf("READY: %+v", ready)
 	}
 	w.send(OpPing, nil)
@@ -824,7 +836,7 @@ func TestChannelLoginEventsKept(t *testing.T) {
 	}
 	r.s.LoginEvent("app1", "login-added", LoginInfo{ID: "u3", Name: "Cy"})
 	var ev Event
-	if w.want(OpEvent, &ev); ev.Type != "login-added" || ev.Login == nil || ev.Login.User.ID != "u3" || ev.Login.Platform != "app1" {
+	if w.want(OpEvent, &ev); ev.Type != "login-added" || ev.Login == nil || ev.Login.User.ID != "u3" || ev.Login.Platform != Platform {
 		t.Fatalf("login-added: %+v", ev)
 	}
 	// Kept: a new service finds them.

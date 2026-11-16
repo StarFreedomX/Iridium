@@ -22,7 +22,7 @@ import { PULL } from "../../sheet";
 import { getCarried, onCarried, setCarried, useCarried, useConfirms, useList, useSession } from "../../store";
 import { also, carries, events, opened, type SatoriEvent } from "../../stream";
 import { errText } from "../../toast";
-import { agentName, cn, lampOf, Logo, PopSurface } from "../../ui";
+import { agentName, cn, lampOf, Leaving, Logo, PopSurface } from "../../ui";
 import { Asks } from "../asks";
 import { placeDropped } from "../at";
 import { Composer, type ComposerHandle } from "../composer";
@@ -31,7 +31,7 @@ import { StopKey, Waiting } from "../live";
 import { ContextRing, modelView, QuotaBars } from "../meters";
 import { Queue } from "../queue";
 import { fromSatori, PLACE_DRAG, SESSION_DRAG, sourceOf, yours } from "../refs";
-import { Assistant, Attached, Line, Pending, Said, When, YouBubble } from "../said";
+import { Assistant, Attached, Line, MsgRow, Pending, Said, When, YouBubble } from "../said";
 import { folded } from "../fold";
 import { Stick, toEnd } from "../stick";
 import { askQueue, groupMessages, readMarks, stillWaiting, watchExtra, type AgentRow, type Did, type Group, type Msg, type Src, lineOf, workOf, workKey, eventParts, personName, type EventWords } from "./lib";
@@ -45,7 +45,9 @@ import { AgentFace } from "./members";
 import { PersonCard, useNamed } from "./person";
 import { NickLink, Nicks, NickWords } from "./nick";
 
-const WORKING = new Set(["running", "compacting", "starting"]);
+// At work: in a turn. Not "starting" (its harness coming up, no turn yet: an invited agent's face
+// flashed up as if to speak and went; kumo, 2026-11-16).
+const WORKING = new Set(["running", "compacting"]);
 
 let lastStackH = 120;
 
@@ -200,8 +202,8 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
   const session = (e: DragEvent) => e.dataTransfer.types.includes(SESSION_DRAG) && (e.preventDefault(), (e.dataTransfer.dropEffect = "copy"), true);
   const place = (e: DragEvent) => e.dataTransfer.types.includes(PLACE_DRAG) && (e.preventDefault(), (e.dataTransfer.dropEffect = "copy"), true);
   const drop = (e: DragEvent) => {
-    // Files dropped on a channel with no agent go nowhere (the composer takes none there).
-    if (files(e)) return row?.bare ? undefined : composer.current?.attach([...e.dataTransfer.files]);
+    // Files dropped go to the composer, a channel with no agent too.
+    if (files(e)) return composer.current?.attach([...e.dataTransfer.files]);
     if (place(e)) {
       const p = placeDropped(e.dataTransfer.getData(PLACE_DRAG));
       return p && composer.current?.name(p);
@@ -291,15 +293,19 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
                 own last words, the dots alone. */}
             {log.loaded && (
               <div className="-mt-2 flex min-h-7 flex-col gap-5 pointer-coarse:min-h-9">
-                {working.map((a) => {
-                  const last = groups.at(-1)?.author;
-                  const alone = !sent.length && last?.kind === "agent" && last.session === a.session;
-                  return (
-                    <div key={a.session} className={cn(!alone && "g-fade")}>
-                      <AtWork a={a} channel={id} alone={alone} quiet={alone ? `${a.session} ${log.end}` : a.session} bars={bars(a.session)} call={may ? call : undefined} record={record} may={may} />
-                    </div>
-                  );
-                })}
+                <Leaving
+                  items={working}
+                  keyOf={(a) => a.session}
+                  draw={(a, leaving) => {
+                    const last = groups.at(-1)?.author;
+                    const alone = !sent.length && last?.kind === "agent" && last.session === a.session;
+                    return (
+                      <div className={cn(!alone && !leaving && "g-fade")}>
+                        <AtWork a={a} channel={id} alone={alone} quiet={alone ? `${a.session} ${log.end}` : a.session} bars={bars(a.session)} call={may ? call : undefined} record={record} may={may} />
+                      </div>
+                    );
+                  }}
+                />
               </div>
             )}
           </div>
@@ -506,7 +512,7 @@ export function GroupView({ g, channel, agents, who, record, call, may, quote, q
     return (
       <Copyable copy={m.text} quote={quote && (() => quote(m))}>
         {m.quote !== undefined && <QuoteLine n={m.quote} q={quoted(m.quote)} right={by.mine} />}
-        <YouBubble text={m.text} who={by.who} left={!by.mine} time={m.time} words={<NickWords text={m.text} />} card={!by.mine && <PersonCard user={a.id} name={a.name} avatar={"avatar" in by.who ? by.who.avatar : undefined} call={may ? call : undefined} />}>
+        <YouBubble text={m.text} who={by.who} left={!by.mine} time={m.time} words={<NickWords text={m.text} />} card={<PersonCard user={a.id} name={a.name} avatar={"avatar" in by.who ? by.who.avatar : undefined} dm={!by.mine} call={may && !by.mine ? call : undefined} />}>
           {m.files.map((f) => (
             <Attached key={f.ref} session={channel} f={f} />
           ))}
@@ -518,7 +524,7 @@ export function GroupView({ g, channel, agents, who, record, call, may, quote, q
   // One no longer in the channel: its harness as the list still has its session.
   const agent = now?.agent ?? list?.find((x) => x.id === a.session)?.agent;
   return (
-    <div className="flex min-w-0 items-start gap-2.5">
+    <MsgRow className="flex min-w-0 items-start gap-2.5">
       {now ? (
         <AgentFace channel={channel} a={now} call={may ? call : undefined} record={record} may={may} />
       ) : (
@@ -543,7 +549,7 @@ export function GroupView({ g, channel, agents, who, record, call, may, quote, q
           </div>
         ))}
       </div>
-    </div>
+    </MsgRow>
   );
 }
 

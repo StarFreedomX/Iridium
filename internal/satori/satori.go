@@ -7,6 +7,7 @@ package satori
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -200,12 +201,13 @@ func (s *Service) OnTurnEnd(f func(session, reply string, waiting []string)) { s
 
 // Note writes a line of Iridium's own into channel ch and tells those who see it (_data.kind
 // "note"). ev: what it tells of, for a page to say in its own words (the message's _data.event).
-func (s *Service) Note(ch, text, origin string, ev *channel.Event) {
+func (s *Service) Note(ch, text, origin string, ev *channel.Event) int64 {
 	m, isNew, err := s.log.Say(channel.Message{ChannelMessage: store.ChannelMessage{Channel: ch, Author: NoteUser, Kind: channel.KindNote, Text: text, Origin: origin}, D: channel.Data{Event: ev}})
 	if err != nil || !isNew {
-		return
+		return 0
 	}
 	s.tell(m, "note", origin, 0)
+	return m.Seq
 }
 
 // NoteUser is the author of Iridium's own lines in a channel.
@@ -369,8 +371,8 @@ func (s *Service) speaker(r *http.Request) (Caller, error) {
 	if !ok {
 		return c, notApp
 	}
-	if p := r.Header.Get(HeaderPlatform); p != c.App {
-		return c, refuse(http.StatusForbidden, "no_such_login", fmt.Sprintf("%s is this app's ID (%s)", HeaderPlatform, c.App))
+	if p := r.Header.Get(HeaderPlatform); !samePlatform(p, c.App) {
+		return c, refuse(http.StatusForbidden, "no_such_login", fmt.Sprintf("%s is %s or this app's ID (%s)", HeaderPlatform, Platform, c.App))
 	}
 	if c.Login == "" || r.Header.Get(HeaderUser) != c.Login {
 		return c, refuse(http.StatusForbidden, "no_such_login", HeaderUser+" names the login")
@@ -409,8 +411,29 @@ func (s *Service) logins(app string, sns map[string]int64) []Login {
 	return out
 }
 
+// Platform is what every login says it is on (kumo, 2026-11-16: as QQ's say qq), not the app's
+// ID; Satori-Platform may say either.
+const Platform = "iridium"
+
+// irName and irAvatar are an app's login as it sees itself (a bot: Koishi's status shows it):
+// Iridium, with Iridium's mark, in place (a data: URL needs no address of Iridium's nor its
+// TOKEN). The page's logins and the host's are people: their own names.
+const irName = "Iridium"
+
+var irAvatar = "data:image/svg+xml;base64," + base64.StdEncoding.EncodeToString([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#2b2b2b"/><path d="M20 18h6v28h-6zM32 28h5.6v3.2c1.4-2.4 3.6-3.6 6.4-3.6v5.8c-3.8 0-6.2 1.6-6.2 6V46H32z" fill="#f4f4f4"/></svg>`))
+
+// person: app's logins are people (the page's, the host's), not a bot of an app.
+func person(app string) bool { return app == "ir_web" || app == "local" }
+
+// samePlatform: what Satori-Platform says names app.
+func samePlatform(p, app string) bool { return p == app || p == Platform }
+
 func loginOf(app string, l LoginInfo, sn int64, full bool) Login {
-	out := Login{SN: sn, Platform: app, User: &User{ID: l.ID, Name: l.Name}}
+	u := &User{ID: l.ID, Name: l.Name}
+	if !person(app) {
+		u = &User{ID: l.ID, Name: irName, Nick: l.Name, Avatar: irAvatar, IsBot: true}
+	}
+	out := Login{SN: sn, Platform: Platform, User: u}
 	if full {
 		on := StatusOnline
 		out.Status, out.Adapter, out.Features = &on, Adapter, slices.Clone(Features)

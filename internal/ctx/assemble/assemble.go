@@ -103,10 +103,13 @@ type Record struct {
 	Static string `json:"static,omitempty"`
 	Full   bool   `json:"full,omitempty"`
 	Line   int64  `json:"line,omitempty"`
+	// Text: all of it as the agent got it (kumo, 2026-11-16: the record shows what it was given,
+	// not only where each part is from).
+	Text string `json:"text,omitempty"`
 }
 
-// Record is what to keep of it.
-func (in Injection) Record() Record { return Record{Kind: in.kind, Parts: in.Parts()} }
+// Record is what to keep of it, its text whole.
+func (in Injection) Record() Record { return Record{Kind: in.kind, Parts: in.Parts(), Text: in.String()} }
 
 // piece is what a policy chooses: a fragment (text) with its slots' values, a part of ir's
 // help (help), words that are not Iridium's (words), or the parts of an Injection made before.

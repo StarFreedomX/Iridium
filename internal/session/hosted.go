@@ -286,6 +286,7 @@ func (h *Hosted) launch(ctx context.Context, proc int) error {
 	if err := agent.WriteSystemPrompt(prompt, system); err != nil {
 		return err
 	}
+	m.given(h.id, "", system)
 	h.mu.Lock()
 	o := agent.SpawnOptions{Session: h.id, Resume: found != "", AgentSession: h.meta.agentID(), Cwd: h.meta.Cwd, Env: m.agentEnv(), Program: m.o.Config.Programs[string(h.meta.Agent)], SystemPromptFile: prompt,
 		Model: h.meta.Model, Mode: cmp.Or(h.meta.Mode, m.defaultMode(h.meta.Agent)), Effort: h.effort, Ultracode: h.ultracode, Preset: h.preset, CrashResume: h.crashResume && found != ""}

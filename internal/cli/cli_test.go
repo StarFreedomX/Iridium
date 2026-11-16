@@ -355,7 +355,7 @@ func TestAgentCommands(t *testing.T) {
 	if r := ir("api", "no.such"); r.code != 1 || !strings.Contains(r.err, "no API no.such") {
 		t.Errorf("no such method: %+v", r)
 	}
-	if r := ir("api", "login.get"); r.code != 0 || !strings.Contains(r.out, "platform: local\n") {
+	if r := ir("api", "login.get"); r.code != 0 || !strings.Contains(r.out, "platform: iridium\n") {
 		t.Errorf("login.get: %+v", r)
 	}
 

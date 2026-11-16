@@ -288,7 +288,7 @@ func (s *Service) channelCreate(ctx context.Context, c Caller, body []byte) (any
 		return nil, err
 	}
 	n := req.Ext
-	n.Workspace = 0
+	n.Workspace, n.Name = 0, req.Data.Name
 	g, err := s.guildID(c, req.GuildID)
 	if err != nil {
 		return nil, err

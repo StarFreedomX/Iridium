@@ -204,9 +204,11 @@ func TestChannelOfSeveral(t *testing.T) {
 	}
 
 	// What it was given is kept: where each part came from.
+	// What it was given is kept: where each part came from, and its text as it got it.
 	var ins []api.Injection
 	l.want(200, "web", "GET", "/v1/internal/sessions/"+second+"/injections", nil, &ins)
-	if n := len(ins); n == 0 || ins[0].Seq != r.Seq || !strings.Contains(string(ins[0].Record), `"prompts:channel.context.guest"`) || strings.Contains(string(ins[0].Record), "plain words") {
+	ins = turnsOf(ins)
+	if n := len(ins); n == 0 || ins[0].Seq != r.Seq || !strings.Contains(string(ins[0].Record), `"prompts:channel.context.guest"`) || !strings.Contains(string(ins[0].Record), `"text":"`) {
 		t.Errorf("injections: %+v", ins)
 	}
 
@@ -786,6 +788,7 @@ func TestChannelQuoteAndAll(t *testing.T) {
 	// Given again, the standing words are not: a line in their place (docs/channels.md "增量").
 	var ins []api.Injection
 	l.want(200, "web", "GET", "/v1/internal/sessions/"+second+"/injections", nil, &ins)
+	ins = turnsOf(ins)
 	if len(ins) < 2 || !strings.Contains(string(ins[0].Record), `"static":"`) || strings.Contains(string(ins[0].Record), `"full":true`) || !strings.Contains(string(ins[len(ins)-1].Record), `"full":true`) ||
 		strings.Contains(string(ins[0].Record), "prompts:channel.context.guest\"") || !strings.Contains(string(ins[0].Record), "prompts:channel.context.again") {
 		t.Errorf("injections: %+v", ins)
@@ -867,5 +870,84 @@ func TestCallsKept(t *testing.T) {
 	}
 	if got := (&calls{st: l.s.st}).take("s1", any); len(got) != 0 {
 		t.Errorf("taken twice: %+v", got)
+	}
+}
+
+// An agent invited by the page (greet) is asked to say hello as it joins: a turn of its own,
+// its words said in the channel. Without greet (ir, an agent's invite) it says nothing.
+func TestChannelInviteGreets(t *testing.T) {
+	t.Parallel()
+	l := start(t)
+	ch := l.create(200, "web", api.NewSession{Agent: api.AgentClaude, Cwd: l.work, Text: "first"})
+	l.waitReply("web", ch, "ok: first")
+	var ms api.ChannelMembers
+	l.want(200, "web", "POST", "/v1/internal/channels/"+ch+"/members", api.NewMember{Agent: api.AgentClaude, Greet: true}, &ms)
+	l.waitSaid("web", ch, "@claude2", "邀请你加入了这个频道")
+	l.want(200, "web", "POST", "/v1/internal/channels/"+ch+"/members", api.NewMember{Agent: api.AgentClaude}, &ms)
+	time.Sleep(300 * time.Millisecond)
+	for _, m := range l.said("web", ch) {
+		if strings.Contains(m, "@claude3 ") && !strings.Contains(m, "加入了频道") {
+			t.Errorf("one invited with no greet spoke: %s", m)
+		}
+	}
+}
+
+// Invited with text: once it is in, the one inviting says "@nick text" in the channel, which
+// calls it; its answer is said there. No greeting then.
+func TestChannelInviteWithWords(t *testing.T) {
+	t.Parallel()
+	l := start(t)
+	ch := l.create(200, "web", api.NewSession{Agent: api.AgentClaude, Cwd: l.work, Text: "first"})
+	l.waitReply("web", ch, "ok: first")
+	var ms api.ChannelMembers
+	l.want(200, "web", "POST", "/v1/internal/channels/"+ch+"/members", api.NewMember{Agent: api.AgentClaude, Nick: "tester", Text: "run the tests", Greet: true}, &ms)
+	l.waitSaid("web", ch, "@tester run the tests")
+	all := l.waitSaid("web", ch, "@tester", "ok: #")
+	for _, m := range all {
+		if strings.Contains(m, "邀请你加入了这个频道") {
+			t.Errorf("greeted as well: %s", m)
+		}
+	}
+}
+
+// What an agent is given of earlier messages names their files, no paths (kumo, 2026-11-16).
+func TestFileNames(t *testing.T) {
+	t.Parallel()
+	got := fileNames("look at these\n\n[附件] `/home/u/a.png`\n[文件] `/w/report.pdf`", []api.FileRef{{Name: "a.png", Path: "/home/u/a.png"}, {Name: "c.txt", Path: "/x/c.txt"}})
+	if want := "look at these\n（附件：a.png、report.pdf、c.txt）"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	if got := fileNames("plain words", nil); got != "plain words" {
+		t.Errorf("no files: %q", got)
+	}
+}
+
+// turnsOf are the injections that are a channel's messages (not the system prompt, other lines).
+func turnsOf(ins []api.Injection) []api.Injection {
+	var out []api.Injection
+	for _, in := range ins {
+		if strings.Contains(string(in.Record), `"kind":"turn-prefix"`) {
+			out = append(out, in)
+		}
+	}
+	return out
+}
+
+// Everything an agent is given is kept whole: its system prompt, a message's line as written.
+func TestInjectionsWhole(t *testing.T) {
+	t.Parallel()
+	l := start(t)
+	id := l.create(200, "web", api.NewSession{Agent: api.AgentClaude, Cwd: l.work, Text: "first words"})
+	l.waitReply("web", id, "ok: first words")
+	var ins []api.Injection
+	l.want(200, "web", "GET", "/v1/internal/sessions/"+id+"/injections", nil, &ins)
+	var system, msg bool
+	for _, in := range ins {
+		r := string(in.Record)
+		system = system || (strings.Contains(r, `"kind":"system"`) && strings.Contains(r, "hosted by Iridium"))
+		msg = msg || (strings.Contains(r, `"kind":"message"`) && strings.Contains(r, "first words"))
+	}
+	if !system || !msg {
+		t.Errorf("system %v, message %v: %+v", system, msg, ins)
 	}
 }

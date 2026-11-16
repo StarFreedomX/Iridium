@@ -63,6 +63,12 @@ type NewMember struct {
 	Intro      string `json:"intro,omitempty"`
 	Avatar     string `json:"avatar,omitempty"`
 	Background string `json:"background,omitempty"`
+	// Text: its first words, said in the channel by the one inviting it as "@nick text" once it
+	// is in (one call: no @ before it has joined). Given, it does not greet.
+	Text string `json:"text,omitempty"`
+	// Greet: it is asked to say a line as it joins, hello and who it is (the page's invites,
+	// kumo, 2026-11-16).
+	Greet bool `json:"greet,omitempty"`
 }
 
 // MemberPatch changes a member: its nick, what it receives.

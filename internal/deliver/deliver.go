@@ -85,6 +85,23 @@ func ValidNick(n string) bool {
 	return true
 }
 
+// NickFrom is a nick made of name (a session's name): its letters, digits, _ and -, at most
+// 32; "" if that is no nick.
+func NickFrom(name string) string {
+	var b strings.Builder
+	n := 0
+	for _, r := range name {
+		if nickRune(r) && n < 32 {
+			b.WriteRune(r)
+			n++
+		}
+	}
+	if !ValidNick(b.String()) {
+		return ""
+	}
+	return b.String()
+}
+
 func nickRune(r rune) bool {
 	return r == '_' || r == '-' || unicode.IsLetter(r) || unicode.IsDigit(r)
 }

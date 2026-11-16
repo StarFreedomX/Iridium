@@ -50,7 +50,9 @@ func rig(t *testing.T) (*Service, *records, *store.Store) {
 	}
 	t.Cleanup(func() { st.Close() })
 	r := &records{blocks: map[string][]api.Block{}}
-	return New(st, r, t.Logf), r, st
+	s := New(st, r, t.Logf)
+	s.Numbered = true // the nicks as the tests read them (claude2); TestDefaultNick has the others
+	return s, r, st
 }
 
 func texts(ms []Message) string {
@@ -281,7 +283,23 @@ func TestSubscriptions(t *testing.T) {
 	}
 	// Reading the store anew gives the same.
 	s2 := New(st, r, t.Logf)
+	s2.Numbered = true
 	if s2.Nick("b") != "claude2" || fmt.Sprint(s2.In("b")) != "[c]" {
 		t.Errorf("read anew: %q %v", s2.Nick("b"), s2.In("b"))
+	}
+}
+
+// A nick given by default: the harness's name and four hex digits of the session, more while
+// taken (kumo, 2026-11-16: not claude2); one so made is told apart from one chosen.
+func TestDefaultNick(t *testing.T) {
+	taken := map[string]bool{"Claude-b134": true}
+	if n := DefaultNick("claude", "b134e2f0-aaaa", func(n string) bool { return taken[n] }); n != "Claude-b134e" {
+		t.Errorf("taken: %q", n)
+	}
+	if n := DefaultNick("dsh", "session-c54bdf12", func(string) bool { return false }); n != "DeepSeek-c54b" {
+		t.Errorf("dsh: %q", n)
+	}
+	if !IsDefaultNick("Claude-b134") || IsDefaultNick("大肥鱼") || IsDefaultNick("claude2") {
+		t.Error("IsDefaultNick")
 	}
 }

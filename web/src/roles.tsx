@@ -5,17 +5,16 @@
 // "+" (create.tsx), first in a channel's 邀请 (chat/channel/invite.tsx), kept in the settings
 // (rolespage.tsx).
 import { FaceGlow } from "./glow";
-import { Menu } from "@base-ui/react/menu";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { LoaderCircle, SlidersHorizontal } from "lucide-react";
-import { lazy, Suspense, useState, type CSSProperties } from "react";
-import { api, missing } from "./api/client";
+import { LoaderCircle } from "lucide-react";
+import { lazy, Suspense, useState } from "react";
+import { api, missing, queryClient } from "./api/client";
 import type { Model, Role } from "./api/types.gen";
 import { choicesQ, draftDefault, type At } from "./chat/choices";
 import { t } from "./i18n";
 import { zh, type Key } from "./i18n/zh";
-import { useCarried } from "./store";
-import { agentName, cn, Logo, Tip } from "./ui";
+import { getCarried, useCarried } from "./store";
+import { agentName, cn, Logo } from "./ui";
 
 /** The model and effort menu an agent not yet started has (the invite menu's): fetched when a
  *  role's menu first opens, so the first screen does not carry it. */
@@ -25,14 +24,17 @@ const DraftModels = lazy(() => import("./chat/channel/pick").then((m) => ({ defa
  *  changes: the carried "roles", a count (internal/server rolesChanged). */
 export function useRoles(): Role[] {
   const v = useCarried<number>("roles") ?? 0;
-  const q = useQuery({
-    queryKey: ["roles", v],
-    queryFn: () => api.roles().catch((e) => (missing(e) ? [] : Promise.reject(e))),
-    placeholderData: keepPreviousData,
-    staleTime: 30_000,
-  });
+  const q = useQuery({ ...rolesQ(v), placeholderData: keepPreviousData });
   return q.data ?? NONE;
 }
+
+/** The roles as asked for, by the carried "roles" count. */
+const rolesQ = (v: number) => ({ queryKey: ["roles", v], queryFn: () => api.roles().catch((e) => (missing(e) ? [] : Promise.reject(e))), staleTime: 30_000 });
+
+/** The roles asked for ahead (kumo, 2026-11-16: a row that comes after the "+" opened pushes
+ *  the popover; docs/前端设计规范.md "后到的不撑开"): once the page is idle, and as the "+"
+ *  is pointed at or pressed. */
+export const prefetchRoles = () => void queryClient.prefetchQuery(rolesQ(getCarried<number>("roles") ?? 0));
 const NONE: Role[] = [];
 
 /** What a start as a role changes for that one session: its model, effort, preset ("" or
@@ -120,39 +122,3 @@ export function RoleModels({ role, at, pick, set }: { role: Role; at: At; pick: 
   );
 }
 
-/** A role's card (the "+"): its background a banner, its face on the banner's foot, its name and
- *  line. A press starts as it (onStart, with what its menu changed for this once); the key on
- *  the banner opens that menu: the model and the effort. off: nothing can be pressed; faded:
- *  its agent is not there (a press says so). */
-export function RoleCard({ role, at, busy, off, faded, onStart, style }: { role: Role; at: At; busy?: boolean; off?: boolean; faded?: boolean; onStart: (pick: RolePick) => void; style?: CSSProperties }) {
-  const [pick, setPick] = useState<RolePick>({});
-  const now = picked(role, pick);
-  return (
-    <div style={style} className={cn("relative min-w-0", faded && "opacity-40 grayscale")}>
-      <button type="button" disabled={off} onClick={() => onStart(pick)} className="g-press flex w-full flex-col overflow-hidden rounded-lg bg-fill text-left hover:bg-fill-2 disabled:opacity-50">
-        <RoleBanner role={role} className="h-10 w-full" />
-        <span className="-mt-4 flex items-end gap-1.5 px-2">
-          <span className="grid shrink-0 rounded-full ring-2 ring-(--paper)">{busy ? <span className="grid size-8 place-items-center rounded-full bg-fill"><LoaderCircle size={16} className="animate-spin text-ink-3" /></span> : <RoleFace role={role} size={32} />}</span>
-        </span>
-        <span className="flex min-w-0 flex-col px-2 pt-1 pb-2">
-          <span className="truncate text-sm font-semibold">{role.name}</span>
-          <RoleLine role={now} at={at} logo className="text-xs text-ink-3" />
-        </span>
-      </button>
-      <Menu.Root>
-        <Tip label={t("role.options")}>
-          <Menu.Trigger disabled={off} aria-label={t("role.options")} className="g-press glass absolute top-1 right-1 grid size-6 place-items-center rounded-full text-ink-2 hover:text-ink data-popup-open:text-ink pointer-coarse:size-8">
-            <SlidersHorizontal size={12} />
-          </Menu.Trigger>
-        </Tip>
-        <Menu.Portal>
-          <Menu.Positioner side="bottom" align="end" sideOffset={4} collisionPadding={8} className="z-50">
-            <Menu.Popup finalFocus={false} className="g-unfold glass thick float flex max-h-[min(560px,var(--available-height))] w-[min(300px,calc(100vw-16px))] flex-col rounded-lg p-1.5 text-ink outline-none">
-              <RoleModels role={role} at={at} pick={pick} set={setPick} />
-            </Menu.Popup>
-          </Menu.Positioner>
-        </Menu.Portal>
-      </Menu.Root>
-    </div>
-  );
-}

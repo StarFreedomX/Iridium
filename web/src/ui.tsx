@@ -2,8 +2,9 @@
 // popover shell, icon keys, agent logos with their status lamp, terminal avatars, switches.
 import { Popover } from "@base-ui/react/popover";
 import { Tooltip } from "@base-ui/react/tooltip";
-import { Bot, Camera, Hash, Monitor, Puzzle, ScrollText, type LucideIcon } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ComponentProps, type CSSProperties, type ReactElement, type ReactNode } from "react";
+import { Bot, Camera, Monitor, Puzzle, ScrollText, UsersRound, type LucideIcon } from "lucide-react";
+import { Fragment, useCallback, useEffect, useRef, useState, useSyncExternalStore, type ComponentProps, type CSSProperties, type ReactElement, type ReactNode } from "react";
+import { useLeaving } from "./motion";
 import type { Agent, Status } from "./api/types.gen";
 import { t } from "./i18n";
 import { CLAUDE, DSH, DSH_VIEWBOX, OPENAI, OPENAI_VIEWBOX, PI, PI_VIEWBOX } from "./logos";
@@ -268,8 +269,8 @@ export const AGENTS: Agent[] = ["claude", "codex", "pi", "dsh"];
 /** An agent's mark, the only coloured thing in a row. */
 export function Logo({ agent, size = 16, className }: { agent: Agent; size?: number; className?: string }) {
   const style: CSSProperties = { width: size, height: size };
-  // No agent: a channel that is no session's (Session.bare).
-  if (!agent) return <Hash aria-hidden className={cn("shrink-0 text-ink-2", className)} style={style} strokeWidth={2.25} />;
+  // No agent: a channel that is no session's (Session.bare), people talking (kumo, 2026-11-16: not #).
+  if (!agent) return <UsersRound aria-hidden className={cn("shrink-0 text-ink-2", className)} style={style} strokeWidth={2} />;
   if (agent === "codex")
     return (
       <svg role="img" aria-label="Codex" viewBox={OPENAI_VIEWBOX} className={cn("shrink-0 text-ink", className)} style={style}>
@@ -414,16 +415,20 @@ export function AvatarKey({ label, onClick, ...face }: { label: string; onClick:
   return (
     <Tip label={label}>
       <button type="button" aria-label={label} onClick={onClick} className="group g-press grid shrink-0 rounded-full">
-        <Avatar
-          {...face}
-          over={
-            <span className="absolute inset-0 grid place-items-center rounded-full bg-[oklch(0_0_0/0.45)] text-[oklch(1_0_0)] opacity-0 transition-opacity duration-(--dur-2) group-hover:opacity-100 group-focus-visible:opacity-100" aria-hidden>
-              <Camera size={Math.round(size * 0.4)} strokeWidth={2} />
-            </span>
-          }
-        />
+        <Avatar {...face} over={<FaceChangeOver size={size} />} />
       </button>
     </Tip>
+  );
+}
+
+/** What a face that changes the face shows over itself under a pointer: a camera on a dark veil
+ *  (AvatarKey's; a channel's or an agent's face in 编辑资料 the same, docs/前端设计规范.md "点头像
+ *  就是换头像"). Its parent is a .group, positioned and round. */
+export function FaceChangeOver({ size }: { size: number }) {
+  return (
+    <span className="absolute inset-0 grid place-items-center rounded-full bg-[oklch(0_0_0/0.45)] text-[oklch(1_0_0)] opacity-0 transition-opacity duration-(--dur-2) group-hover:opacity-100 group-focus-visible:opacity-100" aria-hidden>
+      <Camera size={Math.round(size * 0.4)} strokeWidth={2} />
+    </span>
   );
 }
 
@@ -475,4 +480,23 @@ export const setHome = (h: string) => (knownHome = h);
 /** ~ for the home directory at a path's start. */
 export function tilde(p: string, home = knownHome ?? homeOf(p)) {
   return home && (p === home || p.startsWith(home + "/")) ? "~" + p.slice(home.length) : p;
+}
+
+/** A list whose items, once gone, fade and close where they were (motion.ts useLeaving, .g-depart)
+ *  rather than vanish. draw: an item, and whether it is leaving. */
+export function Leaving<T>({ items, keyOf, draw }: { items: T[]; keyOf: (x: T) => string; draw: (x: T, leaving: boolean) => ReactNode }) {
+  const all = useLeaving(items, keyOf);
+  return (
+    <>
+      {all.map(({ item, leaving }) =>
+        leaving ? (
+          <div key={keyOf(item)} aria-hidden className="g-depart">
+            <div>{draw(item, true)}</div>
+          </div>
+        ) : (
+          <Fragment key={keyOf(item)}>{draw(item, false)}</Fragment>
+        ),
+      )}
+    </>
+  );
 }

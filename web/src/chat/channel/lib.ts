@@ -433,6 +433,19 @@ export function givenTurn(text: string): GivenTurn | null {
  *  took, the messages it cites (#n). */
 export type GivenPart = { source: string; values: [string, string][]; refs: string[] };
 
+/** What an injection was (its record's kind): the system prompt, a channel's message, another
+ *  line given (a message, Iridium's own), what ir was answered with. */
+export type GivenKind = "system" | "turn" | "message" | "ir";
+export function givenKind(record: unknown): GivenKind {
+  const k = (record as { kind?: unknown } | null)?.kind;
+  return k === "system" ? "system" : k === "turn-prefix" ? "turn" : k === "tool-result" ? "ir" : "message";
+}
+/** The whole text it was given (records kept before it was kept: none). */
+export const givenText = (record: unknown): string => {
+  const x = (record as { text?: unknown } | null)?.text;
+  return typeof x === "string" ? x : "";
+};
+
 export function givenParts(record: unknown): GivenPart[] {
   const parts = (record as { parts?: unknown } | null)?.parts;
   if (!Array.isArray(parts)) return [];

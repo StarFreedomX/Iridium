@@ -143,6 +143,10 @@ type Service struct {
 	ss   Sessions
 	logf func(string, ...any)
 
+	// Numbered: a nick given by default is the harness's name and a number (claude2), as the
+	// tests read them; else its name and four hex digits of its session (Claude-b134).
+	Numbered bool
+
 	mu    sync.Mutex
 	locks map[string]*sync.Mutex // a session's record is read in by one at a time
 

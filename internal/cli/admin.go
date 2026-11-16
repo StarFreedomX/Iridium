@@ -141,7 +141,7 @@ var nameErrors = map[string]string{
 	"invalid":  "名字只能有字母、数字、空格和 - _ .",
 	"reserved": "这个名字是保留的",
 	"letter":   "单个英文字母不能当名字",
-	"taken":    "名字已有人用",
+	"taken":    "名字已被占用",
 }
 
 func failed(stderr io.Writer, cmd string, err error) int {
