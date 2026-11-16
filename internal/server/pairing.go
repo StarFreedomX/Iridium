@@ -19,6 +19,7 @@ import (
 	"github.com/kumoSleeping/iridium/internal/api"
 	"github.com/kumoSleeping/iridium/internal/config"
 	"github.com/kumoSleeping/iridium/internal/gate"
+	"github.com/kumoSleeping/iridium/internal/joinscript"
 	"github.com/kumoSleeping/iridium/internal/satori"
 )
 
@@ -65,6 +66,8 @@ func openPath(r *http.Request) bool {
 		return true
 	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/v1/internal/pair/"):
 		return true
+	case (r.Method == http.MethodGet || r.Method == http.MethodHead) && joinscript.Path(r.URL.Path):
+		return true // the line another computer runs to join: nothing secret in it
 	case r.Method == http.MethodGet && r.URL.Path == "/v1/events":
 		return true // Satori's IDENTIFY carries the TOKEN (package satori checks it)
 	}
@@ -74,9 +77,22 @@ func openPath(r *http.Request) bool {
 func (s *Server) pairRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/internal/pair", s.pairAsk)
 	mux.HandleFunc("GET /v1/internal/pair/{request}", s.pairState)
+	for _, p := range joinscript.Paths {
+		mux.HandleFunc("GET "+p, func(w http.ResponseWriter, r *http.Request) { joinscript.Serve(w, r, requestOrigin(r)) })
+	}
 	// The switch: whoever may approve (the host's ir, a login of ir_web that may).
 	mux.HandleFunc("GET /v1/internal/pairing", s.approver(func(w http.ResponseWriter, r *http.Request) { reply(w, http.StatusOK, s.pairWindow()) }))
 	mux.HandleFunc("PUT /v1/internal/pairing", s.approver(s.setPairing))
+}
+
+// requestOrigin is the address a request came to, as the page there shows it: https when it came
+// so, or through a proxy that says so (cloudflared).
+func requestOrigin(r *http.Request) string {
+	scheme := "http"
+	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+		scheme = "https"
+	}
+	return scheme + "://" + strings.ToLower(r.Host)
 }
 
 // pairWindow is how the switch stands now.

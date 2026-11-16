@@ -160,7 +160,7 @@ agent 的 `ir sh`：每条命令一个新进程，不经托管进程，不写文
 | | Windows | Mac | Linux |
 |---|---|---|---|
 | 整棵进程树 | Job Object（或 `taskkill /T /F`） | 新进程组，`kill(-pgid)`，先 TERM 后 KILL | 同 Mac |
-| 常驻 | 插件跟着 `dsh web`；`ir join`、`ir-computer` 用登录时运行的计划任务（不用系统服务：SYSTEM 账户拿不到本人的 PATH 和 agent 登录） | 插件同左；`ir join`、`ir-computer` 用 launchd 用户代理 | 插件同左；`ir join`、`ir-computer` 用 systemd 用户单元 |
+| 常驻 | 插件跟着 `dsh web`；`ir join`、`ir-computer` 不常驻，只在终端里跑（见“ir-computer”） | 同左 | 同左 |
 | 换行 | 只认 `\n`，行尾的 `\r` 去掉 | `\n` | `\n` |
 | dsh 记录的目录名 | `C:\a\b` → `C-a-b`（`/ \ :` 换成 `-`） | `/Users/a` → `Users-a` | 同 Mac |
 | 编码 | UTF-8，不带 BOM | UTF-8 | UTF-8 |
@@ -169,12 +169,15 @@ agent 的 `ir sh`：每条命令一个新进程，不经托管进程，不写文
 
 ## ir-computer
 
-`cmd/ir-computer`（2026-11-13）：电脑一端的单独程序，不受“一个二进制”约束（`AGENTS.md`）。和 `ir join` 是同一套代码（`internal/join`），选项相同，另有 `--headless`（不显示图标）；握手和配对里的 `program` 是 `ir-computer <版本>`。登录时运行的项和 `ir join` 同名，换用时直接替换。
+`cmd/ir-computer`（2026-11-13）：电脑一端的单独程序，不受“一个二进制”约束（`AGENTS.md`）。和 `ir join` 是同一套代码（`internal/join`），选项相同；握手和配对里的 `program` 是 `ir-computer <版本>`。
 
-- 图标：Windows 在通知区（`Shell_NotifyIconW`），Mac 在菜单栏（经 purego 调 AppKit，不用 cgo，主线程跑）；Linux 不显示。未连接时图标变淡。
-- 菜单：第一行是地址和状态（连接中、已连接、已断开、配对码 1234、未开配对），然后是打开（浏览器打开那个 Iridium）、登录时运行（开关：只增删登录项，不启停正在运行的这一份）、退出（正常退出，常驻的不会被重新拉起）。
+只在终端里跑（用户，2026-11-16）：不装登录时运行项，没有托盘、菜单栏图标。Ctrl-C 或关掉窗口（Mac、Linux 收 SIGHUP，Windows 的关闭当 SIGTERM）就断开，它起的 agent 一起结束。TOKEN 照旧留着，下次运行不用再配对。
+
+- 一行命令（应用管理 → 电脑的“+”）：Mac、Linux `curl -fsSL <地址>/join | sh`；Windows `powershell -c "irm <地址>/join.ps1 | iex"`，cmd 和 PowerShell 里都能粘。选项写在查询里：`?shell`、`?roots=~/work,~/notes`、`?name=…`（有查询时地址加引号）。
+- `/join`、`/join.ps1` 由这边免登录提供（`internal/joinscript`），这边把地址和选项写进去：查询里的值在 sh 里是单引号的一个词，PowerShell 里是 UTF-8 的 base64（脚本只有 ASCII）；带 `"`、换行、控制字符的不给。脚本下载和这边同版本的 `ir-computer`（不是发布版的这边用 latest，每次重下）到缓存目录（Mac `~/Library/Caches/iridium`，Linux `~/.cache/iridium`，Windows `%LOCALAPPDATA%\iridium\cache`），版本对得上就不重下，然后在当前终端里运行。
+- 以前装的（`--install`，2026-11-16 前）：运行时去掉这个 Iridium 的登录时运行项（`iridium-join-<主机-端口>`）、停掉它起的那份，删掉旧命令下载的 `~/.local/bin/ir-computer`（Windows `%LOCALAPPDATA%\iridium\ir-computer.exe`）。登录项带 `--resident` 起来的（`ir update` 过的 `ir join`）去掉自己的登录项，正常退出。
 - 那边 agent 用的 `ir` 是它自己（按名字 `ir` 进命令行模式，Mac、Linux）。
-- 发布包里是裸二进制 `ir-computer-<系统>-<架构>`（Windows 带 `.exe`），一行脚本即可下载运行；`ir update` 不管它。Mac 用 curl 下载的不带隔离标记，arm64 由 Go 链接器做了临时签名，可直接运行。
+- 发布包里是裸二进制 `ir-computer-<系统>-<架构>`（Windows 带 `.exe`）；`ir update` 不管它。Mac 用 curl 下载的不带隔离标记，arm64 由 Go 链接器做了临时签名，可直接运行；从终端起，文件夹的访问授权算在终端名下。
 
 ## 开发测试用的连接
 

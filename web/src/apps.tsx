@@ -35,8 +35,6 @@ const systems: Record<string, string> = {
   linux: "Linux",
 };
 
-/** An agent's version as a row has room for: its number alone ("2.1.34 (Claude Code)": 2.1.34). */
-export const shortVersion = (v?: string) => /\d+(?:\.\d+)*/.exec(v ?? "")?.[0] ?? "";
 
 /** The apps on the same machine as id, after it (Computer.under): listed next to it, not under it. */
 const sameMachine = (apps: App[], id: string) => apps.filter((a) => a.computer?.under === id);
@@ -119,51 +117,37 @@ export function AppsPage({ onBack }: { onBack: () => void }) {
   );
 }
 
-/** ir-computer's releases (scripts/release.sh): the latest, a bare binary each system. */
-const COMPUTER_DOWNLOAD = "https://github.com/kumoSleeping/Iridium/releases/latest/download/";
+/** A computer's system, as its join line is written: macOS and Linux one (sh), Windows another. */
+export type JoinOS = "unix" | "win";
 
-/** A computer's system, as its join line is written. */
-export type JoinOS = "mac" | "linux" | "win";
-
-/** The line that makes a computer join this Iridium (docs/exec.md "ir-computer"), one line: fetch
- *  ir-computer, pair, start at login. The flags last, where the line is shown from. */
-export function joinScript(os: JoinOS, at: string, flags = ""): string {
-  const run = `--install ${at} ${flags}`.trim();
-  if (os === "win")
-    return [
-      '$d = "$env:LOCALAPPDATA\\iridium"',
-      '$a = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "arm64" } else { "amd64" }',
-      "New-Item -ItemType Directory -Force $d | Out-Null",
-      `Invoke-WebRequest "${COMPUTER_DOWNLOAD}ir-computer-windows-$a.exe" -OutFile "$d\\ir-computer.exe"`,
-      `& "$d\\ir-computer.exe" ${run}`,
-    ].join("; ");
-  const arch = os === "mac" ? "$(uname -m | sed s/x86_64/amd64/)" : "$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')";
-  return [
-    "mkdir -p ~/.local/bin",
-    `curl -fsSL -o ~/.local/bin/ir-computer ${COMPUTER_DOWNLOAD}ir-computer-${os === "mac" ? "darwin" : "linux"}-${arch}`,
-    "chmod +x ~/.local/bin/ir-computer",
-    `~/.local/bin/ir-computer ${run}`,
-  ].join(" && ");
+/** The line that makes a computer join this Iridium while its terminal stays open (docs/exec.md
+ *  "ir-computer"): it fetches the script this Iridium writes (internal/joinscript), which fetches
+ *  ir-computer and runs it there. The options in the query, the address quoted once there is one.
+ *  Windows: from cmd or PowerShell alike. */
+export function joinScript(os: JoinOS, at: string, query = ""): string {
+  const url = `${at}/join${os === "win" ? ".ps1" : ""}${query ? `?${query}` : ""}`;
+  const arg = query ? `'${url}'` : url;
+  return os === "win" ? `powershell -c "irm ${arg} | iex"` : `curl -fsSL ${arg} | sh`;
 }
 
 /** The 电脑 group's +, a page: the line to run on a computer, for its system; as it is, with only
  *  some folders, with commands. Each its copy key in its title's row; the line one line high,
  *  scrolled sideways (to its end at first), no room kept beside it (docs/前端设计规范.md "命令"). */
 function AddComputer({ onBack }: { onBack: () => void }) {
-  const [os, setOs] = useState<JoinOS>(/Win/.test(navigator.platform) ? "win" : /Linux/.test(navigator.platform) ? "linux" : "mac");
+  const [os, setOs] = useState<JoinOS>(/Win/.test(navigator.platform) ? "win" : "unix");
   const at = location.origin;
   const system = (v: JoinOS, label: string) => ({ v, label, icon: <span className="px-1 text-xs">{label}</span> });
   return (
     <Page title={t("apps.addComputer")} onBack={onBack} backLabel={t("settings.terminals")}>
-      <Segmented label={t("apps.system")} value={os} onChange={(v) => setOs(v as JoinOS)} items={[system("mac", "macOS"), system("linux", "Linux"), system("win", "Windows")]} />
+      <Segmented label={t("apps.system")} value={os} onChange={(v) => setOs(v as JoinOS)} items={[system("unix", "macOS / Linux"), system("win", "Windows")]} />
       {(
         [
           ["apps.joinPlain", ""],
-          ["apps.joinRoots", '--roots "~/work,~/notes"'],
-          ["apps.joinShell", "--shell"],
+          ["apps.joinRoots", "roots=~/work,~/notes"],
+          ["apps.joinShell", "shell"],
         ] as const
-      ).map(([label, flags]) => {
-        const line = joinScript(os, at, flags);
+      ).map(([label, query]) => {
+        const line = joinScript(os, at, query);
         return (
           <Group key={label} title={t(label)} action={<CopyKey text={line} />}>
             <Line text={line} lang={os === "win" ? "powershell" : "sh"} />
@@ -273,17 +257,34 @@ function AppRow({ a, onOpen }: { a: App; onOpen: () => void }) {
   );
 }
 
-/** A row's second line: online or when last seen; 网页's logins, a computer's system. The host: its
- *  system only. */
+/** A row's second line: online or when last seen; 网页's logins, a computer's system, then the
+ *  agents it brings as their marks (no versions). Always one line, every row the same height: what
+ *  has no room scrolls sideways, nothing cut, no "·" between (the user, 2026-11-16). The host: its
+ *  system and agents only. */
 function Seen({ a }: { a: App }) {
-  const used = a.host ? "" : a.online ? t("term.online") : ago(a.lastSeenAt || a.createdAt || 0);
+  // A computer is online while its executor is connected (Computer.online); another app, while it
+  // has a connection (App.online counts them).
+  const online = a.computer ? a.computer.online : !!a.online;
+  const used = a.host ? "" : online ? t("term.online") : ago(Math.max(a.computer?.seenAt ?? 0, a.lastSeenAt ?? 0) || a.createdAt || 0);
+  const agents = a.computer ? marked(a.computer) : [];
+  const words = [used, a.web && a.logins ? t("apps.loginCount", { n: a.logins }) : "", a.computer?.os ? (systems[a.computer.os] ?? a.computer.os) : ""].filter(Boolean);
   return (
-    // One line, cut at its end, never wrapped into columns (the panel is narrow).
-    <span className="flex min-w-0 items-center gap-1.5 text-xs text-ink-3 tabular-nums">
-      {a.online && !a.host ? <span className="size-1.5 shrink-0 rounded-full bg-run" aria-hidden /> : null}
-      <span className="min-w-0 truncate">
-        {[used, a.web && a.logins ? t("apps.loginCount", { n: a.logins }) : "", a.computer?.os ? (systems[a.computer.os] ?? a.computer.os) : ""].filter(Boolean).join(" · ")}
-      </span>
+    <span className="no-bar flex min-w-0 items-center gap-2.5 overflow-x-auto text-xs whitespace-nowrap text-ink-3 tabular-nums">
+      {online && !a.host ? <span className="-mr-1 size-1.5 shrink-0 rounded-full bg-run" aria-hidden /> : null}
+      {words.map((w) => (
+        <span key={w} className="shrink-0">
+          {w}
+        </span>
+      ))}
+      {agents.length > 0 && (
+        <span className="flex shrink-0 items-center gap-1.5">
+          {agents.map((x) => (
+            <Tip key={x.agent} label={agentName(x.agent as Agent)}>
+              <Logo agent={x.agent as Agent} size={12} />
+            </Tip>
+          ))}
+        </span>
+      )}
     </span>
   );
 }
@@ -342,21 +343,6 @@ function ItemRow({ a }: { a: App }) {
           </span>
           <Seen a={a} />
         </span>
-        {/* A computer's agents as their marks, each its version after it, short and grey: on the
-            row itself, not in a tip (docs/前端设计规范.md "电脑列表"). (Whether it may use the
-            owner's Claude is asked when it does: no mark for it here.) */}
-        {a.computer && marked(a.computer).length > 0 && (
-          <span className="flex shrink-0 items-center gap-2">
-            {marked(a.computer).map((x) => (
-              <Tip key={x.agent} label={agentName(x.agent as Agent)}>
-                <span className="flex shrink-0 items-center gap-1">
-                  <Logo agent={x.agent as Agent} size={14} />
-                  {shortVersion(x.version) && <span className="text-xs text-ink-4 tabular-nums">{shortVersion(x.version)}</span>}
-                </span>
-              </Tip>
-            ))}
-          </span>
-        )}
         {a.host ? (
           <span className="size-7 shrink-0 pointer-coarse:size-10" aria-hidden />
         ) : (
