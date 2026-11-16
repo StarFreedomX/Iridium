@@ -2,12 +2,9 @@
 // its agent's. One with none of its own has the one last given to a session of its model; with
 // neither, the harness's logo.
 import { useState, type ReactNode } from "react";
-import { api } from "../../api/client";
 import type { Agent } from "../../api/types.gen";
 import { useApps } from "../../data";
 import { useCarried } from "../../store";
-import { errText, toast } from "../../toast";
-import { t } from "../../i18n";
 import { Avatar, cn, isHost, Logo } from "../../ui";
 
 /** The face of channel (session) id, round, size across; none given: the agent's logo, as
@@ -51,27 +48,4 @@ export function MemberFace({ member, name, agent, size }: { member: string; name
   const login = d?.logins.find((l) => l.app === member.slice(0, i) && l.id === member.slice(i + 1));
   const app = d?.apps.find((a) => a.id === member.slice(0, i));
   return <Avatar src={login ? login.avatar : app?.avatar} name={name || login?.name || app?.name || member} size={size} host={isHost(member) || !!app?.host} />;
-}
-
-const asDataURL = (f: Blob) =>
-  new Promise<string>((done, fail) => {
-    const r = new FileReader();
-    r.onload = () => done(String(r.result));
-    r.onerror = () => fail(r.error);
-    r.readAsDataURL(f);
-  });
-
-/** Asks for a picture and makes it the face of channel (session) id. */
-export function pickFace(id: string) {
-  const input = document.createElement("input");
-  input.type = "file";
-  input.accept = "image/png,image/jpeg,image/webp";
-  input.onchange = () => {
-    const f = input.files?.[0];
-    if (!f) return;
-    void asDataURL(f)
-      .then((url) => api.setAvatar(id, url))
-      .catch((e) => toast(t("err.action"), { error: true, description: errText(e) }));
-  };
-  input.click();
 }

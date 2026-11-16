@@ -11,9 +11,16 @@
 // Quiet (免打扰): its badge is grey and it is left out of the title's count. A session another
 // app or login opened is quiet unless said otherwise, yours is not; said in its menu, kept in
 // this browser.
+//
+// Named (docs/channels.md "有人 @ 我"): the channels where a message I have not read names me
+// (the carried state "ats", kept by the daemon, the same on every device). Such a channel's
+// badge is red though it is quiet, and it is in the title's count; the chat in front of me has
+// read it, which the daemon is told.
 import { useSyncExternalStore } from "react";
-import type { LastSaid, Me, Session } from "./api/types.gen";
+import { api } from "./api/client";
+import type { ChannelAt, ChannelAts, LastSaid, Me, Session } from "./api/types.gen";
 import { route } from "./route";
+import { getCarried, onCarried } from "./store";
 import { keep, kept, lampOf } from "./ui";
 
 export type Here = { chat: string; visible: boolean; focused: boolean };
@@ -25,9 +32,18 @@ const page = (): Here => {
 const unread = new Map<string, number>();
 const quiet = new Set<string>();
 const told = new Set<() => void>();
-const changed = () => {
+/** Where I am named and have not read it, by channel; the sessions the list has. */
+let named: ChannelAts = {};
+const listed = new Set<string>();
+/** How many the title counts: those unread and not quiet, and those that name me, quiet or not. */
+export const attention = () => {
   let n = 0;
-  for (const id of unread.keys()) if (!quiet.has(id)) n++;
+  for (const id of unread.keys()) if (!quiet.has(id) || named[id]) n++;
+  for (const id of Object.keys(named)) if (!unread.has(id) && listed.has(id)) n++;
+  return n;
+};
+const changed = () => {
+  const n = attention();
   document.title = n ? `(${n}) Iridium` : "Iridium";
   (navigator as { setAppBadge?: (n: number) => Promise<void> }).setAppBadge?.(n).catch(() => {});
   told.forEach((f) => f());
@@ -40,6 +56,13 @@ export function useUnread(id: string): number {
   return useSyncExternalStore(listen, get, get);
 }
 export const unreadOf = (id: string) => unread.get(id) ?? 0;
+
+/** The message of channel id that names me and I have not read; none: undefined. */
+export function useAt(id: string): ChannelAt | undefined {
+  const get = () => named[id];
+  return useSyncExternalStore(listen, get, get);
+}
+export const atOf = (id: string) => named[id];
 
 /** Whether session id is quiet. */
 export function useQuiet(id: string): boolean {
@@ -108,7 +131,7 @@ const mine = (l: LastSaid, me: Pick<Me, "id">) => l.role === "user" && (!l.fromT
 /** Follows the list: what is said in a session (its last line moving on, not by me), or its turn
  *  ending with nothing counted, is unread unless its chat is in front of you. here: the page now.
  *  Returns what stops it. */
-export function watchUnread(here: () => Here = page) {
+export function watchUnread(here: () => Here = page, read: (id: string, seq: number) => Promise<unknown> = (id, seq) => api.read(id, seq)) {
   const states = new Map<string, string>();
   const before = keptNow();
   const ats = new Map<string, number>(Object.entries(before.at));
@@ -122,8 +145,27 @@ export function watchUnread(here: () => Here = page) {
   };
   const later = () => void (timer ??= setTimeout(save, 1500));
   const front = (h: Here, id: string) => h.visible && !!h.chat && (h.chat === id || !!inOf.get(id)?.includes(h.chat));
+  // The chat in front of me has read what names me in it: said once for each.
+  const saw = new Set<string>();
+  const see = (h: Here) => {
+    const a = h.visible && h.chat ? named[h.chat] : undefined;
+    const key = `${h.chat}:${a?.seq}`;
+    if (!a || saw.has(key)) return;
+    saw.add(key);
+    void read(h.chat, a.seq).catch(() => saw.delete(key));
+  };
+  const name = () => {
+    const now = getCarried<ChannelAts>("ats") ?? {};
+    if (now === named) return;
+    named = now;
+    changed();
+    see(here());
+  };
+  const off = onCarried((key) => key === "ats" && name());
+  name();
   const look = () => {
     const h = here();
+    see(h);
     if (!h.visible || !h.chat) return;
     let any = false;
     for (const id of [...unread.keys()]) if (front(h, id)) any = unread.delete(id) || any;
@@ -135,6 +177,13 @@ export function watchUnread(here: () => Here = page) {
     const byHand = hand();
     let moved = false;
     inOf = new Map(list.flatMap((s) => (s.in?.length ? [[s.id, s.in] as [string, string[]]] : [])));
+    // Those with a row: not archived, not one opened for a channel it is still in (tree.ts memberOf).
+    const shown = list.filter((s) => !s.archived && !(s.spawned?.channel && s.in?.includes(s.spawned.channel))).map((s) => s.id);
+    if (shown.length !== listed.size || shown.some((id) => !listed.has(id))) {
+      listed.clear();
+      for (const id of shown) listed.add(id);
+      if (Object.keys(named).length) moved = true;
+    }
     // Those the list no longer has are forgotten.
     for (const id of ats.keys()) if (!by.has(id)) (ats.delete(id), unread.delete(id) && (moved = true), later());
     for (const s of list) {
@@ -168,8 +217,11 @@ export function watchUnread(here: () => Here = page) {
       for (const e of ["hashchange", "focus", "blur"]) removeEventListener(e, look);
       document.removeEventListener("visibilitychange", look);
       if (timer) (clearTimeout(timer), save());
+      off();
       unread.clear();
       quiet.clear();
+      listed.clear();
+      named = {};
     },
   };
 }

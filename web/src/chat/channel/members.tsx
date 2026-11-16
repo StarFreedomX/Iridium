@@ -1,15 +1,17 @@
 // A channel's agents as faces (docs/channels.md): beside what each said, its harness's logo on a
 // disc, its lamp on the corner. A press opens its card (as QQ's: talk to it in its own channel,
-// call it here); the right button, or a finger held down, its menu: call, compact, model,
-// effort, approval mode, stop, what it receives, its nick, its face, its own session, 注入记录
-// (what the channel gave it), out. Its context and usage are not here: they have their keys after its
-// model's name (docs/前端设计规范.md "一样东西一个地方").
+// call it here); the right button, or a finger held down, its menu: call, compact, clear, model,
+// effort, approval mode, stop, what it receives, 编辑资料, its own session, 注入记录 (what the
+// channel gave it), out. The same menu is its row's among the members (top.tsx): one
+// implementation (MemberItems; its list, menu.ts). Its context and usage are not here: they
+// have their keys after its model's name (docs/前端设计规范.md "一样东西一个地方").
 import { Menu } from "@base-ui/react/menu";
 import { Popover } from "@base-ui/react/popover";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AtSign, MessageCircle, Box, Brain, Check, ChevronRight, CircleStop, FoldVertical, ImagePlus, PencilLine, Inbox, ScrollText, ShieldCheck, UserMinus } from "lucide-react";
+import { AtSign, MessageCircle, Box, Brain, Check, ChevronRight, CircleStop, Eraser, FoldVertical, Mail, PencilLine, Inbox, ScrollText, ShieldCheck, UserMinus } from "lucide-react";
 import { useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 import { api } from "../../api/client";
+import { stopTurn } from "../live";
 import type { ChannelMembers, SessionState as LiveSession, Session } from "../../api/types.gen";
 import { CardHead, MainKey, SecondKey } from "../../card";
 import { t, useLang } from "../../i18n";
@@ -20,9 +22,13 @@ import { openChat } from "../../route";
 import { agentName, cn, Lamp, Logo, own, PopSurface, sessionStatusText, useLongPress, useMenuAt } from "../../ui";
 import { levelName } from "../effort";
 import { modelView, useMode } from "../meters";
-import { Face, pickFace } from "./face";
+import { openEdit } from "./editing";
+import { Face } from "./face";
+import { useMembers } from "./gate";
 import { memberError } from "./key";
-import { givenParts, ownAgent, validNick, type AgentRow } from "./lib";
+import { givenParts, ownAgent, type AgentRow } from "./lib";
+import { memberMenu, type MenuKey } from "./menu";
+import { CARD_POP, ProfileCard, useCard, type CardKey } from "./profilecard";
 
 const ITEM = "flex h-8 cursor-default items-center gap-2.5 rounded-md px-2.5 text-base outline-none select-none data-highlighted:bg-fill data-popup-open:bg-fill pointer-coarse:h-11";
 const POPUP = "g-unfold glass thick float rounded-lg text-ink outline-none";
@@ -47,15 +53,10 @@ function At({ anchor, open, onOpenChange, children, className }: { anchor: RefOb
  *  lamp on the corner. A press opens its card; the right button, or a finger held down, its menu. */
 /** talk: 发消息 for the channel's own agent, here already (its composer). */
 export function AgentFace({ channel, a, call, record, may, talk, size = 28 }: { channel: string; a: AgentRow; call?: (nick: string) => void; record?: (session: string) => void; may: boolean; talk?: () => void; size?: number }) {
-  const real = useSession(a.session);
-  const row = useList()?.find((x) => x.id === a.session);
-  const s = real ?? (row && ghostOf(row));
   const face = useRef<HTMLButtonElement>(null);
   const [menuAt, setMenuAt] = useMenuAt();
   const [detail, setDetail] = useState(false);
-  const [naming, setNaming] = useState(false);
-  const [given, setGiven] = useState(false);
-  const [sure, setSure] = useState(false);
+  const [asked, setAsked] = useState<Ask | null>(null);
   const lp = useLongPress(() => {
     const r = face.current?.getBoundingClientRect();
     setMenuAt(r ? { x: r.left, y: r.bottom + 4 } : { x: 40, y: 80 });
@@ -78,95 +79,65 @@ export function AgentFace({ channel, a, call, record, may, talk, size = 28 }: { 
         style={{ width: size, height: size }}
         className="g-press grid shrink-0 place-items-center rounded-full bg-fill select-none hover:bg-fill-2 [-webkit-touch-callout:none]"
       >
-        <span className="relative grid">
+        {/* The lamp on the round face's own lower right edge, whatever is drawn in it (a logo is
+            smaller than the face). */}
+        <span className="relative grid size-full place-items-center">
           <Face id={a.session} agent={a.agent} size={size} logo={Math.round(size * 0.57)} />
           {a.status !== "idle" && (
-            <span className="absolute -right-0.5 -bottom-0.5">
+            <span className="absolute right-0 bottom-0 grid rounded-full bg-paper p-px">
               <Lamp status={a.status} />
             </span>
           )}
         </span>
       </button>
-      <At anchor={face} open={detail} onOpenChange={setDetail} className="w-[min(300px,calc(100vw-16px))] p-3.5">
+      <At anchor={face} open={detail} onOpenChange={setDetail} className={CARD_POP}>
         <AgentCard channel={channel} a={a} call={call} record={record} may={may} talk={talk} done={() => setDetail(false)} />
       </At>
-      {s && (
-        <MemberMenu
-          channel={channel}
-          a={a}
-          s={s}
-          may={may}
-          at={menuAt}
-          close={() => setMenuAt(null)}
-          call={call}
-          rename={() => setNaming(true)}
-          record={record && (() => record(a.session))}
-          given={() => setGiven(true)}
-          remove={ownAgent(channel, a) || !may ? undefined : () => setSure(true)}
-        />
-      )}
-      <At anchor={face} open={naming} onOpenChange={setNaming} className="w-64 p-2.5">
-        <NickForm channel={channel} a={a} done={() => setNaming(false)} />
-      </At>
-      <RemoveAsk channel={channel} member={a.member} nick={a.nick} anchor={face} open={sure} onOpenChange={setSure} />
-      <At anchor={face} open={given} onOpenChange={setGiven} className="flex max-h-[min(560px,var(--available-height))] w-[min(480px,calc(100vw-16px))] flex-col">
-        <Given a={a} />
-      </At>
+      <MemberMenu channel={channel} a={a} may={may} at={menuAt} close={() => setMenuAt(null)} call={call} record={record} ask={(kind) => setAsked({ kind, a })} />
+      <MemberAsks channel={channel} anchor={face} asked={asked} done={() => setAsked(null)} />
     </>
   );
 }
 
-/** An agent's card (the user, 2026-11-13, as QQ's): its face, nick, what it runs as, its state;
- *  not its context or usage, which have their own keys after its model's name (docs/前端设计规范.md
- *  "一样东西一个地方"). Keys to talk to it in its own channel (its session: one channel bound to it),
- *  to call it here (@nick); in its own channel, to change its face and see its record. */
+/** An agent's card (the user, 2026-11-13, as QQ's; the one card, profilecard.tsx): its
+ *  background, its face, nick, what it runs as, its state, its intro; not its context or usage,
+ *  which have their own keys after its model's name (docs/前端设计规范.md "一样东西一个地方").
+ *  Keys to talk to it in its own channel (its session: one channel bound to it), to call it here
+ *  (@nick), 编辑资料 for one of the channel's people; in its own channel, to see its record. */
 export function AgentCard({ channel, a, call, record, may, talk, done }: { channel: string; a: AgentRow; call?: (nick: string) => void; record?: (session: string) => void; may: boolean; talk?: () => void; done: () => void }) {
   const mine = ownAgent(channel, a);
-  const key = "g-press flex h-8 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md bg-fill px-2 text-sm text-ink hover:bg-fill-2 pointer-coarse:h-10";
+  // What the members' list has of it at once; the card itself, asked for, as it comes.
+  const row = useMembers(channel)?.members.find((m) => m.session === a.session);
+  const card = useCard(`agent:${a.session}`);
+  const keys: CardKey[] = [];
+  if (!mine || (talk && may)) keys.push({ icon: <MessageCircle size={14} />, label: t("channel.talk"), run: () => (done(), mine ? talk?.() : openChat(a.session)) });
+  if (call && a.nick) keys.push({ icon: <AtSign size={14} />, label: t("channel.call"), run: () => (done(), call(a.nick)) });
+  if (may) keys.push({ icon: <PencilLine size={14} />, label: t("profile.edit"), run: () => (done(), editCard(channel, a)) });
+  if (mine && record) keys.push({ icon: <ScrollText size={14} />, label: t("channel.session"), run: () => (done(), record(a.session)) });
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex items-center gap-3">
-        <span className="grid size-12 shrink-0 place-items-center rounded-full bg-fill">
-          <Face id={a.session} agent={a.agent} size={48} logo={26} />
+    <ProfileCard
+      face={
+        <span className="grid size-14 place-items-center rounded-full bg-fill">
+          <Face id={a.session} agent={a.agent} size={56} logo={30} />
         </span>
-        <div className="flex min-w-0 flex-1 flex-col">
-          <span className="truncate text-base font-semibold">{a.nick || agentName(a.agent)}</span>
-          <span className="truncate text-xs text-ink-3">{a.name || agentName(a.agent)}</span>
-          <span className="flex items-center gap-1.5 text-xs text-ink-3">
-            <Lamp status={a.status} />
-            {sessionStatusText(a)}
-          </span>
-        </div>
-      </div>
-      <div className="flex gap-1.5">
-        {(!mine || (talk && may)) && (
-          <button type="button" onClick={() => (done(), mine ? talk?.() : openChat(a.session))} className={key}>
-            <MessageCircle size={14} className="shrink-0" />
-            <span className="truncate">{t("channel.talk")}</span>
-          </button>
-        )}
-        {call && a.nick && (
-          <button type="button" onClick={() => (done(), call(a.nick))} className={key}>
-            <AtSign size={14} className="shrink-0" />
-            <span className="truncate">{t("channel.call")}</span>
-          </button>
-        )}
-        {mine && may && (
-          <button type="button" onClick={() => (done(), requestAnimationFrame(() => pickFace(a.session)))} className={key}>
-            <ImagePlus size={14} className="shrink-0" />
-            <span className="truncate">{t("me.avatar")}</span>
-          </button>
-        )}
-        {mine && record && (
-          <button type="button" onClick={() => (done(), record(a.session))} className={key}>
-            <ScrollText size={14} className="shrink-0" />
-            <span className="truncate">{t("channel.session")}</span>
-          </button>
-        )}
-      </div>
-    </div>
+      }
+      name={a.nick || agentName(a.agent)}
+      sub={a.name || agentName(a.agent)}
+      state={
+        <>
+          <Lamp status={a.status} />
+          {sessionStatusText(a)}
+        </>
+      }
+      intro={card?.intro ?? row?.intro}
+      background={card?.background ?? row?.background}
+      keys={keys}
+    />
   );
 }
+
+/** 编辑资料 of an agent, from wherever it is asked (its card, its menu): the one page (edit.tsx). */
+export const editCard = (channel: string, a: Pick<AgentRow, "session">) => openEdit({ channel, agent: a.session });
 
 /** A submenu of a few to pick one of: its name, the one picked faint at the row's end. */
 function Pick({ icon, label, now, value, options, set, i }: { icon: ReactNode; label: string; now?: string; value: string; options: { value: string; label: string; mark?: ReactNode; group?: string }[]; set: (v: string) => void; i: number }) {
@@ -175,7 +146,7 @@ function Pick({ icon, label, now, value, options, set, i }: { icon: ReactNode; l
       <Menu.SubmenuTrigger style={{ "--i": i } as CSSProperties} className={ITEM}>
         <span className="text-ink-2">{icon}</span>
         <span className="flex-1">{label}</span>
-        {now && <span className="max-w-28 truncate text-xs text-ink-3">{now}</span>}
+        {now && <span className="max-w-36 truncate text-xs text-ink-3">{now}</span>}
         <ChevronRight size={14} className="text-ink-4" />
       </Menu.SubmenuTrigger>
       <Menu.Portal>
@@ -202,15 +173,71 @@ function Pick({ icon, label, now, value, options, set, i }: { icon: ReactNode; l
   );
 }
 
-/** A member's menu, at a point. Its model, effort and mode are its session's own, set as the
- *  one-agent chat's keys set them. remove: none for the session the channel is. */
-/** may: the one looking is of the channel's people; else only what reads is offered. */
-function MemberMenu({ channel, a, s, may, at, close, call, rename, record, given, remove }: { channel: string; a: AgentRow; s: LiveSession; may: boolean; at: { x: number; y: number } | null; close: () => void; call?: (nick: string) => void; rename: () => void; record?: () => void; given: () => void; remove?: () => void }) {
+/** What a member's menu asks with a card or a popover at its anchor: 清空, 移出 (asked
+ *  first), 注入记录. */
+export type AskKind = "clear" | "remove" | "given";
+export type Ask = { kind: AskKind; a: AgentRow };
+
+/** The cards and the popover a member's menu opens, at anchor (the face; the members' key for
+ *  the list): one of them at a time. */
+export function MemberAsks({ channel, anchor, asked, done }: { channel: string; anchor: RefObject<HTMLElement | null>; asked: Ask | null; done: () => void }) {
+  // The last one asked stays drawn while it folds away.
+  const last = useRef(asked);
+  if (asked) last.current = asked;
+  const x = asked ?? last.current;
+  if (!x) return null;
+  const open = (kind: AskKind) => asked?.kind === kind;
+  const set = (o: boolean) => !o && done();
+  return (
+    <>
+      <ClearAsk a={x.a} anchor={anchor} open={open("clear")} onOpenChange={set} />
+      <RemoveAsk channel={channel} member={x.a.member} nick={x.a.nick} anchor={anchor} open={open("remove")} onOpenChange={set} />
+      <At anchor={anchor} open={open("given")} onOpenChange={set} className="flex max-h-[min(560px,var(--available-height))] w-[min(480px,calc(100vw-16px))] flex-col">
+        <Given a={x.a} />
+      </At>
+    </>
+  );
+}
+
+/** A member's menu, at a point: its items (MemberItems) in a menu of their own. */
+function MemberMenu({ at, close, ...items }: { at: { x: number; y: number } | null; close: () => void } & Parameters<typeof MemberItems>[0]) {
+  const anchor = at && { getBoundingClientRect: () => DOMRect.fromRect({ x: at.x, y: at.y, width: 0, height: 0 }) };
+  return (
+    <Menu.Root open={at !== null} onOpenChange={(o) => !o && close()}>
+      <Menu.Portal>
+        <Menu.Positioner anchor={anchor} side="bottom" align="start" sideOffset={4} collisionPadding={8} className="z-50">
+          <Menu.Popup finalFocus={false} className={cn(POPUP, "min-w-52 p-1.5")}>
+            <div className="g-stagger flex flex-col">
+              <MemberItems {...items} />
+            </div>
+          </Menu.Popup>
+        </Menu.Positioner>
+      </Menu.Portal>
+    </Menu.Root>
+  );
+}
+
+/** An agent's menu's items, inside a menu: the face's (MemberMenu) and its row's submenu among
+ *  the members (top.tsx), the same in both (menu.ts memberMenu: which, in what order). Its
+ *  model, effort and mode are its session's own, set as the one-agent chat's keys set them.
+ *  may: the one looking is of the channel's people; else only what reads is offered. call:
+ *  "@nick" into the composer; record: its session's record, where the page has its own way
+ *  there; ask: 清空, 移出, 注入记录, opened by the one who draws the menu (MemberAsks). */
+export function MemberItems({ channel, a, may, call, record, ask }: { channel: string; a: AgentRow; may: boolean; call?: (nick: string) => void; record?: (session: string) => void; ask: (kind: AskKind) => void }) {
+  const real = useSession(a.session);
+  const row = useList()?.find((x) => x.id === a.session);
+  const s = real ?? (row && ghostOf(row));
+  if (!s) return null;
+  return <Items channel={channel} a={a} s={s} may={may} call={call} record={record} ask={ask} />;
+}
+
+function Items({ channel, a, s, may, call, record, ask }: Parameters<typeof MemberItems>[0] & { s: LiveSession }) {
+  useLang();
   const qc = useQueryClient();
   const mode = useMode(s);
   const v = modelView(s);
   const grouped = new Set(v.models.map((m) => m.group).filter(Boolean)).size > 1;
-  const anchor = at && { getBoundingClientRect: () => DOMRect.fromRect({ x: at.x, y: at.y, width: 0, height: 0 }) };
+  const mine = ownAgent(channel, a);
   const act = (f: () => Promise<unknown>, err: string) => () => void f().catch((e) => toast(err, { error: true, description: errText(e) }));
   const recv = (r: string) =>
     r !== a.recv &&
@@ -220,110 +247,105 @@ function MemberMenu({ channel, a, s, may, at, close, call, rename, record, given
     );
   // Each after a frame: the menu shuts first, and what opens is not shut with it.
   const later = (f: () => void) => () => requestAnimationFrame(f);
-  let i = 0;
-  const item = (icon: ReactNode, label: string, run: () => void, tone?: string) => (
-    <Menu.Item key={label} onClick={run} style={{ "--i": i++ } as CSSProperties} className={cn(ITEM, tone)}>
-      <span className={tone ?? "text-ink-2"}>{icon}</span>
-      {label}
+  // Its session: by the page's own way there; with none, opened, unless it is this one.
+  const view = record ? () => record(a.session) : mine ? undefined : () => openChat(a.session);
+  const item = (i: number, icon: ReactNode, label: string, run: () => void, o: { tone?: string; disabled?: boolean; note?: string } = {}) => (
+    <Menu.Item key={label} onClick={run} disabled={o.disabled} style={{ "--i": i } as CSSProperties} className={cn(ITEM, o.tone, "data-disabled:text-ink-3")}>
+      <span className={o.disabled ? "text-ink-4" : (o.tone ?? "text-ink-2")}>{icon}</span>
+      <span className="flex-1">{label}</span>
+      {o.note && <span className="pl-3 text-xs text-ink-3">{o.note}</span>}
     </Menu.Item>
   );
-  return (
-    <Menu.Root open={at !== null} onOpenChange={(o) => !o && close()}>
-      <Menu.Portal>
-        <Menu.Positioner anchor={anchor} side="bottom" align="start" sideOffset={4} collisionPadding={8} className="z-50">
-          <Menu.Popup finalFocus={false} className={cn(POPUP, "min-w-52 p-1.5")}>
-            <div className="g-stagger flex flex-col">
-              {call && a.nick && item(<AtSign size={15} />, t("channel.call"), later(() => call(a.nick)))}
-              {may && item(<FoldVertical size={15} />, t("channel.compact"), act(() => api.send(a.session, "/compact"), t("err.action")))}
-              {may && v.models.length > 0 && (
-                <Pick
-                  icon={<Box size={15} />}
-                  label={t("composer.model")}
-                  now={v.name}
-                  value={v.value}
-                  options={v.models.map((m) => ({ value: m.value, label: m.name, ...(grouped && m.group ? { group: m.group } : {}) }))}
-                  set={(m) => act(() => api.model(a.session, m), t("err.model"))()}
-                  i={i++}
-                />
-              )}
-              {may && v.levels.length > 1 && (
-                <Pick icon={<Brain size={15} />} label={t("channel.effort")} now={v.level ? levelName(v.level) : undefined} value={v.level} options={v.levels.map((l) => ({ value: l, label: levelName(l) }))} set={(l) => act(() => api.effort(a.session, l), t("err.effort"))()} i={i++} />
-              )}
-              {may && mode.modes.length > 1 && (
-                <Pick
-                  icon={<ShieldCheck size={15} />}
-                  label={t("composer.mode")}
-                  now={modeName({ id: mode.now })}
-                  value={mode.now}
-                  options={mode.modes.map((m) => ({ value: m.id, label: modeName(m), mark: <ModeMark agent={mode.agent} id={m.id} size={16} className="shrink-0 text-ink-3" /> }))}
-                  set={(m) => void mode.set(m)}
-                  i={i++}
-                />
-              )}
-              {may && BUSY.has(s.status) && item(<CircleStop size={15} />, t("channel.stop"), act(() => api.interrupt(a.session), t("err.stop")))}
-              {may && <Pick
-                icon={<AtSign size={15} />}
-                label={t("channel.recv")}
-                now={t(a.recv === "all" ? "channel.recvAll" : "channel.recvAt")}
-                value={a.recv}
-                options={[
-                  { value: "at", label: t("channel.recvAt") },
-                  { value: "all", label: t("channel.recvAll") },
-                ]}
-                set={recv}
-                i={i++}
-              />}
-              {may && item(<PencilLine size={15} />, t("menu.rename"), later(rename))}
-              {may && item(<ImagePlus size={15} />, t("me.avatar"), later(() => pickFace(a.session)))}
-              {record && item(<ScrollText size={15} />, t("channel.session"), record)}
-              {item(<Inbox size={15} />, t("channel.given"), later(given))}
-              {remove && item(<UserMinus size={15} />, t("channel.remove"), later(remove), "text-err")}
-            </div>
-          </Menu.Popup>
-        </Menu.Positioner>
-      </Menu.Portal>
-    </Menu.Root>
-  );
+  const draw: Record<MenuKey, (i: number, disabled?: boolean) => ReactNode> = {
+    call: (i) => item(i, <AtSign size={15} />, t("channel.call"), later(() => call?.(a.nick))),
+    compact: (i) => item(i, <FoldVertical size={15} />, t("channel.compact"), act(() => api.send(a.session, "/compact"), t("err.action"))),
+    clear: (i) => item(i, <Eraser size={15} />, t("channel.clear"), later(() => ask("clear"))),
+    model: (i) => (
+      <Pick
+        key="model"
+        icon={<Box size={15} />}
+        label={t("composer.model")}
+        now={v.name}
+        value={v.value}
+        options={v.models.map((m) => ({ value: m.value, label: m.name, ...(grouped && m.group ? { group: m.group } : {}) }))}
+        set={(m) => act(() => api.model(a.session, m), t("err.model"))()}
+        i={i}
+      />
+    ),
+    effort: (i) => <Pick key="effort" icon={<Brain size={15} />} label={t("channel.effort")} now={v.level ? levelName(v.level) : undefined} value={v.level} options={v.levels.map((l) => ({ value: l, label: levelName(l) }))} set={(l) => act(() => api.effort(a.session, l), t("err.effort"))()} i={i} />,
+    mode: (i) => (
+      <Pick
+        key="mode"
+        icon={<ShieldCheck size={15} />}
+        label={t("composer.mode")}
+        now={modeName({ id: mode.now })}
+        value={mode.now}
+        options={mode.modes.map((m) => ({ value: m.id, label: modeName(m), mark: <ModeMark agent={mode.agent} id={m.id} size={16} className="shrink-0 text-ink-3" /> }))}
+        set={(m) => void mode.set(m)}
+        i={i}
+      />
+    ),
+    stop: (i) => item(i, <CircleStop size={15} />, t("channel.stop"), () => void stopTurn(a.session)),
+    recv: (i) => (
+      <Pick
+        key="recv"
+        icon={<Mail size={15} />}
+        label={t("channel.recv")}
+        now={t(a.recv === "all" ? "channel.recvAll" : "channel.recvAt")}
+        value={a.recv}
+        options={[
+          { value: "all", label: t("channel.recvAll") },
+          { value: "at", label: t("channel.recvAt") },
+        ]}
+        set={recv}
+        i={i}
+      />
+    ),
+    edit: (i) => item(i, <PencilLine size={15} />, t("profile.edit"), later(() => editCard(channel, a))),
+    session: (i) => item(i, <ScrollText size={15} />, t("channel.session"), () => view?.()),
+    given: (i) => item(i, <Inbox size={15} />, t("channel.given"), later(() => ask("given"))),
+    // The session the channel is stays in it: shown, not offered.
+    remove: (i, disabled) => item(i, <UserMinus size={15} />, t("channel.remove"), later(() => ask("remove")), disabled ? { disabled, note: t("channel.ownAgent") } : { tone: "text-err" }),
+  };
+  const list = memberMenu({ may, own: mine, call: !!call && !!a.nick, models: v.models.length, levels: v.levels.length, modes: mode.modes.length, busy: BUSY.has(s.status), session: !!view });
+  return <>{list.map((x, i) => draw[x.key](i, x.disabled))}</>;
 }
 
-const FIELD = "no-ring h-8 w-full min-w-0 rounded-md bg-fill px-2.5 text-base placeholder:text-ink-3 pointer-coarse:h-10";
-
-/** A member's nick, changed: letters, digits, _ and -, at most 32, no other member's. */
-function NickForm({ channel, a, done }: { channel: string; a: AgentRow; done: () => void }) {
-  const qc = useQueryClient();
-  const [nick, setNick] = useState(a.nick);
+/** 清空, asked first as 移出 is (docs/next/group.md "清空"): /clear to the agent's session, its
+ *  own or one from another channel; its context starts over, its card stays. */
+function ClearAsk({ a, anchor, open, onOpenChange }: { a: AgentRow; anchor: RefObject<HTMLElement | null>; open: boolean; onOpenChange: (o: boolean) => void }) {
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const bad = nick !== "" && !validNick(nick);
-  const save = async () => {
-    if (!nick || bad || busy) return;
-    if (nick === a.nick) return done();
+  const done = () => onOpenChange(false);
+  const clear = async () => {
     setBusy(true);
     try {
-      qc.setQueryData<ChannelMembers>(["members", channel], await api.patchMember(channel, a.member, { nick }));
+      await api.send(a.session, "/clear");
       done();
     } catch (e) {
-      setError(memberError(e));
+      toast(t("err.action"), { error: true, description: errText(e) });
     } finally {
       setBusy(false);
     }
   };
+  const title = t("channel.clearTitle", { nick: a.nick || agentName(a.agent) });
   return (
-    <form
-      className="flex flex-col gap-2"
-      onSubmit={(e) => {
-        e.preventDefault();
-        void save();
-      }}
-    >
-      <div className="flex items-center gap-1.5">
-        <input autoFocus aria-label={t("channel.nick")} value={nick} maxLength={32} onFocus={(e) => e.currentTarget.select()} onChange={(e) => (setNick(e.target.value), setError(""))} className={FIELD} />
-        <MainKey type="submit" busy={busy} disabled={!nick || bad}>
-          {t("menu.rename")}
-        </MainKey>
+    <At anchor={anchor} open={open} onOpenChange={onOpenChange} className="@container w-[min(340px,calc(100vw-16px))] p-2.5 pl-3">
+      <div role="alertdialog" aria-label={title}>
+        <CardHead
+          icon={<Eraser size={16} />}
+          title={title}
+          summary={t("channel.clearHint")}
+          keys={
+            <>
+              <SecondKey onClick={done}>{t("me.cancel")}</SecondKey>
+              <MainKey busy={busy} onClick={() => void clear()}>
+                {t("channel.clear")}
+              </MainKey>
+            </>
+          }
+        />
       </div>
-      {(bad || error) && <p className="m-0 px-0.5 text-xs text-err">{bad ? t("channel.nickBad") : error}</p>}
-    </form>
+    </At>
   );
 }
 

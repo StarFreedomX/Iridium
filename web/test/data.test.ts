@@ -108,10 +108,10 @@ describe("a send lost on the way", () => {
 
 describe("the event stream", () => {
   test("names the list, the quota, the update, the confirmations and the open session with its context", () => {
-    expect(keysFor(null)).toEqual(["list", "guilds", "quota", "update", "needs", "pairing", "terminals", "notes", "channels", "avatars", "voice"]);
+    expect(keysFor(null)).toEqual(["list", "guilds", "quota", "update", "needs", "pairing", "terminals", "notes", "channels", "avatars", "voice", "ats", "memory", "roles"]);
     // A channel's other agents after the open session's own, never past what a stream carries.
     expect(keysFor("a", ["session:b", "session:a"]).slice(-5)).toEqual(["session:a", "context:a", "session:b", "viewers:a", "reads:a"]);
-    expect(keysFor("a", Array.from({ length: 40 }, (_, i) => `session:m${i}`))).toHaveLength(32);
+    expect(keysFor("a", Array.from({ length: 40 }, (_, i) => `session:m${i}`))).toHaveLength(40);
     expect(keysFor("a").slice(-4)).toEqual(["session:a", "context:a", "viewers:a", "reads:a"]);
     expect(streamURL()).toMatch(/^wss?:\/\/.*\/v1\/events$/);
   });

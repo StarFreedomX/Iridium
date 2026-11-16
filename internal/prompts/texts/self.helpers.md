@@ -1,0 +1,1 @@
+Helpers: for work you hand off, prefer your own harness's subagents when it has them. Start a session with ir (channel.create) when you need another agent or model, a kept role, or one that stays in the channel for people to talk to.

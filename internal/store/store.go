@@ -289,6 +289,67 @@ var schema = []string{
 		version TEXT NOT NULL,
 		at      INTEGER NOT NULL
 	);`,
+	// 41: profiles, roles and memory (profiles.go; docs/channels.md "资料"). profiles: the intro of
+	// a session's agent or a channel ("c:<id>"), a person or an app ("u:<member>"), a role
+	// ("r:<id>"), and an emoji or a colour where its face or its background is no image (the
+	// images are in avatars: the face under the key, the background under "b:<key>").
+	// session_before: the session a cleared one went on from. channel_ats: per login, the first
+	// message of a channel that names it and it has not read. profile_told: the profiles an agent
+	// was last told of in a channel. roles: an agent, a model and a profile kept to start sessions
+	// as; session_roles: the role a session was started as. memories: what an agent chose to
+	// remember, the role's ("r:<id>") or the session's ("c:<id>").
+	`CREATE TABLE IF NOT EXISTS profiles (
+		key        TEXT PRIMARY KEY,
+		intro      TEXT NOT NULL DEFAULT '',
+		avatar     TEXT NOT NULL DEFAULT '',
+		background TEXT NOT NULL DEFAULT '',
+		at         INTEGER NOT NULL
+	);
+	CREATE TABLE IF NOT EXISTS session_before (
+		session TEXT PRIMARY KEY,
+		before  TEXT NOT NULL,
+		at      INTEGER NOT NULL
+	);
+	CREATE TABLE IF NOT EXISTS channel_ats (
+		channel  TEXT NOT NULL,
+		reader   TEXT NOT NULL,
+		seq      INTEGER NOT NULL,
+		everyone INTEGER NOT NULL DEFAULT 0,
+		PRIMARY KEY (channel, reader)
+	);
+	CREATE TABLE IF NOT EXISTS profile_told (
+		session TEXT NOT NULL,
+		channel TEXT NOT NULL,
+		told    TEXT NOT NULL,
+		PRIMARY KEY (session, channel)
+	);
+	CREATE TABLE IF NOT EXISTS roles (
+		id         TEXT PRIMARY KEY,
+		name       TEXT NOT NULL,
+		agent      TEXT NOT NULL,
+		model      TEXT NOT NULL DEFAULT '',
+		effort     TEXT NOT NULL DEFAULT '',
+		mode       TEXT NOT NULL DEFAULT '',
+		preset     TEXT NOT NULL DEFAULT '',
+		machine    TEXT NOT NULL DEFAULT '',
+		sort       REAL NOT NULL DEFAULT 0,
+		created_at INTEGER NOT NULL
+	);
+	CREATE UNIQUE INDEX IF NOT EXISTS roles_name ON roles (name COLLATE NOCASE);
+	CREATE TABLE IF NOT EXISTS session_roles (
+		session TEXT PRIMARY KEY,
+		role    TEXT NOT NULL
+	);
+	CREATE TABLE IF NOT EXISTS memories (
+		id      INTEGER PRIMARY KEY AUTOINCREMENT,
+		owner   TEXT NOT NULL,
+		text    TEXT NOT NULL,
+		session TEXT NOT NULL DEFAULT '',
+		channel TEXT NOT NULL DEFAULT '',
+		seq     INTEGER NOT NULL DEFAULT 0,
+		at      INTEGER NOT NULL
+	);
+	CREATE INDEX IF NOT EXISTS memories_owner ON memories (owner, id);`,
 }
 
 // steps run in Go after the migration of their version, in the same transaction.

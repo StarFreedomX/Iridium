@@ -13,7 +13,7 @@ func TestChannelTurn(t *testing.T) {
 	p.Turns = []strategy.Turn{{From: 5, To: 8, Who: "kumo", Head: "fix the build", Answered: []string{"claude"}}}
 	p.Full = []strategy.Full{{Msg: strategy.Msg{Seq: 9, Who: "claude", Text: "done", At: 3600_000}}, {Msg: strategy.Msg{Seq: 10, Who: "kumo", Text: "long", At: 3660_000}, Left: 7}}
 	did := activity.Activity{Bash: 7, Failed: 1, Cmds: map[string]int{"go": 4, "git": 3}, Read: 2, Search: 1, Files: []activity.File{{Path: "/w/a.go", Add: 120, Del: 14}, {Path: "/w/b.go", Add: 3}}}
-	in, err := ChannelTurn(Channel{You: "codex", Agents: []ChannelAgent{{"claude", "Claude Opus"}, {"codex", ""}}, Plan: p, Pull: true,
+	in, err := ChannelTurn(Channel{You: "codex", Agents: []ChannelAgent{{Nick: "claude", Name: "Claude Opus"}, {Nick: "codex"}}, Plan: p, Pull: true,
 		Did: map[int64]activity.Activity{9: did}, Work: []Work{{"claude", did}, {"pi", activity.Activity{}}}}, 11, "@codex look", "in1")
 	if err != nil {
 		t.Fatal(err)
@@ -52,7 +52,7 @@ More of the channel: ir api message.list channel_id=self [next=<number> limit=<n
 		t.Errorf("%d parts of words", cited)
 	}
 	// Nothing unseen: who is there, nothing else.
-	in, _ = ChannelTurn(Channel{You: "a", Agents: []ChannelAgent{{"a", ""}}}, 1, "hi", "")
+	in, _ = ChannelTurn(Channel{You: "a", Agents: []ChannelAgent{{Nick: "a"}}}, 1, "hi", "")
 	if got := in.String(); got != "#1: hi\n\n<channel-context>\nYou are a in a channel shared with people and other agents. Its agents: a. Only what you say reaches the channel: your thinking and tool calls stay yours, and you do not see theirs. To call another agent, write @ and its name in what you say; without that no agent is called. Between agents, @ another only when you need its answer; when the exchange has said what it needs to, reply without @ and it ends there (agents passing it on without a person stop after a few turns anyway).\n</channel-context>" {
 		t.Errorf("bare: %q", got)
 	}

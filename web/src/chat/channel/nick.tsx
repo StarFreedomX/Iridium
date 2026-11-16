@@ -11,6 +11,7 @@ import { Avatar, Logo, PopSurface } from "../../ui";
 import { Worded } from "../mention";
 import { fromSatori } from "../refs";
 import { ALL_AGENTS, ALL_MEMBERS, nickParts, type AgentRow } from "./lib";
+import { CARD_POP } from "./profilecard";
 
 /** The channel's members as words may name them: its agents, its people and apps (person rows:
  *  their name as nick); names, all that an @ may name, the names of all among them; card, what a
@@ -51,7 +52,7 @@ export function NickLink({ nick }: { nick: string }) {
           </button>
         }
       />
-      <PopSurface className="w-[min(300px,calc(100vw-16px))] p-3.5">{ch.card(m, () => setOpen(false))}</PopSurface>
+      <PopSurface className={CARD_POP}>{ch.card(m, () => setOpen(false))}</PopSurface>
     </Popover.Root>
   );
 }

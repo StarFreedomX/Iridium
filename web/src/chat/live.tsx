@@ -1,10 +1,16 @@
 // What a turn shows while nothing is in the transcript yet (the user, 2026-11-06: no blank while the
 // agent writes): a tool call as it is written, its command typed out live; and, when the turn has
-// gone quiet a moment, three dots breathing at the conversation's end.
+// gone quiet a moment, three dots breathing at the conversation's end. And the key that stops it:
+// stopping is the agent's that runs, on its row at work, not the composer's (kumo, 2026-11-16).
+import { LoaderCircle, Square } from "lucide-react";
 import { useEffect, useState } from "react";
+import { api } from "../api/client";
 import { t } from "../i18n";
-import { cn } from "../ui";
+import { errText, toast } from "../toast";
+import { cn, IconKey } from "../ui";
 import { cmdOfCall, isShell } from "./cmd";
+import { toldOf } from "./dispatch";
+import { Sent } from "./dispatched";
 import { argOf, kindOf } from "./fold";
 import { partialInput, tail } from "./partial";
 import { KindIcon } from "./said";
@@ -14,6 +20,8 @@ import { KindIcon } from "./said";
 export function ToolDraft({ name, input }: { name: string; input: string; whole?: boolean }) {
   const call = { name, input: JSON.stringify(partialInput(input)) };
   const a = argOf(call);
+  // Words to a subagent: as they are drawn once written (dispatched.tsx).
+  if (toldOf(call)) return <Sent call={call} live />;
   return (
     <div className="g-fade flex h-7 min-w-0 items-center gap-2 text-sm" aria-live="off">
       <KindIcon kind={kindOf(name)} cmd={cmdOfCall(call)} shell={isShell(name)} />
@@ -49,5 +57,25 @@ export function Waiting({ on, quiet }: { on: boolean; quiet: string }) {
         <span key={i} className="wait-dot" style={{ animationDelay: `${i * 160}ms` }} />
       ))}
     </div>
+  );
+}
+
+/** Ends session's turn: the one act behind the stop key of an agent at work, 停止 in its face's
+ *  menu, /stop and Esc. */
+export const stopTurn = (session: string): Promise<void> =>
+  api.interrupt(session).then(
+    () => {},
+    (e) => void toast(t("err.stop"), { error: true, description: errText(e) }),
+  );
+
+/** The stop key of an agent at work, at the right of its row (chat.tsx Activity, the compaction's
+ *  line; channel/page.tsx AtWork): the session's own agent or another of the channel alike. esc:
+ *  Esc in the composer does the same (the session's own agent). */
+export function StopKey({ session, esc }: { session: string; esc?: boolean }) {
+  const [stopping, setStopping] = useState(false);
+  return (
+    <IconKey label={t(esc ? "chat.stopEsc" : "channel.stop")} tipSide="left" disabled={stopping} onClick={() => (setStopping(true), void stopTurn(session).finally(() => setStopping(false)))} className="g-fade ml-auto size-6 text-ink-3 pointer-coarse:size-8">
+      {stopping ? <LoaderCircle size={12} className="animate-spin" /> : <Square size={10} fill="currentColor" />}
+    </IconKey>
   );
 }

@@ -1,11 +1,12 @@
 // A channel at the top of the chat (the user, 2026-11-13): who is looking at it now and its
 // members (what each receives, each agent's context as a ring) at the bar's right, each a key of
 // its own; 邀请 among the members: agents (invite.tsx) and people, an app a submenu of its
-// logins. The face is the title's key (chat.tsx); on a phone 换头像 is in ⋯.
+// logins. An agent's row opens the menu its face has (members.tsx MemberItems: one
+// implementation). The face is the title's key (chat.tsx): 编辑资料, which on a phone is in ⋯.
 import { Menu } from "@base-ui/react/menu";
 import { Popover } from "@base-ui/react/popover";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, ChevronRight, ImagePlus, UserPlus, Users } from "lucide-react";
+import { Check, ChevronRight, PencilLine, UserPlus, Users } from "lucide-react";
 import { useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { api } from "../../api/client";
 import type { ChannelMembers, Viewer } from "../../api/types.gen";
@@ -16,14 +17,17 @@ import { useCarried, useList } from "../../store";
 import { working } from "../../tree";
 import { toast } from "../../toast";
 import { agentName, Avatar, cn, Lamp, Logo, PopSurface, Tip } from "../../ui";
-import { MemberFace, pickFace } from "./face";
+import { openEdit } from "./editing";
+import { MemberFace } from "./face";
 import { ContextMark } from "../meters";
 import { mayAct, useMembers } from "./gate";
 import { AgentKinds, ITEM, POPUP } from "./invite";
 import { prefetchChoices } from "./pick";
 import { memberError } from "./key";
-import { ownAgent } from "./lib";
-import { RemoveAsk } from "./members";
+import type { AgentRow } from "./lib";
+import { MemberAsks, MemberItems, type Ask } from "./members";
+import { actsOf } from "./menu";
+import { subName, SubTag } from "../subwork";
 import { appAll, everyone, hasApp, hasLogin, loginOf, peopleCount, peopleOf, pressApp, pressLogin } from "./setup";
 
 const SUB = "no-bar max-h-[min(480px,var(--available-height))] min-w-52 max-w-[calc(100vw-16px)] overflow-y-auto p-1.5";
@@ -36,7 +40,7 @@ function Sub({ icon, label, lead, now, i, children }: { icon: ReactNode; label: 
         <span className="text-ink-2">{icon}</span>
         {lead}
         <span className="min-w-0 flex-1 truncate">{label}</span>
-        {now && <span className="max-w-28 truncate text-xs text-ink-3">{now}</span>}
+        {now && <span className="max-w-36 truncate text-xs text-ink-3">{now}</span>}
         <ChevronRight size={14} className="text-ink-4" />
       </Menu.SubmenuTrigger>
       <Menu.Portal>
@@ -64,10 +68,10 @@ export function TopRight({ id }: { id: string }) {
   // How many its members are, on the key itself: its agents and its people (each login once).
   const logins = useApps().data?.logins ?? [];
   const count = agents.length + peopleCount(peopleOf(members), logins);
-  // 移出 asked from the list: the card the face's menu asks with, under the members' key.
+  // What an agent's menu asks with from the list (清空, 移出, 注入记录): the cards the face's
+  // menu asks with, under the members' key.
   const key = useRef<HTMLButtonElement>(null);
-  const [out, setOut] = useState<{ member: string; nick: string } | null>(null);
-  const [asking, setAsking] = useState(false);
+  const [asked, setAsked] = useState<Ask | null>(null);
   return (
     <span className="g-fade flex shrink-0 items-center gap-0.5">
       {viewers.length > 0 && (
@@ -112,68 +116,40 @@ export function TopRight({ id }: { id: string }) {
           <Menu.Positioner side="bottom" align="end" sideOffset={6} collisionPadding={8} className="z-50">
             <Menu.Popup finalFocus={false} className={cn(POPUP, SUB)}>
               <div className="g-stagger flex flex-col">
-                <MemberList id={id} remove={(m) => requestAnimationFrame(() => (setOut(m), setAsking(true)))} />
+                <MemberList id={id} ask={setAsked} />
               </div>
             </Menu.Popup>
           </Menu.Positioner>
         </Menu.Portal>
       </Menu.Root>
-      {out && <RemoveAsk channel={id} member={out.member} nick={out.nick} anchor={key} open={asking} onOpenChange={setAsking} />}
+      <MemberAsks channel={id} anchor={key} asked={asked} done={() => setAsked(null)} />
     </span>
   );
 }
 
-/** The members: each agent a submenu (what it receives, its session, 移出: asked first, as the
- *  face's menu asks), then the people. */
-function MemberList({ id, remove }: { id: string; remove: (m: { member: string; nick: string }) => void }) {
-  const qc = useQueryClient();
+/** The members: each agent a submenu, the menu its face has (members.tsx MemberItems; what it
+ *  asks with, ask, drawn by the bar), what it receives at its row's end; then the people. */
+function MemberList({ id, ask }: { id: string; ask: (a: Ask) => void }) {
   const list = useList();
   const members = useMembers(id);
   const may = mayAct(members);
-  const set = (ms: ChannelMembers) => void qc.setQueryData<ChannelMembers>(["members", id], ms);
-  const run = (f: () => Promise<ChannelMembers>) => void f().then(set, (e) => toast(memberError(e), { error: true }));
   const agents = (members?.members ?? []).filter((m) => m.session);
   const people = peopleOf(members);
   const own = list?.find((x) => x.id === id);
   const subs = (list ?? []).filter((x) => x.subagent && x.parent === id && working(x, own, Date.now()));
   const logins = useApps().data?.logins ?? [];
-  const recvWord = (r: string) => (r === "all" ? t("channel.recvAll") : t("channel.recvAt"));
+  // What the channel's page lends: its composer's @, its way to a session's record.
+  const lent = actsOf(id);
   return (
     <>
       <div className={HEAD}>{t("channel.agents")}</div>
       {agents.map((m) => {
         const row = list?.find((x) => x.id === m.session);
-        const own = ownAgent(id, m);
+        const agent = m.agent ?? row?.agent ?? "claude";
+        const a: AgentRow = { session: m.session!, member: m.member, agent, nick: m.nick ?? "", name: m.name ?? agentName(agent), status: m.status ?? row?.status ?? "idle", recv: m.recv };
         return (
-          <Sub key={m.member} icon={<Logo agent={m.agent ?? row?.agent ?? "claude"} size={16} />} lead={<ContextMark session={m.session!} />} label={m.nick || agentName(m.agent ?? row?.agent ?? "claude")} now={own ? t("channel.direct") : recvWord(m.recv)} i={0}>
-            <div className={HEAD}>{m.name}</div>
-            <div className={HEAD}>{t("channel.recv")}</div>
-            <Menu.RadioGroup value={m.recv} onValueChange={(v) => may && run(() => api.patchMember(id, m.member, { recv: v as string }))}>
-              {["all", "at"].map((r) => (
-                <Menu.RadioItem key={r} value={r} disabled={!may} closeOnClick className={ITEM}>
-                  <span className="flex-1">{recvWord(r)}</span>
-                  <Menu.RadioItemIndicator>
-                    <Check size={14} />
-                  </Menu.RadioItemIndicator>
-                </Menu.RadioItem>
-              ))}
-            </Menu.RadioGroup>
-            {!own && (
-              <Menu.Item onClick={() => openChat(m.session!)} className={ITEM}>
-                {t("channel.session")}
-              </Menu.Item>
-            )}
-            {!own && may && (
-              <Menu.Item onClick={() => remove({ member: m.member, nick: m.nick ?? "" })} className={cn(ITEM, "text-err")}>
-                {t("channel.remove")}
-              </Menu.Item>
-            )}
-            {row && (
-              <div className="flex h-7 items-center gap-2 px-2.5 text-xs text-ink-3">
-                <Lamp status={row.status} />
-                <span className="truncate">{row.cwd}</span>
-              </div>
-            )}
+          <Sub key={m.member} icon={<Logo agent={agent} size={16} />} lead={<ContextMark session={m.session!} />} label={m.nick || agentName(agent)} now={t(m.recv === "all" ? "channel.recvAll" : "channel.recvAt")} i={0}>
+            <MemberItems channel={id} a={a} may={may} call={lent.call} record={lent.record} ask={(kind) => ask({ kind, a })} />
           </Sub>
         );
       })}
@@ -182,8 +158,7 @@ function MemberList({ id, remove }: { id: string; remove: (m: { member: string; 
       {subs.length > 0 && <div className={HEAD}>{t("channel.subsAtWork")}</div>}
       {subs.map((x) => (
         <Menu.Item key={x.id} onClick={() => openChat(x.id)} className={ITEM}>
-          <Logo agent={x.agent} size={16} />
-          <span className="min-w-0 flex-1 truncate">{x.workflow?.name ? `${x.workflow.name}${x.title ? ` · ${x.title}` : ""}` : x.title || t("row.subagent")}</span>
+          <SubTag agent={x.agent} name={subName(x)} className="flex-1 gap-2.5" />
           <Lamp status="running" />
         </Menu.Item>
       ))}
@@ -237,19 +212,19 @@ function Invite({ id }: { id: string }) {
   );
 }
 
-/** ⋯'s part: on a phone, where the title's logo opens the list, 换头像. from: the place of its
- *  item among the menu's, for the stagger. */
+/** ⋯'s part: on a phone, where the title's logo opens the list, 编辑资料 (the page the bar's
+ *  face opens elsewhere). from: the place of its item among the menu's, for the stagger. */
 export default function ChannelMenu({ id, from = 0, face }: { id: string; from?: number; face?: boolean }) {
   useLang();
   const members = useMembers(id);
   const may = mayAct(members);
   if (!may || !face) return null;
   return (
-    <Menu.Item onClick={() => requestAnimationFrame(() => pickFace(id))} style={{ "--i": from } as CSSProperties} className={ITEM}>
+    <Menu.Item onClick={() => requestAnimationFrame(() => openEdit({ channel: id }))} style={{ "--i": from } as CSSProperties} className={ITEM}>
       <span className="text-ink-2">
-        <ImagePlus size={15} />
+        <PencilLine size={15} />
       </span>
-      {t("me.avatar")}
+      {t("profile.edit")}
     </Menu.Item>
   );
 }

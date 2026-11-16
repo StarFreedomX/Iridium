@@ -201,6 +201,7 @@ func (m *Manager) foreignState(id string, over map[string]store.Overlay) (*api.S
 		st.End, _ = f.Size()
 	}
 	m.channelState(harness.Ref{ID: id, As: id, Agent: s.Agent, Machine: s.Machine, Cwd: s.Cwd, Found: true, Status: s.Status}, st)
+	api.NameModel(st)
 	return st, nil
 }
 

@@ -271,10 +271,13 @@ func (h *Hosted) launch(ctx context.Context, proc int) error {
 		return err
 	}
 	prompt := filepath.Join(h.dir, filePrompt)
-	where := assemble.Where{Lang: m.tuned().Lang, Channel: m.inChannel(h.id)}
+	where := assemble.Where{Lang: m.tuned().Lang, Channel: m.inChannel(h.id), Self: m.self(h.id)}
 	if mc := h.machine(); mc != nil {
 		hi, _ := mc.Hello()
 		where.Remote, where.IR = true, hi != nil && hi.IRClient
+	}
+	if where.Self != nil && where.Remote && !where.IR {
+		where.Self.IR = false // no ir there to look things up with
 	}
 	system, err := assemble.System(where)
 	if err != nil {
@@ -792,6 +795,7 @@ func (h *Hosted) onEvent(e agent.Event) {
 		if e.Effort != "" {
 			h.effortNow = e.Effort
 		}
+		later(h.ranLocked())
 		// An agent that makes the session's id (Codex's thread) names it here: kept, so the next
 		// start resumes it and its transcript is found.
 		if info, ok := agents.Get(h.meta.Agent); ok && info.OwnID && e.Session != "" && e.Session != h.meta.AgentID {
@@ -1019,9 +1023,10 @@ func (h *Hosted) state(o store.Overlay, archived bool) api.SessionState {
 	}
 	s.Pick, s.EffortNow, s.Next, s.Preset = h.meta.Model, h.effortNow, h.next, h.preset
 	for _, m := range h.models {
-		s.Models = append(s.Models, api.Model{Value: m.Value, Name: m.Name, Description: m.Description, Resolved: m.Resolved, Efforts: slices.Clone(m.Efforts), NoEffort: m.NoEffort, EffortNames: maps.Clone(m.EffortNames), Group: m.Group})
+		s.Models = append(s.Models, api.Model{Value: m.Value, Name: m.Name, Description: m.Description, Resolved: m.Resolved, Efforts: slices.Clone(m.Efforts), NoEffort: m.NoEffort, EffortNames: maps.Clone(m.EffortNames), Group: m.Group, Default: m.Default})
 	}
 	h.m.channelState(h.refLocked(), &s)
+	api.NameModel(&s)
 	if _, ok := h.drv.(agent.Ultracoder); ok {
 		u := &api.Ultracode{Available: true}
 		if h.ultracode != nil {
@@ -1179,6 +1184,37 @@ func (h *Hosted) readApplied(proc int) {
 	if a.Effort != "" {
 		h.effortNow = a.Effort
 	}
+	ran := h.ranLocked()
 	h.mu.Unlock()
+	ran()
 	h.publish()
+}
+
+// RanKey is where the model the sessions of kind at machine last ran is kept (Store.Kept), for
+// what a new one of an agent that names no default is expected to run; RanEffortKey, the level
+// one with no model and no effort set last ran at.
+func RanKey(kind api.Agent, machine string) string { return "ran:" + string(kind) + ":" + machine }
+
+func RanEffortKey(kind api.Agent, machine string) string {
+	return "ran-effort:" + string(kind) + ":" + machine
+}
+
+// ranLocked keeps, when run, the model h runs now as its kind's last (RanKey), and its level if
+// neither was set for it.
+func (h *Hosted) ranLocked() func() {
+	st, kind, machine, model, level := h.m.o.Store, h.meta.Agent, h.meta.Machine, h.model, ""
+	if (h.meta.Model == "" || h.meta.Model == "default") && h.effort == "" {
+		level = h.effortNow
+	}
+	return func() {
+		if st == nil || model == "" || model == "default" {
+			return
+		}
+		if key := RanKey(kind, machine); st.Kept(key) != model {
+			_ = st.Keep(key, model)
+		}
+		if key := RanEffortKey(kind, machine); level != "" && st.Kept(key) != level {
+			_ = st.Keep(key, level)
+		}
+	}
 }

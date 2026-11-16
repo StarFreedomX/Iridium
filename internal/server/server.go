@@ -94,6 +94,10 @@ type Server struct {
 	channelsSeq atomic.Int64
 	// avatarsSeq: the state "avatars", up by one at each change of a face.
 	avatarsSeq atomic.Int64
+	// memorySeq: the state "memory", up by one when an agent's memory changes; rolesSeq: the
+	// state "roles", when a role does.
+	memorySeq atomic.Int64
+	rolesSeq  atomic.Int64
 	// stopList stops giving Satori the session list (its channel events).
 	stopList func()
 
@@ -139,6 +143,11 @@ func New(cfg config.Config, m *session.Manager, h *hub.Hub, logf func(string, ..
 	m.SetSpawned(s.spawnedOf)
 	m.SetBare(s.bareChannels)
 	m.SetCleared(s.cleared)
+	m.SetCreated(func(ctx context.Context, id string, req api.NewSession) error {
+		c, _ := ctx.Value(cardCaller{}).(caller)
+		return s.carded(c, id, req)
+	})
+	m.SetSelf(s.selfText)
 	m.SetSpeaks(func(id, ch string) bool { return s.ch.Speaks(ch, id) })
 	s.sat.Keep(satoriKeeper{s.st})
 	m.Watch(s.sat.Notice)
@@ -158,6 +167,7 @@ func New(cfg config.Config, m *session.Manager, h *hub.Hub, logf func(string, ..
 	s.w.Store(web)
 	h.Set("update", s.updateState())
 	h.Set("terminals", int64(0))
+	s.atsChanged() // who was named and has not read it (ats.go)
 	s.carryNotes()
 	return s
 }
@@ -318,6 +328,11 @@ func (s *Server) create(ctx context.Context, c caller, req api.NewSession) (stri
 	if err := s.where(c, &req); err != nil {
 		return "", err
 	}
+	// As a role: its agent, model and card, where the request says nothing (roles.go).
+	if _, err := s.asRole(&req); err != nil {
+		return "", err
+	}
+	ctx = context.WithValue(ctx, cardCaller{}, c)
 	if req.Agent == "" {
 		return s.createChannel(ctx, c, req)
 	}
@@ -395,9 +410,11 @@ func (s *Server) sendAs(ctx context.Context, c caller, from, id string, req api.
 		return s.sendChannel(ctx, c, from, id, req)
 	}
 	// One agent: the message it answers as quoted lines before the words.
+	var answers int64
 	if req.Quote > 0 {
 		if q, ok := s.ch.Get(id, req.Quote); ok {
 			req.Text = quoted(q.Text) + req.Text
+			answers = q.Seq
 		}
 		req.Quote = 0
 	}
@@ -440,10 +457,12 @@ func (s *Server) sendAs(ctx context.Context, c caller, from, id string, req api.
 		}
 		seq = s.sat.Input(st.Session, req.ID, req.Text, u, c.ID())
 	}
+	named := s.names(id, seq, req.Text, answers, readerOf(c)) // the logins it names (ats.go)
 	input, queued, err := s.m.SendAs(ctx, id, req.ID, text, from, req.Steer, images...)
 	if err != nil {
 		if seq != 0 {
 			s.ch.Unsay(id, seq) // not sent: not said
+			s.unnames(id, seq, named)
 		}
 		return api.SendReply{}, err
 	}
@@ -484,7 +503,7 @@ func (s *Server) release(w http.ResponseWriter, r *http.Request) {
 	s.done(w, s.m.Release(ctx, r.PathValue("id"), req.ToolUseID, req.Dismiss))
 }
 
-var stateKey = regexp.MustCompile(`^(list|quota|guilds|needs|pairing|update|terminals|machines|notes|voice|channels|avatars|(session|context|reads|viewers):[0-9a-zA-Z_-]{1,128})$`)
+var stateKey = regexp.MustCompile(`^(list|quota|guilds|needs|pairing|update|terminals|machines|notes|voice|channels|avatars|ats|memory|roles|(session|context|reads|viewers):[0-9a-zA-Z_-]{1,128})$`)
 
 // stateKeys splits the states a WATCH asks for into those it carries and those it leaves
 // out (unknown, or not this caller's: needs, pairing and notes are a person's on ir_web or at
@@ -505,7 +524,7 @@ func (s *Server) stateKeys(c caller, keys []string) (carried []string, ignored [
 
 // MaxWatch is how many states one stream carries: the page's own, and a channel's agents'
 // (their sessions and contexts, MaxAgents of them).
-const MaxWatch = 32
+const MaxWatch = 40
 
 // watchStates sends c the states keys name (at most MaxWatch) and the drafts,
 // through emit ("state" or "draft", the JSON), till ctx ends: Satori's /v1/events for ir_web.

@@ -49,6 +49,17 @@ describe("in its place by time", () => {
     expect([...slotsOf([10, undefined], [{ time: 12 }]).keys()]).toEqual([2]);
     expect([...slotsOf([10, undefined, Infinity], [{ time: 12 }]).keys()]).toEqual([1]);
   });
+  test("a turn still at its steps: what called it stays above them (seen: the steps so far under the turn before, the call under what you said)", () => {
+    // The turn before's words at 10, what you said to the channel at 15, the steps since 16:
+    // nothing with a time after them till the turn says something.
+    expect([...slotsOf([10, { since: 16 }], [{ time: 15 }]).keys()]).toEqual([1]);
+    // What another says meanwhile goes under them.
+    expect([...slotsOf([10, { since: 16 }], [{ time: 15 }, { time: 30 }]).keys()]).toEqual([1, 2]);
+    // A subagent at work under them is where they are.
+    expect([...slotsOf([10, { since: 16 }, undefined], [{ time: 15 }, { time: 30 }]).keys()]).toEqual([1, 3]);
+    // Once the turn's words came, the steps go with them, as ever.
+    expect([...slotsOf([10, { since: 16 }, 40], [{ time: 15 }, { time: 30 }]).keys()]).toEqual([1]);
+  });
   test("one at the same time as a row goes after it", () => {
     expect([...slotsOf([10, 20], [{ time: 10 }]).keys()]).toEqual([1]);
   });

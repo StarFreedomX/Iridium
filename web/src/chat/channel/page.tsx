@@ -27,7 +27,7 @@ import { Asks } from "../asks";
 import { placeDropped } from "../at";
 import { Composer, type ComposerHandle } from "../composer";
 import { Copyable } from "../copyable";
-import { Waiting } from "../live";
+import { StopKey, Waiting } from "../live";
 import { ContextRing, modelView, QuotaBars } from "../meters";
 import { Queue } from "../queue";
 import { fromSatori, PLACE_DRAG, SESSION_DRAG, sourceOf, yours } from "../refs";
@@ -272,7 +272,7 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
               <div key={g.key} className="relative flex min-w-0 flex-col">
                 <GroupView g={g} channel={id} agents={agents} who={who} record={record} call={call} may={may} quote={may ? quoting : undefined} quoted={quoted} bars={bars} fold={fold} />
                 {/* In the gap under it, over nothing: coming late, it moves nothing (docs/前端设计规范.md). */}
-                {marks.has(g.key) && <ReadMarks readers={marks.get(g.key)!} agents={agents} />}
+                {SHOW_READS && marks.has(g.key) && <ReadMarks readers={marks.get(g.key)!} agents={agents} />}
               </div>
             ))}
             {sent.map((x) => (
@@ -360,13 +360,15 @@ export function AgentBars({ a, st }: { a: AgentRow; st?: LiveSession }) {
 }
 
 /** A called agent at work (kumo, 2026-11-15): its face and name at once, as its words will be,
- *  the dots under them; under its own last words (alone: no face again), the dots only. */
+ *  the dots under them; under its own last words (alone: no face again), the dots only. Its
+ *  stop key at the row's right, for one of the channel's people (live.tsx StopKey). */
 export function AtWork({ a, channel, alone, quiet, bars, call, record, may }: { a: AgentRow; channel: string; alone: boolean; quiet: string; bars: ReactNode; call?: (nick: string) => void; record: (session: string) => void; may: boolean }) {
   useLang();
   if (alone)
     return (
       <div className="flex h-7 items-center pl-[38px] pointer-coarse:h-9" role="status" aria-label={`${a.nick} · ${t("chat.working")}`}>
         <Waiting on quiet={quiet} />
+        {may && <StopKey session={a.session} />}
       </div>
     );
   return (
@@ -380,6 +382,7 @@ export function AtWork({ a, channel, alone, quiet, bars, call, record, may }: { 
         </div>
         <div className="flex h-7 items-center pointer-coarse:h-9">
           <Waiting on quiet={quiet} />
+          {may && <StopKey session={a.session} />}
         </div>
       </div>
     </div>
@@ -387,6 +390,10 @@ export function AtWork({ a, channel, alone, quiet, bars, call, record, may }: { 
 }
 
 /** Who has read up to here: small faces at the right, under what they last read. */
+/** Whether the read marks are drawn under the messages (kumo, 2026-11-16: not shown). How far
+ *  each member has read is still kept: what names a person is cleared by it. */
+export const SHOW_READS: boolean = false;
+
 export function ReadMarks({ readers, agents }: { readers: Reader[]; agents: AgentRow[] }) {
   // The host's login is Iridium on the page, never 主机 (docs/前端设计规范.md "称呼").
   const nameOf = (r: Reader) => r.nick || (r.member === "local" || r.member.startsWith("local/") ? "Iridium" : r.name) || r.member;
@@ -552,7 +559,8 @@ function QuoteLine({ n, q, right }: { n: number; q?: { who: string; text: string
   );
 }
 
-const EVENT_KEYS = ["join", "leave", "rename", "recv", "everyone", "added", "removed", "undelivered", "stopped", "silent", "silentWhy", "by", "sep"] as const;
+const EVENT_KEYS = ["join", "leave", "rename", "recv", "everyone", "added", "removed", "undelivered", "stopped", "silent", "silentWhy", "by", "sep", "profile", "profileChannel", "profileNoBy", "profileChannelNoBy"] as const;
+const WHAT_KEYS = ["name", "nick", "intro", "avatar", "background"] as const;
 
 /** A line of Iridium's own: what happened to the channel (who joined, left, was renamed, what one
  *  receives, its people), in the page's words, the agent in it as its nick is drawn elsewhere;
@@ -560,7 +568,7 @@ const EVENT_KEYS = ["join", "leave", "rename", "recv", "everyone", "added", "rem
 function EventLine({ m }: { m: Msg }) {
   useLang();
   const d = useApps().data;
-  const words = { ...Object.fromEntries(EVENT_KEYS.map((k) => [k, t(`channel.event.${k}`)])), all: t("channel.recvAll"), at: t("channel.recvAt"), reasons: { 余额不足: t("channel.reason.balance"), 认证失败: t("channel.reason.auth"), 请求太频繁: t("channel.reason.rate") } } as unknown as EventWords;
+  const words = { ...Object.fromEntries(EVENT_KEYS.map((k) => [k, t(`channel.event.${k}`)])), all: t("channel.recvAll"), at: t("channel.recvAt"), what: Object.fromEntries(WHAT_KEYS.map((k) => [k, t(`channel.what.${k}`)])), whatSep: t("channel.what.sep"), reasons: { 余额不足: t("channel.reason.balance"), 认证失败: t("channel.reason.auth"), 请求太频繁: t("channel.reason.rate") } } as unknown as EventWords;
   const parts = m.event && eventParts(m.event, words);
   if (!parts) return <Line>{m.text}</Line>;
   const apps = (d?.apps ?? []).map((a) => (a.web ? { ...a, name: t("term.panel") } : a));

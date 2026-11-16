@@ -51,10 +51,11 @@ const ChatPage = part(() => import("./chat/chat").then((m) => m.ChatPage));
 const SettingsPage = part(() => import("./settings").then((m) => m.SettingsPage));
 const AppsPage = part(() => import("./apps").then((m) => m.AppsPage));
 const SecretsPage = part(() => import("./credentials").then((m) => m.SecretsPage));
+const RolesPage = part(() => import("./rolespage").then((m) => m.RolesPage));
 const UsagePage = part(() => import("./usage").then((m) => m.UsagePage));
 /** The page of the settings' dialog a route is: the settings, or one of their own pages. */
-type SetsPage = "settings" | "apps" | "secrets" | "usage";
-const setsPageOf = (r: Route): SetsPage => (r.name === "apps" || r.name === "secrets" || r.name === "usage" ? r.name : "settings");
+type SetsPage = "settings" | "apps" | "secrets" | "roles" | "usage";
+const setsPageOf = (r: Route): SetsPage => (r.name === "apps" || r.name === "secrets" || r.name === "roles" || r.name === "usage" ? r.name : "settings");
 const Jump = part(() => import("./jump").then((m) => m.Jump));
 const NotesPanel = part(() => import("./notes").then((m) => m.NotesPanel));
 export const loadChat = ChatPage.load;
@@ -329,7 +330,7 @@ export function App() {
   // 2026-11-08: going in, the dialog neither grows nor shrinks); opened on them first, they fit.
   const settingsH = useRef<number | undefined>(undefined);
   if (dialogPage === "settings" && fit.h !== undefined) settingsH.current = fit.h;
-  const boxH = (dialogPage === "apps" || dialogPage === "secrets") && settingsH.current !== undefined ? settingsH.current : fit.h;
+  const boxH = (dialogPage === "apps" || dialogPage === "secrets" || dialogPage === "roles") && settingsH.current !== undefined ? settingsH.current : fit.h;
   const settingsStyle: CSSProperties | undefined = settingsAt && boxH !== undefined && !usageLook && room !== undefined ? { ...settingsAt, height: `min(${boxH}px, ${typeof room === "number" ? `${room}px` : room})` } : settingsAt;
   // The usage panel floats as a row's menu does: one of them at a time (ui.tsx holdMenu).
   const underNow = useRef(under);
@@ -351,6 +352,10 @@ export function App() {
           ) : page === "secrets" ? (
             <div key="secrets" className={cn(slide, "h-full")}>
               <SecretsPage onBack={back} />
+            </div>
+          ) : page === "roles" ? (
+            <div key="roles" className={cn(slide, "h-full")}>
+              <RolesPage onBack={back} />
             </div>
           ) : page === "usage" ? (
             <div key="usage" className={cn(slide, "h-full")}>

@@ -16,7 +16,8 @@ import { useAgent } from "../data";
 import { t, useLang } from "../i18n";
 import { useContextState, useQuota } from "../store";
 import { errText, toast } from "../toast";
-import { ago, cn, PHONE, PopSurface, Tip, tokens as tok, useLongPress, useMedia, useMinute } from "../ui";
+import { agentName, ago, cn, PHONE, PopSurface, Tip, tokens as tok, useLongPress, useMedia, useMinute } from "../ui";
+import { choicesQ } from "./choices";
 import { EffortSlider, levelName, noteLevelNames } from "./effort";
 import { hasMark, ModeMark, modeName } from "../modes";
 import { openUsage } from "../route";
@@ -438,10 +439,10 @@ export function ModeKey({ mode, open, onOpenChange }: { mode: ReturnType<typeof 
   );
 }
 
-/** The models an agent offers when the session does not list them. */
+/** The models an agent offers when neither the session nor a session of its kind before it lists
+ *  them. Which one it runs with none set is not known: none is ticked. */
 const MODELS: Partial<Record<Agent, Model[]>> = {
   claude: [
-    { value: "default", name: "Default" },
     { value: "opus", name: "Opus" },
     { value: "sonnet", name: "Sonnet" },
     { value: "haiku", name: "Haiku" },
@@ -478,37 +479,45 @@ function Scrolled({ className, children }: { className?: string; children: React
   );
 }
 
-type ModelOf = Pick<LiveSession, "agent" | "model" | "pick" | "models" | "efforts" | "effort" | "effortNow">;
+/** ran: the model its kind last ran there, for an agent that names no default; effortOwn: the
+ *  level a session given no effort ran at with the default model (AgentChoices, for a session
+ *  whose agent has said nothing yet). */
+type ModelOf = Pick<LiveSession, "agent" | "model" | "pick" | "models" | "efforts" | "effort" | "effortNow"> & { ran?: string; effortOwn?: string };
 
 /** What the model key shows, from the session's state (want: a model just picked, not yet in it).
- *  cur: the entry in use, by value, else by the full id an alias resolves to (the default entry only
- *  when no alias has it). name: its name; for the default entry, or nothing set yet, the concrete
- *  model (the alias it resolves to, else its description's head, "Opus 5.5 · ..."); else the id as
- *  the agent named it; "" when nothing is known. isDefault: nothing set, the agent's own. value: the
- *  menu's tick. levels: the efforts the model takes (none: it takes none), else the agent's.
- *  level: the one in use: set, if this model takes it, else the agent's own. */
+ *  No model is called "default" (the user, 2026-11-16): def is the one the agent runs with none
+ *  set (the row marked default, else ran). cur: the entry in use: the one set while it is what
+ *  runs, else by the id in use (its value, the full id it resolves to), else, nothing said yet,
+ *  def; one in use that the agent's list lacks is a row of its own, by its id. name: its name;
+ *  "" when nothing is known. value: the menu's tick. levels: the efforts the model takes (none:
+ *  it takes none), else the agent's. level: the one in use: set, if this model takes it, else
+ *  the agent's own; "" not known. */
 export function modelView(s: ModelOf, want?: string | null) {
-  const models = s.models ?? MODELS[s.agent] ?? [];
+  let models = s.models ?? MODELS[s.agent] ?? [];
   noteLevelNames(models);
-  const pick = want ?? s.pick ?? "";
-  const now = want ?? s.model ?? "";
-  const def = models.find((m) => m.value === "default");
-  const resolvedTo = (id?: string) => (id ? (models.find((m) => m.value !== "default" && m.resolved === id) ?? models.find((m) => m.resolved === id)) : undefined);
-  const isDefault = !pick || pick === "default";
+  // "default" from a state kept from before: none set.
+  const named = (x?: string | null) => (x && x !== "default" ? x : "");
+  const pick = named(want ?? s.pick);
+  const now = named(want ?? s.model);
+  const def = models.find((m) => m.default) ?? (s.ran ? models.find((m) => m.value === s.ran) : undefined);
   // The value set, while what is in use is it (two aliases may resolve to one id).
-  const picked = isDefault ? undefined : models.find((m) => m.value === pick && (!now || now === pick || !m.resolved || m.resolved === now));
-  const cur = picked ?? ((now && (models.find((m) => m.value === now) ?? resolvedTo(now) ?? models.find((m) => m.name === now))) || (isDefault && !now ? def : undefined));
-  const head = (d?: string) => d?.split(" · ")[0]?.trim() || undefined;
-  let name = cur?.name ?? now;
-  if (cur && cur === def) {
-    const alias = cur.resolved ? models.find((m) => m.value !== "default" && m.resolved === cur.resolved) : undefined;
-    name = alias?.name ?? head(cur.description) ?? (cur.resolved || (s.models ? cur.name : ""));
+  const picked = pick ? models.find((m) => m.value === pick && (!now || now === pick || !m.resolved || m.resolved === now)) : undefined;
+  // None set: of two aliases of the id in use, the agent's own.
+  const own = !pick && def && (def.value === now || def.resolved === now) ? def : undefined;
+  const used = now ? (own ?? models.find((m) => m.value === now) ?? models.find((m) => m.resolved === now) ?? models.find((m) => m.name === now)) : undefined;
+  let cur = picked ?? used ?? (!pick && !now ? def : undefined);
+  if (!cur && now && s.models) {
+    cur = { value: now, name: now };
+    models = [cur, ...models];
   }
-  const value = isDefault && def ? "default" : (cur?.value ?? pick ?? now);
+  const name = cur?.name ?? now;
+  const value = cur?.value ?? pick;
   const levels = cur?.efforts?.length ? cur.efforts : cur?.noEffort ? [] : (s.efforts ?? []);
-  // The level set, while this model takes it; else the one the agent says it runs at.
-  const level = (s.effort && (!levels.length || levels.includes(s.effort)) ? s.effort : s.effortNow) || "";
-  return { models, cur, name, isDefault, value, levels, level };
+  const takes = (l?: string) => (l && (!levels.length || levels.includes(l)) ? l : "");
+  // The level set, while this model takes it; else the one the agent says it runs at; before it
+  // says, the one its kind runs the default model at.
+  const level = takes(s.effort) || s.effortNow || (cur && cur === def ? takes(s.effortOwn) : "");
+  return { models, cur, def, name, value, levels, level };
 }
 
 /** A button attached at the effort track (Claude's UltraCode, a plugin's: what the session's
@@ -583,11 +592,16 @@ export function attachedKeys(s: LiveSession, place: string, lang: string): Attac
  *  stays. */
 export function ModelKey({ s, open, onOpenChange }: { s: LiveSession; open?: boolean; onOpenChange?: (o: boolean) => void }) {
   const lang = useLang();
-  const [want, setWant] = useState<string | null>(null);
+  // A model just picked: the row shown, and what was sent for it ("": the agent's own).
+  const [want, setWant] = useState<{ value: string; sent: string } | null>(null);
   // A key pressed shows at once, till the session says it is so (or the press failed).
   const [pressWant, setPressWant] = useState<Record<string, boolean>>({});
   const info = useAgent(s.agent);
-  if (want !== null && (s.pick === want || s.model === want)) setWant(null);
+  if (want !== null && ((s.pick ?? "") === want.sent || s.model === want.value)) setWant(null);
+  // Its agent has not said its models yet (not started): those a session of its kind there said
+  // last, the one it will run among them.
+  const said = !!s.models?.length;
+  const asked = useQuery({ ...choicesQ(s.agent, { machine: s.machine || undefined }), enabled: !said }).data;
   const base = attachedKeys(s, "effort", lang);
   // Before its agent runs (none attached yet), Claude's UltraCode, off.
   if (!base.length && info?.ultracode) base.push({ press: "", label: t("composer.ultracode"), pressed: false, disabled: false, title: t("composer.ultracodeHint") });
@@ -597,14 +611,17 @@ export function ModelKey({ s, open, onOpenChange }: { s: LiveSession; open?: boo
     return !x || x.pressed === pressWant[p];
   });
   if (reached.length) setPressWant((m) => Object.fromEntries(Object.entries(m).filter(([p]) => !reached.includes(p))));
-  const v = modelView(s, want);
+  const v = modelView(said || !asked?.models.length ? s : { ...s, models: asked.models, efforts: s.efforts ?? asked.efforts, ran: asked.ran, effortOwn: asked.effort }, want?.value);
   const { models, levels, level } = v;
   if (!models.length && !v.name) return null;
-  const label = v.name || t("composer.defaultModel");
+  // Not known yet: the agent's name alone, till it says its model.
+  const label = v.name || agentName(s.agent);
   const pickModel = async (model: string) => {
-    setWant(model);
+    // The agent's own default is set as none: it stays the agent's to resolve.
+    const sent = models.find((m) => m.value === model)?.default ? "" : model;
+    setWant({ value: model, sent });
     try {
-      await api.model(s.id, model);
+      await api.model(s.id, sent);
     } catch (e) {
       setWant(null);
       toast(t("err.model"), { error: true, description: errText(e) });
@@ -698,7 +715,7 @@ export function ModelKey({ s, open, onOpenChange }: { s: LiveSession; open?: boo
 /** The model menu's inside (ModelKey's, and a new agent's under 邀请, chat/channel/pick.tsx):
  *  the models, a pick closing it; under them the effort track, tuned in place. foot: a key at the
  *  track's right (featKey) even with no levels. */
-export function ModelList({ models, value, pickModel, levels, level, setEffort, featKey, featTag, foot, name, mark }: { models: Model[]; value: string; pickModel: (v: string) => void; levels: string[]; level: string; setEffort: (e: string) => Promise<boolean>; featKey?: ReactNode; featTag?: ReactNode; foot?: boolean; name?: string ; mark?: { value: string; label: string }}) {
+export function ModelList({ models, value, pickModel, levels, level, setEffort, featKey, featTag, foot, name }: { models: Model[]; value: string; pickModel: (v: string) => void; levels: string[]; level: string; setEffort: (e: string) => Promise<boolean>; featKey?: ReactNode; featTag?: ReactNode; foot?: boolean; name?: string }) {
   const grouped = new Set(models.map((m) => m.group).filter(Boolean)).size > 1;
   return (
     <>
@@ -717,8 +734,6 @@ export function ModelList({ models, value, pickModel, levels, level, setEffort, 
               <Menu.RadioItem value={m.value} closeOnClick style={{ "--i": i } as CSSProperties} className="flex min-h-8 cursor-default items-center gap-2.5 rounded-md pr-2 pl-2.5 text-base outline-none select-none data-highlighted:bg-fill pointer-coarse:min-h-11">
                 {/* The name alone: no model's blurb under it (the user, 2026-11-06). */}
                 <span className="min-w-0 flex-1 truncate py-1">{m.name}</span>
-                {/* One row marked quietly at its end (the invite menu's default: kumo, 2026-11-15). */}
-                {mark?.value === m.value && <span className="shrink-0 text-xs text-ink-4">{mark.label}</span>}
                 <Menu.RadioItemIndicator className="text-ink">
                   <Check size={14} />
                 </Menu.RadioItemIndicator>

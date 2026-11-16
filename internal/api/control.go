@@ -55,6 +55,9 @@ type Model struct {
 	EffortNames map[string]string `json:"effortNames,omitempty"`
 	// Group: what it is listed under (dsh: its provider's name); the menu heads each group.
 	Group string `json:"group,omitempty"`
+	// Default: the one the agent runs when no model is set (Claude's "default" entry is no row
+	// of its own: NamedModels marks the model it resolves to).
+	Default bool `json:"default,omitempty"`
 }
 
 // Attached is a piece of a session's page that something attached (docs/next/plugin.md): Satori

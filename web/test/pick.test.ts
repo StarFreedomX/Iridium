@@ -2,7 +2,8 @@
 // answered with before the server is; a fresh answer kept over it.
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api } from "../src/api/client";
-import { choicesQ } from "../src/chat/channel/pick";
+import { draftName } from "../src/chat/choices";
+import { choicesQ, defaultFirst, draftDefault } from "../src/chat/channel/pick";
 
 afterEach(() => (localStorage.clear(), vi.restoreAllMocks()));
 
@@ -25,5 +26,29 @@ describe("an agent kind's choices", () => {
     await q.queryFn();
     await q.queryFn();
     expect(q.initialData()).toEqual(got);
+  });
+});
+
+describe("a new agent's model", () => {
+  const models = [
+    { value: "a/x", name: "X", group: "A" },
+    { value: "b/y", name: "Y", group: "B" },
+    { value: "b/z", name: "Z", group: "B", default: true },
+  ];
+  test("the agent's own default: named, sent as none; first in the menu, its group with it", () => {
+    const d = draftDefault({ models, efforts: [] });
+    expect([d.def?.name, d.send]).toEqual(["Z", ""]);
+    expect(defaultFirst(models, d.def).map((m) => m.value)).toEqual(["b/z", "b/y", "a/x"]);
+  });
+  test("no default named: the model its kind last ran, sent by its value; none known: nothing", () => {
+    const plain = models.map(({ default: _, ...m }) => m);
+    const d = draftDefault({ models: plain, efforts: [], ran: "b/y" });
+    expect([d.def?.name, d.send]).toEqual(["Y", "b/y"]);
+    expect(draftDefault({ models: plain, efforts: [] })).toEqual({ def: undefined, send: "" });
+    expect(draftDefault(undefined)).toEqual({ def: undefined, send: "" });
+    expect(defaultFirst(plain, undefined)).toBe(plain);
+    // The kind's row: its name and that model; not known, the name alone.
+    expect(draftName("pi", { models: plain, efforts: [], ran: "b/y" })).toBe("pi · Y");
+    expect(draftName("pi", undefined)).toBe("pi");
   });
 });

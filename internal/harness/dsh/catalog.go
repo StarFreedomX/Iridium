@@ -259,7 +259,7 @@ func (c *Channel) catalogState(machine string, s *api.SessionState) {
 	}
 	s.Models = nil
 	for _, x := range cat.Models {
-		s.Models = append(s.Models, api.Model{Value: x.Value, Name: x.Name, Description: x.Description, Efforts: slices.Clone(x.Efforts), NoEffort: x.NoEffort, EffortNames: maps.Clone(x.EffortNames), Group: x.Group})
+		s.Models = append(s.Models, api.Model{Value: x.Value, Name: x.Name, Description: x.Description, Efforts: slices.Clone(x.Efforts), NoEffort: x.NoEffort, EffortNames: maps.Clone(x.EffortNames), Group: x.Group, Default: x.Default})
 	}
 	if s.Model == "" {
 		s.Model = cat.Default

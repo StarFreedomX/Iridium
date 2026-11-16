@@ -124,6 +124,9 @@ func ParseProbe(out []byte) (agent.Catalog, error) {
 	}
 	if d := p.Default; d != nil && d.Provider != "" && d.Model != "" {
 		c.Default = d.Provider + "/" + d.Model
+		for i := range c.Models {
+			c.Models[i].Default = c.Models[i].Value == c.Default
+		}
 	}
 	if len(c.Models) == 0 {
 		return agent.Catalog{}, errors.New("dsh: no provider offers a model")

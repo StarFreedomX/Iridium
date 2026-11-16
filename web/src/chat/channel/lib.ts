@@ -46,16 +46,28 @@ export function workOf<B extends { at: string; kind: string; text?: string }>(bl
 /** Something that happened to a channel, a line of Iridium's own in it (internal/channel Event):
  *  join, leave (nick), rename (from, nick), recv (nick, recv), people (added, removed: member
  *  strings; everyone), undelivered (seq, nick), stopped (seq), silent (seq, nick: called for it,
- *  it said nothing in the channel; reason: why, its turn ending in an error). by: who did it, by
+ *  it said nothing in the channel; reason: why, its turn ending in an error), profile (a card
+ *  changed: member's, by nick, or the channel's own with no member; what: the fields, "name",
+ *  "intro", "avatar", "background"). by: who did it, by
  *  name (the host's as Iridium, however it was kept: 主机 before 2026-11-15). */
-export type ChEvent = { type: string; member?: string; nick?: string; name?: string; from?: string; recv?: string; added?: string[]; removed?: string[]; everyone?: boolean; seq?: number; reason?: string; by?: string };
+export type ChEvent = { type: string; member?: string; nick?: string; name?: string; from?: string; recv?: string; added?: string[]; removed?: string[]; everyone?: boolean; seq?: number; reason?: string; by?: string; what?: string[] };
 
 /** A piece of an event's line: words, an agent by its nick, people by their member strings. */
 export type EventPart = string | { nick: string } | { people: string[] };
 
 /** The line's words by event (i18n: channel.event.*), their slots in braces: {nick} {from}
  *  {recv} {people} {seq} {reason} {by}; reasons: the server's usual reasons (余额不足…) in them. */
-export type EventWords = Record<"join" | "leave" | "rename" | "recv" | "everyone" | "added" | "removed" | "undelivered" | "stopped" | "silent" | "silentWhy" | "by" | "sep" | "all" | "at", string> & { reasons?: Record<string, string> };
+export type EventWords = Record<"join" | "leave" | "rename" | "recv" | "everyone" | "added" | "removed" | "undelivered" | "stopped" | "silent" | "silentWhy" | "by" | "sep" | "all" | "at", string> & {
+  reasons?: Record<string, string>;
+  /** A card changed: a member's, the channel's; each with who did it in its words, and without. */
+  profile?: string;
+  profileChannel?: string;
+  profileNoBy?: string;
+  profileChannelNoBy?: string;
+  /** The fields of a card by name ({what}), and what stands between them. */
+  what?: Record<string, string>;
+  whatSep?: string;
+};
 
 /** An event as the pieces of its line, in the page's words; none for one not known (its message's
  *  own text is shown then). */
@@ -82,6 +94,8 @@ export function eventParts(e: ChEvent, w: EventWords): EventPart[] | undefined {
             return { people: e.added ?? [] };
           case "{removed}":
             return { people: e.removed ?? [] };
+          case "{what}":
+            return (e.what ?? []).map((x) => w.what?.[x] ?? x).join(w.whatSep ?? ", ");
         }
         return x;
       });
@@ -104,10 +118,17 @@ export function eventParts(e: ChEvent, w: EventWords): EventPart[] | undefined {
       out = bits.flatMap((b, i) => (i ? [w.sep, ...b] : b));
       break;
     }
+    case "profile": {
+      // Who did it is in the line's own words, not after it.
+      const tpl = e.member ? (e.by ? w.profile : w.profileNoBy) : e.by ? w.profileChannel : w.profileChannelNoBy;
+      if (!tpl || !e.what?.length) return undefined;
+      out = fill(tpl);
+      break;
+    }
     default:
       return undefined;
   }
-  if (e.by) out.push(...fill(w.by));
+  if (e.by && e.type !== "profile") out.push(...fill(w.by));
   // Words side by side are one piece.
   return out.reduce<EventPart[]>((all, p) => (typeof p === "string" && typeof all.at(-1) === "string" ? [...all.slice(0, -1), (all.at(-1) as string) + p] : [...all, p]), []);
 }

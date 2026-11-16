@@ -11,6 +11,7 @@ import (
 
 	"github.com/kumoSleeping/iridium/internal/agent"
 	"github.com/kumoSleeping/iridium/internal/api"
+	"github.com/kumoSleeping/iridium/internal/ctx/assemble"
 	"github.com/kumoSleeping/iridium/internal/transcript"
 )
 
@@ -331,4 +332,21 @@ func (m *Manager) all() []*Hosted {
 		out = append(out, h)
 	}
 	return out
+}
+
+// SetCreated has f run on a session just made, before its agent starts: what was asked for
+// with it (req: its role, its card). An error undoes nothing: the session is there without it.
+func (m *Manager) SetCreated(f func(ctx context.Context, id string, req api.NewSession) error) {
+	m.created.Store(&f)
+}
+
+// SetSelf has f say what a session's agent is told of itself in its system prompt
+// (assemble.Self), at each start of its process.
+func (m *Manager) SetSelf(f func(id string) *assemble.Self) { m.selfOf.Store(&f) }
+
+func (m *Manager) self(id string) *assemble.Self {
+	if f := m.selfOf.Load(); f != nil {
+		return (*f)(id)
+	}
+	return nil
 }

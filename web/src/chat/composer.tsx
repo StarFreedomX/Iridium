@@ -1,6 +1,8 @@
 // Where you type to a session (web/sample's composer; Rhodium spec web-write): attach, the words,
-// one round key whose icon says what it does now; the meters are under it, not in it (chat.tsx). Idle it sends; in a turn with
-// nothing typed it stops the turn; with words it queues them (or steers them into the turn, with a
+// one round key whose icon says what it does now; the meters are under it, not in it (chat.tsx). The
+// composer is the person's, not the agent's (kumo, 2026-11-16): its key sends, and is never the
+// stop key (that is on the agent's row at work, live.tsx StopKey); empty, it waits; with words in
+// the agent's turn it queues them (or steers them into the turn, with a
 // leading !, Ctrl or ⌘+Enter as Claude Code's send now, or where the server has no queue). / at
 // the start lists the session's commands; @ lists what to name (docs/plan.md "@", 2026-11-10):
 // sessions, this machine's groups, each machine's workspaces, a folder by its path; a session's or
@@ -10,7 +12,7 @@
 // granted. Shift+Tab cycles the approval mode; Esc stops the turn. The draft is kept on
 // this device; files pasted, dropped or attached go up in chunks while you type, a picture in its
 // own shape under a veil drawn back as it goes; nothing is sent till all are up.
-import { ArrowUp, Box, Brain, ChartPie, Eraser, FileCode2, FileText, FoldVertical, Gauge, LoaderCircle, Paperclip, Reply, ShieldCheck, Square, X, type LucideIcon } from "lucide-react";
+import { ArrowUp, Box, Brain, ChartPie, Eraser, FileCode2, FileText, FoldVertical, Gauge, LoaderCircle, Paperclip, Reply, ShieldCheck, X, type LucideIcon } from "lucide-react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { forwardRef, Fragment, useEffect, useImperativeHandle, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { Agent, Command, SessionState as LiveSession } from "../api/types.gen";
@@ -19,6 +21,7 @@ import { api, missing } from "../api/client";
 import type { Sent } from "../chats";
 import { t } from "../i18n";
 import { errText, toast } from "../toast";
+import { stopTurn } from "./live";
 import { useList } from "../store";
 import { useHome, useMachines, useSettings, useWorkspaces } from "../data";
 import { ago, agentName, cn, fine, IconKey, keep, kept, Logo, steerKey, tilde, Tip, titleOf, useMinute } from "../ui";
@@ -41,14 +44,16 @@ const hasDsh = (m: Machine) => m.online && m.agents.some((a) => a.agent === "dsh
 const BOX = "px-0.5 py-1 text-md leading-[21px]";
 export const draftKey = (id: string) => `draft:${id}`;
 
-/** What the key does now. steers: Enter puts words into a running turn (the setting enterInTurn,
- *  the default); other: as Ctrl or ⌘+Enter, which does the other. */
-export type KeyMode = "send" | "stop" | "queue" | "steer";
+/** What the key does with what is typed: sends it; in the agent's turn (turn), queues it or
+ *  steers it in. Nothing typed, it sends (the key waits): stopping the turn is not the composer's.
+ *  steers: Enter puts words into a running turn (the setting enterInTurn, the default); other: as
+ *  Ctrl or ⌘+Enter, which does the other. */
+export type KeyMode = "send" | "queue" | "steer";
 export function keyMode(turn: boolean, text: string, files: number, queues: boolean, steers = true, other = false): KeyMode {
   if (!turn) return "send";
   const words = text.trim();
   if (words.startsWith("$")) return "send"; // a command line (shell.tsx), not for the turn
-  if (!words && !files) return "stop";
+  if (!words && !files) return "send";
   // A command waits for the turn's end: the server never steers one in.
   if (words.startsWith("/") && queues) return "queue";
   if (/^[!！]/.test(words) || !queues) return "steer";
@@ -87,6 +92,8 @@ export type ComposerHandle = { focus: () => void; put: (text: string) => void; i
 
 type Props = {
   s: LiveSession;
+  /** The session's own agent is in a turn: what is typed queues or steers in (keyMode), Esc
+   *  stops it. Nothing of the composer shows it. */
   turn: boolean;
   /** A message is going: shown at once as yours, faint till the transcript has it. */
   onSent: (sent: Sent) => void;
@@ -315,7 +322,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
     if (w === "/model" || w === "/effort") return (type(""), openModel(), true);
     if (w === "/mode") return (type(""), openMode(), true);
     if (w === "/usage") return (type(""), openUsage(), true);
-    if (w === "/stop") return (type(""), void stop(), true);
+    if (w === "/stop") return (type(""), void stopTurn(s.id), true);
     if (w === "/clear" || w === "/new") return (type(""), void clear(), true);
     if (w === "/context") {
       if (openContext()) return (type(""), true);
@@ -335,20 +342,9 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
       setBusy(false);
     }
   };
-  const stop = async () => {
-    setBusy(true);
-    try {
-      await api.interrupt(s.id);
-    } catch (e) {
-      toast(t("err.stop"), { error: true, description: errText(e) });
-    } finally {
-      setBusy(false);
-    }
-  };
   const go = async (other = false) => {
     const mode = keyMode(turn, text, atts.length, queues, steers, other);
-    if (busy || uploading || (empty && mode !== "stop")) return;
-    if (mode === "stop") return stop();
+    if (busy || uploading || empty) return;
     if (atts.some((a) => a.error)) return toast(t("err.upload"), { error: true });
     // $ and a command line: run at the session's machine, not sent to the agent (shell.tsx).
     const line = shellable && !multi && !atts.length ? shellLine(text) : null;
@@ -397,7 +393,6 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
 
   const KEYS: Record<KeyMode, [string, React.ReactNode]> = {
     send: [t("composer.send"), <ArrowUp size={16} strokeWidth={2.25} />],
-    stop: [t("composer.stop"), <Square size={12} fill="currentColor" />],
     queue: [t("composer.queue", { key: steerKey() }), <ArrowUp size={16} strokeWidth={2.25} />], // one send key for all: what it does in its tip (the user, 2026-11-06)
     steer: [steers && queues && !/^[!！]/.test(text.trim()) ? t("composer.steerOr", { key: steerKey() }) : t("composer.steer"), <ArrowUp size={16} strokeWidth={2.25} />],
   };
@@ -555,10 +550,10 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
             else if (e.key === "Tab" && e.shiftKey) cycleMode();
             // In a turn, Ctrl or ⌘+Enter does what Enter does not: steer in (Claude Code's send now) or queue.
             else if (e.key === "Enter" && !e.shiftKey && (e.ctrlKey || e.metaKey) && turn) void (empty || go(true));
-            // Enter sends on a computer (Ctrl or ⌘ with it on a phone); in an empty box it does nothing,
-            // as it would stop the turn: Esc does that.
+            // Enter sends on a computer (Ctrl or ⌘ with it on a phone); in an empty box it does nothing.
+            // Esc stops the session's own agent's turn, as its stop key does.
             else if (e.key === "Enter" && !e.shiftKey && (fine() || e.ctrlKey || e.metaKey)) void (empty || go());
-            else if (e.key === "Escape" && turn && !busy) void stop();
+            else if (e.key === "Escape" && turn) void stopTurn(s.id);
             else return;
             e.preventDefault();
           }}
@@ -579,7 +574,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
           <button
             type="button"
             aria-label={label}
-            disabled={(empty && mode !== "stop") || busy || uploading}
+            disabled={empty || busy || uploading}
             onClick={() => void go()}
             className="group/send g-press grid size-8 shrink-0 place-items-center pointer-coarse:size-10"
           >

@@ -449,9 +449,11 @@ describe("jumpList", () => {
 });
 
 describe("composer", () => {
-  test("the key: send idle; in a turn, stop with nothing typed; words steer by default, Ctrl+Enter queues; the setting turns it round; ! or no queue steers", () => {
+  test("the key: send idle; in a turn it is never a stop key (nothing typed: send, waiting); words steer by default, Ctrl+Enter queues; the setting turns it round; ! or no queue steers", () => {
     expect(keyMode(false, "hi", 0, true)).toBe("send");
-    expect(keyMode(true, " ", 0, true)).toBe("stop");
+    // The composer is the person's: stopping is on the agent's row at work (kumo, 2026-11-16).
+    expect(keyMode(true, " ", 0, true)).toBe("send");
+    expect(keyMode(true, "", 0, false)).toBe("send");
     expect(keyMode(true, "hi", 0, true)).toBe("steer");
     expect(keyMode(true, "", 1, true)).toBe("steer");
     expect(keyMode(true, "$ ls", 0, true)).toBe("send"); // a command line, not for the turn
@@ -548,23 +550,44 @@ describe("names", () => {
 
 describe("model key", () => {
   const claude: Model[] = [
-    { value: "default", name: "Default (recommended)", description: "Opus 5.5 · Best for everyday, complex tasks", resolved: "claude-opus-5-5", efforts: ["low", "medium", "high", "xhigh", "max"] },
-    { value: "opus", name: "Opus 5.5", resolved: "claude-opus-5-5", efforts: ["low", "medium", "high", "xhigh", "max"] },
+    { value: "opus", name: "Opus 5.5", resolved: "claude-opus-5-5", efforts: ["low", "medium", "high", "xhigh", "max"], default: true },
     { value: "haiku", name: "Haiku 5.5", resolved: "claude-haiku-5-5", efforts: ["low", "medium", "high", "xhigh", "max"] },
     { value: "claude-opus-4-6", name: "Opus 4.6", resolved: "claude-opus-4-6", efforts: ["low", "medium", "high", "max"] },
     { value: "claude-haiku-4-5", name: "Haiku 4.5", resolved: "claude-haiku-4-5", noEffort: true },
   ];
   const base = { agent: "claude" as const, models: claude, efforts: ["low", "medium", "high", "xhigh", "max"] };
-  test("a new session names the concrete model and the level in use, not just Default", () => {
-    // Before get_settings says: the default entry's alias.
-    expect(modelView({ ...base }).name).toBe("Opus 5.5");
+  test("no model is called default: none set, the row of the model the agent runs is the one ticked", () => {
+    // Before the agent says what it runs: the row its list marks.
+    const none = modelView({ ...base });
+    expect([none.name, none.value]).toEqual(["Opus 5.5", "opus"]);
     const v = modelView({ ...base, model: "claude-opus-5-5", effortNow: "medium" });
-    expect([v.name, v.value, v.level, v.isDefault]).toEqual(["Opus 5.5", "default", "medium", true]);
-    // No alias: the description's head; nothing: the id as the agent named it.
-    expect(modelView({ ...base, models: [{ value: "default", name: "Default", description: "Opus 9 · x" }] }).name).toBe("Opus 9");
-    expect(modelView({ ...base, model: "claude-new-1" }).name).toBe("claude-new-1");
-    // Without the session's list (the fallback), nothing is known yet.
-    expect(modelView({ agent: "claude" }).name).toBe("");
+    expect([v.name, v.value, v.level]).toEqual(["Opus 5.5", "opus", "medium"]);
+    expect(v.models.some((m) => m.value === "default")).toBe(false);
+    // Two aliases of the id in use, none set: the agent's own.
+    const two = [{ value: "best", name: "Best", resolved: "claude-opus-5-5" }, ...claude];
+    expect(modelView({ ...base, models: two, model: "claude-opus-5-5" }).value).toBe("opus");
+    // "default" from a state of before: none set, never a name.
+    expect(modelView({ ...base, pick: "default", model: "default" }).name).toBe("Opus 5.5");
+    // In use and not in the agent's list: a row of its own, by its id, ticked.
+    const lone = modelView({ ...base, model: "claude-new-1" });
+    expect([lone.name, lone.value, lone.models[0]?.value, lone.models.length]).toEqual(["claude-new-1", "claude-new-1", "claude-new-1", claude.length + 1]);
+    // Without the session's list (the fallback), nothing is known yet: no name, nothing ticked.
+    const bare = modelView({ agent: "claude" });
+    expect([bare.name, bare.value, bare.models.some((m) => /default/i.test(m.value + m.name))]).toEqual(["", "", false]);
+  });
+  test("an agent that names no default: the model its kind last ran; the level it ran at", () => {
+    const pi: Model[] = [
+      { value: "a/x", name: "X", efforts: ["low", "high"] },
+      { value: "b/y", name: "Y", efforts: ["low", "high"] },
+    ];
+    expect(modelView({ agent: "pi", models: pi }).name).toBe("");
+    const v = modelView({ agent: "pi", models: pi, ran: "b/y", effortOwn: "high" });
+    expect([v.name, v.value, v.def?.value, v.level]).toEqual(["Y", "b/y", "b/y", "high"]);
+    // Another model picked: its level is not known; one the model does not take is not named.
+    expect(modelView({ agent: "pi", models: pi, ran: "b/y", effortOwn: "high", pick: "a/x", model: "a/x" }).level).toBe("");
+    expect(modelView({ agent: "pi", models: pi, ran: "b/y", effortOwn: "max" }).level).toBe("");
+    // What the session says goes first.
+    expect(modelView({ agent: "pi", models: pi, ran: "b/y", effortOwn: "high", effortNow: "low" }).level).toBe("low");
   });
   test("a model set: ticked by its value, its own levels; one that takes none has no slider", () => {
     const v = modelView({ ...base, pick: "opus", model: "claude-opus-5-5", effort: "high", effortNow: "low" });

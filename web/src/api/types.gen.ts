@@ -225,8 +225,9 @@ export interface SessionState extends Session {
   proc: number /* int */;
   error?: string; // why its last process ended badly
   /**
-   * Pick: the model set for it ("" or "default": the agent's own); Model is the one in use, often
-   * a full id (Claude: as get_settings or the turn's init name it).
+   * Pick: the model set for it ("": none, the agent's own; never "default", NameModel). Model is
+   * the one in use, often a full id (Claude: as get_settings or the turn's init name it); before
+   * the agent names it, what was set, else the one Models marks Default.
    */
   pick?: string;
   /**
@@ -560,6 +561,16 @@ export interface NewSession {
    * more agents, started in the same folder; its people chosen.
    */
   members?: ChannelSetup;
+  /**
+   * Role: start it as this role (its id or name): the role's agent, model, effort, mode and
+   * card, where the fields above say nothing. Nick, Intro, Avatar, Background: its card
+   * (ProfilePatch), over the role's.
+   */
+  role?: string;
+  nick?: string;
+  intro?: string;
+  avatar?: string;
+  background?: string;
 }
 /**
  * Send gives the session a message: a new turn when idle; while a turn runs it waits in the
@@ -1187,6 +1198,14 @@ export interface ChannelMember {
   status?: Status;
   cwd?: string;
   machine?: string;
+  /**
+   * Its card (Profile): Intro; Avatar, Background where they are an emoji or a colour, or the
+   * background's image; Role, the role its session was started as.
+   */
+  intro?: string;
+  avatar?: string;
+  background?: string;
+  role?: string;
 }
 /**
  * ChannelMembers are a channel's members: Channel, its id; Multi, it has more than one agent or
@@ -1220,6 +1239,14 @@ export interface NewMember {
   preset?: string;
   nick?: string;
   recv?: string;
+  /**
+   * Role: start it as this role (its id or name): the role's agent, model, effort and card,
+   * where the fields above say nothing. Intro, Avatar, Background: its card (ProfilePatch).
+   */
+  role?: string;
+  intro?: string;
+  avatar?: string;
+  background?: string;
 }
 /**
  * MemberPatch changes a member: its nick, what it receives.
@@ -1328,6 +1355,19 @@ export interface Read {
   seq: number /* int64 */;
 }
 /**
+ * ChannelAt is the first message of a channel that names the caller and that it has not read
+ * (docs/channels.md "有人 @ 我"): Seq, its number; Everyone: it names all the members
+ * ("@全体成员"), not the caller alone.
+ */
+export interface ChannelAt {
+  seq: number /* int64 */;
+  everyone?: boolean;
+}
+/**
+ * ChannelAts are the caller's own, by channel: the carried state "ats", GET /v1/internal/ats.
+ */
+export type ChannelAts = { [key: string]: ChannelAt};
+/**
  * Outline is a session's record by turn (POST internal/block.outline): between what an agent
  * did in counts and the record whole. Start, End: the lines of the record it spans; More: there
  * are earlier turns.
@@ -1366,11 +1406,16 @@ export interface People {
  * session of that kind there said it: its models (each with its own efforts) and efforts. None
  * known (no session of the kind ran there yet): empty, and the agent's own defaults go.
  * Presets: an agent with presets (dsh): those a session of it there listed last.
+ * A new one given no model runs the one of Models marked Default; an agent that names none (pi):
+ * Ran, the model its kind last ran there, one of Models. Neither: not known till it starts.
+ * Effort: the level one given none last ran at there with that model.
  */
 export interface AgentChoices {
   models: Model[];
   efforts: string[];
   presets?: Presets;
+  ran?: string;
+  effort?: string;
 }
 
 //////////
@@ -1441,6 +1486,11 @@ export interface Model {
    * Group: what it is listed under (dsh: its provider's name); the menu heads each group.
    */
   group?: string;
+  /**
+   * Default: the one the agent runs when no model is set (Claude's "default" entry is no row
+   * of its own: NamedModels marks the model it resolves to).
+   */
+  default?: boolean;
 }
 /**
  * Attached is a piece of a session's page that something attached (docs/next/plugin.md): Satori
@@ -1846,6 +1896,189 @@ export interface NoteFolderPatch {
 }
 
 //////////
+// source: profile.go
+
+export const CardKindAgent = "agent";
+export const CardKindPerson = "person";
+export const CardKindApp = "app";
+export const CardKindChannel = "channel";
+/**
+ * The kinds of card.
+ */
+export type CardKind = typeof CardKindAgent | typeof CardKindPerson | typeof CardKindApp | typeof CardKindChannel;
+/**
+ * Profile is the card of a member or of a channel. ID: an agent's member ("agent:<session>"), a
+ * person's or an app's user id, a channel's id. Name: what it is called by (an agent's nick, a
+ * login's name, a channel's name). Avatar, Background: where the image is fetched ("/v1/…"), or
+ * an emoji, or a colour ("#2f4f6f"); "" none. Model: what an agent runs as. Role: the role its
+ * session was started as.
+ */
+export interface Profile {
+  id: string;
+  kind: string;
+  name?: string;
+  intro?: string;
+  avatar?: string;
+  background?: string;
+  session?: string;
+  agent?: Agent;
+  model?: string;
+  status?: Status;
+  role?: string;
+  /**
+   * Mine: the caller may change it.
+   */
+  mine?: boolean;
+}
+/**
+ * ProfilePatch changes a profile; a nil field stays. Nick and Name are the same thing (an
+ * agent's is its nick, a channel's its name). Avatar, Background: an image (a data: URL or
+ * base64; for the host's own ir, a file's path), an emoji, a colour ("#2f4f6f"), or "" for none.
+ */
+export interface ProfilePatch {
+  nick?: string;
+  name?: string;
+  intro?: string;
+  avatar?: string;
+  background?: string;
+}
+/**
+ * IntroMax is how many characters an intro may have; MemoryMax, a memory.
+ */
+export const IntroMax = 200;
+/**
+ * IntroMax is how many characters an intro may have; MemoryMax, a memory.
+ */
+export const MemoryMax = 300;
+/**
+ * Self is what an agent's ir is told of itself (GET internal/me): its card, the channels it is
+ * in, the contexts it had before it was cleared, what it chose to remember. A person gets the
+ * card alone.
+ */
+export interface Self extends Profile {
+  channels?: MeChannel[];
+  before?: MeBefore[];
+  memory?: Memory[];
+}
+/**
+ * MeChannel is a channel the agent is in: when it last spoke there (ms; 0 never), the others
+ * who spoke around then, the head of what it said.
+ */
+export interface MeChannel {
+  channel: string;
+  name?: string;
+  own?: boolean;
+  at?: number /* int64 */;
+  with?: string[];
+  last?: string;
+}
+/**
+ * MeBefore is a context the agent had before: the session it was, when it was cleared (ms),
+ * how many turns it had, the head of its first message.
+ */
+export interface MeBefore {
+  session: string;
+  at: number /* int64 */;
+  turns?: number /* int */;
+  first?: string;
+}
+/**
+ * Memory is something an agent chose to remember (POST internal/remember). Session, Channel,
+ * Seq: where it is from: the session that wrote it, the channel it was working for and how far
+ * that channel had come.
+ */
+export interface Memory {
+  id: number /* int64 */;
+  text: string;
+  session?: string;
+  channel?: string;
+  name?: string;
+  seq?: number /* int64 */;
+  at: number /* int64 */;
+}
+/**
+ * Remember is a memory to keep.
+ */
+export interface Remember {
+  text: string;
+}
+/**
+ * Recall asks what the records say of Q (POST internal/recall): the messages of the channels
+ * the agent is in, its earlier contexts' channels, its memory. All: every channel it sees.
+ */
+export interface Recall {
+  q: string;
+  all?: boolean;
+  limit?: number /* int */;
+}
+/**
+ * RecallHit is one thing found: Kind "message" (Channel, Seq: read it whole with Get) or
+ * "memory" (ID). Head: its first words.
+ */
+export interface RecallHit {
+  kind: string;
+  channel?: string;
+  name?: string;
+  seq?: number /* int64 */;
+  id?: number /* int64 */;
+  who?: string;
+  at: number /* int64 */;
+  head: string;
+  get?: string;
+}
+/**
+ * MemberCard is a member looked up (GET internal/members/{who}): its card, the channels the
+ * caller shares with it, the last things it said there.
+ */
+export interface MemberCard extends Profile {
+  channels?: MeChannel[];
+  said?: RecallHit[];
+}
+/**
+ * Role is an agent kept to start sessions as: its name (the nick its sessions take), what it
+ * runs (Agent, Model, Effort, Mode, Preset, at Machine), its card (Intro, Avatar, Background as
+ * Profile's). ModelName: the model as shown.
+ */
+export interface Role {
+  id: string;
+  name: string;
+  agent: Agent;
+  model?: string;
+  modelName?: string;
+  effort?: string;
+  mode?: string;
+  preset?: string;
+  machine?: string;
+  intro?: string;
+  avatar?: string;
+  background?: string;
+  memories?: number /* int */;
+}
+/**
+ * NewRole keeps a role: from Session (its agent, model, effort and card as they are now; the
+ * session is the role's from then on), else from the fields given.
+ */
+export interface NewRole extends Role {
+  session?: string;
+}
+/**
+ * RolePatch changes a role; a nil field stays. Avatar, Background as ProfilePatch's. Session:
+ * take the card and what it runs from this session, as it is now.
+ */
+export interface RolePatch {
+  name?: string;
+  model?: string;
+  effort?: string;
+  mode?: string;
+  preset?: string;
+  intro?: string;
+  avatar?: string;
+  background?: string;
+  sort?: number /* float64 */;
+  session?: string;
+}
+
+//////////
 // source: public.go
 
 /**
@@ -1968,7 +2201,7 @@ export interface PushUnsubscribe {
  * PushMessage is a push's payload, as the service worker gets it.
  */
 export interface PushMessage {
-  kind: string; // needs_you | error | turn_end | compact | test
+  kind: string; // needs_you | error | turn_end | compact | at | test
   session?: string;
   title: string;
   body: string;

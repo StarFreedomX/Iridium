@@ -98,6 +98,9 @@ type Event struct {
 	Seq      int64    `json:"seq,omitempty"`
 	Reason   string   `json:"reason,omitempty"`
 	By       string   `json:"by,omitempty"`
+	// What: for "profile" (a card changed: Member's, or the channel's when there is none), the
+	// fields that did: "name", "intro", "avatar", "background".
+	What []string `json:"what,omitempty"`
 }
 
 // Message is a channel's message with its data read.

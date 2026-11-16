@@ -9,9 +9,12 @@ import { LongWords } from "./longwords";
 import { linesOf } from "./channel/merge";
 import { Archive, ArchiveRestore, ArrowUpRight, BookOpen, Bot, BotMessageSquare, ChartColumn, Check, ChevronRight, CircleStop, CircleX, Clock, CloudDownload, CloudUpload, Copy, Cpu, Earth, FileCode, FileDiff, FilePen, Files as FilesIcon, FileText, FlaskConical, FolderGit2, FolderOpen, Folders, FoldVertical, GitBranch, GitCommitHorizontal, GitPullRequest, Globe, Hammer, History, Hourglass, KeyRound, Laptop, Link2, List, ListChecks, LoaderCircle, MessagesSquare, LockKeyhole, MessageCircleQuestionMark, MessageSquarePlus, Monitor, MonitorSmartphone, MousePointerClick, Network, Package, PencilLine, Plug, RotateCcw, RotateCw, Search, Send, ServerCog, SlidersHorizontal, Smartphone, SquareTerminal, StickyNote, Terminal, Trash2, type LucideIcon, UserRound, Workflow as WorkflowIcon, Wrench, X } from "lucide-react";
 import { Copyable } from "./copyable";
+import { Dispatch, Sent as SentTo, TaskBack } from "./dispatched";
+import { handBack, toldOf } from "./dispatch";
 import { Children, forwardRef, memo, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { givenTurn, linkNicks, type GivenTurn } from "./channel/lib";
 import { Nicks, NickWords } from "./channel/nick";
+import { CARD_POP } from "./channel/profilecard";
 import type { Relay } from "../satori";
 import { Popover } from "@base-ui/react/popover";
 import { api } from "../api/client";
@@ -119,7 +122,7 @@ const Sender = forwardRef<HTMLDivElement, { who: You | From; time?: number; jump
               </button>
             }
           />
-          <PopSurface align={left ? "start" : "end"} className="w-[min(300px,calc(100vw-16px))] p-3.5">
+          <PopSurface align={left ? "start" : "end"} className={CARD_POP}>
             {card}
           </PopSurface>
         </Popover.Root>
@@ -476,9 +479,12 @@ export function Said({ b, session, cwd, source, onJump, card }: { b: Shown; sess
     case "system":
       if (b.event === "iridium") return <Line icon={<RotateCcw size={12} />}>{b.text}</Line>;
       if (b.event === "compact") return <Compaction b={b} />;
-      // A background task ended (a workflow, a background agent): its summary as Claude Code says it.
+      // A background task ended (a workflow, a background agent): its summary as Claude Code
+      // says it; a subagent's, what it handed back (dispatched.tsx).
       if (b.event === "task")
-        return (
+        return handBack(b.text) ? (
+          <TaskBack b={b} session={session} />
+        ) : (
           <Line icon={<WorkflowIcon size={12} />} tail={b.time ? <span className="shrink-0 whitespace-pre"> · {clock(b.time)}</span> : undefined}>
             {b.text}
           </Line>
@@ -627,7 +633,10 @@ const ROW = "flex h-7 min-w-0 cursor-default list-none items-center gap-2 rounde
  *  the lines their edits changed, which opens to a line each.
  *  Each, pressed, shows what it was given and what came back in a card (StepView). */
 function Fold({ steps, session, cwd }: { steps: Step[]; session: string; cwd: string }) {
-  if (steps.length === 1) return <StepView s={steps[0]!} session={session} cwd={cwd} />;
+  const one = steps.length === 1 ? steps[0]! : undefined;
+  // A call to a subagent: the agent's words to it, not a step's line (dispatched.tsx).
+  if (one?.kind === "tool" && toldOf(one)) return <Dispatch call={one as Tool} session={session} />;
+  if (one) return <StepView s={one} session={session} cwd={cwd} />;
   const runs = foldLine(steps);
   const diff = diffSum(runs);
   const bad = steps.filter(failed).length;
@@ -947,6 +956,7 @@ export function Running({ tool, cwd }: { tool: Tool; cwd: string }) {
     return () => clearInterval(tick);
   }, []);
   const a = argOf(tool, cwd);
+  if (toldOf(tool)) return <SentTo call={tool} live />;
   const secs = tool.time ? Math.max(0, Math.round((now - tool.time) / 1000)) : null;
   return (
     <div className="flex h-7 min-w-0 items-center gap-2 text-sm" aria-live="off">

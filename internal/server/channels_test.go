@@ -15,6 +15,7 @@ import (
 	"github.com/kumoSleeping/iridium/internal/api"
 	"github.com/kumoSleeping/iridium/internal/deliver"
 	"github.com/kumoSleeping/iridium/internal/satori"
+	"github.com/kumoSleeping/iridium/internal/session"
 )
 
 // said are channel id's messages as as sees them: "<n> <who> <words>" each.
@@ -134,6 +135,31 @@ func TestChannelOfSeveral(t *testing.T) {
 	l.want(200, "web", "GET", "/v1/internal/agents/dsh/choices", nil, &choices)
 	if len(choices.Models) != 1 || choices.Models[0].Value != "flash" || choices.Presets == nil || len(choices.Presets.Presets) != 2 {
 		t.Errorf("kept choices: %+v", choices)
+	}
+	// No model is called "default": the test agent's resolves to a model not listed, a row of
+	// its own, marked, and what the session says it runs before the agent names it.
+	for _, m := range first.Models {
+		if m.Value == "default" {
+			t.Errorf("a model called default: %+v", first.Models)
+		}
+	}
+	if m, ok := api.DefaultModel(first.Models); !ok || m.Value != "fake-model" || first.Pick == "default" || first.Model == "default" || first.Model == "" {
+		t.Errorf("the default as named: %+v, pick %q, model %q", m, first.Pick, first.Model)
+	}
+	// An agent that names no default: the model its kind last ran there, listed or not; the
+	// level one given none ran at. Kept choices from before, still listing "default": merged.
+	_ = l.s.st.Keep(session.RanKey(api.AgentDsh, ""), "pro")
+	_ = l.s.st.Keep(session.RanEffortKey(api.AgentDsh, ""), "high")
+	var ran api.AgentChoices
+	l.want(200, "web", "GET", "/v1/internal/agents/dsh/choices", nil, &ran)
+	if ran.Ran != "pro" || ran.Effort != "high" || len(ran.Models) != 2 || ran.Models[0].Value != "pro" {
+		t.Errorf("the model last ran: %+v", ran)
+	}
+	_ = l.s.st.Keep(choicesKey(api.AgentDsh, ""), `{"models":[{"value":"default","name":"Default","resolved":"flash-1"},{"value":"flash","name":"Flash","resolved":"flash-1"}],"efforts":[]}`)
+	var old api.AgentChoices
+	l.want(200, "web", "GET", "/v1/internal/agents/dsh/choices", nil, &old)
+	if old.Ran != "" || len(old.Models) != 1 || !old.Models[0].Default {
+		t.Errorf("kept choices with a default entry: %+v", old)
 	}
 
 	// Nobody named: the channel's own agent alone answers; the second is given nothing.
@@ -613,11 +639,9 @@ func TestChannelSendCheckAndFollows(t *testing.T) {
 		}
 	}
 
-	// Everything people say: an agent sets what it receives itself, nothing else.
+	// Everything people say: an agent sets what it receives itself, not what another does.
 	all := "all"
 	l.want(403, "agent-in:"+guest, "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+ch, api.MemberPatch{Recv: &all}, nil)
-	nick := "other"
-	l.want(403, "agent-in:"+guest, "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+guest, api.MemberPatch{Nick: &nick}, nil)
 	l.want(200, "agent-in:"+guest, "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+guest, api.MemberPatch{Recv: &all}, &ms)
 	if ms.Members[2].Recv != "all" {
 		t.Fatalf("recv set by the agent: %+v", ms.Members[2])

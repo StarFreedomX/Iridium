@@ -359,7 +359,7 @@ func (d *Driver) open(proc int, w *open, ready chan struct{}) {
 	h := agent.Hello{Version: d.version, Mode: d.mode}
 	for _, m := range d.models {
 		if !m.Hidden {
-			mm := agent.Model{Value: m.ID, Name: m.DisplayName, Description: m.Description, Resolved: m.ID}
+			mm := agent.Model{Value: m.ID, Name: m.DisplayName, Description: m.Description, Resolved: m.ID, Default: m.IsDefault}
 			for _, e := range m.Efforts {
 				mm.Efforts = append(mm.Efforts, e.Effort)
 			}

@@ -112,6 +112,9 @@ func (s *Server) streamFilter(c caller) func(key string, v []byte) []byte {
 			b, _ := json.Marshal(n)
 			return b
 		}
+		if key == "ats" {
+			return s.atsFor(c, v) // its own marks alone (ats.go)
+		}
 		if f == nil {
 			return v
 		}

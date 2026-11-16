@@ -662,19 +662,21 @@ func TestChannelMemberRights(t *testing.T) {
 	t.Parallel()
 	l, ch, second := two(t)
 	l.want(200, "web", "PUT", "/v1/internal/channels/"+ch+"/people", api.People{People: []string{"*"}}, nil)
-	// An agent, with or without the agent flag: neither the people, nor a member out, nor a nick.
+	// An agent, with or without the agent flag: neither the people, nor a member out. A nick it
+	// may change: a card is any member's to change (docs/channels.md "资料").
 	nick := "renamed"
 	for _, as := range []string{"agent-in:" + second, "ir-in:" + second} {
 		l.want(403, as, "PUT", "/v1/internal/channels/"+ch+"/people", api.People{People: []string{"*"}}, nil)
 		l.want(403, as, "DELETE", "/v1/internal/channels/"+ch+"/members/agent:"+second, nil, nil)
-		l.want(403, as, "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+second, api.MemberPatch{Nick: &nick}, nil)
+		l.want(200, as, "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+second, api.MemberPatch{Nick: &nick}, nil)
 	}
 	// A Bot with no right to Claude is one of the people, and may not rename a Claude session.
 	bot := l.newApp("bot", false).Token
-	if code := l.asLogin(bot, "", "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+second, api.MemberPatch{Nick: &nick}, nil); code != 403 {
+	other := "bots"
+	if code := l.asLogin(bot, "", "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+second, api.MemberPatch{Nick: &other}, nil); code != 403 {
 		t.Errorf("a nick set by one with no right to the session: %d", code)
 	}
-	if got := l.s.ch.Nick(second); got != "claude2" {
+	if got := l.s.ch.Nick(second); got != "renamed" {
 		t.Errorf("its nick: %q", got)
 	}
 	l.want(200, "web", "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+second, api.MemberPatch{Nick: &nick}, nil)

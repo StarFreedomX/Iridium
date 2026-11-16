@@ -15,8 +15,16 @@ import (
 // The words that call it come first, under their number; then a block of what the channel said
 // since the agent last read it, as internal/ctx/strategy planned it.
 
-// ChannelAgent is an agent of the channel: the nick it is called by, the name it goes by.
-type ChannelAgent struct{ Nick, Name string }
+// ChannelAgent is an agent of the channel: the nick it is called by, the name it goes by, its
+// intro (the head of it).
+type ChannelAgent struct{ Nick, Name, Intro string }
+
+// ChannelPerson is one of the channel's people that has an intro: the name, the intro.
+type ChannelPerson struct{ Name, Intro string }
+
+// ProfileChange is a card changed since the agent was last told: Who ("": the channel), What
+// ("name", "intro", "avatar", "background"), To: the new words (none for an image).
+type ProfileChange struct{ Who, What, To string }
 
 // Channel is what the agent called is told of the channel. You: its own nick; Agents: all of
 // them, itself too; Plan: what it has not seen; Pull: it has ir to read more with; Zone: the
@@ -41,10 +49,24 @@ type Channel struct {
 	// more) were given before and hold still (docs/channels.md "增量"): not again, a line in
 	// their place.
 	Brief bool
+	// Key: what the standing words are of beside their text: the channel's agents (their
+	// sessions). The names and intros in them are not part of it: when those change, the agent is
+	// told what changed (Changes), not everything again.
+	Key string
+	// People: the channel's people that have an intro. Changes: the cards changed since the
+	// agent was last told.
+	People  []ChannelPerson
+	Changes []ProfileChange
 }
 
-// ChannelStaticKey is the hash of ChannelStatic(c): what a channel's injection record keeps.
-func ChannelStaticKey(c Channel) string { return prompts.Hash(ChannelStatic(c)) }
+// ChannelStaticKey names the standing words as they are for c, apart from the names and intros
+// in them: the text of the fragments, which channel, which agents (c.Key), whether it reads
+// more with ir. What a channel's injection record keeps; changed, the words are given again.
+func ChannelStaticKey(c Channel) string {
+	c.You, c.Name, c.People, c.Changes = "", "", nil, nil
+	c.Agents = []ChannelAgent{{Nick: c.Key}}
+	return prompts.Hash(ChannelStatic(c))
+}
 
 // ChannelStatic is the channel's standing words as c would give them: what Brief leaves out.
 // Their hash tells whether they changed since they were last given.
@@ -63,8 +85,11 @@ func staticPieces(c Channel) []piece {
 	var agents []string
 	for _, a := range c.Agents {
 		s := a.Nick // without @: the agent echoing the list calls nobody
-		if a.Name != "" {
-			s += " (" + a.Name + ")"
+		switch {
+		case a.Name != "" && a.Intro != "":
+			s += " (" + a.Name + "; " + a.Intro + ")"
+		case a.Name != "" || a.Intro != "":
+			s += " (" + a.Name + a.Intro + ")"
 		}
 		agents = append(agents, s)
 	}
@@ -77,8 +102,51 @@ func staticPieces(c Channel) []piece {
 	default:
 		ps = append(ps, text(idChannelMembers, "you", c.You, "agents", strings.Join(agents, ", ")))
 	}
+	if len(c.People) > 0 {
+		var people []string
+		for _, p := range c.People {
+			people = append(people, p.Name+" ("+p.Intro+")")
+		}
+		ps[0] = piece{parts: mustParts(ps[0], text(idChannelPeople, "people", strings.Join(people, ", ")))}
+	}
 	if c.Pull {
 		ps = append(ps, text(idChannelPull, "channel", self))
+	}
+	return ps
+}
+
+// mustParts are pieces resolved into one piece's parts (a fragment missing: none).
+func mustParts(ps ...piece) []Part {
+	in, err := build(KindTurnPrefix, ps...)
+	if err != nil {
+		return []Part{}
+	}
+	return in.parts
+}
+
+// changePieces say which cards changed since the agent was last told.
+func changePieces(c Channel) []piece {
+	if len(c.Changes) == 0 {
+		return nil
+	}
+	ps := []piece{text(idChannelProfiles)}
+	for _, ch := range c.Changes {
+		who := ch.Who
+		if who == "" {
+			who = "the channel"
+		}
+		switch {
+		case ch.What == "name":
+			ps = append(ps, text(idChannelProfileName, "who", who, "to", ch.To))
+		case ch.What == "intro" && ch.To == "":
+			ps = append(ps, text(idChannelProfileNoIntro, "who", who))
+		case ch.What == "intro":
+			ps = append(ps, text(idChannelProfileIntro, "who", who), words(ch.To, Ref{Kind: "profile", ID: "intro"}), text(idNL))
+		case ch.What == "avatar":
+			ps = append(ps, text(idChannelProfileImage, "who", who, "what", "face"))
+		default:
+			ps = append(ps, text(idChannelProfileImage, "who", who, "what", "background"))
+		}
 	}
 	return ps
 }
@@ -168,6 +236,7 @@ func channelPieces(c Channel, seq int64, said, input string) []piece {
 	case c.ID != "":
 		ps = append(ps, text(idChannelAgain, "name", cmp.Or(c.Name, c.ID), "channel", c.ID))
 	}
+	ps = append(ps, changePieces(c)...)
 	ps = append(ps, unseenPieces(c, self)...)
 	work := false
 	for _, w := range c.Work {

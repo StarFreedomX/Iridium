@@ -32,6 +32,8 @@ import type {
   PushEvents,
   PushRule,
   PushState,
+  Role,
+  RolePatch,
   PushSubscription,
   PushSwitch,
   SendReply,
@@ -58,6 +60,7 @@ import type {
 import type { ShellOutput, ShellRun, ShellStarted } from "./types.gen";
 import type { SecretInfo, Secrets, SetSecret, Usage } from "./types.gen";
 import type { AgentChoices, Block, ChannelMembers, ChannelReads, Injection, MemberPatch, NewMember } from "./types.gen";
+import type { MemberCard, Memory, Profile as Card, ProfilePatch, Self } from "./types.gen";
 
 /** A message of a channel's log (Satori's message.list): id its number there. */
 export type ChannelMessage = { id: string; content: string; created_at?: number; user?: { id: string; name?: string; nick?: string; is_bot?: boolean }; _data?: { kind?: string; event?: unknown; session?: string; block?: string; from?: number; to?: number; input?: string } };
@@ -270,9 +273,27 @@ export const api = {
   addMember: (id: string, m: NewMember) => write<ChannelMembers>("POST", `/v1/internal/channels/${enc(id)}/members`, m, { signal: AbortSignal.timeout(SEND_WAIT) }),
   patchMember: (id: string, member: string, p: MemberPatch) => write<ChannelMembers>("PATCH", `/v1/internal/channels/${enc(id)}/members/${enc(member)}`, p),
   removeMember: (id: string, member: string) => write<ChannelMembers>("DELETE", `/v1/internal/channels/${enc(id)}/members/${enc(member)}`),
-  /** A channel's face (a session's: its agent's), a picture as a data: URL; taken away. */
-  setAvatar: (id: string, avatar: string) => write<{ ok: boolean }>("PUT", `/v1/internal/channels/${enc(id)}/avatar`, { avatar }),
-  removeAvatar: (id: string) => write<{ ok: boolean }>("DELETE", `/v1/internal/channels/${enc(id)}/avatar`),
+  // --- roles (docs/channels.md "角色"): cards kept to start sessions as ---
+  roles: () => get<Role[]>("/v1/internal/roles"),
+  patchRole: (id: string, p: RolePatch) => write<Role>("PATCH", `/v1/internal/roles/${enc(id)}`, p),
+  deleteRole: (id: string) => write<{ ok: boolean }>("DELETE", `/v1/internal/roles/${enc(id)}`),
+  // --- cards (docs/next/group.md "资料卡"): a member's, a channel's, the one looking's own ---
+  /** who: an agent's "agent:<session>", a person's login or app id. */
+  memberCard: (who: string) => get<MemberCard>(`/v1/internal/members/${enc(who)}`),
+  /** An agent's card changed; channel: where it is said. */
+  patchMemberCard: (who: string, p: ProfilePatch, channel?: string) => write<Card>("PATCH", `/v1/internal/members/${enc(who)}${channel ? `?channel=${enc(channel)}` : ""}`, p),
+  channelProfile: (id: string) => get<Card>(`/v1/internal/channels/${enc(id)}/profile`),
+  patchChannel: (id: string, p: ProfilePatch) => write<Card>("PATCH", `/v1/internal/channels/${enc(id)}`, p),
+  self: () => get<Self>("/v1/internal/self"),
+  /** The one looking's own card: its intro, its background (name and avatar: profile below). */
+  patchSelf: (p: Pick<ProfilePatch, "intro" | "background">) => write<Card>("PATCH", "/v1/internal/self", p),
+  /** What a session's agent chose to remember; forget: one of them gone. */
+  memory: (session: string) => get<Memory[]>(`/v1/internal/memory?session=${enc(session)}`),
+  forget: (session: string, id: number) => write<unknown>("DELETE", `/v1/internal/memory/${id}?session=${enc(session)}`),
+  /** 存为角色: the session's card and what it runs kept as a role, the session its from then on
+   *  (更新角色: patchRole {session}); 移出角色: the session is no role's. */
+  roleOf: (session: string) => write<Role>("POST", "/v1/internal/roles", { session }),
+  roleLeave: (session: string) => write<unknown>("DELETE", `${S(session)}/role`),
   /** How far each member has read the channel; read: this login has read it up to message seq. */
   reads: (id: string) => get<ChannelReads>(`/v1/internal/channels/${enc(id)}/reads`),
   read: (id: string, seq: number) => write<ChannelReads>("POST", `/v1/internal/channels/${enc(id)}/read`, { seq }),

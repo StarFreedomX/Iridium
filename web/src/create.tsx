@@ -6,16 +6,18 @@ import { Popover } from "@base-ui/react/popover";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronRight, Folder, FolderPlus, LoaderCircle, Users } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactElement, type ReactNode } from "react";
-import type { Workspace } from "./api/types.gen";
+import type { NewSession as NewSessionReq, Workspace } from "./api/types.gen";
 import { api, missing } from "./api/client";
 import { born } from "./chats";
 import { openChat } from "./route";
-import type { Agent } from "./api/types.gen";
+import type { Agent, Role } from "./api/types.gen";
 import { t } from "./i18n";
 import { agentsQ, isComputer, useApps, useHome, useMachines } from "./data";
+import { DraftNamed } from "./chat/choices";
 import { appAll, everyone, hasApp, hasLogin, pressApp, pressLogin } from "./chat/channel/setup";
 import { agentsAt, atMachine, homeAt, MachineBadge, MachineFace, pageAt, type Machine } from "./machines";
 import { onCreateAt } from "./places";
+import { RoleCard, roleStart, useRoles, type RolePick } from "./roles";
 import { errText, toast } from "./toast";
 import { AGENTS, agentName, Avatar, cn, homeOf, IconKey, Logo, PopSurface, tilde, Tip } from "./ui";
 import { VoiceEntry } from "./voice/dock";
@@ -263,8 +265,9 @@ export const subName = (v: string) => {
  *  there, faded and saying so while it is not connected. A group of a machine no more there (its Bot
  *  gone) offers none. A pick of this machine's comes with no Target. onMake: a subfolder of the
  *  folder made (at its machine too), the folder then; its key beside the folder's line (the user,
- *  2026-11-10). */
-export function NewSession({ ws, folder, onFolder, onPick, busy, onMake }: { ws: string; folder: string; onFolder: () => void; onPick: (a: Agent, to?: Target, people?: string[]) => void; busy: string | null; onMake?: (name: string) => Promise<boolean> }) {
+ *  2026-11-10). Above the agents, the roles whose agent the folder's machine has, as cards
+ *  (roles.tsx; kumo, 2026-11-16): a press starts as that role (as), as a press of an agent does. */
+export function NewSession({ ws, folder, onFolder, onPick, busy, onMake }: { ws: string; folder: string; onFolder: () => void; onPick: (a: Agent, to?: Target, people?: string[], as?: As) => void; busy: string | null; onMake?: (name: string) => Promise<boolean> }) {
   // Its people (the user, 2026-11-13): the panel's logins and the host's unless changed here.
   const [people, setPeople] = useState<string[] | null>(null);
   // The agents the daemon can host (GET /v1/internal/agents); all four before it says. One not installed
@@ -276,6 +279,11 @@ export function NewSession({ ws, folder, onFolder, onPick, busy, onMake }: { ws:
   const machines = useMachines();
   const whose = agentsAt(folder, machines);
   const there = typeof whose === "object" ? whose : undefined;
+  const roles = useRoles().filter((r) => (there ? there.m.agents.some((a) => a.agent === r.agent) : agents.includes(r.agent)));
+  const pickRole = (r: Role, p: RolePick) => {
+    if (there) return !there.m.online ? toast(t("new.offline", { name: there.m.name }), { error: true }) : onPick(r.agent, { m: there.m, cwd: there.cwd }, people ?? undefined, roleStart(r, p));
+    return missing(r.agent) ? toast(t("new.notInstalled", { name: agentName(r.agent) }), { error: true }) : onPick(r.agent, undefined, people ?? undefined, roleStart(r, p));
+  };
   // A subfolder being named, in the folder's line (the user, 2026-11-10). What it holds now is read
   // by its blur too: Enter or Escape has closed it by then.
   const box = useRef<HTMLDivElement>(null);
@@ -349,15 +357,30 @@ export function NewSession({ ws, folder, onFolder, onPick, busy, onMake }: { ws:
         </div>
       )}
       <PeopleRow people={people ?? DEFAULT_PEOPLE} set={setPeople} />
+      {roles.length > 0 && (
+        <div role="group" aria-label={t("role.title")} className="g-stagger no-bar grid max-h-[min(264px,40vh)] grid-cols-2 gap-1.5 overflow-y-auto pb-0.5">
+          {roles.map((r, n) => (
+            <RoleCard key={r.id} role={r} at={there ? { machine: there.m.id } : NO_PLACE} busy={busy === `role:${r.id}`} off={busy !== null} faded={there ? !there.m.online : missing(r.agent)} onStart={(p) => pickRole(r, p)} style={{ "--i": n } as CSSProperties} />
+          ))}
+        </div>
+      )}
       {!there ? (
         <div role="group" aria-label={t("new.agent")} className="g-stagger grid grid-cols-5 gap-1">
-          {agents.map((a) => (
-            <Tip key={a} label={missing(a) ? t("new.notInstalled", { name: agentName(a) }) : agentName(a)}>
-              <button type="button" aria-label={agentName(a)} disabled={busy !== null} onClick={() => pick(a)} style={{ "--i": i++ } as CSSProperties} className="g-press grid h-14 place-items-center rounded-md hover:bg-fill disabled:opacity-50">
-                {busy === a ? <LoaderCircle size={20} className="animate-spin text-ink-3" /> : <Logo agent={a} size={24} className={cn(missing(a) && "opacity-30 grayscale")} />}
-              </button>
-            </Tip>
-          ))}
+          {agents.map((a) => {
+            const n = i++;
+            // Each by its name and the model a new one will run (never "default", the user, 2026-11-16).
+            return (
+              <DraftNamed key={a} agent={a} at={NO_PLACE}>
+                {(name) => (
+                  <Tip label={missing(a) ? t("new.notInstalled", { name: agentName(a) }) : name}>
+                    <button type="button" aria-label={name} disabled={busy !== null} onClick={() => pick(a)} style={{ "--i": n } as CSSProperties} className="g-press grid h-14 place-items-center rounded-md hover:bg-fill disabled:opacity-50">
+                      {busy === a ? <LoaderCircle size={20} className="animate-spin text-ink-3" /> : <Logo agent={a} size={24} className={cn(missing(a) && "opacity-30 grayscale")} />}
+                    </button>
+                  </Tip>
+                )}
+              </DraftNamed>
+            );
+          })}
           {/* Last, a channel with no agent (docs/channels.md; the user, 2026-11-13). */}
           <Tip label={t("new.noAgent")}>
             <button type="button" aria-label={t("new.noAgent")} disabled={busy !== null} onClick={() => onPick("" as Agent, undefined, people ?? undefined)} style={{ "--i": i++ } as CSSProperties} className="g-press grid h-14 place-items-center rounded-md hover:bg-fill disabled:opacity-50">
@@ -372,7 +395,16 @@ export function NewSession({ ws, folder, onFolder, onPick, busy, onMake }: { ws:
   );
 }
 
+/** A start as a role: the role and what this one session changes of it (roles.tsx roleStart). */
+export type As = ReturnType<typeof roleStart>;
+
+/** What starting a session sends (channel.create's _data): the agent in the folder, in its
+ *  group, at its machine, with its people; as a role, the role and what was changed of it. */
+export const startRequest = (agent: Agent, cwd: string, workspace?: number, machine?: string, people?: string[], as?: As): NewSessionReq => ({ agent, cwd, ...(workspace ? { workspace } : {}), ...(machine ? { machine } : {}), ...(people ? { members: { people } } : {}), ...as });
+
 const DEFAULT_PEOPLE = [appAll("ir_web"), appAll("local")];
+/** This machine, no channel: where a new session of the page's own runs (chat/choices.ts At). */
+const NO_PLACE = {};
 const ROW = "flex h-8 cursor-default items-center gap-2.5 rounded-md px-2.5 text-base outline-none select-none data-highlighted:bg-fill data-popup-open:bg-fill pointer-coarse:h-11";
 
 /** A new session's people (internal/server DefaultPeople unless changed): the panel's logins
@@ -437,20 +469,24 @@ function MachineAgents({ m, busy, onPick }: { m: Machine; busy: string | null; o
         {m.agents.map(({ agent }, i) => {
           const a = agent as Agent;
           const key = `${m.id}/${a}`;
-          const label = m.online ? `${agentName(a)} · ${m.name}` : t("new.offline", { name: m.name });
+          const says = (name: string) => (m.online ? `${name} · ${m.name}` : t("new.offline", { name: m.name }));
           return (
-            <Tip key={key} label={label}>
-              <button type="button" aria-label={label} disabled={busy !== null} onClick={() => onPick(a)} style={{ "--i": i } as CSSProperties} className="g-press grid h-14 place-items-center rounded-md hover:bg-fill disabled:opacity-50">
-                {busy === key ? (
-                  <LoaderCircle size={20} className="animate-spin text-ink-3" />
-                ) : (
-                  <span className={cn("relative grid", !m.online && "opacity-30 grayscale")}>
-                    <Logo agent={a} size={24} />
-                    <MachineBadge m={m} size={13} />
-                  </span>
-                )}
-              </button>
-            </Tip>
+            <DraftNamed key={key} agent={a} at={{ machine: m.id }}>
+              {(name) => (
+                <Tip label={says(name)}>
+                  <button type="button" aria-label={says(name)} disabled={busy !== null} onClick={() => onPick(a)} style={{ "--i": i } as CSSProperties} className="g-press grid h-14 place-items-center rounded-md hover:bg-fill disabled:opacity-50">
+                    {busy === key ? (
+                      <LoaderCircle size={20} className="animate-spin text-ink-3" />
+                    ) : (
+                      <span className={cn("relative grid", !m.online && "opacity-30 grayscale")}>
+                        <Logo agent={a} size={24} />
+                        <MachineBadge m={m} size={13} />
+                      </span>
+                    )}
+                  </button>
+                </Tip>
+              )}
+            </DraftNamed>
           );
         })}
       </div>
@@ -459,13 +495,13 @@ function MachineAgents({ m, busy, onPick }: { m: Machine; busy: string | null; o
 }
 
 /** Starts a session: the chat opens on it, the caret in the composer. busy: the agent starting
- *  ("<machine>/<agent>" at another machine). */
+ *  ("<machine>/<agent>" at another machine), or the role ("role:<id>"). */
 export function useStart(opened: (id: string) => void) {
   const [busy, setBusy] = useState<string | null>(null);
-  const start = async (agent: Agent, cwd: string, workspace?: number, machine?: string, people?: string[]) => {
-    setBusy(machine ? `${machine}/${agent}` : agent);
+  const start = async (agent: Agent, cwd: string, workspace?: number, machine?: string, people?: string[], as?: As) => {
+    setBusy(as ? `role:${as.role}` : machine ? `${machine}/${agent}` : agent);
     try {
-      const { id } = await api.create({ agent, cwd, ...(workspace ? { workspace } : {}), ...(machine ? { machine } : {}), ...(people ? { members: { people } } : {}) });
+      const { id } = await api.create(startRequest(agent, cwd, workspace, machine, people, as));
       born.add(id);
       opened(id);
     } catch (e) {
@@ -591,7 +627,7 @@ export function CreatePopover({ trigger }: { trigger: ReactElement }) {
               />
             </>
           ) : (
-            <NewSession ws="" folder={here} busy={busy} onFolder={() => setPage("folder")} onMake={sub.make} onPick={(a, to, people) => void sub.settled(to).then((p) => p && start(a, p.to?.cwd ?? p.folder, undefined, p.to?.m.id, people))} />
+            <NewSession ws="" folder={here} busy={busy} onFolder={() => setPage("folder")} onMake={sub.make} onPick={(a, to, people, as) => void sub.settled(to).then((p) => p && start(a, p.to?.cwd ?? p.folder, undefined, p.to?.m.id, people, as))} />
           )}
         </div>
       </PopSurface>
@@ -631,7 +667,7 @@ export function WsPlus({ w, trigger, open, setOpen, opened }: { w: Workspace; tr
         <div key={page} data-dir={page === "session" ? "back" : undefined} className={page !== "session" || stepped ? "g-slide" : ""}>
           {page === "session" ? (
             <>
-              <NewSession ws={w.name} folder={folder} busy={busy} onFolder={() => (setStepped(true), setPage("folder"))} onMake={sub.make} onPick={(a, to, people) => void sub.settled(to).then((at) => at && start(a, at.to?.cwd ?? at.folder, w.id, at.to?.m.id, people))} />
+              <NewSession ws={w.name} folder={folder} busy={busy} onFolder={() => (setStepped(true), setPage("folder"))} onMake={sub.make} onPick={(a, to, people, as) => void sub.settled(to).then((at) => at && start(a, at.to?.cwd ?? at.folder, w.id, at.to?.m.id, people, as))} />
               {/* The group's voice (the user, 2026-11-12: its way in is here). */}
               {w.id > 0 && (
                 <div className="border-t-[0.5px] border-(--edge) p-1.5">

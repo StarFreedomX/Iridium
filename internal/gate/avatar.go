@@ -75,6 +75,50 @@ func makeAvatar(data []byte) (avatar []byte, version string, err error) {
 	return buf.Bytes(), hex.EncodeToString(sum[:6]), nil
 }
 
+// A background is stored BannerWidth×BannerHeight: the strip at the top of a profile's card.
+const (
+	BannerWidth  = 720
+	BannerHeight = 270
+)
+
+// MakeBanner turns an uploaded image into a stored background and its version: the widest
+// strip of BannerWidth:BannerHeight about its centre, scaled to that size, as a JPEG.
+func MakeBanner(data []byte) (banner []byte, version string, err error) {
+	if len(data) > MaxAvatarBytes {
+		return nil, "", ErrAvatarTooLarge
+	}
+	cfg, format, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil || (format != "png" && format != "jpeg" && format != "webp") {
+		return nil, "", ErrAvatarFormat
+	}
+	if cfg.Width <= 0 || cfg.Height <= 0 || cfg.Width > maxAvatarSide || cfg.Height > maxAvatarSide ||
+		cfg.Width*cfg.Height > maxAvatarArea {
+		return nil, "", ErrAvatarFormat
+	}
+	src, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return nil, "", ErrAvatarFormat
+	}
+	b := src.Bounds()
+	w, h := b.Dx(), b.Dx()*BannerHeight/BannerWidth
+	if h > b.Dy() {
+		w, h = b.Dy()*BannerWidth/BannerHeight, b.Dy()
+	}
+	if w <= 0 || h <= 0 {
+		return nil, "", ErrAvatarFormat
+	}
+	x0, y0 := b.Min.X+(b.Dx()-w)/2, b.Min.Y+(b.Dy()-h)/2
+	dst := image.NewRGBA(image.Rect(0, 0, BannerWidth, BannerHeight))
+	draw.Draw(dst, dst.Bounds(), image.White, image.Point{}, draw.Src)
+	xdraw.CatmullRom.Scale(dst, dst.Bounds(), src, image.Rect(x0, y0, x0+w, y0+h), draw.Over, nil)
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, dst, &jpeg.Options{Quality: 85}); err != nil {
+		return nil, "", err
+	}
+	sum := sha256.Sum256(buf.Bytes())
+	return buf.Bytes(), hex.EncodeToString(sum[:6]), nil
+}
+
 // orient applies an EXIF orientation (1–8) to a square image.
 func orient(src *image.RGBA, o int) *image.RGBA {
 	if o < 2 || o > 8 {

@@ -173,8 +173,9 @@ type SessionState struct {
 	// Proc: the agent process's number, up by one at each start; drafts of another are stale.
 	Proc  int    `json:"proc"`
 	Error string `json:"error,omitempty"` // why its last process ended badly
-	// Pick: the model set for it ("" or "default": the agent's own); Model is the one in use, often
-	// a full id (Claude: as get_settings or the turn's init name it).
+	// Pick: the model set for it ("": none, the agent's own; never "default", NameModel). Model is
+	// the one in use, often a full id (Claude: as get_settings or the turn's init name it); before
+	// the agent names it, what was set, else the one Models marks Default.
 	Pick string `json:"pick,omitempty"`
 	// Effort: the thinking effort set for it; EffortNow: the level the agent says it runs at (set
 	// or not). Models, Modes, Efforts: what the agent offers.
@@ -451,6 +452,14 @@ type NewSession struct {
 	// Members: the channel it begins as has more than itself and everyone (docs/channels.md):
 	// more agents, started in the same folder; its people chosen.
 	Members *ChannelSetup `json:"members,omitempty"`
+	// Role: start it as this role (its id or name): the role's agent, model, effort, mode and
+	// card, where the fields above say nothing. Nick, Intro, Avatar, Background: its card
+	// (ProfilePatch), over the role's.
+	Role       string `json:"role,omitempty"`
+	Nick       string `json:"nick,omitempty"`
+	Intro      string `json:"intro,omitempty"`
+	Avatar     string `json:"avatar,omitempty"`
+	Background string `json:"background,omitempty"`
 }
 
 // Send gives the session a message: a new turn when idle; while a turn runs it waits in the

@@ -290,3 +290,62 @@ func TestNicksOfSessions(t *testing.T) {
 		t.Errorf("another's nick: %v", err)
 	}
 }
+
+// A cleared session's successor has what was its own: its card, its role, what it remembered;
+// and knows which session it went on from (profiles.go).
+func TestMoveAgentProfile(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "x.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if err := s.SetProfile(ChannelProfileKey("a"), Profile{Intro: "tests", Avatar: "🧪"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddMemory(Memory{Owner: s.MemoryOwner("a"), Text: "short answers", Session: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.MoveAgent("a", "b"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.MoveAgent("b", "c"); err != nil {
+		t.Fatal(err)
+	}
+	if p := s.Profile(ChannelProfileKey("c")); p.Intro != "tests" || p.Avatar != "🧪" || s.Profile(ChannelProfileKey("a")) != (Profile{}) {
+		t.Errorf("the card: %+v", p)
+	}
+	if ms, _ := s.Memories(s.MemoryOwner("c"), 0); len(ms) != 1 || ms[0].Text != "short answers" {
+		t.Errorf("the memory: %+v", ms)
+	}
+	if b := s.Before("c", 3); len(b) != 2 || b[0].Session != "b" || b[1].Session != "a" {
+		t.Errorf("before: %+v", b)
+	}
+	// Kept as a role: what it remembered is the role's, and another session of the role has it.
+	if err := s.PutRole(Role{ID: "r1", Name: "fish", Agent: "dsh"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutRole(Role{ID: "r2", Name: "Fish", Agent: "dsh"}); err != ErrRoleName {
+		t.Errorf("two roles of one name: %v", err)
+	}
+	if err := s.SetRoleOf("c", "r1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetRoleOf("d", "r1"); err != nil {
+		t.Fatal(err)
+	}
+	if ms, _ := s.Memories(s.MemoryOwner("d"), 0); len(ms) != 1 {
+		t.Errorf("the role's memory: %+v", ms)
+	}
+	// Named: the first unread one stays; one that names the reader takes the place of "everyone".
+	_ = s.AddChannelAt("ch", "web/u", 5, true)
+	_ = s.AddChannelAt("ch", "web/u", 7, false)
+	if ats, _ := s.ChannelAts("web/u"); len(ats) != 1 || ats[0].Seq != 5 || ats[0].Everyone {
+		t.Errorf("named: %+v", ats)
+	}
+	if had, _ := s.ClearChannelAts("ch", "web/u", 4); had {
+		t.Errorf("cleared before it was read")
+	}
+	if had, _ := s.ClearChannelAts("ch", "web/u", 5); !had {
+		t.Errorf("not cleared once read")
+	}
+}

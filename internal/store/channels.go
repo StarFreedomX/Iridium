@@ -426,8 +426,8 @@ func (s *Store) SetChannelSeen(channel, member string, seq int64) error {
 
 // MoveAgent makes what was session old's the session next's, which goes on in its place (a
 // session cleared): the members of old's own channel (each as having read nothing of the new
-// one), old's place in the channels it is in, its nick, its face and where it was started
-// (kept under "spawned:").
+// one), old's place in the channels it is in, its nick, its face, its profile, role and memory, and where it was
+// started (kept under "spawned:"); next is marked as going on from old (session_before).
 func (s *Store) MoveAgent(old, next string) error {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -443,6 +443,12 @@ func (s *Store) MoveAgent(old, next string) error {
 		{`UPDATE OR REPLACE agent_nicks SET session = ? WHERE session = ?`, []any{next, old}},
 		{`UPDATE OR REPLACE avatars SET key = ? WHERE key = ?`, []any{"c:" + next, "c:" + old}},
 		{`UPDATE OR REPLACE meta SET key = ? WHERE key = ?`, []any{"spawned:" + next, "spawned:" + old}},
+		{`UPDATE OR REPLACE profiles SET key = ? WHERE key = ?`, []any{"c:" + next, "c:" + old}},
+		{`UPDATE OR REPLACE avatars SET key = ? WHERE key = ?`, []any{"b:c:" + next, "b:c:" + old}},
+		{`UPDATE OR REPLACE session_roles SET session = ? WHERE session = ?`, []any{next, old}},
+		{`UPDATE memories SET owner = ? WHERE owner = ?`, []any{"c:" + next, "c:" + old}},
+		{`UPDATE OR REPLACE profile_told SET session = ? WHERE session = ?`, []any{next, old}},
+		{`INSERT OR REPLACE INTO session_before (session, before, at) VALUES (?, ?, ?)`, []any{next, old, now()}},
 	} {
 		if _, err := tx.Exec(q.q, q.args...); err != nil {
 			return err

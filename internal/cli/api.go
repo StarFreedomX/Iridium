@@ -368,6 +368,10 @@ func (e *env) then(c *apiCall, raw []byte) int {
 		} else if j, err := json.Marshal(c.body); err == nil {
 			_ = json.Unmarshal(j, &b)
 		}
+		// An agent that started one with no card: how to give it one (ir api help profile).
+		if d := b.Data; e.agent && d.Agent != "" && d.Role == "" && d.Nick == "" && d.Intro == "" && d.Avatar == "" {
+			fmt.Fprintln(e.err, "its card can be given at the start: _data.nick=<nick> _data.intro='<what it does>' _data.avatar=<emoji> (ir api help profile)")
+		}
 		text := b.Data.Text
 		switch {
 		case strings.TrimSpace(text) == "":

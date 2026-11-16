@@ -95,6 +95,24 @@ func AtWords(text string, nick func(session string) string) string {
 	})
 }
 
+// Ats are the <at> elements written in text, outside code, in order: whom its words name the
+// way Satori does (id, name, type "all", role).
+func Ats(text string) []Element {
+	if !strings.Contains(text, "<at") {
+		return nil
+	}
+	var out []Element
+	outsideCode(text, func(s string) string {
+		for _, tag := range atTag.FindAllString(s, -1) {
+			if els := Parse(tag); len(els) == 1 && els[0].Type == "at" {
+				out = append(out, els[0])
+			}
+		}
+		return s
+	})
+	return out
+}
+
 // atNick is e, if it is an <at> of an agent (id "agent:<session>") that nick knows, named by
 // that nick: as text it is then "@nick". The one place an <at> becomes a nick, for the
 // elements of a message (atNicks) and for those written in its words (AtWords).

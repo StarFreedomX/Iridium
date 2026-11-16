@@ -231,7 +231,8 @@ agent 用 `ir sh <机器>[:目录] [--cwd 目录] [--timeout 2m] -- 命令`（`P
 - 模式和强度按 agent 登记表（`GET /v1/internal/agents`）：Codex 从下一回合起生效（`turn/start` 带上）；pi 的模式只在启动时装（`modeSwitch: restart`），在跑时改了就重启它（空闲时马上，否则等这个回合结束；接着 `--session-id` 续上，队列照常发）。强度：Codex `effort`、pi `set_thinking_level`，启动时 pi 用 `--thinking`；模型自己带 `:级别` 的以模型的为准。
 - 模型和强度怎么显示：
   - `models[]` 带 `resolved`（这个值实际跑的完整 id，Claude 的 `resolvedModel`）和 `efforts`（这个模型收的强度）；`noEffort` 是不收强度（Haiku 4.5）。两样都没有就是 agent 没说，用 `SessionState.efforts`。
-  - `model` 是在用的模型，常是完整 id；`pick` 是设的值，空或 `default` 是 agent 的默认。默认时模型键显示具体的模型（`resolved` 对上的别名，再不行取默认项描述 ` · ` 前那段），不只写“默认”。
+  - 不出现“默认”（用户，2026-11-16）：`model` 是在用的模型，常是完整 id；agent 还没报时是设的值，没设就是 `models` 里 `default: true` 的那个。`pick` 是设的值，没设是空，不回 `default`（写入照旧收 `""` 和 `default`）。`models` 里没有 `default` 这一项：它并进所指向的模型（`resolved` 对上的那行标 `default: true`），不在表里就按真名加一行（描述 ` · ` 前那段，再不行用 id）。Codex、dsh 自己报的默认同样标 `default`。
+  - `GET /v1/internal/agents/{agent}/choices` → `AgentChoices`：还没开的会话能选的模型，同上。agent 没说默认时（pi）带 `ran`：这台机器上这种 agent 上次跑的模型（会话报模型时记在 `meta` 的 `ran:<agent>:<机器>`），表里没有就加一行。`effort`：没设模型和强度的会话上次跑的那一档。
   - `effortNow`：Claude 握手后、换模型或强度后读 `get_settings` 的 `applied`（也拿到 `applied.model`，第一回合前就有）；Codex 取 `thread/start` 的 `reasoningEffort`；pi 取 `get_state` 的 `thinkingLevel`。没设过强度时显示它，但不记进库。
   - `ultracode`：`{on, active, available}`，`on` 是开没开（`ultracodeRequested`），`active` 是开了且生效，`available` 是这个模型能不能开（读到之前、进程没在跑时算能；CLI 不认 `get_settings` 算不能）。进程一结束，读到的就作废，下个进程再问。
   - `attached`：挂在会话页面上的元素（2026-11-11），每段 `{place, from, content}`：`content` 按语言（`""` 不分语言），`from` 是 `ir`（Claude 的 UltraCode）、`m:<机器>`（执行端的插件，如 OMD 的 Ultra）或 `a:<应用>`。`place` 现在网页只画 `effort`：第一个按钮是强度滑条右边的键，其余的在键按下时排在滑条下面一行。按钮按下：`POST /v1/internal/button {id: "att:<会话>:<from>:<按钮 id>"}`。见 `docs/exec.md`“挂元素”。
@@ -284,7 +285,7 @@ Web Push，总开关在配置 `push`，默认关。VAPID 密钥存在状态目�
 
 `PushRule{scope, target, mode, events?}`：`scope` 是 `workspace`（`target` 是工作区 ID，`"0"` 是没归类的）、`folder`（会话目录的绝对路径，只管这一个目录）、`session`（会话 ID）；`mode` 是 `on` 或 `off`；`events` 只跟 `on`。一个会话的事件：会话、文件夹、工作区里最近的那条规则说开还是关（都没有就开）；开的话，事件取最近一条带 `events` 的 `on` 规则的，没有就用 `defaults`。
 
-推送的内容（service worker 收到的 JSON）：`PushMessage{kind, session, title, body, tag}`，`kind` 是 `needs_you`、`error`、`turn_end`、`test`；`tag` 是会话 ID。推送服务回 404/410 的订阅删掉。
+推送的内容（service worker 收到的 JSON）：`PushMessage{kind, session, title, body, tag}`，`kind` 是 `needs_you`、`error`、`turn_end`、`at`（消息点到了这个登录，不看规则，总开关开着就推）、`test`；`tag` 是会话 ID。推送服务回 404/410 的订阅删掉。
 
 ## 频道
 
@@ -296,14 +297,22 @@ Web Push，总开关在配置 `push`，默认关。VAPID 密钥存在状态目�
 | `POST /v1/internal/channels/{id}/members` | `NewMember {session? | agent, cwd?, machine?, model?, mode?, effort?, preset?, nick?, recv?}`：邀请一个已有的会话（`session`，要能用它；已在里面 409 `member`），或新开一个会话再邀请（不给 `cwd` 就在频道的文件夹）。能起这个 agent 的调用方都行，频道里的 agent 也行。满 8 个回 409 `full` |
 | `POST /v1/internal/channels/{id}/follow` | `Follow {user, count?, seconds?}`：频道里的 agent（它的 `ir`）要接下来 `user` 说的 `count` 条，不点名也给它（`docs/channels.md`“收和发”） |
 | `GET`、`PUT`、`DELETE /v1/internal/channels/{id}/avatar` | 频道（会话）的头像，见 `docs/channels.md`“头像” |
+| `GET`、`PATCH /v1/internal/self` | 自己的资料卡（agent：连同所在频道、之前的上下文、记忆），见 `docs/channels.md`“资料” |
+| `GET`、`PATCH /v1/internal/members/{who}` | 一个成员的资料卡 |
+| `GET /v1/internal/channels/{id}/profile`、`PATCH /v1/internal/channels/{id}` | 频道的资料卡；`GET …/background` 背景图 |
+| `GET /v1/internal/people/{id}/background` | 人的背景图 |
+| `POST /v1/internal/recall`、`POST /v1/internal/remember`、`GET /v1/internal/memory`、`DELETE /v1/internal/memory/{id}` | 查记录、记忆，见“记忆” |
+| `GET`、`POST /v1/internal/roles`、`PATCH`、`DELETE /v1/internal/roles/{id}`、`DELETE /v1/internal/sessions/{id}/role` | 角色，见“角色” |
 | `GET /v1/internal/channels/{id}/reads` | `ChannelReads {channel, end, readers[]}`：每个成员读到第几条（`docs/channels.md`“已读”） |
-| `POST /v1/internal/channels/{id}/read` | `Read {seq}`：我读到这条了；只给人 |
+| `POST /v1/internal/channels/{id}/read` | `Read {seq}`：我读到这条了；只给人。读到的位置之前点到我的标记一并清掉 |
+| `GET /v1/internal/ats` | `ChannelAts`：`{频道ID: ChannelAt {seq, everyone}}`，各频道里第一条点到我、我还没读的消息（`docs/channels.md`“有人 @ 我”）；`everyone`：只是 `@全体成员`。agent 的 `ir` 得到空的 |
 | `PUT /v1/internal/channels/{id}/people` | `People {people}`：谁能在频道里说话，`["*"]` 或不给是所有人；只给人，要在群里 |
 | `PATCH /v1/internal/channels/{id}/members/{member}` | `MemberPatch {nick?, recv?}`；称呼在所有频道都改，要有用那个会话的权限；agent 的 `ir` 只能改自己的 `recv` |
 | `DELETE /v1/internal/channels/{id}/members/{member}` | 移出（退订）一个 agent（`agent:<会话>`，别的 400），它的会话照旧；频道自己的 agent 移不出（422 `no_such_member`）；只给人 |
 | `GET /v1/internal/sessions/{id}/injections` | 频道给过这个 agent 什么，新的在前：`Injection {id, seq, input, at, record}` |
 
 - 携带状态 `channels`：一个只增的数，任何频道的成员变了就加一；页面据此重读成员。
+- 携带状态 `ats`：同 `GET /v1/internal/ats`，每条连接只带自己的那份；标记出现、读掉都整份重发。
 - 会话列表里：几个 agent 的频道带 `agents`；订阅了别的频道的会话带 `in`；为频道新开的会话带 `spawned {by, channel}`；无 agent 的频道带 `bare`。
 - 发消息的回答多一个 `seq`：这条消息在频道里的编号。几个 agent 的频道里还有 `said: true`（没有可等的输入）；agent 用 `ir` 发的带 `unseen`（它没读过的消息，文字）。落后太多回 409 `behind`。
 - `ChannelMembers.joined`：调用者在不在群里；`me`：调用者作为成员的写法。不在群里的只能读，写的接口回 403。

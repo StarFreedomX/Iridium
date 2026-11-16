@@ -22,6 +22,12 @@ type ChannelMember struct {
 	Status  Status `json:"status,omitempty"`
 	Cwd     string `json:"cwd,omitempty"`
 	Machine string `json:"machine,omitempty"`
+	// Its card (Profile): Intro; Avatar, Background where they are an emoji or a colour, or the
+	// background's image; Role, the role its session was started as.
+	Intro      string `json:"intro,omitempty"`
+	Avatar     string `json:"avatar,omitempty"`
+	Background string `json:"background,omitempty"`
+	Role       string `json:"role,omitempty"`
 }
 
 // ChannelMembers are a channel's members: Channel, its id; Multi, it has more than one agent or
@@ -51,6 +57,12 @@ type NewMember struct {
 	Preset  string `json:"preset,omitempty"`
 	Nick    string `json:"nick,omitempty"`
 	Recv    string `json:"recv,omitempty"`
+	// Role: start it as this role (its id or name): the role's agent, model, effort and card,
+	// where the fields above say nothing. Intro, Avatar, Background: its card (ProfilePatch).
+	Role       string `json:"role,omitempty"`
+	Intro      string `json:"intro,omitempty"`
+	Avatar     string `json:"avatar,omitempty"`
+	Background string `json:"background,omitempty"`
 }
 
 // MemberPatch changes a member: its nick, what it receives.
@@ -145,6 +157,17 @@ type Read struct {
 	Seq int64 `json:"seq"`
 }
 
+// ChannelAt is the first message of a channel that names the caller and that it has not read
+// (docs/channels.md "有人 @ 我"): Seq, its number; Everyone: it names all the members
+// ("@全体成员"), not the caller alone.
+type ChannelAt struct {
+	Seq      int64 `json:"seq"`
+	Everyone bool  `json:"everyone,omitempty"`
+}
+
+// ChannelAts are the caller's own, by channel: the carried state "ats", GET /v1/internal/ats.
+type ChannelAts map[string]ChannelAt
+
 // Outline is a session's record by turn (POST internal/block.outline): between what an agent
 // did in counts and the record whole. Start, End: the lines of the record it spans; More: there
 // are earlier turns.
@@ -180,8 +203,13 @@ type People struct {
 // session of that kind there said it: its models (each with its own efforts) and efforts. None
 // known (no session of the kind ran there yet): empty, and the agent's own defaults go.
 // Presets: an agent with presets (dsh): those a session of it there listed last.
+// A new one given no model runs the one of Models marked Default; an agent that names none (pi):
+// Ran, the model its kind last ran there, one of Models. Neither: not known till it starts.
+// Effort: the level one given none last ran at there with that model.
 type AgentChoices struct {
 	Models  []Model  `json:"models"`
 	Efforts []string `json:"efforts"`
 	Presets *Presets `json:"presets,omitempty"`
+	Ran     string   `json:"ran,omitempty"`
+	Effort  string   `json:"effort,omitempty"`
 }

@@ -29,19 +29,23 @@ import { errText, toast } from "../toast";
 import { groupPath, working } from "../tree";
 import { agentName, cn, Lamp, lampOf, LogoLamp, LogoStack, sessionStatusText, tilde, Tip, titleOf, untitled } from "../ui";
 import { givenTurn, groupMessages, isMulti, type AgentRow, type GivenTurn, type Msg } from "./channel/lib";
-import { betweenAgents, callerOf, foreignOf, givenHere, held, HOLD, linesOf, marksAt, named as namedIn, ownAnchors, slotsOf, subsAt, type Anchor } from "./channel/merge";
+import { betweenAgents, callerOf, foreignOf, givenHere, held, HOLD, linesOf, marksAt, named as namedIn, ownAnchors, slotsOf, subsAt, type Anchor, type RowTime } from "./channel/merge";
 import { LongWords } from "./longwords";
-import { SubAtWork } from "./subwork";
+import { dispatched } from "./dispatch";
+import { Dispatching, SubAtWork } from "./subwork";
 import { alignBack, loadParts, sideReady, useSide } from "./channel/side";
 import { relays, type Relay } from "../satori";
 import { AgentFace } from "./channel/members";
 import { PersonCard, useNamed } from "./channel/person";
 import { Nicks } from "./channel/nick";
-import { Face, pickFace } from "./channel/face";
+import { openEdit, useEditing } from "./channel/editing";
+import { Face } from "./channel/face";
 import { mayAct, useMembers } from "./channel/gate";
-// A channel's parts, fetched apart: ⋯'s 换头像 on a phone (ChannelMenu), those looking and the
+// A channel's parts, fetched apart: ⋯'s 编辑资料 on a phone (ChannelMenu), those looking and the
 // members at the bar's right (TopRight), the line in the composer's place for one not joined.
 const ChannelMenu = lazy(() => import("./channel/top"));
+// 编辑资料, the page drawn over the chat while a card is being changed (channel/edit.tsx).
+const EditPage = lazy(() => import("./channel/edit"));
 const TopRight = lazy(() => import("./channel/top").then((m) => ({ default: m.TopRight })));
 const NotJoined = lazy(() => import("./channel/key").then((m) => ({ default: m.NotJoined })));
 // A channel of several agents: its own code, fetched as one is first opened.
@@ -52,7 +56,7 @@ import { Asks, Denials } from "./asks";
 import { renameOnly } from "./cmd";
 import { Composer, type ComposerHandle } from "./composer";
 import { folded, type Tool } from "./fold";
-import { ToolDraft, Waiting } from "./live";
+import { StopKey, ToolDraft, Waiting } from "./live";
 import { Draft } from "./markdown";
 import { ContextRing, ModeKey, ModelKey, modelView, PresetKey, QuotaBars, useMode } from "./meters";
 import { PublicLink } from "./publiclink";
@@ -94,17 +98,37 @@ export function ChatPage({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?:
   // own agent's. A channel that is no session's (no agent of its own): the channel's page.
   if (row?.bare)
     return (
-      <Suspense
-        fallback={
-          <div className="relative h-full">
-            <Bar s={row} onSheet={onSheet} onMe={onMe} />
-          </div>
-        }
-      >
-        <ChannelPage key="channel" id={id} sheet={sheet} record={openChat} bar={(s) => <Bar s={s} onSheet={onSheet} onMe={onMe} />} />
-      </Suspense>
+      <>
+        <Suspense
+          fallback={
+            <div className="relative h-full">
+              <Bar s={row} onSheet={onSheet} onMe={onMe} />
+            </div>
+          }
+        >
+          <ChannelPage key="channel" id={id} sheet={sheet} record={openChat} bar={(s) => <Bar s={s} onSheet={onSheet} onMe={onMe} />} />
+        </Suspense>
+        <EditSlot id={id} />
+      </>
     );
-  return <OneChat key="one" id={id} sheet={sheet} onSheet={onSheet} onMe={onMe} />;
+  return (
+    <>
+      <OneChat key="one" id={id} sheet={sheet} onSheet={onSheet} onMe={onMe} />
+      <EditSlot id={id} />
+    </>
+  );
+}
+
+/** 编辑资料 over the chat (docs/next/group.md "改资料": a page, not a popover), while a card of
+ *  this chat's is being changed; the chat stays as it is under it. */
+function EditSlot({ id }: { id: string }) {
+  const editing = useEditing(id);
+  if (!editing) return null;
+  return (
+    <Suspense fallback={null}>
+      <EditPage key={editing.agent ?? ""} editing={editing} />
+    </Suspense>
+  );
 }
 
 
@@ -416,8 +440,11 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
   const times = new Map<string, number>();
   const began = (rs: { key: string }[]) => rs.map((r) => times.get(r.key)).find(Boolean);
   const ready = side.ready;
-  // When each row was written, for the others' words to go in their places (merge.ts slotsOf).
-  let rowTimes: (number | undefined)[] = [];
+  // When each row was written, for the others' words to go in their places (merge.ts slotsOf):
+  // steps folded have no time of their own (they go with the words after them), only since when
+  // (a turn still at its steps has no words yet: what called it stays above them).
+  let rowTimes: RowTime[] = [];
+  const sent = dispatched(shown);
   // The steps each row holds: a subagent at work goes under the call that started it.
   const stepsOf: { key: string; steps: { id?: string; name?: string; input?: string }[] }[] = [];
   // The own agent's words by row, for the fold of words between agents.
@@ -429,7 +456,7 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
     const relay = b.kind === "user" ? relays.get(b) : undefined;
     // Its own channel's words forwarded to it: drawn from the log, by who said them.
     if (ready && b.kind === "user" && givenHere(id, relay, b.text)) return [];
-    rowTimes.push("time" in b ? b.time : undefined);
+    rowTimes.push(b.kind === "fold" ? { since: b.steps[0]?.time } : b.kind === "running" ? { since: b.tool.time } : b.time);
     stepsOf.push({ key: b.at, steps: b.kind === "fold" ? b.steps.map((x) => ({ id: x.id, name: x.name, input: x.input })) : [] });
     if (b.kind === "assistant") wordsOf.set(b.at, b.text ?? "");
     const given: GivenTurn | null = relay ? { seq: relay.seq, words: relay.msgs.at(-1)?.text ?? "", context: relay.context, ...(relay.channel !== id ? { channel: { id: relay.channel, name: relay.name } } : {}) } : b.kind === "user" ? givenTurn(b.text ?? "") : null;
@@ -543,6 +570,8 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
   }
   const marks = ready ? marksAt(anchors, side.reads?.readers ?? [], members?.me) : new Map<string, never[]>();
   const turns = turnsOf(merged);
+  // Its subagents as people (subwork.tsx): which call, which notice is whose, who dispatched them.
+  const dispatching = { parent: id, by: face.nick || face.name, d: sent };
   const marksOf = (keys: string[]) => keys.flatMap((k) => marks.get(k) ?? []);
   // What of yours the log has said already (sent to the channel, not given to its own agent):
   // drawn from the log, no bubble of its own.
@@ -577,7 +606,9 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
   };
   // What changes as the conversation grows: it keeps to the bottom, the dots wait again.
   const grew = `${log.blocks.at(-1)?.at} ${log.drafts.length} ${log.drafts.at(-1)?.text.length} ${log.drafts.at(-1)?.whole} ${log.sent.length} ${ready?.kept.log.end ?? 0} ${atWork.map((a) => a.session).join(",")} ${subs.map((x) => x.id).join(",")}`;
-  const activity = <Activity calls={log.drafts.filter((d) => d.tool && !renamesDraft(d))} running={shown.flatMap((b) => (b.kind === "running" ? [b.tool] : []))} cwd={cwd} quiet={s.status !== "waiting" && !log.drafts.some((d) => !d.whole && !d.tool)} grew={grew} under={headless} />;
+  // The own agent's stop key, on its row at work; starting is no turn yet.
+  const stop = may && s.status !== "starting" && !s.subagent && !elsewhere ? <StopKey session={id} esc /> : null;
+  const activity = <Activity stop={stop} calls={log.drafts.filter((d) => d.tool && !renamesDraft(d))} running={shown.flatMap((b) => (b.kind === "running" ? [b.tool] : []))} cwd={cwd} quiet={s.status !== "waiting" && !log.drafts.some((d) => !d.whole && !d.tool)} grew={grew} under={headless} />;
   const turnNode = (x: (typeof turns)[number], i: number) =>
             x.kind === "one" ? (
               x.node
@@ -596,6 +627,7 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
             );
   return (
     <Nicks.Provider value={nicks}>
+    <Dispatching.Provider value={dispatching}>
     <div className="relative h-full" data-chat-drop={id} onDragOver={(e) => files(e) || session(e) || place(e)} onDrop={drop}>
       <Stick scroller={scroller} tail={grew} older={() => log.older().then(async (any) => (ready && log.blocks[0]?.time !== undefined && (await alignBack(ready.kept.log, log.more ? log.blocks[0].time : 0)) && changed(), any))} place={chat.place} bottom={stackH} quiet={agents.some((a) => !!stateOf(a.session)?.asks.length)} style={{ paddingTop: padTop, paddingBottom: stackH + 20 }}>
         <div className="mx-auto flex max-w-(--chat-w) flex-col gap-5 px-4 sm:px-6">
@@ -610,7 +642,7 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
             return (
               <div key={x.key} className="relative flex min-w-0 flex-col">
                 {turnNode(x, i)}
-                {rs.length > 0 && P && <P.ReadMarks readers={rs} agents={agents} />}
+                {rs.length > 0 && P && P.SHOW_READS && <P.ReadMarks readers={rs} agents={agents} />}
               </div>
             );
           })}
@@ -628,8 +660,11 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
               message sent or the dots coming do not move the conversation (the user, 2026-11-06). */}
           {/* Close under what is above it (the user, 2026-11-06): a call's line by the calls before. */}
           {log.loaded && compacting ? (
-            <div className="-mt-1">
-              <Compaction since={compactSince.current} />
+            <div className="-mt-1 flex min-w-0 items-center">
+              <div className="min-w-0 flex-1">
+                <Compaction since={compactSince.current} />
+              </div>
+              {busy && stop}
             </div>
           ) : log.loaded && (busy ? (
             headless ? (
@@ -722,6 +757,7 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
         </div>
       </div>
     </div>
+    </Dispatching.Provider>
     </Nicks.Provider>
   );
 }
@@ -746,7 +782,7 @@ function Under({ s, ghost, composer, onSent, onSentDone, modelOpen, setModelOpen
         ref={composer}
         s={s}
         fresh={fresh}
-        // Starting is no turn of yours: the key sends (it goes once the agent is up), not stops.
+        // Starting is no turn yet: what is sent goes once the agent is up, and Esc stops nothing.
         turn={turning(s) && s.status !== "starting"}
         onSent={onSent}
         onSentDone={onSentDone}
@@ -896,7 +932,8 @@ function Bar({ s, onSheet, onMe, spots, asked }: { s?: Session; onSheet?: () => 
   );
 }
 
-/** The channel's face before the title, pressed: another (the user, 2026-11-13). Only for one of
+/** The channel's face before the title, pressed: 编辑资料 (its name, intro, face, background;
+ *  the user, 2026-11-16; before, another face at once). Only for one of
  *  its people: one who only reads sees it, and it is no key. */
 function FaceKey({ s, stack, className, ...rest }: { s: Session; stack?: Session["agent"][] } & ComponentProps<"button">) {
   const may = mayAct(useMembers(s.id));
@@ -909,7 +946,7 @@ function FaceKey({ s, stack, className, ...rest }: { s: Session; stack?: Session
       </span>
     );
   return (
-    <button {...rest} type="button" aria-label={t("me.avatar")} onClick={() => pickFace(s.id)} className={cn("g-press -m-1 grid place-items-center rounded-full p-1 hover:bg-fill", className)}>
+    <button {...rest} type="button" aria-label={t("profile.edit")} onClick={() => openEdit({ channel: s.id })} className={cn("g-press -m-1 grid place-items-center rounded-full p-1 hover:bg-fill", className)}>
       {face}
     </button>
   );
@@ -988,8 +1025,9 @@ const renamesDraft = (d: Drafted) => !!d.tool && renameOnly({ name: d.tool.name,
 /** The turn's row at the end of the conversation: the call being written, else the one running
  *  (the newest, how many more beside it), else the dots once it has gone quiet; one line high, even
  *  empty, while the turn lasts. */
-/** under: in a turn's frame of its own, under the face and name (the turn's first). */
-function Activity({ calls, running, cwd, quiet, grew, under }: { calls: Drafted[]; running: Tool[]; cwd: string; quiet: boolean; grew: string; under?: boolean }) {
+/** under: in a turn's frame of its own, under the face and name (the turn's first). stop: the
+ *  agent's stop key, at the row's right. */
+function Activity({ calls, running, cwd, quiet, grew, under, stop }: { calls: Drafted[]; running: Tool[]; cwd: string; quiet: boolean; grew: string; under?: boolean; stop?: ReactNode }) {
   const writing = calls.at(-1);
   const run = running.at(-1);
   return (
@@ -1008,6 +1046,7 @@ function Activity({ calls, running, cwd, quiet, grew, under }: { calls: Drafted[
       ) : (
         <Waiting on={quiet} quiet={grew} />
       )}
+      {stop}
     </div>
   );
 }

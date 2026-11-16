@@ -45,9 +45,9 @@ func (m *Manager) SetModel(ctx context.Context, id, model string) error {
 	}
 	h.mu.Lock()
 	h.meta.Model = model
-	if model != "" {
-		h.model = model // the next turn's init names it as the agent resolved it
-	}
+	// The next turn's init names it as the agent resolved it; none set: the agent's own, which
+	// the state names from its models till then (api.NameModel).
+	h.model = model
 	proc := h.proc
 	h.mu.Unlock()
 	h.publish()
@@ -360,7 +360,7 @@ func (h *Hosted) allow(id string) {
 }
 
 func (h *Hosted) allowedLocked(a api.Ask) bool {
-	return renamesOnly(a) || speaksOnly(a, func(ch string) bool { return ch == "self" || ch == h.id || h.m.speaks(h.id, ch) }) || slices.ContainsFunc(h.rules, func(r store.AllowRule) bool { return ruleMatches(r, a) })
+	return renamesOnly(a) || looksUpOnly(a) || speaksOnly(a, func(ch string) bool { return ch == "self" || ch == h.id || h.m.speaks(h.id, ch) }) || slices.ContainsFunc(h.rules, func(r store.AllowRule) bool { return ruleMatches(r, a) })
 }
 
 // renamesOnly: a shell call that only names the session (ir api channel.update channel_id=self
@@ -393,6 +393,48 @@ func renamesOnly(a api.Ask) bool {
 		}
 	}
 	return named
+}
+
+// looksUpOnly: a shell call that only reads Iridium's records of the agent itself or keeps a
+// note of its own (docs/channels.md "ir 工具", "记忆"): ir api [GET] internal/self,
+// internal/memory, internal/roles, internal/members/<who>, internal/recall q=… and
+// internal/remember text=…; never asked about. One simple command, its words as speaksOnly's.
+func looksUpOnly(a api.Ask) bool {
+	input, _ := a.Input.(map[string]any)
+	s, _ := input["command"].(string)
+	if s == "" {
+		s, _ = input["cmd"].(string)
+	}
+	if a.Kind != "permission" {
+		return false
+	}
+	f, ok := shellWords(strings.TrimSpace(s))
+	if !ok || len(f) < 3 || f[0] != "ir" || f[1] != "api" {
+		return false
+	}
+	f = f[2:]
+	get := false
+	if f[0] == "GET" {
+		get, f = true, f[1:]
+	}
+	if len(f) == 0 {
+		return false
+	}
+	path, args := f[0], f[1:]
+	switch {
+	case path == "internal/self" || path == "internal/memory" || path == "internal/roles" || (get && strings.HasPrefix(path, "internal/members/")):
+		return len(args) == 0
+	case path == "internal/recall" && !get:
+		for _, w := range args {
+			if !strings.HasPrefix(w, "q=") && w != "all:=true" && !strings.HasPrefix(w, "limit:=") {
+				return false
+			}
+		}
+		return len(args) > 0
+	case path == "internal/remember" && !get:
+		return len(args) == 1 && strings.HasPrefix(args[0], "text=")
+	}
+	return false
 }
 
 // speaksOnly: a shell call that only says something in a channel the agent is in (in: its own,

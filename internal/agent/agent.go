@@ -277,6 +277,8 @@ type Model struct {
 	EffortNames map[string]string `json:"effortNames,omitempty"`
 	// Group: what the model is listed under (dsh: its provider's name).
 	Group string `json:"group,omitempty"`
+	// Default: the one the agent runs when none is set (Codex's isDefault, dsh's default).
+	Default bool `json:"default,omitempty"`
 }
 
 type Command struct {

@@ -2,12 +2,13 @@
 // another's session is quiet unless said otherwise.
 import { afterEach, expect, test } from "vitest";
 import type { Session } from "../src/api/types.gen";
-import { anothers, badge, isQuiet, setQuiet, unreadOf, watchUnread } from "../src/unread";
+import { setCarried } from "../src/store";
+import { anothers, atOf, attention, badge, isQuiet, setQuiet, unreadOf, watchUnread } from "../src/unread";
 
 const s = (id: string, more: Partial<Session> = {}): Session => ({ id, agent: "claude", cwd: "/w", status: "idle", hosted: true, live: true, updatedAt: 1, ...more });
 const me = { id: "web/kumo" };
 let w: ReturnType<typeof watchUnread> | undefined;
-afterEach(() => (w?.stop(), localStorage.clear()));
+afterEach(() => (w?.stop(), localStorage.clear(), setCarried("ats", null)));
 
 test("what is said off screen is counted, a turn's end once, yours never", () => {
   let chat = "b";
@@ -76,4 +77,28 @@ test("kept over a reload; said while no page was open counts one; a channel it i
 
 test("a badge stops at 99+", () => {
   expect([badge(1), badge(99), badge(100)]).toEqual(["1", "99", "99+"]);
+});
+
+test("a channel that names me counts though it is quiet, and the chat in front has read it", () => {
+  let chat = "";
+  const read: [string, number][] = [];
+  w = watchUnread(() => ({ chat, visible: true, focused: true }), (id, seq) => (read.push([id, seq]), Promise.resolve()));
+  const list = [s("mine", { opener: "web/kumo" }), s("hers", { opener: "web/otae" }), s("gone", { archived: true })];
+  w.take(list, me);
+  expect(attention()).toBe(0);
+  // Quiet and named: counted, with or without a count of its own; one with no row is not.
+  setCarried("ats", { hers: { seq: 7, everyone: true }, gone: { seq: 2 } });
+  expect(atOf("hers")).toEqual({ seq: 7, everyone: true });
+  expect(attention()).toBe(1);
+  w.take([list[0]!, s("hers", { opener: "web/otae", last: { role: "assistant", text: "@全体成员", at: 5 } }), list[2]!], me);
+  expect([unreadOf("hers"), isQuiet("hers"), attention()]).toEqual([1, true, 1]);
+  expect(read).toEqual([]);
+  // Opened: read up to the message that names me, said once.
+  chat = "hers";
+  dispatchEvent(new Event("focus"));
+  dispatchEvent(new Event("focus"));
+  expect(read).toEqual([["hers", 7]]);
+  // The daemon takes the mark away.
+  setCarried("ats", { gone: { seq: 2 } });
+  expect([atOf("hers"), attention()]).toEqual([undefined, 0]);
 });

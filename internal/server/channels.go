@@ -458,9 +458,11 @@ func (s *Server) channelRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /v1/internal/channels/{id}/avatar", s.avatarPut)
 	mux.HandleFunc("GET /v1/internal/channels/{id}/reads", s.readsGet)
 	mux.HandleFunc("POST /v1/internal/channels/{id}/read", s.readPost)
+	mux.HandleFunc("GET /v1/internal/ats", s.atsGet)
 	mux.HandleFunc("GET /v1/internal/agents/{agent}/choices", s.agentChoices)
 	mux.HandleFunc("POST /v1/internal/dm", s.dmPost)
 	mux.HandleFunc("GET /v1/internal/sessions/{id}/injections", s.use(s.injections))
+	s.profileRoutes(mux)
 }
 
 // channelOf is what the list of sessions marks session id with: the agents of its channel, where
@@ -593,6 +595,8 @@ func (s *Server) membersOf(c caller, ch string) (api.ChannelMembers, error) {
 				s.keepChoices(st)
 				am.Name = satori.AgentName(cmp.Or(info.Name, string(st.Agent)), *st)
 			}
+			p := s.agentProfile(m.Session)
+			am.Intro, am.Avatar, am.Background, am.Role = p.Intro, p.Avatar, p.Background, p.Role
 		}
 		out.Members = append(out.Members, am)
 	}
@@ -697,7 +701,7 @@ func (s *Server) addAgent(ctx context.Context, c caller, ch string, st *api.Sess
 		}
 	} else {
 		ns := api.NewSession{Agent: req.Agent, Cwd: cmp.Or(req.Cwd, st.Cwd), Machine: st.Machine, Model: req.Model, Mode: req.Mode,
-			Effort: req.Effort, Preset: req.Preset}
+			Effort: req.Effort, Preset: req.Preset, Role: req.Role, Intro: req.Intro, Avatar: req.Avatar, Background: req.Background}
 		if req.Cwd != "" {
 			ns.Machine = req.Machine
 		}
@@ -1010,6 +1014,7 @@ func (s *Server) agentChoices(w http.ResponseWriter, r *http.Request) {
 	// pop as the chat's own do); the sessions are asked after, for the next time.
 	if kept := s.st.Kept(choicesKey(kind, machine)); kept != "" && json.Unmarshal([]byte(kept), &out) == nil && len(out.Models) > 0 {
 		out.Presets = s.keptPresets(kind, machine)
+		s.nameChoices(&out, kind, machine)
 		reply(w, http.StatusOK, out)
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -1027,7 +1032,31 @@ func (s *Server) agentChoices(w http.ResponseWriter, r *http.Request) {
 		out = *got
 	}
 	out.Presets = s.keptPresets(kind, machine)
+	s.nameChoices(&out, kind, machine)
 	reply(w, http.StatusOK, out)
+}
+
+// nameChoices makes out say which model a new session of kind at machine runs when given none:
+// the one its models mark Default (kept ones from before may still list "default": NamedModels);
+// an agent that names none: Ran, the model its kind last ran there, a row added for one not
+// listed. Effort: the level one given neither ran at.
+func (s *Server) nameChoices(out *api.AgentChoices, kind api.Agent, machine string) {
+	out.Models = api.NamedModels(out.Models)
+	out.Effort = s.st.Kept(session.RanEffortKey(kind, machine))
+	if _, ok := api.DefaultModel(out.Models); ok {
+		return
+	}
+	ran := s.st.Kept(session.RanKey(kind, machine))
+	if ran == "" {
+		return
+	}
+	for _, m := range out.Models {
+		if m.Value == ran || m.Resolved == ran || m.Name == ran {
+			out.Ran = m.Value
+			return
+		}
+	}
+	out.Models, out.Ran = append([]api.Model{{Value: ran, Name: ran}}, out.Models...), ran
 }
 
 // keptPresets are the presets a session of kind at machine listed last (askChoices); nil for
@@ -1163,13 +1192,17 @@ func (s *Server) memberPatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// An agent's ir changes what the agent itself receives there, nothing else.
-	if c.byAgent() && (r.PathValue("member") != store.AgentMember(c.session) || p.Nick != nil) {
-		forbid(w, errors.New("an agent's ir changes only what it receives itself (recv)"))
+	if c.byAgent() && p.Recv != nil && r.PathValue("member") != store.AgentMember(c.session) {
+		forbid(w, errors.New("an agent's ir changes what it receives itself (recv), not another's"))
 		return
 	}
-	// A nick is the session's, in every channel: whoever renames it must have the right to use
-	// that session, not merely be one of this channel's people.
-	if p.Nick != nil {
+	// A nick is part of the agent's card: any member of a channel it is in may change it
+	// (profile.go), and is not told of its own change again.
+	// A person or an app that renames it must have the right to use that session, not merely be
+	// one of this channel's people.
+	if p.Nick != nil && c.session != "" {
+		defer s.toldNow(c.session, r.PathValue("member"), "nick")
+	} else if p.Nick != nil {
 		if id, ok := store.SessionOfMember(r.PathValue("member")); ok {
 			if _, err := s.using(c, id); err != nil {
 				s.error(w, err)
@@ -1218,17 +1251,10 @@ func modelAvatarKey(st *api.SessionState) string {
 	return "m:" + string(st.Agent) + ":" + model
 }
 
-// avatarOf is the face of channel ch (st its state): its own, else its model's.
+// avatarOf is the face of channel ch (st its state): its own (an image, or an emoji or a colour
+// drawn as one), else its model's.
 func (s *Server) avatarOf(ch string, st *api.SessionState) (image []byte, version string, ok bool) {
-	if img, v, ok, err := s.st.Avatar(channelAvatarKey(ch)); err == nil && ok {
-		return img, v, true
-	}
-	if key := modelAvatarKey(st); key != "" {
-		if img, v, ok, err := s.st.Avatar(key); err == nil && ok {
-			return img, v, true
-		}
-	}
-	return nil, "", false
+	return s.face(store.ChannelProfileKey(ch), false, modelAvatarKey(st))
 }
 
 // AgentAvatar is where the face of session id's agent is fetched; "" if it has none.
@@ -1254,12 +1280,7 @@ func (s *Server) avatarGet(w http.ResponseWriter, r *http.Request) {
 		refuse(w, http.StatusNotFound, "not_found", "no avatar")
 		return
 	}
-	h := w.Header()
-	h.Set("Content-Type", http.DetectContentType(img))
-	h.Set("Content-Security-Policy", "default-src 'none'; sandbox")
-	h.Set("ETag", `"`+v+`"`)
-	h.Set("Cache-Control", "private, no-cache")
-	http.ServeContent(w, r, "", time.Time{}, bytes.NewReader(img))
+	serveFace(w, r, img, v)
 }
 
 // avatarPut gives channel {id} a face (the body: a PNG, JPEG or WebP image, or JSON with it in
@@ -1327,6 +1348,14 @@ func (s *Server) avatarPut(w http.ResponseWriter, r *http.Request) {
 				s.fault(w, err)
 				return
 			}
+		}
+	}
+	// An image, or none: not the emoji or the colour it may have had.
+	if p := s.st.Profile(store.ChannelProfileKey(ch)); p.Avatar != "" {
+		p.Avatar = ""
+		if err := s.st.SetProfile(store.ChannelProfileKey(ch), p); err != nil {
+			s.fault(w, err)
+			return
 		}
 	}
 	// The pages draw the faces again.
@@ -1474,6 +1503,7 @@ func (s *Server) readPost(w http.ResponseWriter, r *http.Request) {
 	if moved {
 		s.readsChanged(ch)
 	}
+	s.readTo(ch, readerOf(c), seq, seq >= s.ch.End(ch)) // what named it up to there (ats.go)
 	reply(w, http.StatusOK, s.readsOf(ch))
 }
 
@@ -1849,6 +1879,12 @@ func (s *Server) sendChannelAs(ctx context.Context, c caller, from, ch string, r
 	if seq == 0 {
 		return api.SendReply{}, errors.New("the channel did not take the message")
 	}
+	// The logins it names, or whose message it answers, have a mark (ats.go).
+	author := ""
+	if sender == "" {
+		author = readerOf(c)
+	}
+	named := s.names(ch, seq, req.Text, quote, author)
 	// Said: it counts against what was asked for of its author, and a person's begins a new run.
 	s.follows.take(ch, u.ID, sender, true)
 	if sender == "" {
@@ -1874,6 +1910,7 @@ func (s *Server) sendChannelAs(ctx context.Context, c caller, from, ch string, r
 	}
 	if sent == 0 && firstErr != nil && !relay {
 		s.ch.Unsay(ch, seq)
+		s.unnames(ch, seq, named)
 		return api.SendReply{}, firstErr
 	}
 	if sender != "" {
@@ -2017,13 +2054,21 @@ func (s *Server) deliverTo(ctx context.Context, ch, to string, seq int64, said, 
 	if st, err := s.m.State(to); err == nil && st.Machine != "" && !s.m.HasIR(to) {
 		cc.Pull = false // at another machine, with no ir to read the channel with
 	}
+	var keys []string
 	for _, a := range list {
 		ca := assemble.ChannelAgent{Nick: a.Nick}
 		if st, err := s.m.State(a.Session); err == nil {
 			info, _ := agents.Get(st.Agent)
 			ca.Name = satori.AgentName(cmp.Or(info.Name, string(st.Agent)), *st)
 		}
+		ca.Intro = head(s.st.Profile(store.ChannelProfileKey(a.Session)).Intro, 80)
 		cc.Agents = append(cc.Agents, ca)
+		keys = append(keys, a.Session)
+	}
+	slices.Sort(keys)
+	cc.Key, cc.People = strings.Join(keys, ","), s.peopleOf(ch)
+	for _, pc := range s.profileChanges(ch, to) {
+		cc.Changes = append(cc.Changes, assemble.ProfileChange{Who: pc.Who, What: pc.What, To: pc.To})
 	}
 	// The message it answers, if it answers one: a line of it before its words.
 	if m, ok := s.ch.Get(ch, seq); ok && m.D.Quote > 0 {
@@ -2109,6 +2154,9 @@ func (s *Server) routeSaid(m channel.Message) {
 	if !ok || m.Kind != channel.KindSaid || m.D.Sent {
 		return
 	}
+	// The logins it names (ats.go), once it is on its way to the agents it names: what is said
+	// after it is told after this returns.
+	defer s.names(m.Channel, m.Seq, m.Text, 0, "")
 	list, by := s.agentsOf(m.Channel)
 	if len(list) < 2 {
 		return

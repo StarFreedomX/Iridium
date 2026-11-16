@@ -24,8 +24,9 @@ export function noteLevelNames(models: { effortNames?: { [k: string]: string } }
 export const levelName = (level: string) => (`effort.${level}` in zh ? t(`effort.${level}` as Key) : (AGENT_NAMES.get(level) ?? level));
 
 /** Where the slider rests for level among levels: its stop, known; with none set or one this model
- *  does not take, medium's stop (else the middle one), not known: the name says "default", the
- *  liquid as ever (greyed, it read as broken; the user, 2026-11-08). */
+ *  does not take, medium's stop (else the middle one), not known: no level is named (never
+ *  "default", the user, 2026-11-16), the liquid as ever (greyed, it read as broken; the user,
+ *  2026-11-08). */
 export function restAt(levels: string[], level?: string): { i: number; known: boolean } {
   const i = level ? levels.indexOf(level) : -1;
   if (i >= 0) return { i, known: true };
@@ -113,7 +114,7 @@ export function EffortSlider({ levels, value, set, aside, tag }: { levels: strin
   };
   const name = (
     <span key={known ? levels[i] : ""} className={cn("g-fade text-sm font-medium whitespace-nowrap", !!aside && "justify-self-center", known ? "text-ink-2" : "text-ink-3")}>
-      {known ? levelName(levels[i]!) : t("composer.effortDefault")}
+      {known ? levelName(levels[i]!) : ""}
     </span>
   );
   return (
@@ -159,7 +160,7 @@ export function EffortSlider({ levels, value, set, aside, tag }: { levels: strin
                 ))}
               </span>
               {/* What the keys and a screen reader take; drawn by the knob above, which glides. */}
-              <Slider.Thumb getAriaValueText={(_, v) => (known ? levelName(levels[v] ?? "") : t("composer.effortDefault"))} aria-label={t("composer.effort")} className="size-5 opacity-0 outline-none" />
+              <Slider.Thumb getAriaValueText={(_, v) => (known ? levelName(levels[v] ?? "") : "")} aria-label={t("composer.effort")} className="size-5 opacity-0 outline-none" />
             </Slider.Track>
           </Slider.Control>
         </Slider.Root>

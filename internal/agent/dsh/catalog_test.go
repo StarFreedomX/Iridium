@@ -19,7 +19,7 @@ func TestParseProbe(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := agent.Catalog{Default: "deepseek-official/deepseek-flash", Models: []agent.Model{
-		{Value: "deepseek-official/deepseek-flash", Name: "DeepSeek-V4.1-Flash", Group: "DeepSeek", Efforts: []string{"off", "low", "high", "max"}},
+		{Value: "deepseek-official/deepseek-flash", Name: "DeepSeek-V4.1-Flash", Group: "DeepSeek", Efforts: []string{"off", "low", "high", "max"}, Default: true},
 		{Value: "deepseek-official/deepseek-v4-pro", Name: "DeepSeek-V4-Pro", Group: "DeepSeek", Description: "Stronger.", Efforts: []string{"off", "low", "high", "max"}},
 	}}
 	if !reflect.DeepEqual(c, want) {

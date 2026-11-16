@@ -15,6 +15,8 @@ type Where struct {
 	Channel bool
 	// Lang is the user's language as the web settings set it ("zh", "en"); "": not known.
 	Lang string
+	// Self: what the agent is told of itself (self.go); nil: nothing.
+	Self *Self
 }
 
 // langs are the languages that have a name to tell the agent.
@@ -43,7 +45,7 @@ func systemPieces(w Where) []piece {
 	if name := langs[w.Lang]; name != "" {
 		ps = append(ps, text(idLang).filled("language", name))
 	}
-	return ps
+	return append(ps, selfPieces(w.Self)...)
 }
 
 // messagePieces is a message's line: the words after "[tag] ", the tag the sender's (its

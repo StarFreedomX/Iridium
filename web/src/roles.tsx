@@ -1,0 +1,158 @@
+// Roles (docs/channels.md "角色"; kumo, 2026-11-16): a card (name, intro, face, background) kept
+// with an agent, a model and an effort, to start sessions as. What every place that shows them
+// shares: the list, one's face, its line ("DeepSeek · Flash · 高"), its card, the menu that
+// changes the model and the effort for one start, and what a start as one sends. Shown on the
+// "+" (create.tsx), first in a channel's 邀请 (chat/channel/invite.tsx), kept in the settings
+// (rolespage.tsx).
+import { FaceGlow } from "./glow";
+import { Menu } from "@base-ui/react/menu";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { LoaderCircle, SlidersHorizontal } from "lucide-react";
+import { lazy, Suspense, useState, type CSSProperties } from "react";
+import { api, missing } from "./api/client";
+import type { Model, Role } from "./api/types.gen";
+import { choicesQ, draftDefault, type At } from "./chat/choices";
+import { t } from "./i18n";
+import { zh, type Key } from "./i18n/zh";
+import { useCarried } from "./store";
+import { agentName, cn, Logo, Tip } from "./ui";
+
+/** The model and effort menu an agent not yet started has (the invite menu's): fetched when a
+ *  role's menu first opens, so the first screen does not carry it. */
+const DraftModels = lazy(() => import("./chat/channel/pick").then((m) => ({ default: m.DraftModels })));
+
+/** The roles, in their order; none on a daemon that has no such route. Asked again as any role
+ *  changes: the carried "roles", a count (internal/server rolesChanged). */
+export function useRoles(): Role[] {
+  const v = useCarried<number>("roles") ?? 0;
+  const q = useQuery({
+    queryKey: ["roles", v],
+    queryFn: () => api.roles().catch((e) => (missing(e) ? [] : Promise.reject(e))),
+    placeholderData: keepPreviousData,
+    staleTime: 30_000,
+  });
+  return q.data ?? NONE;
+}
+const NONE: Role[] = [];
+
+/** What a start as a role changes for that one session: its model, effort, preset ("" or
+ *  none: the role's). */
+export type RolePick = { model?: string; effort?: string; preset?: string };
+
+/** The role as it would start with pick. */
+export const picked = (role: Role, pick: RolePick = {}): Role => ({ ...role, model: pick.model || role.model, effort: pick.effort || role.effort, preset: pick.preset || role.preset });
+
+/** The entry of models the role's model is: by its value, else the id it resolves to. */
+const modelOf = (role: Role, models?: Model[]) => (role.model ? (models?.find((m) => m.value === role.model) ?? models?.find((m) => m.resolved === role.model)) : undefined);
+
+/** The role's model as shown: its name among its kind's models, else its id. */
+export const roleModel = (role: Role, models?: Model[]) => modelOf(role, models)?.name ?? role.model ?? "";
+
+/** An effort by its name in the page's language; one the page has no name for as its model
+ *  names it (dsh's providers name theirs), else as it is. */
+export const effortName = (level: string, m?: Model) => (`effort.${level}` in zh ? t(`effort.${level}` as Key) : (m?.effortNames?.[level] ?? level));
+
+/** A role's line: its agent, model and effort ("DeepSeek · Flash · 高"); what is not set is
+ *  left out. agent false: its agent is shown beside it (its logo), not named. */
+export const roleLine = (role: Role, models?: Model[], agent = true) => [agent ? agentName(role.agent) : "", roleModel(role, models), role.effort ? effortName(role.effort, modelOf(role, models)) : ""].filter(Boolean).join(" · ");
+
+/** What starting as role sends, in a new session (NewSession) or an invite (NewMember): the
+ *  role, and only what pick changes of it. */
+export function roleStart(role: Role, pick: RolePick = {}): { role: string; model?: string; effort?: string; preset?: string } {
+  const differs = (v: string | undefined, own: string | undefined) => (v && v !== (own ?? "") ? v : undefined);
+  const model = differs(pick.model, role.model);
+  const effort = differs(pick.effort, role.effort);
+  const preset = differs(pick.preset, role.preset);
+  return { role: role.id, ...(model && { model }), ...(effort && { effort }), ...(preset && { preset }) };
+}
+
+/** A role's face, round: its own, else its agent's logo. */
+export function RoleFace({ role, size, className }: { role: Role; size: number; className?: string }) {
+  const [broken, setBroken] = useState<string | null>(null);
+  return (
+    <span className={cn("relative grid shrink-0 place-items-center overflow-hidden rounded-full bg-fill", className)} style={{ width: size, height: size }}>
+      {role.avatar && broken !== role.avatar ? <img src={role.avatar} alt="" draggable={false} onError={() => setBroken(role.avatar!)} className="size-full object-cover" /> : <Logo agent={role.agent} size={Math.round(size * 0.64)} />}
+    </span>
+  );
+}
+
+/** A role's background as a banner filling its parent; none: its face, out of focus. */
+export function RoleBanner({ role, className }: { role: Role; className?: string }) {
+  const [broken, setBroken] = useState<string | null>(null);
+  const has = role.background && broken !== role.background;
+  return (
+    <span className={cn("relative block overflow-hidden bg-fill-2", className)}>
+      {has ? (
+        <img src={role.background} alt="" draggable={false} onError={() => setBroken(role.background!)} className="size-full object-cover" />
+      ) : (
+        <FaceGlow>
+          <RoleFace role={role} size={32} />
+        </FaceGlow>
+      )}
+    </span>
+  );
+}
+
+/** A role's line where its agent would run (at), its model by its kind's name for it. logo:
+ *  where room is short, the agent by its logo, not its name. */
+export function RoleLine({ role, at, logo, className }: { role: Role; at: At; logo?: boolean; className?: string }) {
+  const models = useQuery(choicesQ(role.agent, at)).data?.models;
+  if (!logo) return <span className={className}>{roleLine(role, models)}</span>;
+  return (
+    <span className={cn("flex min-w-0 items-center gap-1", className)}>
+      <Logo agent={role.agent} size={12} className="shrink-0" />
+      <span className="sr-only">{agentName(role.agent)}</span>
+      <span className="min-w-0 truncate">{roleLine(role, models, false)}</span>
+    </span>
+  );
+}
+
+/** The model and effort a start as role takes, in a menu's popup: the role's ticked till
+ *  changed. A model picked or a level let go of is told (set), nothing is started. */
+export function RoleModels({ role, at, pick, set }: { role: Role; at: At; pick: RolePick; set: (p: RolePick) => void }) {
+  const asked = useQuery(choicesQ(role.agent, at)).data;
+  const now = picked(role, pick);
+  return (
+    <Suspense fallback={<LoaderCircle size={15} className="mx-auto my-2.5 animate-spin text-ink-4" />}>
+      {/* The agent's own default comes as "": named here, the role's model being another. */}
+      <DraftModels agent={role.agent} at={at} model={now.model ?? ""} effort={now.effort ?? ""} preset={now.preset} set={(x) => set({ ...pick, ...x, ...(x.model === "" ? { model: draftDefault(asked).def?.value ?? "" } : {}) })} />
+    </Suspense>
+  );
+}
+
+/** A role's card (the "+"): its background a banner, its face on the banner's foot, its name and
+ *  line. A press starts as it (onStart, with what its menu changed for this once); the key on
+ *  the banner opens that menu: the model and the effort. off: nothing can be pressed; faded:
+ *  its agent is not there (a press says so). */
+export function RoleCard({ role, at, busy, off, faded, onStart, style }: { role: Role; at: At; busy?: boolean; off?: boolean; faded?: boolean; onStart: (pick: RolePick) => void; style?: CSSProperties }) {
+  const [pick, setPick] = useState<RolePick>({});
+  const now = picked(role, pick);
+  return (
+    <div style={style} className={cn("relative min-w-0", faded && "opacity-40 grayscale")}>
+      <button type="button" disabled={off} onClick={() => onStart(pick)} className="g-press flex w-full flex-col overflow-hidden rounded-lg bg-fill text-left hover:bg-fill-2 disabled:opacity-50">
+        <RoleBanner role={role} className="h-10 w-full" />
+        <span className="-mt-4 flex items-end gap-1.5 px-2">
+          <span className="grid shrink-0 rounded-full ring-2 ring-(--paper)">{busy ? <span className="grid size-8 place-items-center rounded-full bg-fill"><LoaderCircle size={16} className="animate-spin text-ink-3" /></span> : <RoleFace role={role} size={32} />}</span>
+        </span>
+        <span className="flex min-w-0 flex-col px-2 pt-1 pb-2">
+          <span className="truncate text-sm font-semibold">{role.name}</span>
+          <RoleLine role={now} at={at} logo className="text-xs text-ink-3" />
+        </span>
+      </button>
+      <Menu.Root>
+        <Tip label={t("role.options")}>
+          <Menu.Trigger disabled={off} aria-label={t("role.options")} className="g-press glass absolute top-1 right-1 grid size-6 place-items-center rounded-full text-ink-2 hover:text-ink data-popup-open:text-ink pointer-coarse:size-8">
+            <SlidersHorizontal size={12} />
+          </Menu.Trigger>
+        </Tip>
+        <Menu.Portal>
+          <Menu.Positioner side="bottom" align="end" sideOffset={4} collisionPadding={8} className="z-50">
+            <Menu.Popup finalFocus={false} className="g-unfold glass thick float flex max-h-[min(560px,var(--available-height))] w-[min(300px,calc(100vw-16px))] flex-col rounded-lg p-1.5 text-ink outline-none">
+              <RoleModels role={role} at={at} pick={pick} set={setPick} />
+            </Menu.Popup>
+          </Menu.Positioner>
+        </Menu.Portal>
+      </Menu.Root>
+    </div>
+  );
+}

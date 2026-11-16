@@ -28,7 +28,7 @@ import { manages, useMachines, useMe, useSaidLine, useUpdate } from "./data";
 import { agentName, ago, cn, fine, IconKey, IrMark, keep, kept, Lamp, lampOf, Logo, LogoStack, own, sessionStatusText, statusText, tilde, Tip, titleOf, untitled, useLongPress, useMenuAt, useMinute } from "./ui";
 import { PLACE_DRAG, SESSION_DRAG } from "./chat/refs";
 import { NoteMark, NotesAt, useNotes } from "./notekey";
-import { badge, isQuiet, setQuiet, useQuiet, useUnread } from "./unread";
+import { badge, isQuiet, setQuiet, useAt, useQuiet, useUnread } from "./unread";
 import { Face } from "./chat/channel/face";
 import { CloudBadge, MachineFace, shownPath, useLate, useMachine, type Machine } from "./machines";
 import { getCarried, setCarried, useCarried, useLink, useList } from "./store";
@@ -843,7 +843,7 @@ let saidNow: ReturnType<typeof useSaidLine> = () => undefined;
 
 /** A session's face in the list (the user, 2026-11-13): its channel's picture, round, else its
  *  agents' logos on a disc; what is unread of it a badge on its top right corner, red, or grey
- *  while it is quiet (unread.ts), 99+ past 99. */
+ *  while it is quiet (unread.ts) and nothing unread names me, 99+ past 99. */
 function RowFace({ s, agents, unread, quiet }: { s: Session; agents?: Agent[]; unread: number; quiet: boolean }) {
   const logo = agents ? <LogoStack agents={agents} size={22} /> : <Logo agent={s.agent} size={20} />;
   return (
@@ -868,6 +868,8 @@ const SessionRow = memo(function SessionRow({ s, where, depth, flip, selected, o
   const machines = useMachines();
   const unread = useUnread(s.id);
   const quiet = useQuiet(s.id);
+  // A message I have not read names me (docs/channels.md "有人 @ 我").
+  const at = useAt(s.id);
   const now = useMinute();
   const title = titleOf(s);
   // A confirmation its agent asked for waits on you too, while it is not at work.
@@ -883,7 +885,7 @@ const SessionRow = memo(function SessionRow({ s, where, depth, flip, selected, o
   const told = status !== base ? statusText("waiting") : base !== lampOf(s) ? statusText(base) : sessionStatusText(s);
   // How long ago it was last active (its turn ended, it was last written to), but in a turn. Unread,
   // it is in ink: no grey dot for it (the user, 2026-11-06).
-  const fresh = unread > 0 && !quiet && status === "idle";
+  const fresh = unread > 0 && (!quiet || !!at) && status === "idle";
   // At work, its lamp stands in the time's place: the two cross-fade there (g-swap), the time still
   // drawn under it so the row keeps its width (the user, 2026-11-08).
   const busy = BUSY.has(status);
@@ -989,11 +991,11 @@ const SessionRow = memo(function SessionRow({ s, where, depth, flip, selected, o
         selected={selected}
         onClick={() => !renaming && onSelect(s.id)}
         faded={s.archived}
-        aria={`${title}, ${told}${s.color ? `, ${t("color.tagged", { color: t(`color.${s.color}`) })}` : ""}${unread ? `, ${t("status.unreadCount", { n: badge(unread) })}` : ""}${quiet ? `, ${t("menu.quiet")}` : ""}`}
+        aria={`${title}, ${told}${s.color ? `, ${t("color.tagged", { color: t(`color.${s.color}`) })}` : ""}${unread ? `, ${t("status.unreadCount", { n: badge(unread) })}` : ""}${at ? `, ${t(at.everyone ? "row.atAll" : "row.atMe")}` : ""}${quiet ? `, ${t("menu.quiet")}` : ""}`}
         icon={
           <Tip label={[multi ? multi.map((a, i) => `${agentName(members?.[i]?.agent ?? a.agent ?? s.agent)} ${a.nick ?? ""}`.trim()).join(", ") : agentName(s.agent), machine?.name, s.subagent && t("row.subagent"), away ? t("status.offline") : status !== "idle" && told].filter(Boolean).join(" · ")} side="bottom">
             <span className="relative grid">
-              <RowFace s={s} agents={multi?.map((a, i) => members?.[i]?.agent ?? a.agent ?? s.agent)} unread={unread} quiet={quiet} />
+              <RowFace s={s} agents={multi?.map((a, i) => members?.[i]?.agent ?? a.agent ?? s.agent)} unread={unread} quiet={quiet && !at} />
               {remote && <CloudBadge label={machine?.name ?? t("nav.remoteFolder")} />}
               {/* A subagent: no word for it, a small agent badge on the logo's corner (the user, 2026-11-06). */}
               {s.subagent && (
@@ -1021,7 +1023,7 @@ const SessionRow = memo(function SessionRow({ s, where, depth, flip, selected, o
           )
         }
         end={end}
-        sub={line}
+        sub={at ? <><span className="text-err">{t(at.everyone ? "row.atAll" : "row.atMe")}</span>{line ? ` ${line}` : ""}</> : line}
         face
         dim={dim}
         // data-session: a note may be dropped on it (notes.tsx).

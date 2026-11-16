@@ -26,6 +26,7 @@ import (
 	"github.com/kumoSleeping/iridium/internal/agents"
 	"github.com/kumoSleeping/iridium/internal/api"
 	"github.com/kumoSleeping/iridium/internal/config"
+	"github.com/kumoSleeping/iridium/internal/ctx/assemble"
 	"github.com/kumoSleeping/iridium/internal/harness"
 	"github.com/kumoSleeping/iridium/internal/hub"
 	"github.com/kumoSleeping/iridium/internal/platform"
@@ -102,6 +103,8 @@ type Manager struct {
 	chanOf   atomic.Pointer[func(string) ([]api.ChannelAgent, []string)]
 	spawned  atomic.Pointer[func(string) *api.Spawned]
 	cleared  atomic.Pointer[func(old, next string)]
+	created  atomic.Pointer[func(ctx context.Context, id string, req api.NewSession) error]
+	selfOf   atomic.Pointer[func(id string) *assemble.Self]
 	bare     atomic.Pointer[func() []api.Session]
 	speaksIn atomic.Pointer[func(session, channel string) bool]
 }
@@ -341,6 +344,11 @@ func (m *Manager) create(ctx context.Context, req api.NewSession, from, name str
 	}
 	if prep != nil {
 		if err := prep(mt.ID); err != nil {
+			return "", err
+		}
+	}
+	if f := m.created.Load(); f != nil {
+		if err := (*f)(ctx, mt.ID, req); err != nil {
 			return "", err
 		}
 	}

@@ -58,4 +58,28 @@ const (
 	idChannelPull  = "channel.context.pull" // how to read more of the channel
 	idChannelClose = "channel.context.close"
 	idNL           = "nl" // a line's end
+
+	// What an agent is told of itself (self.go).
+	idSelfWho          = "self.who"           // the nick it goes by
+	idSelfIntro        = "self.intro"         // before its intro
+	idSelfMemory       = "self.memory"        // heads what it chose to remember
+	idSelfMemoryLine   = "self.memory-line"   // before one memory: when, where from
+	idSelfMemoryMore   = "self.memory-more"   // how many more there are
+	idSelfChannels     = "self.channels"      // heads the channels it is in
+	idSelfChannelLine  = "self.channel-line"  // before the head of what it last said in one
+	idSelfChannelQuiet = "self.channel-quiet" // one it has not spoken in
+	idSelfBefore       = "self.before"        // heads its earlier contexts
+	idSelfBeforeLine   = "self.before-line"   // before the head of one's first message
+	idSelfTools        = "self.tools"         // how to look the records up
+	idSelfRemember     = "self.remember"      // how, and when, to remember
+	idSelfProfile      = "self.profile"       // profiles can be changed
+	idSelfHelpers      = "self.helpers"       // its own subagents first, a session through ir when it must be one
+
+	// The cards of a channel (channel.go).
+	idChannelPeople         = "channel.context.people"          // the people that have an intro
+	idChannelProfiles       = "channel.context.profiles"        // heads the cards changed
+	idChannelProfileName    = "channel.context.profile-name"    // one renamed
+	idChannelProfileIntro   = "channel.context.profile-intro"   // before a new intro
+	idChannelProfileNoIntro = "channel.context.profile-nointro" // an intro taken away
+	idChannelProfileImage   = "channel.context.profile-image"   // a new face or background
 )

@@ -24,7 +24,8 @@ export function folded(blocks: Block[]): Shown[] {
   const running = new Set(all.slice(end).filter((b): b is Tool => b.kind === "tool" && !b.result));
   const shown: Shown[] = [];
   // A step that starts another agent's session is a line of its own, never folded with the
-  // others (the user, 2026-11-12): the steps before it one fold, those after it another.
+  // others (the user, 2026-11-12): the steps before it one fold, those after it another. So are
+  // its words to a subagent (SendMessage; kumo, 2026-11-16: drawn as words, dispatched.tsx).
   const alone = new Set<Shown>();
   for (const b of all) {
     if (b.kind === "tool" || b.kind === "thinking") {
@@ -32,7 +33,7 @@ export function folded(blocks: Block[]): Shown[] {
       // An empty thought says nothing.
       if (b.kind === "thinking" && !b.text?.trim()) continue;
       const last = shown.at(-1);
-      const own = b.kind === "tool" && startsAgent(b);
+      const own = b.kind === "tool" && (startsAgent(b) || (b.name ?? "").toLowerCase() === "sendmessage");
       if (!own && last?.kind === "fold" && !alone.has(last)) last.steps.push(b as Step);
       else {
         const f: Shown = { kind: "fold", at: b.at, steps: [b as Step] };

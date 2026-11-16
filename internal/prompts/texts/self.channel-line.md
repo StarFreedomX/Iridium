@@ -1,0 +1,1 @@
+- "{{name}}" ({{channel}}): you last spoke {{date}}{{with}}: 
