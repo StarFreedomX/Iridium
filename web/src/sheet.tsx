@@ -39,8 +39,6 @@ const firstPx = { half: () => Math.max(320, innerHeight / 2), tall: () => innerH
 
 /** Whether a swipe up from x brings the foot's sheet: it began in the window's left quarter. */
 export const atLeft = (x: number) => x < innerWidth / 4;
-/** Whether a swipe up from x brings the notes: it began in the window's right quarter. */
-export const atRight = (x: number) => x > (innerWidth * 3) / 4;
 
 /** size: half the window, most of it, all of it (no chat open: not to be sized), or as tall as what
  *  it holds; made taller or shorter, as the user left it, kept by name. raised: at least most of
@@ -166,6 +164,8 @@ export function Sheet({ open, setOpen, size: want, raised, name, head = 0, from:
         const box = panel.current?.getBoundingClientRect();
         if (!box || !panel.current!.contains(el) || y - box.top > (now.current.head || HEAD) || el.closest("[role=slider], .touch-none")) return;
       } else {
+        // None while a card waits for an answer: the composer is away, the cards scroll (chat.tsx).
+        if (document.querySelector(`[${PULL}][data-asking]`)) return;
         // The composer's box too, while it has nothing to scroll: all of it, as it first is (the
         // user, 2026-11-07); grown past its height, it scrolls its words.
         const box = el.closest("textarea");

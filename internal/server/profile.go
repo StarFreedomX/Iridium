@@ -22,13 +22,11 @@ import (
 	"unicode"
 
 	"github.com/kumoSleeping/iridium/internal/access"
-	"github.com/kumoSleeping/iridium/internal/agents"
 	"github.com/kumoSleeping/iridium/internal/api"
 	"github.com/kumoSleeping/iridium/internal/channel"
 	"github.com/kumoSleeping/iridium/internal/ctx/assemble"
 	"github.com/kumoSleeping/iridium/internal/deliver"
 	"github.com/kumoSleeping/iridium/internal/gate"
-	"github.com/kumoSleeping/iridium/internal/satori"
 	"github.com/kumoSleeping/iridium/internal/session"
 	"github.com/kumoSleeping/iridium/internal/store"
 )
@@ -157,6 +155,9 @@ func (s *Server) backgroundGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	img, v, ok := s.face(store.ChannelProfileKey(ch), true, "")
+	if r.URL.Query().Get("of") == "channel" {
+		img, v, ok = s.channelFace(ch, nil, true)
+	}
 	if !ok {
 		refuse(w, http.StatusNotFound, "not_found", "no background")
 		return
@@ -280,9 +281,8 @@ func (s *Server) agentProfile(id string) api.Profile {
 	out := api.Profile{ID: store.AgentMember(id), Kind: api.CardKindAgent, Session: id, Name: s.ch.Nick(id), Intro: p.Intro, Role: s.st.RoleOf(id)}
 	st, err := s.m.State(id)
 	if err == nil {
-		info, _ := agents.Get(st.Agent)
 		out.Agent, out.Status = st.Agent, st.Status
-		out.Model = satori.AgentName(cmp.Or(info.Name, string(st.Agent)), *st)
+		out.Model = s.sessionName(st)
 	}
 	out.Avatar = s.AgentAvatar(id)
 	if _, v, ok := s.face(key, true, ""); ok {
@@ -291,18 +291,20 @@ func (s *Server) agentProfile(id string) api.Profile {
 	return out
 }
 
-// channelProfile is the card of channel ch.
+// channelProfile is the card of channel ch: a session's own channel's its own, not its
+// agent's (roomKey); a face or a background it has not been given, its agent's.
 func (s *Server) channelProfile(ch string) api.Profile {
-	key := store.ChannelProfileKey(ch)
-	p := s.st.Profile(key)
+	p := s.st.Profile(s.roomKey(ch))
 	out := api.Profile{ID: ch, Kind: api.CardKindChannel, Name: s.channelName(ch), Intro: p.Intro}
-	if _, own := s.ch.Own(ch); !own {
-		// A session's channel: the card is its agent's, under the channel's name.
-		out.Session = ch
+	st, err := s.m.State(ch)
+	if err != nil {
+		st = nil
 	}
-	out.Avatar = s.AgentAvatar(ch)
-	if _, v, ok := s.face(key, true, ""); ok {
-		out.Background = "/v1/internal/channels/" + ch + "/background?v=" + v
+	if _, v, ok := s.channelFace(ch, st, false); ok {
+		out.Avatar = "/v1/internal/channels/" + ch + "/avatar?of=channel&v=" + v
+	}
+	if _, v, ok := s.channelFace(ch, st, true); ok {
+		out.Background = "/v1/internal/channels/" + ch + "/background?of=channel&v=" + v
 	}
 	return out
 }
@@ -529,16 +531,9 @@ func (s *Server) patchChannel(ctx context.Context, c caller, ch string, p api.Pr
 		}
 		what = append(what, "name")
 	}
-	key := store.ChannelProfileKey(ch)
+	// A session's own channel too: its own intro, face and background, not its agent's.
+	key := s.roomKey(ch)
 	prof := s.st.Profile(key)
-	_, own := s.ch.Own(ch)
-	if !own && (p.Intro != nil || p.Avatar != nil || p.Background != nil) {
-		// A session's channel: its intro, its face and its background are its agent's.
-		if err := s.patchAgent(c, ch, ch, api.ProfilePatch{Intro: p.Intro, Avatar: p.Avatar, Background: p.Background}); err != nil {
-			return err
-		}
-		p.Intro, p.Avatar, p.Background = nil, nil, nil
-	}
 	if p.Intro != nil {
 		v, err := intro(*p.Intro)
 		if err != nil {
@@ -1082,7 +1077,7 @@ func (s *Server) cardOf(key, name string) card {
 func (s *Server) cardsIn(ch string) map[string]card {
 	out := map[string]card{}
 	if _, own := s.ch.Own(ch); own {
-		out["channel:"+ch] = s.cardOf(store.ChannelProfileKey(ch), s.channelName(ch))
+		out["channel:"+ch] = s.cardOf(s.roomKey(ch), s.channelName(ch))
 	} else {
 		out["channel:"+ch] = card{Name: s.channelName(ch)}
 	}

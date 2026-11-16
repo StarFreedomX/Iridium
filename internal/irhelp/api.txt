@@ -8,7 +8,7 @@ channel.create {_data.agent?, _data.cwd, _data.text?, _data.model?, _data.mode?,
   data.parent_id: the session it hangs under on the page (its launcher). Not given: the session your ir runs in, so one you start is your child: listed under you, archived with you. To start one of its own: channel.update data.parent_id:=null after.
   _data.cwd: . is your own folder and a relative path goes from it; ~ and ~/x the home; host:path here; app:path at that app's computer (GET internal/apps), where it then runs; an absolute path as it is.
   guild_id: a folder group's id (guild.list), self yours; not given: its folder's group, yours when yours holds its folder.
-  _data.agent: not given: a channel with no agent of its own, listed in _data.cwd; agents join it (POST internal/channels/{id}/members) and people speak in it. Given: claude, codex, pi or dsh (GET internal/agents: those that can start here, their modes); _data.mode: one of them; model, effort, preset: the agent's own (SessionState.models, efforts; GET internal/sessions/{id}/presets).
+  _data.agent: not given: a channel with no agent of its own, listed in _data.cwd; agents join it (POST internal/channels/{id}/members) and people speak in it. Given: claude, codex, pi, dsh or agy (GET internal/agents: those that can start here, their modes); _data.mode: one of them; model, effort, preset: the agent's own (SessionState.models, efforts; GET internal/sessions/{id}/presets).
   _data.role: start it as a kept role (GET internal/roles): its agent, model, effort and card. _data.nick, _data.intro, _data.avatar, _data.background: its card from the start (ir api help profile).
   _data.text: its first message, from you: it reads [ir:<your session>] before it. ir prints the id, with text once the agent took it. Started from a session, it joins that session's channel: the text is then said to it there, its answer said there.
   --wait: holds your turn till its first turn ends, then prints its reply: for a session that does a job apart from your channel and reports to you. Not for an agent in your channel (one you invited or started there): its words are said in the channel and its answer to you calls you, so waiting only holds your turn and gets you words everyone has already seen.
@@ -61,7 +61,8 @@ POST internal/sessions/{id}/interrupt - -> {ok}  end the current turn (Esc); the
 POST internal/sessions/{id}/stop - -> {ok}  stop the agent process; the next message restarts it
 POST internal/button {id, option?, choices?, words?, message?} -> {}  answer an ask: id its card (asks[].card.id); or press a button (<card>#<option>; one attached: att:<session>:<from>:<id>, SessionState.attached)
 POST internal/files/copy {from, to} -> ndjson  copy a file: from, to are paths here or app:path at an app's computer; prints path, size, sha256; run again to resume; socket only
-POST internal/machines/{id}/shell {line, cwd?} -> output  a command line at an app's computer (id or name); --wait for its output and exit code; host or agents
+POST internal/machines/{id}/shell {line, cwd?} -> output  a command line at an app's computer (id or name); --wait for its output and exit code; host or agents  [more]
+  A computer not there or not taking command lines: someone starts it there, when wanted. ir join <iridium url> --shell (any computer); a developer's Mac: node scripts/dev/shell-bot.mjs <iridium url> [name] in an Iridium checkout (default name: its host name; exits after 30 idle minutes, IDLE=0 keeps it; its TOKEN refused: exits, the next start pairs again with 配对 on). Say this to the person; you cannot start it from here.
 PATCH internal/guilds/{id} {name?, position?, split?} -> {ok}  rename a folder group, move it (0 first), split it by subfolder; host or web
 GET internal/guilds/{id}/voice - -> ws  the folder group's voice: a member's connection (docs/voice.md); a login only
 GET internal/guilds/{id}/voice/members - -> Member[]  who is in the group's voice  view=id,name,app,muted
@@ -72,7 +73,7 @@ GET internal/usage?days&app&by - -> Usage  tokens, cost; app=id|name|me, by=hour
 # satori
 meta - -> Meta  this app's approved logins; ir speaks as the first
 login.get - -> Login  the login ir speaks as
-user.get {user_id} -> User  an agent (claude, codex, pi, dsh), an app, a login or the host
+user.get {user_id} -> User  an agent (claude, codex, pi, dsh, agy), an app, a login or the host
 guild.get {guild_id} -> Guild  one folder group
 upload.create {channel_id} -> {field: url}  multipart: files for a session, each an internal: url for <img>/<file>
 
@@ -156,15 +157,6 @@ POST internal/cli {args, cwd} -> ndjson  ir of a session at another computer, by
 GET internal/secrets - -> Secrets  no values; host only  view=secrets.name,secrets.note,secrets.scope
 DELETE internal/secrets/{name} - -> {ok}  host only, person only
 POST internal/secrets/use {names, command, session?, confirm?} -> {values}  ir run only; socket only; may be 202 {need}
-
-# notes (host or web)
-GET internal/notes - -> Notes  all  view=notes.id,notes.body,notes.done,folders.name
-POST internal/notes {id?, body, folder?, pos?, color?, from?, root?} -> Note  new note
-PATCH internal/notes/{id} {body?, folder?, pos?, color?, done?, session?} -> Note  edit a note
-DELETE internal/notes/{id} - -> {ok}  delete a note
-POST internal/note-folders {name?, pos?} -> NoteFolder  new note folder
-PATCH internal/note-folders/{id} {name?, pos?} -> {ok}  rename, move a note folder
-DELETE internal/note-folders/{id} - -> {ok}  delete a note folder; its notes move out
 
 # apps (admin)
 GET internal/me - -> Me  the caller: app, login, host, web, rules

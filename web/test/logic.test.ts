@@ -74,8 +74,8 @@ describe("argOf", () => {
     expect(argOf({ name: "Bash", input: JSON.stringify({ command: "go test\n  ./..." }) })).toEqual({ arg: "go test ./...", code: true });
     expect(argOf({ name: "WebSearch", input: JSON.stringify({ query: "iridium" }) })).toEqual({ arg: "iridium", code: false });
   });
-  test("an input cut short is read for its first fields", () => {
-    expect(inputOf('{"command":"ls -la","description":"lis')).toEqual({ command: "ls -la" });
+  test("an input cut short is read as far as it goes, the last field too", () => {
+    expect(inputOf('{"command":"ls -la","description":"lis')).toEqual({ command: "ls -la", description: "lis" });
   });
 });
 
@@ -652,10 +652,15 @@ describe("windowFor", () => {
     expect(windowFor(w(), [])).toBe(true);
     expect(windowFor(w("Fable"), ["claude-fable-5-1"])).toBe(true);
     expect(windowFor(w("Fable"), [undefined, "default", "Fable 5.1"])).toBe(true);
-    expect(windowFor(w("Fable"), ["claude-opus-5-5", "opus", "Opus"])).toBe(false);
-    expect(windowFor(w("Fable"), [undefined, "", undefined])).toBe(false);
+    expect(windowFor(w("Fable"), ["claude-opus-5-5", "opus", "Opus"])).toBe(true);
+    expect(windowFor(w("Fable"), [undefined, "", undefined])).toBe(true);
     expect(windowFor(w("GPT-5.3-Codex-Spark"), ["gpt-5.3-codex-spark"])).toBe(true);
     expect(windowFor(w("GPT-5.3-Codex-Spark"), ["gpt-5.3-codex"])).toBe(false);
+    // Antigravity's, each shared by models: the share of the one in use.
+    expect(windowFor(w("Gemini"), ["gemini-3.8-flash"])).toBe(true);
+    expect(windowFor(w("Claude · GPT"), ["gemini-3.8-flash", "Gemini 3.8 Flash"])).toBe(false);
+    expect(windowFor(w("Claude · GPT"), ["gpt-oss-120b-medium"])).toBe(true);
+    expect(windowFor(w("Claude · GPT"), ["claude-opus-5-5"])).toBe(true);
   });
 });
 
@@ -724,6 +729,10 @@ describe("@ in the composer", () => {
     expect(atWord("ask @sid", 8)).toEqual({ from: 4, q: "sid" });
     expect(atWord("ask @sid more", 8)).toEqual({ from: 4, q: "sid" });
     expect(atWord("mail a@b", 8)).toBeNull();
+    expect(atWord("你好@ku", 5)).toEqual({ from: 2, q: "ku" });
+    expect(atWord("好的，@", 4)).toEqual({ from: 3, q: "" });
+    expect(atWord("see x.y@z", 9)).toBeNull();
+    expect(atWord("看&sid", 5, "&")).toEqual({ from: 1, q: "sid" });
     expect(atWord("ask @sid more", 13)).toBeNull();
     expect(atWord("ask @si d", 7)).toEqual({ from: 4, q: "si" });
     // & names a session or a place; @ calls a member (the user, 2026-11-13).

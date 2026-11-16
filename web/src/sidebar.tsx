@@ -27,7 +27,6 @@ import { errText, toast } from "./toast";
 import { manages, useMachines, useMe, useSaidLine, useUpdate } from "./data";
 import { agentName, ago, cn, fine, IconKey, IrMark, keep, kept, Lamp, lampOf, Logo, LogoStack, own, sessionStatusText, statusText, tilde, Tip, titleOf, untitled, useLongPress, useMenuAt, useMinute } from "./ui";
 import { PLACE_DRAG, SESSION_DRAG } from "./chat/refs";
-import { NoteMark, NotesAt, useNotes } from "./notekey";
 import { badge, isQuiet, setQuiet, useAt, useQuiet, useUnread } from "./unread";
 import { Face } from "./chat/channel/face";
 import { CloudBadge, MachineFace, shownPath, useLate, useMachine, type Machine } from "./machines";
@@ -334,7 +333,7 @@ export function Sidebar(p: Props) {
             // (the user, 2026-11-06).
             plus={!gone(f.path) && p.wsPlus(
               { ...w, key: f.key, root: f.path },
-              <button type="button" onClick={(e) => e.stopPropagation()} aria-label={t("nav.newHere", { ws: f.name })} className="g-press -mr-1 grid size-6 place-items-center rounded-sm text-ink-3 group-hover:text-ink-2 hover:bg-fill-2 data-popup-open:bg-fill-2 data-popup-open:text-ink-2 pointer-coarse:size-8">
+              <button type="button" onClick={(e) => e.stopPropagation()} aria-label={t("nav.newHere", { ws: f.name })} className={plusKey(p.expanded(f.key))}>
                 <Plus size={15} />
               </button>,
               plusOpen === f.key,
@@ -369,8 +368,8 @@ export function Sidebar(p: Props) {
           place={placeGroup}
           up={up && (() => placeGroup(w.key, up.key, "top"))}
           down={down && (() => placeGroup(w.key, down.key, "bottom"))}
-          // Not its count: the "+" that opens a session here, always at the row's end, plain to
-          // see, darker when the row is hovered (the user, 2026-11-06).
+          // Not its count: the "+" that opens a session here, at the row's end (the user,
+          // 2026-11-06), seen while the group is open or the row hovered (plusKey).
           end={
             w.id !== 0 &&
             !gone(w.root) && (
@@ -379,7 +378,7 @@ export function Sidebar(p: Props) {
                 <VoiceMark guild={w.id} />
                 {p.wsPlus(
               w,
-              <button type="button" onClick={(e) => e.stopPropagation()} aria-label={t("nav.newHere", { ws: w.name })} className="g-press -mr-1 grid size-6 place-items-center rounded-sm text-ink-3 group-hover:text-ink-2 hover:bg-fill-2 data-popup-open:bg-fill-2 data-popup-open:text-ink-2 pointer-coarse:size-8">
+              <button type="button" onClick={(e) => e.stopPropagation()} aria-label={t("nav.newHere", { ws: w.name })} className={plusKey(open)}>
                 <Plus size={15} />
               </button>,
               plusOpen === w.key,
@@ -673,9 +672,6 @@ function WsRow({ flip, id, name, root, sessions, hung, machine, remote, folders,
   const real = id !== 0 && manages(me);
   const [at, setAt] = useMenuAt();
   const [renaming, setRenaming] = useState(false);
-  // Its notes, where its menu was (notekey.tsx): those of its folder.
-  const [notesAt, setNotesAt] = useState<{ x: number; y: number } | null>(null);
-  const notes = useNotes() !== undefined && id !== 0;
   const lp = useLongPress(() => {
     const r = document.activeElement?.closest?.("[role=treeitem]")?.getBoundingClientRect();
     setAt(r ? { x: r.left + 40, y: r.bottom } : { x: 40, y: 40 });
@@ -686,7 +682,6 @@ function WsRow({ flip, id, name, root, sessions, hung, machine, remote, folders,
   const voice = useVoiceItem(id);
   const items = [
     ...(id > 0 ? [voice] : []),
-    ...(notes ? [{ icon: <NoteMark size={15} />, label: t("note.view"), run: () => setNotesAt(at) }] : []),
     // Those hung under its sessions go with them (the server's cascade): counted, not sent. The way
     // a group at another machine is no longer listed (the user, 2026-11-10).
     ...(sessions.length
@@ -789,7 +784,6 @@ function WsRow({ flip, id, name, root, sessions, hung, machine, remote, folders,
           </Menu.Portal>
         </Menu.Root>
       )}
-      {notes && <NotesAt root={root} at={notesAt} close={() => setNotesAt(null)} />}
     </>
   );
 }
@@ -851,7 +845,7 @@ function RowFace({ s, agents, unread, quiet }: { s: Session; agents?: Agent[]; u
   const logo = agents ? <LogoStack agents={agents} size={22} /> : <Logo agent={s.agent} size={20} />;
   return (
     <span className="relative grid size-9 place-items-center rounded-full bg-fill">
-      <Face id={s.id} agent={s.agent} size={36} none={logo} className="place-items-center" low />
+      <Face id={s.id} agent={s.agent} size={36} none={logo} className="place-items-center" low channel />
       {unread > 0 && (
         <span
           className={cn("g-pop absolute -top-1 -right-1.5 grid h-4 min-w-4 place-items-center rounded-full px-1 text-[10px] leading-none font-semibold tabular-nums", quiet ? "bg-ink-4" : "bg-err")}
@@ -1030,8 +1024,7 @@ const SessionRow = memo(function SessionRow({ s, where, depth, flip, selected, o
         sub={at ? <><span className="text-err">{t(at.everyone ? "row.atAll" : "row.atMe")}</span>{line ? ` ${line}` : ""}</> : line}
         face
         dim={dim}
-        // data-session: a note may be dropped on it (notes.tsx).
-        extra={{ ...lp, ...hover, ...drag, onClickCapture: lp.onClickCapture, "data-session": s.id }}
+        extra={{ ...lp, ...hover, ...drag, onClickCapture: lp.onClickCapture }}
       />
       <SessionMenu s={s} at={menuAt} close={() => setMenuAt(null)} rename={() => setRenaming(true)} />
     </>
@@ -1199,7 +1192,7 @@ function PushFoot({ levels, i }: { levels: PushLevel[]; i: number }) {
 /** A colour tag and how to set it ("" takes it off). */
 export type Tags = { value?: Color; set: (c: Color | "") => void };
 
-type MenuItem = { icon: ReactNode; label: string; run: () => void };
+export type MenuItem = { icon: ReactNode; label: string; run: () => void };
 
 /** A menu's items; lead: before the children, at its top; foot: after the items, over the tags. */
 export function MenuItems({ lead = [], items, tags, children, foot }: { lead?: MenuItem[]; items: MenuItem[]; tags?: Tags; children?: ReactNode; foot?: ReactNode }) {
@@ -1274,3 +1267,8 @@ function Empty() {
   if (!listed && !down) return null;
   return <div className="g-fade px-2 pt-10 text-center text-sm text-ink-3">{t(listed ? "nav.empty" : "nav.offline")}</div>;
 }
+
+/** A group's or a folder's "+": seen while it is open, or while its row is hovered (a mouse only;
+ *  kumo, 2026-11-16); kept while its popover is. Unseen, it takes no press, its place kept. */
+const plusKey = (open: boolean) =>
+  cn("g-press -mr-1 grid size-6 place-items-center rounded-sm text-ink-3 group-hover:text-ink-2 hover:bg-fill-2 data-popup-open:bg-fill-2 data-popup-open:text-ink-2 pointer-coarse:size-8", !open && "invisible group-hover:visible data-popup-open:visible");
