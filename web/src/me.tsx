@@ -3,13 +3,13 @@
 // its profile and every setting, one panel for both (the user, 2026-11-07). Local-only with no
 // Passkey, it is 本机. Also the bits the panel and the pages share: the theme, the language, the
 // segmented control, 本机's mark.
-import { Laptop, Monitor, Moon, Sun } from "lucide-react";
+import { Monitor, Moon, Sun } from "lucide-react";
 import { useEffect, type ReactNode } from "react";
 import type { Me } from "./api/types.gen";
 import { api, queryClient } from "./api/client";
 import { LOCAL_ME, useMe, useSettings } from "./data";
 import { setLang, t, useLang, type Lang } from "./i18n";
-import { Avatar, cn, keep, kept, Tip } from "./ui";
+import { Avatar, cn, IrMark, keep, kept, Tip } from "./ui";
 
 export type ThemePref = "light" | "dark" | "auto";
 
@@ -48,17 +48,10 @@ export function MeKey({ open, onOpen, dot, code }: { open: boolean; onOpen: () =
   );
 }
 
-/** 本机's mark in place of an avatar: the machine itself. */
+/** The host's mark in place of an avatar: Iridium's own (kumo, 2026-11-16: one mark for the host
+ *  everywhere, the one the computers list has). */
 export function LocalMark({ size, tint }: { size: number; tint?: string }) {
-  return (
-    <span
-      className="grid shrink-0 place-items-center rounded-full"
-      style={{ width: size, height: size, background: tint ? `color-mix(in srgb, ${tint} 14%, var(--paper))` : "var(--fill-2)", color: tint ?? "var(--ink-2)" }}
-      aria-hidden
-    >
-      <Laptop size={Math.round(size * 0.55)} strokeWidth={1.75} />
-    </span>
-  );
+  return <IrMark size={size} ground={tint ?? "var(--ink)"} />;
 }
 
 export function LangSwitch({ lang }: { lang: Lang }) {
