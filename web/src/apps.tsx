@@ -267,14 +267,15 @@ function Seen({ a }: { a: App }) {
   const used = a.host ? "" : online ? t("term.online") : ago(Math.max(a.computer?.seenAt ?? 0, a.lastSeenAt ?? 0) || a.createdAt || 0);
   const agents = a.computer ? marked(a.computer) : [];
   return (
-    // One line, the words cut at their end, the marks kept; never wrapped (the panel is narrow).
-    <span className="flex min-w-0 items-center gap-1.5 text-xs text-ink-3 tabular-nums">
-      {online && !a.host ? <span className="size-1.5 shrink-0 rounded-full bg-run" aria-hidden /> : null}
-      <span className="min-w-0 truncate">
+    // The words whole, the marks after them; where the row has no room for both, the marks go
+    // to a line of their own below (the user, 2026-11-16: nothing cut off).
+    <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-3 tabular-nums">
+      <span className="flex items-center gap-1.5 whitespace-nowrap">
+        {online && !a.host ? <span className="size-1.5 shrink-0 rounded-full bg-run" aria-hidden /> : null}
         {[used, a.web && a.logins ? t("apps.loginCount", { n: a.logins }) : "", a.computer?.os ? (systems[a.computer.os] ?? a.computer.os) : ""].filter(Boolean).join(" · ")}
       </span>
       {agents.length > 0 && (
-        <span className="ml-0.5 flex shrink-0 items-center gap-1.5">
+        <span className="flex shrink-0 items-center gap-1.5">
           {agents.map((x) => (
             <Tip key={x.agent} label={agentName(x.agent as Agent)}>
               <Logo agent={x.agent as Agent} size={12} />
@@ -330,7 +331,7 @@ function ItemRow({ a }: { a: App }) {
               ...lp,
               onContextMenu: (e: React.MouseEvent) => own(e) && (e.preventDefault(), setAt({ x: e.clientX, y: e.clientY })),
             })}
-        className={cn("flex min-h-14 items-center gap-3 rounded-lg px-2", at && "bg-fill")}
+        className={cn("flex min-h-14 items-center gap-3 rounded-lg px-2 py-2", at && "bg-fill")}
       >
         {a.host ? <IrMark size={32} className="text-ink" /> : <AvatarKey label={t("term.avatar")} onClick={() => file.current?.click()} src={a.avatar} name={a.name} size={32} type={a.type} />}
         <span className="min-w-0 flex-1">
