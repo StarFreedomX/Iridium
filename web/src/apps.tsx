@@ -258,22 +258,24 @@ function AppRow({ a, onOpen }: { a: App; onOpen: () => void }) {
 }
 
 /** A row's second line: online or when last seen; 网页's logins, a computer's system, then the
- *  agents it brings as their marks (no versions: the user, 2026-11-16). The host: its system and
- *  agents only. */
+ *  agents it brings as their marks (no versions). Always one line, every row the same height: what
+ *  has no room scrolls sideways, nothing cut, no "·" between (the user, 2026-11-16). The host: its
+ *  system and agents only. */
 function Seen({ a }: { a: App }) {
   // A computer is online while its executor is connected (Computer.online); another app, while it
   // has a connection (App.online counts them).
   const online = a.computer ? a.computer.online : !!a.online;
   const used = a.host ? "" : online ? t("term.online") : ago(Math.max(a.computer?.seenAt ?? 0, a.lastSeenAt ?? 0) || a.createdAt || 0);
   const agents = a.computer ? marked(a.computer) : [];
+  const words = [used, a.web && a.logins ? t("apps.loginCount", { n: a.logins }) : "", a.computer?.os ? (systems[a.computer.os] ?? a.computer.os) : ""].filter(Boolean);
   return (
-    // The words whole, the marks after them; where the row has no room for both, the marks go
-    // to a line of their own below (the user, 2026-11-16: nothing cut off).
-    <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-3 tabular-nums">
-      <span className="flex items-center gap-1.5 whitespace-nowrap">
-        {online && !a.host ? <span className="size-1.5 shrink-0 rounded-full bg-run" aria-hidden /> : null}
-        {[used, a.web && a.logins ? t("apps.loginCount", { n: a.logins }) : "", a.computer?.os ? (systems[a.computer.os] ?? a.computer.os) : ""].filter(Boolean).join(" · ")}
-      </span>
+    <span className="no-bar flex min-w-0 items-center gap-2.5 overflow-x-auto text-xs whitespace-nowrap text-ink-3 tabular-nums">
+      {online && !a.host ? <span className="-mr-1 size-1.5 shrink-0 rounded-full bg-run" aria-hidden /> : null}
+      {words.map((w) => (
+        <span key={w} className="shrink-0">
+          {w}
+        </span>
+      ))}
       {agents.length > 0 && (
         <span className="flex shrink-0 items-center gap-1.5">
           {agents.map((x) => (
@@ -331,7 +333,7 @@ function ItemRow({ a }: { a: App }) {
               ...lp,
               onContextMenu: (e: React.MouseEvent) => own(e) && (e.preventDefault(), setAt({ x: e.clientX, y: e.clientY })),
             })}
-        className={cn("flex min-h-14 items-center gap-3 rounded-lg px-2 py-2", at && "bg-fill")}
+        className={cn("flex min-h-14 items-center gap-3 rounded-lg px-2", at && "bg-fill")}
       >
         {a.host ? <IrMark size={32} className="text-ink" /> : <AvatarKey label={t("term.avatar")} onClick={() => file.current?.click()} src={a.avatar} name={a.name} size={32} type={a.type} />}
         <span className="min-w-0 flex-1">
