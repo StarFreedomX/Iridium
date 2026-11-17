@@ -44,6 +44,7 @@ func (s *Server) WatchMachines() {
 		}
 		s.machineSeen(id)
 	}
+	s.watchDenials()
 	s.terminalsChanged()
 	go s.watchLatency()
 }
@@ -110,7 +111,7 @@ func (s *Server) machineSeen(id string) {
 		hi, ok = mc.Hello()
 	}
 	if ok && hi != nil {
-		m := keptComputer{Computer: api.Computer{OS: hi.OS, Arch: hi.Arch, Program: hi.Program, Home: hi.Home, Sep: hi.Sep, Agents: []api.ExecAgent{}, Shell: hi.ShellOn()}, MachineID: hi.MachineID}
+		m := keptComputer{Computer: api.Computer{OS: hi.OS, Arch: hi.Arch, Program: hi.Program, Home: hi.Home, Sep: hi.Sep, Agents: []api.ExecAgent{}, Shell: hi.ShellOn(), Roots: hi.Roots, Grant: slices.Contains(hi.Caps, wire.CapGrant)}, MachineID: hi.MachineID}
 		for _, a := range hi.Agents {
 			// Only what Iridium runs at an executor.
 			if info, ok := agents.Get(api.Agent(a.Agent)); ok && info.FindRemote != nil {
@@ -280,6 +281,7 @@ func (s *Server) agentOff(id string, a api.Agent) error {
 
 func (s *Server) machineRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /v1/internal/apps/{id}/agents", s.approver(s.putAgents))
+	mux.HandleFunc("POST /v1/internal/machines/{id}/grant", s.approver(s.postGrant))
 	mux.HandleFunc("GET /v1/internal/machines/{id}/dsh/workspaces", s.dshWorkspaces)
 	mux.HandleFunc("POST /v1/internal/machines/{id}/dsh/sync", s.dshSync)
 }

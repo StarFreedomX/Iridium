@@ -589,6 +589,12 @@ func (s *Server) answerNeed(w http.ResponseWriter, r *http.Request) {
 			s.pairToken(id, tok.Token)
 			st.Name = tok.App.Name
 		}
+	case cf.Kind == api.NeedMachineGrant:
+		err = s.grantNeed(r.Context(), cf, c.Name)
+		if errors.Is(err, errGrantDeclined) {
+			st.State, err = "denied", nil
+			a.Allow = false
+		}
 	case cf.Kind == api.NeedAppChange:
 		err = s.setAppPerms(cf.App.ID, cleanPerms(cmp.Or(a.Perms, cf.Wants)))
 		s.terminalsChanged()

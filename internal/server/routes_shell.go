@@ -90,6 +90,15 @@ func (s *Server) machineShell(w http.ResponseWriter, r *http.Request) {
 		refuse(w, http.StatusUnprocessableEntity, "no_such_machine", fmt.Sprintf("no machine %s (ir apps lists them)", name))
 		return
 	}
+	if errors.Is(err, session.ErrNoShell) {
+		name := id
+		if info, ok := s.gate().Endpoint(id); ok {
+			name = info.Name
+		}
+		asked := s.machineDenied(r.Context(), id, true, "")
+		refuse(w, http.StatusForbidden, "no_shell", noShellText(name, asked))
+		return
+	}
 	if err != nil {
 		s.shellError(w, err)
 		return

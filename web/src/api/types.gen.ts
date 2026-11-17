@@ -814,6 +814,16 @@ export interface Computer {
    */
   shell?: boolean;
   /**
+   * Roots: the folders it serves files under (its own paths); none: all but its keys and logins,
+   * or not known (Grant false).
+   */
+  roots?: string[];
+  /**
+   * Grant: it takes a grant (POST /v1/internal/machines/{id}/grant): Shell and Roots widened from
+   * here, confirmed at its terminal.
+   */
+  grant?: boolean;
+  /**
    * Latency: the connection's last round trip (ms), by its heartbeat; 0 not known.
    */
   latency?: number /* int64 */;
@@ -1012,6 +1022,11 @@ export const NeedInvite: NeedKind = "invite"; // an agent's ir invite
 export const NeedSecretSet: NeedKind = "secret_set"; // an agent's ir secret set: a person types the value
 export const NeedSecretUse: NeedKind = "secret_use"; // an agent's ir run with credentials
 /**
+ * NeedMachineGrant: a computer turned down an agent's request (command lines off there, a
+ * path outside its folders): allowed, the computer asks the person at its terminal.
+ */
+export const NeedMachineGrant: NeedKind = "machine_grant";
+/**
  * NeedAsk: a session's question, approval or plan (Card), for whoever may use the session;
  * answered through the card (POST /v1/internal/button), not POST /v1/internal/needs/{id}.
  */
@@ -1053,6 +1068,13 @@ export interface Need {
   code?: string;
   pair?: PairRequest;
   /**
+   * machine_grant: the computer (its app's ID; Name its name), and what it would give: command
+   * lines (Shell), or the folder Path (its own path).
+   */
+  machine?: string;
+  shell?: boolean;
+  path?: string;
+  /**
    * App: app_update, the app by that name now (its system, last seen, whether online: an update
    * while it is online may be someone else's); app_change, login_join: the app asking.
    */
@@ -1081,6 +1103,15 @@ export interface Need {
  */
 export interface Needs {
   pending: Need[];
+}
+/**
+ * MachineGrant is POST /v1/internal/machines/{id}/grant: command lines on (asked at that
+ * computer) or off (Shell; nil: as they are), and more folders it serves files under (Roots, its
+ * own whole paths; asked there).
+ */
+export interface MachineGrant {
+  shell?: boolean;
+  roots?: string[];
 }
 /**
  * NeedAnswer is a person's answer to a Need (POST /v1/internal/needs/{id}).

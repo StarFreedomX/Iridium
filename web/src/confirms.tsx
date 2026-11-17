@@ -31,6 +31,7 @@ export function ConfirmCard({ c, at: here }: { c: Need; at: string }) {
   if (c.kind === "ask") return <AskNeedCard c={c} />;
   if (c.kind === "secret_set") return <SecretSetCard c={c} />;
   if (c.kind === "secret_use") return <SecretUseCard c={c} />;
+  if (c.kind === "machine_grant") return <MachineGrantCard c={c} />;
   if (isPair(c)) return <PairCard c={c} />;
   if (c.kind === "app_change" || c.kind === "login_join") return <AppNeedCard c={c} />;
   return <SecretGiveCard c={c} at={here} />;
@@ -182,6 +183,61 @@ function SecretSetCard({ c }: { c: Need }) {
         <CardDetails>
           <Facts rows={facts} />
           <p className="m-0 text-xs text-ink-3">{t("secrets.setHint")}</p>
+        </CardDetails>
+      )}
+    </CardFrame>
+  );
+}
+
+/** A computer turned down an agent's request (docs/exec.md "放开"): command lines off there, or a
+ *  folder it does not serve. 放开 asks the computer, which asks the person at its terminal (y); the
+ *  card waits for that answer, saying where it is given. */
+function MachineGrantCard({ c }: { c: Need }) {
+  const { who, facts } = useAsked(c);
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState<"allow" | "deny" | null>(null);
+  const [leaving, setLeaving] = useState(false);
+  const name = c.name ?? "";
+  const answer = async (allow: boolean) => {
+    setBusy(allow ? "allow" : "deny");
+    try {
+      const r = await api.answerConfirm(c.id, allow);
+      setLeaving(true);
+      if (r.state === "failed") toast(t("err.confirm"), { error: true, description: r.error });
+      else if (!allow) toast(t("toast.denied"));
+      else if (r.state === "allowed") toast(t("grant.done"));
+      else toast(t("grant.declined", { name }), { error: true });
+    } catch (e) {
+      toast(t("err.confirm"), { error: true, description: errText(e) });
+    } finally {
+      setBusy(null);
+    }
+  };
+  const waiting = busy === "allow";
+  return (
+    <CardFrame label={confirmTitle(c)} leaving={leaving}>
+      <CardHead
+        icon={<ConfirmIcon c={c} size={16} />}
+        title={confirmTitle(c)}
+        summary={waiting ? t("grant.waiting", { name }) : c.shell ? t("confirm.asked", { who }) : c.path}
+        mono={!waiting && !c.shell}
+        open={open}
+        setOpen={setOpen}
+        keys={
+          <>
+            <SecondKey disabled={!!busy} onClick={() => void answer(false)}>
+              {t("ask.deny")}
+            </SecondKey>
+            <MainKey busy={waiting} disabled={!!busy} onClick={() => void answer(true)}>
+              {t("grant.allow")}
+            </MainKey>
+          </>
+        }
+      />
+      {open && (
+        <CardDetails>
+          <Facts rows={[[t("grant.computer"), name], ...(c.path ? ([[t("grant.folder"), <span className="font-mono text-xs break-all">{c.path}</span>]] as [string, ReactNode][]) : []), ...facts]} />
+          <p className="m-0 text-xs text-ink-3">{t("grant.hint")}</p>
         </CardDetails>
       )}
     </CardFrame>

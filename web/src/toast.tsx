@@ -13,8 +13,8 @@ type Data = { agent?: Agent; jump?: string; error?: boolean; undo?: () => void }
 
 /** A toast: title, maybe a line after it; error ones stay 8 s. undo: a key that takes back what
  *  was done, the toast staying 6 s. */
-export function toast(title: string, opts: { description?: string; error?: boolean; agent?: Agent; jump?: string; timeout?: number; undo?: () => void } = {}) {
-  toasts.add({ title, description: opts.description, timeout: opts.timeout ?? (opts.error ? 8000 : opts.undo ? 6000 : 2500), data: { agent: opts.agent, jump: opts.jump, error: opts.error, undo: opts.undo } satisfies Data });
+export function toast(title: string, opts: { description?: string; error?: boolean; agent?: Agent; jump?: string; timeout?: number; undo?: () => void } = {}): string {
+  return toasts.add({ title, description: opts.description, timeout: opts.timeout ?? (opts.error ? 8000 : opts.undo ? 6000 : 2500), data: { agent: opts.agent, jump: opts.jump, error: opts.error, undo: opts.undo } satisfies Data });
 }
 
 /** An error's words for a toast. */

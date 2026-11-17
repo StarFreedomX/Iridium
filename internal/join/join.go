@@ -68,6 +68,8 @@ type Options struct {
 	Where   string // the Iridium as a person reads it; "": URL
 	// Prog is the program that runs it: the zero value is ir join.
 	Prog Program
+	// Ask asks the person here about a grant from the Iridium's page; nil: its terminal (ask).
+	Ask func(context.Context, string) bool
 }
 
 // Program is a program that joins: ir join (in iridium), or ir-computer (cmd/ir-computer).
@@ -294,15 +296,24 @@ func (o *Options) Run(ctx context.Context) error {
 		return fmt.Errorf("another %s runs here: %v", o.again(), err)
 	}
 	defer unlock()
+	told := false
 	for {
 		tok, err := o.token(ctx)
 		if err != nil {
 			return err
 		}
-		ex, err := executor.New(executor.Options{
+		var ex *executor.Executor
+		ex, err = executor.New(executor.Options{
 			URL: wsURL(o.URL), Token: tok, State: o.stateDir(), Roots: o.Roots, Deny: []string{o.tokenDir()},
 			Agents: o.Agents, Shell: o.Shell, Program: o.program(), HTTPClient: o.HTTP, Logf: o.logf, IR: selfExe(),
-			Connected: func(name string) { o.say("已连接 %s（%s）：关闭此窗口即断开", o.URL, name) },
+			Connected: func(name string) {
+				o.say("已连接 %s（%s）：关闭此窗口即断开", o.URL, name)
+				if !told {
+					told = true
+					o.say("%s", o.grants(ex))
+				}
+			},
+			Denied: o.denied, Ask: o.ask(),
 		})
 		if err != nil {
 			return err

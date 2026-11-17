@@ -42,6 +42,8 @@ import type {
   Settings,
   SettingsPatch,
   AppAgents,
+  MachineGrant,
+  Computer,
   Apps,
   PairWindow,
   Perms,
@@ -464,6 +466,8 @@ export const api = {
   appPerms: (id: string, p: Perms) => write<Perms>("PUT", `/v1/internal/apps/${enc(id)}/perms`, p),
   /** PUT /v1/internal/apps/{id}/agents: the agents an app carries turned off there. */
   appAgents: (id: string, off: string[]) => write<AppAgents>("PUT", `/v1/internal/apps/${enc(id)}/agents`, { off } satisfies AppAgents),
+  /** Command lines on or off, more folders, at computer id: anything more is confirmed at its terminal (403 declined). */
+  grantMachine: (id: string, g: MachineGrant) => write<Computer>("POST", `/v1/internal/machines/${enc(id)}/grant`, g satisfies MachineGrant),
   /** PUT /v1/internal/apps/{app}/logins/{login}/perms: what a login may use, within its app's. */
   loginPerms: (app: string, login: string, p: Perms) => write<Perms>("PUT", `/v1/internal/apps/${enc(app)}/logins/${enc(login)}/perms`, p),
   /** A login of 网页's passkeys, one per device (docs/web.md "Passkey"), and its links to add one. */

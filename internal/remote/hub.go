@@ -24,6 +24,9 @@ type Hub struct {
 	Logf func(string, ...any)
 	// Changed is called when a machine comes or goes.
 	Changed func(id string)
+	// Denied is called when an executor turns down a file request (fs.*) for path: ctx is the
+	// request's.
+	Denied func(ctx context.Context, machine, method, path string)
 	// Self is the host's own machine hash (machineid.Hash()): an executor whose hello says the
 	// same is an app on the host, whose agents are not taken (they are the host's); "": none.
 	Self string
@@ -377,7 +380,14 @@ func (m *Machine) Call(ctx context.Context, method string, params, out any) erro
 	if err != nil {
 		return err
 	}
-	return c.Call(ctx, method, params, out)
+	err = c.Call(ctx, method, params, out)
+	if err != nil && m.hub.Denied != nil && strings.HasPrefix(method, "fs.") && wire.IsCode(err, wire.CodeDenied) {
+		var p struct{ Path string }
+		if b, merr := json.Marshal(params); merr == nil && json.Unmarshal(b, &p) == nil && p.Path != "" {
+			m.hub.Denied(ctx, m.id, method, p.Path)
+		}
+	}
+	return err
 }
 
 // event is an event from the executor: one a channel handles (Hub.Handle), else for the relay
@@ -425,3 +435,34 @@ func (m *Machine) event(name string, params json.RawMessage) {
 }
 
 var errStopped = errors.New("relay stopped")
+
+// ErrNoGrant: the executor takes no grant (an older one): what it may do is set where it runs.
+var ErrNoGrant = errors.New("that computer takes no grant from here: its owner restarts it with --shell or --roots")
+
+// Grant asks the executor for p (wire.GrantParams): it asks the person at its terminal for
+// anything wider, so it may take as long as they do. Allowed, its hello says what it has now and
+// the pages hear. wire's CodeDenied: declined there.
+func (m *Machine) Grant(ctx context.Context, p wire.GrantParams) (wire.Grant, error) {
+	var g wire.Grant
+	c, err := m.Conn()
+	if err != nil {
+		return g, err
+	}
+	if !m.Has(wire.CapGrant) {
+		return g, ErrNoGrant
+	}
+	if err := c.Call(ctx, "grant", p, &g); err != nil {
+		return g, err
+	}
+	m.mu.Lock()
+	if m.conn == c && m.hello != nil {
+		hi := *m.hello
+		hi.Shell, hi.NoShell, hi.AgentShell, hi.Roots = &g.Shell, !g.Shell, g.Shell, g.Roots
+		m.hello = &hi
+	}
+	m.mu.Unlock()
+	if m.hub.Changed != nil {
+		m.hub.Changed(m.id)
+	}
+	return g, nil
+}

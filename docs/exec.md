@@ -53,10 +53,20 @@
 - `agents`：装了哪些 agent、怎么启动（`argv` 是程序部分，驱动接着加参数）。dsh 直接给 `node` 和 `bin.js`，不经 `.cmd`；`scope` 是它的 `@deepseek-ai` 包目录（这边从里面读预设），`home` 是 `DSH_HOME`。dsh 低于 0.2.2 不给开。Codex 给 `codex` 本身（npm 装的给 `node` 和 `codex.js`），不给 `home`：这边看那边环境里的 `CODEX_HOME`。
 - `holds`：它手上全部进程（`{hold, outSize, inSeq, exit}`，`inSeq` 是写进去的最后一行的序号）。这边据此对账：哪些还在跑、输入从哪儿续；这边起过、它却没有的，算进程没了。
 - `shell`（2026-11-10）：命令行开关，主人定，默认关（`ir join --shell`）。开着：网页上的人（`$`）和这边 agent 的 `ir sh` 都能在那台机器上执行命令；关着：只启动自己的 agent，`hold.start` 的 `argv` 必须以某个 agent 的 `argv` 开头，否则报 `denied`，`run` 也报 `denied`。没有 `shell` 的旧执行端按旧的两个字段算：`shell = agentShell && !noShell`（旧的 `noShell` 只启动 agent，`agentShell` 让 agent 也能 `ir sh`）。新执行端两套都报，给旧 Iridium 看。dsh 插件仍报旧的两个。
+- `roots`（2026-11-17）：可访问的文件夹（那边的完整路径），有 `grant` 能力的执行端才报；不报为不知道。
 - `machineId`（2026-11-10）：这台电脑标识的哈希（Linux `/etc/machine-id`，Mac `IOPlatformUUID`，Windows `MachineGuid`；`sha256("iridium machine " + 标识)` 的前 16 字节，hex）。和这边自己的一样，就是主机上的应用：去掉它报的 agent（主机的 agent 只归主机），连接照收。环境变量 `IRIDIUM_MACHINE_ID` 换掉标识（测试、和主实例在同一台电脑的 ir-test 用；`none` 表示没有）。只防误操作，不防伪造。
 - `caps`（2026-11-09）：会讲的可选部分。`held`：`held.list`、`held.send`、`held.get`、`held.set` 和事件 `held.changed`（见“可选”）；`agent.prepare`：`agent.presets`、`agent.prepare`（2026-11-11，见“dsh 插件”）；`session.attach`：发事件 `session.attach`、收事件 `session.button`（见“挂元素”）。dsh 插件报这三项（`held` 在 dsh 有 `agents` 服务时）；没有的就没有这些功能，旧名（`dsh.*`、`held.features`）不再认。`run`（2026-11-10）：见“命令”；`ir join`、exec-mini 报，dsh 插件不报。
 
 **接入就是让这边能在那台机器上以那个账户运行程序。** `hold.start` 的 `argv` 由这边定，执行端不加限制（`shell` 关着时除外）；`roots` 只管文件读写，管不住进程。所以同不同意由那台机器的主人决定：装插件、跑 `ir join` 就是同意；不想让这边执行命令，就关着 `shell`（默认）。
+
+## 放开（`grant`，2026-11-17）
+
+起因：Mac 上 `curl …/join | sh` 不带参数，家目录外的路径和命令行都被拒，只有 agent 看到一行 `denied`，人哪里都看不到，网页上也改不了（用户，2026-11-17）。
+
+- 执行端拒绝时在自己终端打一行（同一件事一分钟一次）：`已拒绝访问 /Applications/…：不在可访问的文件夹内`、`已拒绝执行命令（会话「…」）：命令行未开`；第一次再打一行怎么放开。连上时打一行现状：`可访问 ~；命令行未开`。
+- agent 的请求被拒（`fs.*` 返回 `denied`，或命令行关着的 `no_shell`），它的会话里出一张卡（需要 `machine_grant`：`machine`、`shell` 或 `path`；`path` 是被拒路径所在的文件夹，`fs.list`、`fs.mkdir` 是它本身）。同一会话同一件事只出一张。命令行被拒时这边还发事件 `denied` `{what: "shell", by}` 给执行端，让它在终端里打出来。
+- 卡上点“放开”，或应用管理里电脑行的菜单（开启/关闭命令行、开放文件夹，`POST /v1/internal/machines/{id}/grant {shell?, roots?}`），这边调执行端的 `grant` `{shell?, roots?, by}`。比现有更宽的，执行端在终端里问 `<by> 请求开启命令行，访问 /x。允许？[y/N]`（读 `/dev/tty`，Windows `CONIN$`；80 秒没回答算拒绝），y 才生效；关命令行不问。回 `{shell, roots}`，这边据此改记下的握手，网页随之更新。拒绝回 `denied`，卡片结果为 denied，路由回 403 `declined`；没有 `grant` 能力的旧执行端回 422 `no_grant`。
+- 放开只在这次运行中有效，不写盘；重新运行按命令行参数来。主人定的规矩不变：这边只能请求，确认在那台电脑上。
 
 ## 进程（必需）
 

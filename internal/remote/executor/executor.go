@@ -41,8 +41,16 @@ type Options struct {
 	Deny   []string
 	Agents []wire.AgentInfo
 	// Shell: command lines run here, a person's on its page and its agents' (ir sh); else it
-	// starts nothing but the agents (an argv beginning with one of theirs) (docs/exec.md).
+	// starts nothing but the agents (an argv beginning with one of theirs) (docs/exec.md). Roots
+	// and Shell are where it begins: a grant the person here allows widens them while it runs.
 	Shell bool
+	// Ask asks the person at its terminal question, a grant from the Iridium's page: true, they
+	// allowed it. nil: no one to ask, and grants of more are declined.
+	// It gives up as ctx ends (no answer in time: no).
+	Ask func(ctx context.Context, question string) bool
+	// Denied tells the person at its terminal of something it turned down (Denial), each once a
+	// minute at most.
+	Denied func(Denial)
 	// MachineID is what the hello says of this computer (wire.Hello.MachineID); "":
 	// machineid.Hash().
 	MachineID string
@@ -73,6 +81,11 @@ type Executor struct {
 	conn  *wire.Conn
 	holds map[string]*holder
 	runs  map[string]*running // run's, by their ID
+	// shell and roots are what it has now: Options' widened by grants.
+	shell bool
+	roots []string
+	told  map[Denial]time.Time // Denied, by when it was last told
+	asked sync.Mutex           // one question at its terminal at a time
 }
 
 func New(o Options) (*Executor, error) {
@@ -91,7 +104,7 @@ func New(o Options) (*Executor, error) {
 	if o.MachineID == "" {
 		o.MachineID = machineid.Hash()
 	}
-	e := &Executor{o: o, holds: map[string]*holder{}, runs: map[string]*running{}}
+	e := &Executor{o: o, holds: map[string]*holder{}, runs: map[string]*running{}, shell: o.Shell, roots: slices.Clone(o.Roots), told: map[Denial]time.Time{}}
 	if err := e.load(); err != nil {
 		return nil, err
 	}
@@ -175,6 +188,7 @@ func (e *Executor) session(ctx context.Context) error {
 	}
 	c := wire.NewConn(ws)
 	c.OnRequest = e.handle
+	c.OnEvent = e.event
 	done := make(chan error, 1)
 	go func() { done <- c.Run(ctx) }()
 	e.mu.Lock()
@@ -237,12 +251,12 @@ func (e *Executor) Drop() {
 
 func (e *Executor) hello() wire.Hello {
 	home, _ := os.UserHomeDir()
-	shell := e.o.Shell
-	caps := []string{wire.CapRun}
+	caps := []string{wire.CapRun, wire.CapGrant}
 	if e.o.NoRun {
-		caps = nil
+		caps = []string{wire.CapGrant}
 	}
 	e.mu.Lock()
+	shell, roots := e.shell, slices.Clone(e.roots)
 	var holds []wire.HoldState
 	for _, h := range e.holds {
 		holds = append(holds, h.state())
@@ -253,7 +267,7 @@ func (e *Executor) hello() wire.Hello {
 		Home: home, Sep: string(filepath.Separator), Scratch: filepath.Join(e.o.State, "scratch"),
 		Env: helloEnv(e.o.Env), Agents: e.o.Agents, Holds: holds, IRClient: e.o.IR != "",
 		// The older two said too, for an older Iridium.
-		Shell: &shell, NoShell: !shell, AgentShell: shell,
+		Shell: &shell, NoShell: !shell, AgentShell: shell, Roots: roots,
 		MachineID: e.o.MachineID, Caps: caps,
 	}
 }
@@ -356,6 +370,12 @@ func (e *Executor) handle(ctx context.Context, method string, params json.RawMes
 			return nil, bad("%v", err)
 		}
 		return e.stopRun(rp.Run)
+	case "grant":
+		var gp wire.GrantParams
+		if err := json.Unmarshal(params, &gp); err != nil {
+			return nil, bad("%v", err)
+		}
+		return e.grant(ctx, gp)
 	case "hold.start":
 		return e.start(p.Hold, spec{Argv: p.Argv, Env: p.Env, Cwd: p.Cwd, StopGraceMS: p.StopGraceMS})
 	case "hold.write", "hold.tail", "hold.stop", "hold.kill", "hold.forget":
@@ -460,8 +480,9 @@ func (e *Executor) start(id string, spec spec) (any, error) {
 	if id == "" || strings.ContainsAny(id, `/\.`) || len(spec.Argv) == 0 {
 		return nil, bad("bad hold.start")
 	}
-	if !e.o.Shell && !e.agentArgv(spec.Argv) {
-		return nil, &wire.Error{Code: wire.CodeDenied, Message: "only its agents start here"}
+	if !e.shellOn() && !e.agentArgv(spec.Argv) {
+		e.deny(Denial{What: DeniedShell})
+		return nil, &wire.Error{Code: wire.CodeDenied, Message: "command lines do not run here (only its agents start): its owner turned them off"}
 	}
 	e.mu.Lock()
 	if h := e.holds[id]; h != nil {
@@ -730,18 +751,21 @@ func (e *Executor) allowed(path string) (string, error) {
 	}
 	for _, d := range e.denied() {
 		if under(d) {
-			return "", &wire.Error{Code: wire.CodeDenied, Message: path}
+			e.deny(Denial{What: DeniedSecret, Path: path})
+			return "", &wire.Error{Code: wire.CodeDenied, Message: path + ": never served (keys and logins)"}
 		}
 	}
-	if len(e.o.Roots) == 0 {
+	roots := e.Roots()
+	if len(roots) == 0 {
 		return real, nil
 	}
-	for _, r := range e.o.Roots {
+	for _, r := range roots {
 		if rr, err := filepath.EvalSymlinks(r); err == nil && under(rr) {
 			return real, nil
 		}
 	}
-	return "", &wire.Error{Code: wire.CodeDenied, Message: path}
+	e.deny(Denial{What: DeniedPath, Path: path})
+	return "", &wire.Error{Code: wire.CodeDenied, Message: fmt.Sprintf("%s: not under the folders this computer serves (%s); a person may allow more on the Iridium's page, confirmed at that computer", path, strings.Join(roots, ", "))}
 }
 
 func typeOf(m fs.FileMode) string {

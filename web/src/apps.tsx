@@ -7,10 +7,10 @@
 // cards on top, the code checked against the one the app shows. No TOKEN is handed out here.
 import { Menu } from "@base-ui/react/menu";
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { Check, ChevronLeft, ChevronRight, EyeOff, KeyRound, Laptop, Link2, LoaderCircle, Monitor, MonitorSmartphone, PencilLine, Plus, SlidersHorizontal, Smartphone, Trash2, X, type LucideIcon } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, EyeOff, FolderOpen, KeyRound, Laptop, Link2, LoaderCircle, Monitor, MonitorSmartphone, PencilLine, Plus, SlidersHorizontal, Smartphone, SquareTerminal, Trash2, X, type LucideIcon } from "lucide-react";
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { ApiError, api } from "./api/client";
-import type { Agent, App, Apps, Computer, Device, Login, Passkey, PasskeyLink, Perms, PendingInvite } from "./api/types.gen";
+import type { Agent, App, Apps, Computer, Device, Login, MachineGrant, Passkey, PasskeyLink, Perms, PendingInvite } from "./api/types.gen";
 import { CardFrame, CardHead, MainKey, SecondKey } from "./card";
 import { ConfirmCard, saysOwner } from "./confirms";
 import { isComputer, useApps, useMe } from "./data";
@@ -22,7 +22,7 @@ import { SecretHere } from "./secret";
 import { showSecret, useSecret } from "./secrets";
 import { Group } from "./settings";
 import { useConfirms, usePairing } from "./store";
-import { errText, toast } from "./toast";
+import { errText, toast, toasts } from "./toast";
 import { agentName, AGENTS as AGENT_MARKS, ago, Avatar, AvatarKey, cn, CopyKey, IconKey, IrMark, Logo, own, Switch, Tip, useLongPress, useMenuAt } from "./ui";
 import { MenuItems, type MenuItem } from "./sidebar";
 
@@ -250,7 +250,7 @@ function Seen({ a }: { a: App }) {
   const online = a.computer ? a.computer.online : !!a.online;
   const used = a.host ? "" : online ? t("term.online") : ago(Math.max(a.computer?.seenAt ?? 0, a.lastSeenAt ?? 0) || a.createdAt || 0);
   const agents = a.computer ? marked(a.computer) : [];
-  const words = [used, a.web && a.logins ? t("apps.loginCount", { n: a.logins }) : "", a.computer?.os ? (systems[a.computer.os] ?? a.computer.os) : ""].filter(Boolean);
+  const words = [used, a.web && a.logins ? t("apps.loginCount", { n: a.logins }) : "", a.computer?.os ? (systems[a.computer.os] ?? a.computer.os) : "", !a.host && a.computer?.shell ? t("apps.shell") : ""].filter(Boolean);
   return (
     <span className="no-bar flex min-w-0 items-center gap-2.5 overflow-x-auto text-xs whitespace-nowrap text-ink-3 tabular-nums">
       {online && !a.host ? <span className="-mr-1 size-1.5 shrink-0 rounded-full bg-run" aria-hidden /> : null}
@@ -281,9 +281,21 @@ function ItemRow({ a }: { a: App }) {
   const [renaming, setRenaming] = useState(false);
   const [sure, setSure] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [folders, setFolders] = useState(false);
   const face = useFacePick(a.id);
   const menu = useRowMenu();
   const remove = t(isComputer(a) ? "apps.deleteComputer" : "apps.delete");
+  const grant = useGrant(a);
+  const m = a.computer;
+  // What a person here may change of a computer that takes grants, connected (docs/exec.md "放开").
+  const grants: MenuItem[] = !a.host && m?.grant && m.online
+    ? [
+        m.shell
+          ? { icon: <SquareTerminal size={15} />, label: t("grant.shellOff"), run: () => void grant({ shell: false }) }
+          : { icon: <SquareTerminal size={15} />, label: t("grant.shellOn"), run: () => void grant({ shell: true }) },
+        { icon: <FolderOpen size={15} />, label: t("grant.addFolder"), run: () => setFolders(true) },
+      ]
+    : [];
   return (
     <div className="flex flex-col">
       <div {...(a.host ? {} : menu.on)} className={cn("flex min-h-14 items-center gap-3 rounded-lg px-2", menu.at && "bg-fill")}>
@@ -325,8 +337,83 @@ function ItemRow({ a }: { a: App }) {
           </CardFrame>
         </div>
       )}
+      {folders && m && <OpenFolder a={a} m={m} grant={grant} done={() => setFolders(false)} />}
       {face.input}
-      {!a.host && menu.menu([{ icon: <Trash2 size={15} />, label: remove, run: () => setSure(true) }])}
+      {!a.host && menu.menu([...grants, { icon: <Trash2 size={15} />, label: remove, run: () => setSure(true) }])}
+    </div>
+  );
+}
+
+/** Asks computer a's for g (api.grantMachine): anything more is confirmed at its terminal, which
+ *  the toast says while it waits; true once given. */
+function useGrant(a: App) {
+  const qc = useQueryClient();
+  return async (g: MachineGrant) => {
+    const more = g.shell === true || !!g.roots?.length;
+    const waiting = more ? toast(t("grant.waiting", { name: a.name }), { timeout: 90000 }) : "";
+    try {
+      await api.grantMachine(a.id, g);
+      void qc.invalidateQueries({ queryKey: ["apps"] });
+      if (more) toast(t("grant.done"));
+      return true;
+    } catch (e) {
+      const code = e instanceof ApiError ? (e.body as { code?: string } | undefined)?.code : undefined;
+      toast(code === "declined" ? t("grant.declined", { name: a.name }) : code === "no_grant" ? t("grant.noGrant", { name: a.name }) : t("err.action"), { error: true, description: code ? undefined : errText(e) });
+      return false;
+    } finally {
+      if (waiting) toasts.close(waiting);
+    }
+  };
+}
+
+/** 开放文件夹, under a computer's row: the folders it serves now, and a whole path there to add
+ *  (confirmed at its terminal). Enter adds it, Escape closes. */
+function OpenFolder({ a, m, grant, done }: { a: App; m: Computer; grant: (g: MachineGrant) => Promise<boolean>; done: () => void }) {
+  const [path, setPath] = useState("");
+  const [busy, setBusy] = useState(false);
+  const add = async () => {
+    const p = path.trim();
+    if (!p || busy) return;
+    setBusy(true);
+    const ok = await grant({ roots: [p] });
+    setBusy(false);
+    if (ok) done();
+  };
+  return (
+    <div className="g-fade py-2">
+      <CardFrame label={t("grant.addFolder")}>
+        <CardHead
+          icon={<FolderOpen size={16} />}
+          title={t("grant.addFolder")}
+          tag={a.name}
+          summary={`${t("grant.folders")}：${m.roots?.length ? m.roots.join("、") : t("grant.allFolders")}`}
+          keys={
+            <>
+              <SecondKey disabled={busy} onClick={done}>
+                {t("me.cancel")}
+              </SecondKey>
+              <MainKey busy={busy} disabled={busy || !path.trim()} onClick={() => void add()}>
+                {t("grant.allow")}
+              </MainKey>
+            </>
+          }
+          extra={
+            <input
+              autoFocus
+              value={path}
+              placeholder={m.home ? `${m.home}${m.sep || "/"}…` : t("grant.folderPath")}
+              aria-label={t("grant.folderPath")}
+              onChange={(e) => setPath(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.nativeEvent.isComposing) return;
+                if (e.key === "Enter") void add();
+                if (e.key === "Escape") done();
+              }}
+              className="no-ring h-8 w-full min-w-0 rounded-md bg-fill px-2 font-mono text-[13px] select-text"
+            />
+          }
+        />
+      </CardFrame>
     </div>
   );
 }

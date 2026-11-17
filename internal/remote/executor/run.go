@@ -41,8 +41,9 @@ func runShell(line string) []string {
 
 // startRun starts p on c, which hears of it.
 func (e *Executor) startRun(c *wire.Conn, p wire.RunParams) (any, error) {
-	if !e.o.Shell {
-		return nil, &wire.Error{Code: wire.CodeDenied, Message: "command lines do not run here"}
+	if !e.shellOn() {
+		e.deny(Denial{What: DeniedShell})
+		return nil, &wire.Error{Code: wire.CodeDenied, Message: "command lines do not run here: its owner turned them off"}
 	}
 	if p.Run == "" || p.Line == "" || c == nil {
 		return nil, bad("bad run")

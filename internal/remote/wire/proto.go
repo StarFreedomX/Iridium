@@ -71,6 +71,9 @@ type Hello struct {
 	// NoShell, only its agents start there; AgentShell, agents may run command lines there too.
 	NoShell    bool `json:"noShell,omitempty"`
 	AgentShell bool `json:"agentShell,omitempty"`
+	// Roots: the folders it reads and writes files under (as given, its own paths); none: all but
+	// those it never serves. Said by one that has CapGrant; nil from an older one: not known.
+	Roots []string `json:"roots,omitempty"`
 	// MachineID is a hash of the computer's own ID (MachineHash): one equal to the Iridium's own
 	// is an app on the host, whose agents are not offered (they are the host's).
 	MachineID string `json:"machineId,omitempty"`
@@ -94,11 +97,13 @@ func (h *Hello) ShellOn() bool {
 // event held.changed. CapRun: run, run.stop and the events run.out, run.exit (else ir sh runs as a
 // holder). CapPrepare: agent.presets and agent.prepare (it composes an agent's launch from its
 // host's own settings). CapAttach: it sends session.attach and takes the event session.button.
+// CapGrant: grant (GrantParams), Roots in its hello, and it takes the event denied (DeniedEvent).
 const (
 	CapHeld    = "held"
 	CapRun     = "run"
 	CapPrepare = "agent.prepare"
 	CapAttach  = "session.attach"
+	CapGrant   = "grant"
 )
 
 // AgentInfo is an agent installed there and how to start it. Argv is the program part, to which
@@ -368,4 +373,31 @@ type ButtonEvent struct {
 type ButtonUser struct {
 	ID   string `json:"id"`
 	Name string `json:"name,omitempty"`
+}
+
+// GrantParams is grant, to the executor: a person on the Iridium's page asks for command lines
+// (Shell) or for files under more folders (Roots, added to its own). Anything wider than it has
+// is asked of the person at its terminal (docs/exec.md "放开"); By is who asked, as it is shown
+// there. Shell false (not nil) turns command lines off, and that is not asked. It answers what it
+// has after (Grant), or CodeDenied: declined there, or no one there to ask.
+type GrantParams struct {
+	Shell *bool    `json:"shell,omitempty"`
+	Roots []string `json:"roots,omitempty"`
+	By    string   `json:"by,omitempty"`
+}
+
+// Grant answers grant: what it has now (as its hello says it).
+type Grant struct {
+	Shell bool     `json:"shell"`
+	Roots []string `json:"roots"`
+}
+
+// EventDenied is the event denied, to the executor: the Iridium turned down something that needs
+// what it was not given (DeniedEvent), so it tells the person at its terminal.
+const EventDenied = "denied"
+
+// DeniedEvent: What is "shell" (a command line, command lines being off there); By, who asked.
+type DeniedEvent struct {
+	What string `json:"what"`
+	By   string `json:"by,omitempty"`
 }
