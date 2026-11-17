@@ -28,15 +28,13 @@ func Path(p string) bool { return p == "/join" || p == "/join.ps1" }
 // releases is where ir-computer is published (scripts/release.sh), a bare binary each system.
 const releases = "https://github.com/kumoSleeping/Iridium/releases/"
 
-// download is the release ir-computer is fetched from, and the version it says (ir-computer
-// version) when it is that one: this Iridium's; a build of no release takes the latest, fetched
-// each time.
-func download() (base, want string) {
+// want is the version ir-computer says (ir-computer version) when it is this Iridium's; "" for a
+// build of no release: the latest, fetched each time.
+func want() string {
 	if !version.Release() {
-		return releases + "latest/download/", ""
+		return ""
 	}
-	tag := "v" + strings.TrimPrefix(version.Version, "v")
-	return releases + "download/" + tag + "/", "ir-computer " + version.Version
+	return "ir-computer " + version.Version
 }
 
 var originRE = regexp.MustCompile(`^https?://[A-Za-z0-9.-]+(:[0-9]+)?$|^https?://\[[0-9A-Fa-f:.]+\](:[0-9]+)?$`)
@@ -108,7 +106,7 @@ func Script(ps bool, origin string, args []string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	base, want := download()
+	base, want := origin+BinaryPrefix, want()
 	words := make([]string, len(args))
 	for i, a := range args {
 		if ps {

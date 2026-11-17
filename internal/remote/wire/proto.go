@@ -126,8 +126,11 @@ type HoldState struct {
 	Exit    *Exit  `json:"exit"`
 }
 
+// HelloReply answers hello: the name the Iridium knows it by, and the Iridium's version (an
+// ir-computer of another fetches that one's, from <origin>/join/, and asks to restart).
 type HelloReply struct {
-	Name string `json:"name"`
+	Name    string `json:"name"`
+	Version string `json:"version,omitempty"`
 }
 
 type StartParams struct {

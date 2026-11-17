@@ -17,7 +17,10 @@
     if (Test-Path $exe) { try { $have = "$(& $exe version)".Trim() } catch { } }
     if (-not $want -or $have -ne $want) {
         New-Item -ItemType Directory -Force -Path $dir | Out-Null
-        Invoke-WebRequest -UseBasicParsing -Uri "{{DOWNLOAD}}ir-computer-windows-$a.exe" -OutFile "$exe.new"
+        Write-Host "Downloading $(if ($want) { $want } else { 'ir-computer' })"
+        $url = "{{DOWNLOAD}}ir-computer-windows-$a.exe"
+        if (Get-Command curl.exe -ErrorAction SilentlyContinue) { curl.exe -fL --progress-bar -o "$exe.new" $url; if ($LASTEXITCODE) { throw "download failed: $url" } }
+        else { Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile "$exe.new" }
         Move-Item -Force "$exe.new" $exe
     }
     $argv = @({{ARGS}}) | ForEach-Object { [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($_)) }

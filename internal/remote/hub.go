@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+
+	"github.com/kumoSleeping/iridium/internal/version"
 )
 
 // Hub is the executors that connect here, one Machine per terminal (by its ID).
@@ -170,7 +172,7 @@ func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, id, name string) {
 		case helloed <- &hi:
 		default:
 		}
-		return wire.HelloReply{Name: name}, nil
+		return wire.HelloReply{Name: name, Version: version.Version}, nil
 	}
 	c.OnEvent = m.event
 	go func() {

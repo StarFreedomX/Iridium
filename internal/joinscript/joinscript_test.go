@@ -29,7 +29,7 @@ func TestSh(t *testing.T) {
 	if !strings.Contains(s, want+"\n") {
 		t.Errorf("no %s in:\n%s", want, s)
 	}
-	if !strings.Contains(s, "releases/") || strings.Contains(s, "{{") {
+	if !strings.Contains(s, `"https://ir.example.com/join/ir-computer-$os-$arch"`) || strings.Contains(s, "{{") {
 		t.Errorf("not filled in:\n%s", s)
 	}
 	if _, err := exec.LookPath("sh"); err == nil {

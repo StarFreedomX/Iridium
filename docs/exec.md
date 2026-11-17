@@ -185,6 +185,8 @@ agent 的 `ir sh`：每条命令一个新进程，不经托管进程，不写文
 
 - 一行命令（应用管理 → 电脑的“+”）：Mac、Linux `curl -fsSL <地址>/join | sh`；Windows `powershell -c "irm <地址>/join.ps1 | iex"`，cmd 和 PowerShell 里都能粘。选项写在查询里：`?shell`、`?roots=~/work,~/notes`、`?name=…`（有查询时地址加引号）。
 - `/join`、`/join.ps1` 由这边免登录提供（`internal/joinscript`），这边把地址和选项写进去：查询里的值在 sh 里是单引号的一个词，PowerShell 里是 UTF-8 的 base64（脚本只有 ASCII）；带 `"`、换行、控制字符的不给。脚本下载和这边同版本的 `ir-computer`（不是发布版的这边用 latest，每次重下）到缓存目录（Mac `~/Library/Caches/iridium`，Linux `~/.cache/iridium`，Windows `%LOCALAPPDATA%\iridium\cache`），版本对得上就不重下，然后在当前终端里运行。
+- 下载走这边（用户，2026-11-17）：`/join/ir-computer-<系统>-<架构>[.exe]` 免登录，这边按自己的发布版从 GitHub 取一次、用那个发布的 `SHA256SUMS` 校验后存在 `<state>/ir-computer/<版本>/`（启动时把各系统的预先取好，旧版本的删掉）；不是发布版的这边 302 到 GitHub 的 latest。脚本用 `curl --progress-bar` 显示进度（Windows 有 `curl.exe` 就用它）。
+- 连上后跟上版本（用户，2026-11-17）：握手的回答带这边的版本（`HelloReply.version`）。ir-computer 是发布版、这边是另一个发布版时，从这边下载那个版本（终端里显示 `下载中 37%`），确认它说的版本对，替换缓存里的自己（Windows 先把正在运行的改名为 `.old`），再在终端里问“现在重启？”，说明会结束几个正在运行的进程；y 就结束执行端、原样参数重新运行（Unix exec，Windows 在同一窗口起新进程等它结束），否则下次运行时生效。每个版本只做一次。`ir join` 不自己更新（跟着它的 Iridium 更新）。
 - 以前装的（`--install`，2026-11-16 前）：运行时去掉这个 Iridium 的登录时运行项（`iridium-join-<主机-端口>`）、停掉它起的那份，删掉旧命令下载的 `~/.local/bin/ir-computer`（Windows `%LOCALAPPDATA%\iridium\ir-computer.exe`）。登录项带 `--resident` 起来的（`ir update` 过的 `ir join`）去掉自己的登录项，正常退出。
 - 那边 agent 用的 `ir` 是它自己（按名字 `ir` 进命令行模式，Mac、Linux）。
 - 发布包里是裸二进制 `ir-computer-<系统>-<架构>`（Windows 带 `.exe`）；`ir update` 不管它。Mac 用 curl 下载的不带隔离标记，arm64 由 Go 链接器做了临时签名，可直接运行；从终端起，文件夹的访问授权算在终端名下。

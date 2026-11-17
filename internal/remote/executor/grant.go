@@ -63,6 +63,23 @@ func (e *Executor) Roots() []string {
 	return slices.Clone(e.roots)
 }
 
+// Busy is how many of the processes it started run still (agents, command lines).
+func (e *Executor) Busy() int {
+	e.mu.Lock()
+	hs := make([]*holder, 0, len(e.holds))
+	for _, h := range e.holds {
+		hs = append(hs, h)
+	}
+	n := len(e.runs)
+	e.mu.Unlock()
+	for _, h := range hs {
+		if h.state().Exit == nil {
+			n++
+		}
+	}
+	return n
+}
+
 // Shell: command lines run here now.
 func (e *Executor) Shell() bool { return e.shellOn() }
 

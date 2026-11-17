@@ -37,6 +37,6 @@ func main() {
 			return
 		}
 	}
-	p := join.Program{Name: "ir-computer", Self: "ir-computer", Usage: usage}
+	p := join.Program{Name: "ir-computer", Self: "ir-computer", Usage: usage, Update: true}
 	os.Exit(p.Main(os.Args[1:], os.Stdout, os.Stderr))
 }

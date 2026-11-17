@@ -2,6 +2,7 @@ package server
 
 import (
 	"cmp"
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -10,6 +11,7 @@ import (
 	"math/big"
 	"net/http"
 	"path"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -21,6 +23,7 @@ import (
 	"github.com/kumoSleeping/iridium/internal/gate"
 	"github.com/kumoSleeping/iridium/internal/joinscript"
 	"github.com/kumoSleeping/iridium/internal/satori"
+	"github.com/kumoSleeping/iridium/internal/version"
 )
 
 // Pairing (draft 二「接入」, decisions 6-11): the one way an app comes in, an executor (ir join)
@@ -66,8 +69,8 @@ func openPath(r *http.Request) bool {
 		return true
 	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/v1/internal/pair/"):
 		return true
-	case (r.Method == http.MethodGet || r.Method == http.MethodHead) && joinscript.Path(r.URL.Path):
-		return true // the line another computer runs to join: nothing secret in it
+	case (r.Method == http.MethodGet || r.Method == http.MethodHead) && (joinscript.Path(r.URL.Path) || joinscript.BinaryPath(r.URL.Path)):
+		return true // the line another computer runs to join, and ir-computer: nothing secret in them
 	case r.Method == http.MethodGet && r.URL.Path == "/v1/events":
 		return true // Satori's IDENTIFY carries the TOKEN (package satori checks it)
 	}
@@ -80,6 +83,7 @@ func (s *Server) pairRoutes(mux *http.ServeMux) {
 	for _, p := range joinscript.Paths {
 		mux.HandleFunc("GET "+p, func(w http.ResponseWriter, r *http.Request) { joinscript.Serve(w, r, requestOrigin(r)) })
 	}
+	mux.HandleFunc("GET "+joinscript.BinaryPrefix+"{file}", s.binaries().Serve)
 	// The switch: whoever may approve (the host's ir, a login of ir_web that may).
 	mux.HandleFunc("GET /v1/internal/pairing", s.approver(func(w http.ResponseWriter, r *http.Request) { reply(w, http.StatusOK, s.pairWindow()) }))
 	mux.HandleFunc("PUT /v1/internal/pairing", s.approver(s.setPairing))
@@ -487,4 +491,30 @@ func randHex(n int) string {
 	b := make([]byte, n)
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+// binaries are ir-computer as this Iridium serves it (joinscript.Binaries), kept under its state.
+func (s *Server) binaries() *joinscript.Binaries {
+	s.binOnce.Do(func() {
+		s.bin = &joinscript.Binaries{Dir: filepath.Join(s.cfg.StatePath(), "ir-computer")}
+	})
+	return s.bin
+}
+
+// PrefetchBinaries fetches this release's ir-computer for every system ahead, so the first
+// computer's download is served from here as it comes (its progress shown). Not for a build of no
+// release (those send the computer to GitHub's latest).
+func (s *Server) PrefetchBinaries() {
+	if !version.Release() {
+		return
+	}
+	go func() {
+		for _, sys := range [][2]string{{"darwin", "arm64"}, {"darwin", "amd64"}, {"linux", "amd64"}, {"linux", "arm64"}, {"windows", "amd64"}, {"windows", "arm64"}} {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+			if _, err := s.binaries().Fetch(ctx, joinscript.BinaryName(sys[0], sys[1])); err != nil {
+				s.logf("server: ir-computer %s/%s: %v", sys[0], sys[1], err)
+			}
+			cancel()
+		}
+	}()
 }

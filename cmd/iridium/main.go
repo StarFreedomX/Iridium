@@ -159,6 +159,7 @@ func serve(args []string) int {
 	defer srv.Close()
 	srv.Remote = executors
 	srv.WatchMachines()
+	srv.PrefetchBinaries()
 	srv.ConfigPath = *path
 	srv.CLI = func(args []string, stdout, stderr io.Writer, hc *http.Client, machine, session, cwd string) int {
 		return cli.RunAt(args, stdout, stderr, hc, cli.At{Machine: machine, Session: session, Cwd: cwd})

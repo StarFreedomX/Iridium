@@ -19,7 +19,8 @@ exe="$dir/ir-computer"
 want={{WANT}}
 if [ -z "$want" ] || [ "$("$exe" version 2>/dev/null || true)" != "$want" ]; then
 	mkdir -p "$dir"
-	curl -fsSL -o "$exe.new" "{{DOWNLOAD}}ir-computer-$os-$arch"
+	echo "下载 ${want:-ir-computer}"
+	curl -fL --progress-bar -o "$exe.new" "{{DOWNLOAD}}ir-computer-$os-$arch"
 	chmod 755 "$exe.new"
 	mv -f "$exe.new" "$exe"
 fi

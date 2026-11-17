@@ -25,6 +25,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -77,6 +78,9 @@ type Program struct {
 	Name  string // as a person types it: ir join, ir-computer
 	Self  string // what it says it is in its pairing and hello, before the version: iridium
 	Usage string
+	// Update: connected to an Iridium of another release, it fetches that one's of itself and asks
+	// to restart (ir-computer; ir join is updated with its Iridium).
+	Update bool
 }
 
 // IRJoin is ir join.
@@ -160,7 +164,13 @@ func (p Program) Main(args []string, stdout, stderr io.Writer) int {
 	if err := o.removeOld(sysRun); err != nil {
 		o.logf("%s: %v", p.Name, err)
 	}
-	if err := o.Run(ctx); err != nil && ctx.Err() == nil {
+	err = o.Run(ctx)
+	if errors.Is(err, ErrRestart) {
+		stop()
+		o.say("重启")
+		return reexec(selfExe(), args)
+	}
+	if err != nil && ctx.Err() == nil {
 		fmt.Fprintf(stderr, "%s: %v\n", p.Name, err)
 		return 1
 	}
@@ -302,6 +312,8 @@ func (o *Options) Run(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		rctx, rcancel := context.WithCancel(ctx)
+		var restarting atomic.Bool
 		var ex *executor.Executor
 		ex, err = executor.New(executor.Options{
 			URL: wsURL(o.URL), Token: tok, State: o.stateDir(), Roots: o.Roots, Deny: []string{o.tokenDir()},
@@ -314,12 +326,19 @@ func (o *Options) Run(ctx context.Context) error {
 				}
 			},
 			Denied: o.denied, Ask: o.ask(),
+			Replied: func(r wire.HelloReply) {
+				o.newer(rctx, ex, r, func() { restarting.Store(true); rcancel() })
+			},
 		})
 		if err != nil {
 			return err
 		}
-		err = ex.Run(ctx)
+		err = ex.Run(rctx)
 		ex.Close()
+		rcancel()
+		if restarting.Load() && ctx.Err() == nil {
+			return ErrRestart
+		}
 		if !errors.Is(err, executor.ErrRefused) {
 			return err
 		}

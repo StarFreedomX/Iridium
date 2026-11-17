@@ -29,6 +29,7 @@ import (
 	"github.com/kumoSleeping/iridium/internal/files"
 	"github.com/kumoSleeping/iridium/internal/gate"
 	"github.com/kumoSleeping/iridium/internal/hub"
+	"github.com/kumoSleeping/iridium/internal/joinscript"
 	"github.com/kumoSleeping/iridium/internal/pricing"
 	"github.com/kumoSleeping/iridium/internal/push"
 	"github.com/kumoSleeping/iridium/internal/remote"
@@ -81,6 +82,10 @@ type Server struct {
 	App http.Handler
 	// Remote, if set, takes executors' connections at /v1/internal/exec (docs/exec.md).
 	Remote *remote.Hub
+
+	// bin: ir-computer as served here (binaries()).
+	bin     *joinscript.Binaries
+	binOnce sync.Once
 
 	files *files.Service   // routes_files.go
 	sat   *satori.Service  // /v1/: Satori with ir (satori.go)

@@ -65,6 +65,8 @@ type Options struct {
 	HTTPClient *http.Client
 	// Connected is told each time the hello is answered: the terminal name the Iridium knows it by.
 	Connected func(name string)
+	// Replied is told the whole answer to each hello, after Connected (the Iridium's version).
+	Replied func(wire.HelloReply)
 	// Disconnected is told each time a connection ends, before it dials again.
 	Disconnected func(err error)
 	Logf         func(string, ...any)
@@ -205,7 +207,7 @@ func (e *Executor) session(ctx context.Context) error {
 		e.mu.Unlock()
 		e.dropRuns(c)
 	}()
-	var named struct{ Name string }
+	var named wire.HelloReply
 	if err := c.Call(ctx, "hello", e.hello(), &named); err != nil {
 		c.Close()
 		<-done
@@ -213,6 +215,9 @@ func (e *Executor) session(ctx context.Context) error {
 	}
 	if e.o.Connected != nil {
 		e.o.Connected(named.Name)
+	}
+	if e.o.Replied != nil {
+		e.o.Replied(named)
 	}
 	return <-done
 }
