@@ -682,6 +682,7 @@ func TestChannelSendCheckAndFollows(t *testing.T) {
 	stopped := false
 	for i := range 2 * MaxKinHops {
 		words := fmt.Sprintf("@claude tell @kid turn%d", i)
+		was := l.s.chain.of(ch, kid).kin
 		code, _, raw := say("agent-in:"+kid, ch, words)
 		// Something on its way to it names it (the fake agents echo what they get, its sender's
 		// tag "[@nick]" too): read, again; on a slow machine more than once.
@@ -699,7 +700,18 @@ func TestChannelSendCheckAndFollows(t *testing.T) {
 		if i < deliver.MaxHops && code != 200 {
 			t.Fatalf("kin stopped as agents that are not: turn %d: %d %s", i, code, raw)
 		}
-		time.Sleep(100 * time.Millisecond)
+		// The next is kid's once claude's echo has reached it (its turn's count gone up), not
+		// after a time a slow machine may not keep (it went on past the limit on CI).
+		for k := 0; code == 200 && l.s.chain.of(ch, kid).kin <= was && k < 100; k++ {
+			time.Sleep(20 * time.Millisecond)
+		}
+		// Or the limit stops claude's echo on its way back (kid one short of it: which of the two
+		// is stopped depends on how the echoes and kid's sends crossed): said in the channel.
+		if code == 200 && l.s.chain.of(ch, kid).kin == MaxKinHops-1 && was == MaxKinHops-1 {
+			l.waitSaid("web", ch, "未转交", fmt.Sprint(MaxKinHops))
+			stopped = true
+			break
+		}
 	}
 	if !stopped {
 		t.Errorf("kin went on passing it")
@@ -732,7 +744,8 @@ func TestChannelAvatar(t *testing.T) {
 	if code := put("web", a, []byte("not an image")); code != 422 {
 		t.Errorf("not an image: %d", code)
 	}
-	if code := put("agent-in:"+a, a, png.Bytes()); code != 403 {
+	// An agent may too (kumo, 2026-11-17).
+	if code := put("agent-in:"+a, a, png.Bytes()); code != 200 {
 		t.Errorf("an agent: %d", code)
 	}
 	if code := put("web", a, png.Bytes()); code != 200 {
