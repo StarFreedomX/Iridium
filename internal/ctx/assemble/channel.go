@@ -144,7 +144,7 @@ func staticPieces(c Channel) []piece {
 		ps[0] = piece{parts: mustParts(ps[0], text(idChannelScripts, "scripts", strings.Join(scripts, ", ")))}
 	}
 	if c.Pull && slices.ContainsFunc(c.Agents, func(a ChannelAgent) bool { return a.Recv != "" }) {
-		ps[0] = piece{parts: mustParts(ps[0], text(idChannelRecv, "channel", self))}
+		ps[0] = piece{parts: mustParts(ps[0], text(idChannelRecv))}
 	}
 	if c.Pull {
 		ps = append(ps, text(idChannelPull, "channel", self))

@@ -1,1 +1,1 @@
-Without @, an agent is woken only by the senders its receive set names (as listed above: every person, a person, another agent's last words); any member may change any agent's set: ir api PATCH internal/channels/{{channel}}/members/agent:<session> recv:='["*"]' ([] for @ alone).
+Without @, an agent is woken only by whom its receive set names; any member may change it (ir api help recv).
