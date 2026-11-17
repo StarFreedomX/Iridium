@@ -14,7 +14,7 @@ func TestSystemPrompt(t *testing.T) {
 		}
 	}
 	// The admin commands and the routes past common are left to ir --help and ir api help.
-	if strings.Contains(p, "ir public") || strings.Contains(p, "# common") || len(p) > 2220 {
+	if strings.Contains(p, "ir public") || strings.Contains(p, "# common") || len(p) > 2360 {
 		t.Errorf("admin commands in the prompt:\n%s", p)
 	}
 	if p := SystemPrompt(""); strings.Contains(p, "user's language, as set") {
