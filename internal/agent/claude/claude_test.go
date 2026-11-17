@@ -512,7 +512,7 @@ func TestSpawn(t *testing.T) {
 		t.Fatal(err)
 	}
 	argv := strings.Join(spec.Argv, " ")
-	want := filepath.Join(bin, "claude") + " -p --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio --include-partial-messages --append-system-prompt-file /p.md --system-prompt-snapshot off --model haiku --allow-dangerously-skip-permissions --session-id=s1"
+	want := filepath.Join(bin, "claude") + " -p --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio --include-partial-messages --append-system-prompt-file /p.md --system-prompt-snapshot off --model haiku --settings " + `{"permissions":{"allow":["Bash(ir api channel.update channel_id=self:*)"]}}` + " --allow-dangerously-skip-permissions --session-id=s1"
 	if argv != want {
 		t.Errorf("argv\n  %s\nwant\n  %s", argv, want)
 	}
@@ -583,11 +583,13 @@ func TestUltracode(t *testing.T) {
 	os.WriteFile(filepath.Join(bin, "claude"), []byte("#!/bin/sh\n"), 0o755)
 	on := true
 	spec, err := d.Spawn(agent.SpawnOptions{Session: "s", Env: []string{"PATH=" + bin}, Program: "claude", SystemPromptFile: "/p", Effort: "high", Ultracode: &on})
-	if argv := strings.Join(spec.Argv, " "); err != nil || !strings.Contains(argv, ` --effort high --settings {"ultracode":true} `) {
+	allow := `"permissions":{"allow":["Bash(ir api channel.update channel_id=self:*)"]}`
+	if argv := strings.Join(spec.Argv, " "); err != nil || !strings.Contains(argv, ` --effort high --settings {`+allow+`,"ultracode":true} `) {
 		t.Errorf("spawn: %v %v", spec.Argv, err)
 	}
+	// Never set: no ultracode key, the title rule still.
 	spec, _ = d.Spawn(agent.SpawnOptions{Session: "s", Env: []string{"PATH=" + bin}, Program: "claude", SystemPromptFile: "/p"})
-	if slices.Contains(spec.Argv, "--settings") {
+	if i := slices.Index(spec.Argv, "--settings"); i < 0 || spec.Argv[i+1] != `{`+allow+`}` {
 		t.Errorf("spawn, never set: %v", spec.Argv)
 	}
 	// A model that cannot take it: refused before anything is written.

@@ -89,6 +89,9 @@ func New(o Options) *Driver {
 	return &Driver{emitFn: o.Emit, prefix: o.IDPrefix, logf: o.Logf, pending: map[string]chan ctlResponse{}, state: agent.Idle, caps: map[string]bool{}, unknown: map[string]int{}}
 }
 
+// titleRule lets a hosted session name itself, and nothing else of the channel.
+const titleRule = "Bash(ir api channel.update channel_id=self:*)"
+
 // Spawn gives the holder's spec. Never --bare: it skips the subscription login. No
 // --setting-sources: the user's settings, plugins, skills, MCP servers and hooks load as in a
 // terminal. --allow-dangerously-skip-permissions does not change the starting mode; it only lets
@@ -119,10 +122,16 @@ func (d *Driver) Spawn(o agent.SpawnOptions) (hold.Spec, error) {
 		// Not --settings effortLevel, which drops max (Rhodium §6.2, 2.1.309).
 		argv = append(argv, "--effort", o.Effort)
 	}
+	// The title the system prompt asks for (session.titleLine) is let through here: auto mode's
+	// classifier does not count the system prompt as the user asking, and refused it. The rule
+	// joins the user's own; it does not replace them.
+	settings := map[string]any{"permissions": map[string]any{"allow": []string{titleRule}}}
 	if o.Ultracode != nil {
 		// Not --effort ultracode, which pins xhigh; false too, over the user's own settings.
-		argv = append(argv, "--settings", fmt.Sprintf(`{"ultracode":%t}`, *o.Ultracode))
+		settings["ultracode"] = *o.Ultracode
 	}
+	flag, _ := json.Marshal(settings)
+	argv = append(argv, "--settings", string(flag))
 	argv = append(argv, "--allow-dangerously-skip-permissions")
 	if o.Resume {
 		argv = append(argv, "--resume="+o.Session)

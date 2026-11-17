@@ -240,7 +240,7 @@ func TestAppliedAndUltracode(t *testing.T) {
 	r.m.Send(bg, id, "again", "网页")
 	r.waitState(id, "the reply", func(s *api.SessionState) bool { return said(s, "ok: again") })
 	spec, _ := os.ReadFile(filepath.Join(r.cfg.StatePath(), "hold", id, hold.FileSpec))
-	if !strings.Contains(string(spec), `"--settings","{\"ultracode\":false}"`) {
+	if !strings.Contains(string(spec), `\"ultracode\":false}","--allow-dangerously`) {
 		t.Errorf("spec: %s", spec)
 	}
 }
