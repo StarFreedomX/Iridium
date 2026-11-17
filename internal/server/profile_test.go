@@ -154,8 +154,10 @@ func TestMemoryAndRoles(t *testing.T) {
 		t.Fatalf("the roles: %+v", roles)
 	}
 	third := l.create(200, "web", api.NewSession{Role: "claude", Cwd: l.work, Text: "hello"})
-	if got := l.s.ch.Nick(third); got != "claude3" {
-		t.Errorf("its nick: %q", got)
+	// Its name taken: hex digits of its session's id after it, not a number (kumo, 2026-11-17),
+	// and no name of Iridium's it is asked to change.
+	if got, want := l.s.ch.Nick(third), channel.NickWithID("claude", third, func(string) bool { return false }); got != want || got == "claude" || channel.IsDefaultNick(got) {
+		t.Errorf("its nick: %q, want %q", got, want)
 	}
 	var p api.Self
 	l.want(200, "agent-in:"+third, "GET", "/v1/internal/self", nil, &p)
@@ -163,7 +165,7 @@ func TestMemoryAndRoles(t *testing.T) {
 		t.Errorf("a session of the role: %+v", p)
 	}
 	// Changed in the session, the role's stays; a person forgets a memory.
-	l.want(200, "web", "PATCH", "/v1/internal/members/claude3", map[string]any{"intro": "another fish"}, nil)
+	l.want(200, "web", "PATCH", "/v1/internal/members/"+l.s.ch.Nick(third), map[string]any{"intro": "another fish"}, nil)
 	l.want(200, "web", "GET", "/v1/internal/roles", nil, &roles)
 	if roles[0].Intro != "a fat fish" {
 		t.Errorf("the role after its session changed: %+v", roles[0])
@@ -179,6 +181,44 @@ func TestMemoryAndRoles(t *testing.T) {
 	}
 }
 
+// A role kept from a session drawn with its model's face, none of its own, keeps that face; a
+// role with none of its own has its model's (kumo, 2026-11-17: 大肥鱼派's was gone).
+func TestRoleKeepsModelFace(t *testing.T) {
+	t.Parallel()
+	l, ch, second := two(t)
+	png := "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+	l.want(200, "web", "PATCH", "/v1/internal/members/claude", map[string]any{"avatar": png}, nil)
+	var st api.SessionState
+	l.want(200, "web", "GET", "/v1/internal/sessions/"+second, nil, &st)
+	model := modelAvatarKey(&st)
+	if model == "" {
+		t.Fatal("no model for the second session")
+	}
+	if _, _, ok := l.s.face(store.ChannelProfileKey(second), false, ""); ok {
+		t.Fatal("the second session has a face of its own")
+	}
+	want, _, ok, _ := l.s.st.Avatar(model)
+	if !ok {
+		t.Fatal("no face of the model")
+	}
+	var role api.Role
+	l.want(200, "web", "POST", "/v1/internal/roles", api.NewRole{Session: second}, &role)
+	if role.Avatar == "" {
+		t.Fatalf("the role kept no face: %+v", role)
+	}
+	if img, _, ok, _ := l.s.st.Avatar(store.RoleProfileKey(role.ID)); !ok || string(img) != string(want) {
+		t.Errorf("the role's own face is not its session's model's")
+	}
+	l.want(200, "web", "GET", "/v1/internal/roles/"+role.ID+"/avatar", nil, nil)
+	// One made as given, no face: its model's.
+	var given api.Role
+	l.want(200, "web", "POST", "/v1/internal/roles", api.NewRole{Name: "fish", Agent: api.AgentClaude, Model: strings.TrimPrefix(model, "m:claude:")}, &given)
+	if given.Avatar == "" {
+		t.Errorf("a role with no face of its own, not its model's: %+v", given)
+	}
+	l.want(200, "web", "GET", "/v1/internal/roles/"+given.ID+"/avatar", nil, nil)
+	_ = ch
+}
 
 // given waits until session id's agent was given n things by channels and is idle again; the
 // records of them, the latest first.

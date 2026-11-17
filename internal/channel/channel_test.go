@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -298,6 +299,15 @@ func TestDefaultNick(t *testing.T) {
 	}
 	if n := DefaultNick("dsh", "session-c54bdf12", func(string) bool { return false }); n != "DeepSeek-c54b" {
 		t.Errorf("dsh: %q", n)
+	}
+	if n := NickWithID("克劳德大小姐", "e4446f91-bd02", func(string) bool { return false }); n != "克劳德大小姐-e444" {
+		t.Errorf("a role's name taken: %q", n)
+	}
+	if n := NickWithID(strings.Repeat("长", 32), "e4446f91", func(string) bool { return false }); len([]rune(n)) != 32 || !strings.HasSuffix(n, "长-e444") {
+		t.Errorf("a long name taken: %q", n)
+	}
+	if IsDefaultNick("Fable-fd54") {
+		t.Error("a role's name with digits after it taken for one of Iridium's")
 	}
 	if !IsDefaultNick("Claude-b134") || IsDefaultNick("大肥鱼") || IsDefaultNick("claude2") {
 		t.Error("IsDefaultNick")

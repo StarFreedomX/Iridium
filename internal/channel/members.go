@@ -84,8 +84,9 @@ func (s *Service) nickOf(session string, base func(session string) string) (stri
 // stems are the names a default nick begins with, by harness.
 var stems = map[string]string{"claude": "Claude", "codex": "Codex", "pi": "Pi", "dsh": "DeepSeek"}
 
-// defaultNick is what DefaultNick makes: a name, "-", hex digits.
-var defaultNick = regexp.MustCompile(`^[A-Z][A-Za-z]*-[0-9a-f]{4,}$`)
+// defaultNick is what DefaultNick makes: a harness's name, "-", hex digits. A role's name with
+// its session's digits after it (NickWithID) is a name chosen, not one of these.
+var defaultNick = regexp.MustCompile(`^(Agent|Claude|Codex|DeepSeek|Pi)-[0-9a-f]{4,}$`)
 
 // DefaultNick is the nick an agent goes by till it gives itself one (kumo, 2026-11-16: not
 // claude2): its harness's name and four hex digits of its session's id (Claude-b134), more
@@ -95,19 +96,33 @@ func DefaultNick(harness, session string, taken func(string) bool) string {
 	if stem == "" {
 		stem = "Agent"
 	}
+	return NickWithID(stem, session, taken)
+}
+
+// NickWithID is base, "-" and four hex digits of session's id (克劳德大小姐-e444), more digits
+// while taken says it is taken: the nick of a session whose name another has (kumo,
+// 2026-11-17: not 克劳德大小姐2). base is cut to fit a nick's 32.
+func NickWithID(base, session string, taken func(string) bool) string {
 	hex := strings.Map(func(r rune) rune {
 		if (r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') {
 			return r
 		}
 		return -1
 	}, strings.ToLower(strings.TrimPrefix(session, "session-"))) // dsh's ids begin so
+	with := func(tail string) string {
+		b := []rune(base)
+		if n := 32 - len([]rune(tail)) - 1; len(b) > n {
+			b = b[:max(n, 0)]
+		}
+		return string(b) + "-" + tail
+	}
 	for n := 4; n <= len(hex); n++ {
-		if nick := stem + "-" + hex[:n]; !taken(nick) {
+		if nick := with(hex[:n]); !taken(nick) {
 			return nick
 		}
 	}
 	for i := 2; ; i++ {
-		if nick := fmt.Sprintf("%s-%s%d", stem, hex, i); !taken(nick) {
+		if nick := with(fmt.Sprintf("%s%d", hex[:min(4, len(hex))], i)); !taken(nick) {
 			return nick
 		}
 	}
@@ -115,6 +130,16 @@ func DefaultNick(harness, session string, taken func(string) bool) string {
 
 // IsDefaultNick: nick is one DefaultNick gave, not one the agent or a person chose.
 func IsDefaultNick(nick string) bool { return defaultNick.MatchString(nick) }
+
+// NickTaken: an agent goes by nick (any case).
+func (s *Service) NickTaken(nick string) bool {
+	for _, n := range s.members().nicks {
+		if strings.EqualFold(n, nick) {
+			return true
+		}
+	}
+	return false
+}
 
 // SetNick makes nick what session's agent is called by, in every channel.
 func (s *Service) SetNick(session, nick string) error {

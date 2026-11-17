@@ -5,12 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/kumoSleeping/iridium/internal/agents"
 	"github.com/kumoSleeping/iridium/internal/api"
+	"github.com/kumoSleeping/iridium/internal/channel"
 	"github.com/kumoSleeping/iridium/internal/ctx/assemble"
 	"github.com/kumoSleeping/iridium/internal/deliver"
 	"github.com/kumoSleeping/iridium/internal/session"
@@ -19,7 +19,8 @@ import (
 
 // Roles (docs/channels.md "角色"): an agent, a model and a card kept to start sessions as. A
 // session started as a role takes its card (a copy: changed in the session, the role's stays)
-// and its name as its nick (with a number after it while another session has it); what it
+// and its name as its nick (with hex digits of its session's id after it while another session
+// has it: 克劳德大小姐-e444); what it
 // chooses to remember is the role's, shared by all its sessions.
 
 func (s *Server) roleRoutes(mux *http.ServeMux) {
@@ -39,7 +40,7 @@ func (s *Server) roleOut(r store.Role) api.Role {
 		Intro: s.st.Profile(key).Intro}
 	info, _ := agents.Get(out.Agent)
 	out.ModelName = strings.TrimSpace(cmp.Or(info.Name, r.Agent) + " " + r.Model)
-	if _, v, ok := s.face(key, false, ""); ok {
+	if _, v, ok := s.face(key, false, roleModelKey(r)); ok {
 		out.Avatar = "/v1/internal/roles/" + r.ID + "/avatar?v=" + v
 	}
 	if _, v, ok := s.face(key, true, ""); ok {
@@ -80,8 +81,21 @@ func (s *Server) rolesGet(w http.ResponseWriter, r *http.Request) {
 	reply(w, http.StatusOK, out)
 }
 
+// roleModelKey is where the face of the sessions of role r's model is kept: a role with no face
+// of its own has it, as a session does.
+func roleModelKey(r store.Role) string {
+	if r.Agent == "" || r.Model == "" || r.Model == "default" {
+		return ""
+	}
+	return "m:" + r.Agent + ":" + r.Model
+}
+
 func (s *Server) roleFace(w http.ResponseWriter, r *http.Request) {
-	img, v, ok := s.face(store.RoleProfileKey(r.PathValue("id")), strings.HasSuffix(r.URL.Path, "/background"), "")
+	fallback := ""
+	if role, ok := s.roleBy(r.PathValue("id")); ok {
+		fallback = roleModelKey(role)
+	}
+	img, v, ok := s.face(store.RoleProfileKey(r.PathValue("id")), strings.HasSuffix(r.URL.Path, "/background"), fallback)
 	if !ok {
 		refuse(w, http.StatusNotFound, "not_found", "none")
 		return
@@ -159,7 +173,7 @@ func (s *Server) rolePost(w http.ResponseWriter, r *http.Request) {
 	}
 	key := store.RoleProfileKey(role.ID)
 	if id != "" {
-		if err := s.st.CopyProfile(store.ChannelProfileKey(id), key); err != nil {
+		if err := s.keepCard(id, key); err != nil {
 			s.fault(w, err)
 			return
 		}
@@ -184,6 +198,31 @@ func (s *Server) rolePost(w http.ResponseWriter, r *http.Request) {
 	}
 	s.rolesChanged()
 	reply(w, http.StatusOK, s.roleOut(role))
+}
+
+// keepCard makes session id's card the one kept under key (a role's): its intro, background
+// and the face it is drawn with, its own or, with none, its model's (kumo, 2026-11-17: a role
+// kept from a session that had its model's face had none).
+func (s *Server) keepCard(id, key string) error {
+	if err := s.st.CopyProfile(store.ChannelProfileKey(id), key); err != nil {
+		return err
+	}
+	if _, _, ok := s.face(key, false, ""); ok {
+		return nil
+	}
+	st, err := s.m.State(id)
+	if err != nil {
+		return nil
+	}
+	m := modelAvatarKey(st)
+	if m == "" {
+		return nil
+	}
+	img, v, ok, err := s.st.Avatar(m)
+	if err != nil || !ok {
+		return err
+	}
+	return s.st.PutAvatar(key, img, v)
 }
 
 // strp is v as a patch's field: nil for none.
@@ -224,7 +263,7 @@ func (s *Server) rolePatch(w http.ResponseWriter, r *http.Request) {
 			err = s.roleFrom(&role, id)
 		}
 		if err == nil {
-			err = s.st.CopyProfile(store.ChannelProfileKey(id), key)
+			err = s.keepCard(id, key)
 		}
 		if err == nil {
 			err = s.st.SetRoleOf(id, role.ID)
@@ -357,17 +396,14 @@ func (s *Server) carded(c caller, id string, req api.NewSession) error {
 		}
 	}
 	if nick != "" {
-		// The role's name, with a number after it while another session has it.
-		base := nick
-		for i := 2; ; i++ {
-			err := s.ch.SetNick(id, nick)
-			if err == nil {
-				break
-			}
-			if !deliver.ValidNick(base) || i > 99 {
-				return err
-			}
-			nick = base + strconv.Itoa(i)
+		// The role's name; while another session has it, hex digits of this one's id after it
+		// (克劳德大小姐-e444; kumo, 2026-11-17: not 克劳德大小姐2).
+		err := s.ch.SetNick(id, nick)
+		if err != nil && deliver.ValidNick(nick) && s.ch.NickTaken(nick) {
+			err = s.ch.SetNick(id, channel.NickWithID(nick, id, s.ch.NickTaken))
+		}
+		if err != nil {
+			return err
 		}
 	}
 	if req.Intro == "" && req.Avatar == "" && req.Background == "" {

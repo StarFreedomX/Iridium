@@ -2152,8 +2152,9 @@ func (s *Server) deliverTo(ctx context.Context, ch, to string, seq int64, said, 
 	if st, err := s.m.State(to); err == nil && st.Machine != "" && !s.m.HasIR(to) {
 		cc.Pull = false // at another machine, with no ir to read the channel with
 	}
-	// Still under the name Iridium gave it: it names itself first, where it has ir to.
-	cc.Rename = channel.IsDefaultNick(me.Nick) && s.m.HasIR(to)
+	// Still under the name Iridium gave it: it names itself first, where it has ir to. A role's
+	// session has its role's name.
+	cc.Rename = channel.IsDefaultNick(me.Nick) && s.m.HasIR(to) && s.st.RoleOf(to) == ""
 	var keys []string
 	for _, a := range list {
 		ca := assemble.ChannelAgent{Nick: a.Nick}
