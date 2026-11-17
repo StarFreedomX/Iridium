@@ -4,7 +4,7 @@ Rhodium 的轻量 Go 版本：一个网页，管理主机和别的电脑上 agen
 
 ## 不做
 
-内置 IM（IM 由应用自己做）、终端模拟（网页终端、TUI、Herdr）、组网（Tailscale）、`rh` 命令、槽位模型、定时任务（agent 自己有）。
+内置 IM（IM 由应用自己做）、终端模拟（网页终端、TUI、Herdr）、组网（Tailscale）、`rh` 命令、槽位模型。定时只有频道脚本的 `cron` 触发（`docs/channels.md`“脚本”，2026-11-17），不另做定时任务。
 
 ## 应用和登录（0.2）
 

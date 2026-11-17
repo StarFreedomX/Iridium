@@ -29,6 +29,9 @@ import (
 const (
 	headerAgent   = "X-Iridium-Agent"
 	headerSession = "X-Iridium-Session"
+	// headerScript: the script of a channel ir runs in (IRIDIUM_SCRIPT, "<channel>/<name>"),
+	// which Iridium set as it ran it.
+	headerScript = "X-Iridium-Script"
 )
 
 // adminEnv is where ir runs: its daemon, and whether an agent runs it (then nothing secret is

@@ -33,13 +33,62 @@ const (
 	KindNote  = "note"  // Iridium's own line: who joined, a message not passed on
 )
 
-// What a member receives. An agent: RecvAll, what people say (and what names it); RecvAt, only
-// what names it. A person: RecvAll, everything said; RecvMine, what is theirs.
+// What a person member is shown: RecvAll, everything said. An agent's row keeps its receive
+// set instead (RecvSet), as JSON; RecvAll and RecvAt are what rows said before (["*"], []).
 const (
-	RecvAll  = "all"
-	RecvAt   = "at"
-	RecvMine = "mine"
+	RecvAll = "all"
+	RecvAt  = "at"
 )
+
+// RecvSet is the receive set an agent's row keeps (docs/channels.md "接收"): the senders whose
+// messages that name nobody wake it. Rows from before the sets: "all" is ["*"], "at" none.
+func RecvSet(recv string) []string {
+	switch recv {
+	case RecvAll:
+		return []string{Everyone}
+	case RecvAt, "":
+		return []string{}
+	}
+	var out []string
+	if json.Unmarshal([]byte(recv), &out) != nil || out == nil {
+		return []string{}
+	}
+	return out
+}
+
+// EncodeRecv is set as an agent's row keeps it.
+func EncodeRecv(set []string) string {
+	if set == nil {
+		set = []string{}
+	}
+	b, _ := json.Marshal(set)
+	return string(b)
+}
+
+// ErrRecv: an entry of a receive set is none of the senders there are.
+var ErrRecv = errors.New(`recv: a list of "*" (every person), "<app>/*", "<app>/<login>", "agent:<session>"`)
+
+// CleanRecv checks set's entries and drops those twice; self (an agent's own member) may not be
+// one, nor may the agents' "agent:*".
+func CleanRecv(set []string, self string) ([]string, error) {
+	out := []string{}
+	for _, e := range set {
+		e = strings.TrimSpace(e)
+		ok := e == Everyone
+		if id, isAgent := strings.CutPrefix(e, "agent:"); isAgent {
+			ok = id != "" && id != "*" && e != self
+		} else if app, login, cut := strings.Cut(e, "/"); cut {
+			ok = app != "" && login != "" && !strings.Contains(login, "/")
+		}
+		if !ok {
+			return nil, ErrRecv
+		}
+		if !slices.Contains(out, e) {
+			out = append(out, e)
+		}
+	}
+	return out, nil
+}
 
 // Everyone is the member that is every login of every app: a channel nobody chose the people
 // of has it, and whoever sees the channel may speak in it.
@@ -81,11 +130,13 @@ type Data struct {
 	// Device: the device a person's browser sent it from (api.Device), for the badge on its
 	// avatar; "" not known.
 	Device string `json:"device,omitempty"`
+	// Script: the script of the channel's IR that said it (its author "script:<name>").
+	Script string `json:"script,omitempty"`
 }
 
 // Event is something that happened to a channel, kept as a line of it. Type: "join" (an agent
 // joined: Member, Nick, Name), "leave" (Member, Nick), "rename" (Member, Nick its new one, From
-// its old), "recv" (Member, Nick, Recv), "people" (Added, Removed: member strings; Everyone:
+// its old), "recv" (Member, Nick, Recv: its receive set now), "people" (Added, Removed: member strings; Everyone:
 // now everyone), "undelivered" (Seq not given to Nick), "stopped" (Seq not passed on: too many
 // agents in a row), "silent" (Member, Nick was called for Seq and said nothing in the channel;
 // Reason: why, when its turn ended in an error: 余额不足, an API's words…). By: who did it, by name.
@@ -95,7 +146,7 @@ type Event struct {
 	Nick     string   `json:"nick,omitempty"`
 	Name     string   `json:"name,omitempty"`
 	From     string   `json:"from,omitempty"`
-	Recv     string   `json:"recv,omitempty"`
+	Recv     []string `json:"recv,omitempty"`
 	Added    []string `json:"added,omitempty"`
 	Removed  []string `json:"removed,omitempty"`
 	Everyone bool     `json:"everyone,omitempty"`
@@ -122,7 +173,7 @@ func read(m store.ChannelMessage) Message {
 }
 
 func (d Data) encode() string {
-	if d.Session == "" && d.Block == "" && d.From == nil && d.To == 0 && len(d.Files) == 0 && !d.Final && !d.Sent && d.Quote == 0 && d.Card == "" && d.Activity == nil && d.Event == nil {
+	if d.Session == "" && d.Block == "" && d.From == nil && d.To == 0 && len(d.Files) == 0 && !d.Final && !d.Sent && d.Quote == 0 && d.Card == "" && d.Activity == nil && d.Event == nil && d.Script == "" {
 		return ""
 	}
 	b, _ := json.Marshal(d)
@@ -138,6 +189,9 @@ type Member struct {
 }
 
 func (m Member) Agent() bool { return m.Session != "" }
+
+// RecvSet is an agent member's receive set.
+func (m Member) RecvSet() []string { return RecvSet(m.Recv) }
 
 // Direct: the agent's turns are said in the channel (it is the session's own).
 func (m Member) Direct() bool { return m.Send == store.SendDirect }
@@ -281,7 +335,7 @@ func (s *Service) Members(channel string) ([]Member, error) {
 	if len(rows) == 0 {
 		rows = []store.ChannelMember{{Channel: channel, Member: Everyone, Recv: RecvAll}}
 		if _, own := ix.own[channel]; !own {
-			rows = append(rows, store.ChannelMember{Channel: channel, Member: store.AgentMember(channel), Recv: RecvAll, Send: store.SendDirect})
+			rows = append(rows, store.ChannelMember{Channel: channel, Member: store.AgentMember(channel), Recv: EncodeRecv([]string{Everyone}), Send: store.SendDirect})
 		}
 	}
 	out := make([]Member, len(rows))

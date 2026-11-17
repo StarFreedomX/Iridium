@@ -6,7 +6,7 @@ import "encoding/json"
 // app's login "<app>/<login>", or all of an app's "<app>/*". An agent's: Session, the session
 // it is; Agent, its harness; Name, what it runs as now ("Claude Opus 5.5 High"); Nick, what it is
 // called by, in every channel (@nick); Status, its lamp; Cwd, Machine, where it runs. Recv: an
-// agent's "all" (what people say) or "at" (only what names it); a person's "all" or "mine".
+// agent's receive set (Recv), what wakes it beside what names it.
 // Send: how an agent speaks in the channel: "direct" (its turns are said there: the channel is
 // its own) or "ir" (what it sends with ir, and its turn's reply, said there for it). Seen: the number of the last message the agent
 // was given.
@@ -16,7 +16,7 @@ type ChannelMember struct {
 	Agent   Agent  `json:"agent,omitempty"`
 	Name    string `json:"name,omitempty"`
 	Nick    string `json:"nick,omitempty"`
-	Recv    string `json:"recv"`
+	Recv    Recv   `json:"recv,omitempty"`
 	Send    string `json:"send,omitempty"`
 	Seen    int64  `json:"seen,omitempty"`
 	Status  Status `json:"status,omitempty"`
@@ -45,7 +45,7 @@ type ChannelMembers struct {
 // NewMember adds an agent to a channel: Session, a session there is; else a new session of
 // Agent (Model, Mode, Effort, Preset as NewSession's) started in Cwd at Machine (none: the
 // channel's folder), listed there as any session. Nick: what it is called by ("": the one it
-// has, else one made); Recv: what it receives ("": "at").
+// has, else one made); Recv: what wakes it beside what names it (none: nothing).
 type NewMember struct {
 	Session string `json:"session,omitempty"`
 	Agent   Agent  `json:"agent,omitempty"`
@@ -56,7 +56,7 @@ type NewMember struct {
 	Effort  string `json:"effort,omitempty"`
 	Preset  string `json:"preset,omitempty"`
 	Nick    string `json:"nick,omitempty"`
-	Recv    string `json:"recv,omitempty"`
+	Recv    Recv   `json:"recv,omitempty"`
 	// Role: start it as this role (its id or name): the role's agent, model, effort and card,
 	// where the fields above say nothing. Intro, Avatar, Background: its card (ProfilePatch).
 	Role       string `json:"role,omitempty"`
@@ -71,10 +71,41 @@ type NewMember struct {
 	Greet bool `json:"greet,omitempty"`
 }
 
-// MemberPatch changes a member: its nick, what it receives.
+// MemberPatch changes a member: its nick, an agent's receive set (Recv; [] only what names it).
 type MemberPatch struct {
 	Nick *string `json:"nick,omitempty"`
-	Recv *string `json:"recv,omitempty"`
+	Recv *Recv   `json:"recv,omitempty"`
+}
+
+// Recv is what wakes an agent of a channel beside what names it (docs/channels.md "接收"): the
+// senders whose messages that name nobody it is given. "*" every person (not an agent),
+// "<app>/*" an app's logins, "<app>/<login>" one login, "agent:<session>" an agent (its turn's
+// last words). Empty: only what names it. Read from JSON, the old words go too: "all" is ["*"],
+// "at" is [].
+type Recv []string
+
+func (r *Recv) UnmarshalJSON(b []byte) error {
+	var word string
+	if json.Unmarshal(b, &word) == nil {
+		switch word {
+		case "all":
+			*r = Recv{"*"}
+		case "at", "":
+			*r = Recv{}
+		default:
+			*r = Recv{word}
+		}
+		return nil
+	}
+	var list []string
+	if err := json.Unmarshal(b, &list); err != nil {
+		return err
+	}
+	*r = Recv(list)
+	if *r == nil {
+		*r = Recv{}
+	}
+	return nil
 }
 
 // Injection is what an agent was given once (docs/channels.md "可追溯"): for message Seq of
@@ -113,18 +144,9 @@ type Spawned struct {
 type ChannelSetup struct {
 	Agents []NewMember `json:"agents,omitempty"`
 	People []string    `json:"people,omitempty"`
-	// Nick, Recv: the first agent's own (the session's), as NewMember's; "": made, "all".
+	// Nick, Recv: the first agent's own (the session's), as NewMember's; none: made, ["*"].
 	Nick string `json:"nick,omitempty"`
-	Recv string `json:"recv,omitempty"`
-}
-
-// Follow is what an agent asks to be given of a channel beside what names it (POST
-// …/follow): the next Count messages (none: 1) of User (a nick, a user's id, "*" anyone) within
-// Seconds (none: 600).
-type Follow struct {
-	User    string `json:"user"`
-	Count   int    `json:"count,omitempty"`
-	Seconds int    `json:"seconds,omitempty"`
+	Recv Recv   `json:"recv,omitempty"`
 }
 
 // ChannelReads is how far each member has read a channel (GET …/reads, the carried state

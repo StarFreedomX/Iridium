@@ -1234,7 +1234,7 @@ export interface PublicState {
  * app's login "<app>/<login>", or all of an app's "<app>/*". An agent's: Session, the session
  * it is; Agent, its harness; Name, what it runs as now ("Claude Opus 5.5 High"); Nick, what it is
  * called by, in every channel (@nick); Status, its lamp; Cwd, Machine, where it runs. Recv: an
- * agent's "all" (what people say) or "at" (only what names it); a person's "all" or "mine".
+ * agent's receive set (Recv), what wakes it beside what names it.
  * Send: how an agent speaks in the channel: "direct" (its turns are said there: the channel is
  * its own) or "ir" (what it sends with ir, and its turn's reply, said there for it). Seen: the number of the last message the agent
  * was given.
@@ -1245,7 +1245,7 @@ export interface ChannelMember {
   agent?: Agent;
   name?: string;
   nick?: string;
-  recv: string;
+  recv?: Recv;
   send?: string;
   seen?: number /* int64 */;
   status?: Status;
@@ -1279,7 +1279,7 @@ export interface ChannelMembers {
  * NewMember adds an agent to a channel: Session, a session there is; else a new session of
  * Agent (Model, Mode, Effort, Preset as NewSession's) started in Cwd at Machine (none: the
  * channel's folder), listed there as any session. Nick: what it is called by ("": the one it
- * has, else one made); Recv: what it receives ("": "at").
+ * has, else one made); Recv: what wakes it beside what names it (none: nothing).
  */
 export interface NewMember {
   session?: string;
@@ -1291,7 +1291,7 @@ export interface NewMember {
   effort?: string;
   preset?: string;
   nick?: string;
-  recv?: string;
+  recv?: Recv;
   /**
    * Role: start it as this role (its id or name): the role's agent, model, effort and card,
    * where the fields above say nothing. Intro, Avatar, Background: its card (ProfilePatch).
@@ -1312,12 +1312,20 @@ export interface NewMember {
   greet?: boolean;
 }
 /**
- * MemberPatch changes a member: its nick, what it receives.
+ * MemberPatch changes a member: its nick, an agent's receive set (Recv; [] only what names it).
  */
 export interface MemberPatch {
   nick?: string;
-  recv?: string;
+  recv?: Recv;
 }
+/**
+ * Recv is what wakes an agent of a channel beside what names it (docs/channels.md "接收"): the
+ * senders whose messages that name nobody it is given. "*" every person (not an agent),
+ * "<app>/*" an app's logins, "<app>/<login>" one login, "agent:<session>" an agent (its turn's
+ * last words). Empty: only what names it. Read from JSON, the old words go too: "all" is ["*"],
+ * "at" is [].
+ */
+export type Recv = string[];
 /**
  * Injection is what an agent was given once (docs/channels.md "可追溯"): for message Seq of
  * its channel, as input Input, at At (ms); Record says where each part of it came from
@@ -1362,20 +1370,10 @@ export interface ChannelSetup {
   agents?: NewMember[];
   people?: string[];
   /**
-   * Nick, Recv: the first agent's own (the session's), as NewMember's; "": made, "all".
+   * Nick, Recv: the first agent's own (the session's), as NewMember's; none: made, ["*"].
    */
   nick?: string;
-  recv?: string;
-}
-/**
- * Follow is what an agent asks to be given of a channel beside what names it (POST
- * …/follow): the next Count messages (none: 1) of User (a nick, a user's id, "*" anyone) within
- * Seconds (none: 600).
- */
-export interface Follow {
-  user: string;
-  count?: number /* int */;
-  seconds?: number /* int */;
+  recv?: Recv;
 }
 /**
  * ChannelReads is how far each member has read a channel (GET …/reads, the carried state
@@ -2202,6 +2200,113 @@ export interface PushMessage {
   title: string;
   body: string;
   tag?: string;
+}
+
+//////////
+// source: scripts.go
+
+/**
+ * Script is a script of a channel (docs/channels.md "脚本"): a command line the channel's IR
+ * (Iridium itself, one of every channel's members) runs when one of its triggers (On) fires, in
+ * the channel's folder at the host. What it prints is said in the channel under its name; with
+ * ir it may do anything else (IRIDIUM_SCRIPT names it, its words are said as its own).
+ * Name: one in the channel, as a nick is written; Intro, Avatar (an emoji, or a colour
+ * "#rrggbb"): its card. Enabled: off, it keeps its place and does not run. Made, Changed: who
+ * made it and who changed it last; Last: its latest run.
+ */
+export interface Script {
+  channel: string;
+  name: string;
+  intro?: string;
+  avatar?: string;
+  run: string;
+  on: Trigger[];
+  enabled: boolean;
+  made: ScriptBy;
+  changed: ScriptBy;
+  last?: ScriptRun;
+}
+/**
+ * Trigger is one way a script is run; one of its fields is set. Message: a message said in the
+ * channel (MessageTrigger). Command: a message that begins "/<command>" (a person's; it goes to
+ * the script, not to the agents). Cron: a time, as cron writes it ("m h dom mon dow", the
+ * host's time zone). Event: a line of Iridium's own of these types (join, leave, rename,
+ * recv, people, script).
+ */
+export interface Trigger {
+  message?: MessageTrigger;
+  command?: string;
+  cron?: string;
+  event?: string[];
+}
+/**
+ * MessageTrigger: a message of a sender in From (as a receive set names them, Recv: "*" every
+ * person; none: anyone, an agent's turn's last words too) that has one of Words (none: any
+ * words; case is not minded). A script's own words never run a script.
+ */
+export interface MessageTrigger {
+  from?: string[];
+  words?: string[];
+}
+/**
+ * ScriptBy is who made or changed a script, and when (At, ms): Member, a login "<app>/<login>"
+ * or an agent "agent:<session>"; Name, what it goes by; an agent's Session, Nick, Model and
+ * Role (its role's name).
+ */
+export interface ScriptBy {
+  member?: string;
+  name?: string;
+  session?: string;
+  nick?: string;
+  model?: string;
+  role?: string;
+  at: number /* int64 */;
+}
+/**
+ * NewScript adds a script to a channel (POST …/scripts). Enabled: none, on.
+ */
+export interface NewScript {
+  name: string;
+  intro?: string;
+  avatar?: string;
+  run: string;
+  on: Trigger[];
+  enabled?: boolean;
+}
+/**
+ * ScriptPatch changes a script (PATCH …/scripts/{name}); what is not given stays.
+ */
+export interface ScriptPatch {
+  name?: string;
+  intro?: string;
+  avatar?: string;
+  run?: string;
+  on?: Trigger[];
+  enabled?: boolean;
+}
+/**
+ * ScriptRun is one run of a script: At, when it began (ms), Ms, how long it took; Trigger, what
+ * ran it (message, command, cron, event, hand); Seq, the message that did; Code, its exit code
+ * (-1: it did not finish, Err says why); Said, the message what it printed was said as; Out,
+ * Err, what it printed and its errors, cut.
+ */
+export interface ScriptRun {
+  id: number /* int64 */;
+  at: number /* int64 */;
+  ms: number /* int64 */;
+  trigger: string;
+  seq?: number /* int64 */;
+  code: number /* int */;
+  said?: number /* int64 */;
+  out?: string;
+  err?: string;
+}
+/**
+ * ScriptTry runs a script by hand (POST …/scripts/{name}/run): Text, the words it is given as
+ * the message that ran it.
+ */
+export interface ScriptTry {
+  text?: string;
 }
 
 //////////

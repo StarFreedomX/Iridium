@@ -86,12 +86,16 @@ type Server struct {
 	sat     *satori.Service  // /v1/: Satori with ir (satori.go)
 	ch      *channel.Service // what is said in the channels (docs/channels.md)
 	chain   chains           // each channel's run of agents passing messages on (channels.go)
-	follows follows          // what agents asked to be given of a channel beside what names them (channels.go)
+
 	viewers viewers          // who is looking at each channel now (channels.go)
 	dms     dms              // the channels that are two people's (channels.go)
 	calls   calls            // the channels each agent was called in by a subscription (channels.go)
 	// channelsSeq: the state "channels", up by one at each change of a channel's members.
 	channelsSeq atomic.Int64
+	// scripts: the channels' scripts running and waiting (scripts.go); scriptsSeq, the state
+	// "scripts", up by one at each change of a script or a run of one.
+	scripts    scriptRuns
+	scriptsSeq atomic.Int64
 	// avatarsSeq: the state "avatars", up by one at each change of a face.
 	avatarsSeq atomic.Int64
 	// cardsSeq: the state "cards", up by one at each change of a card (its name, intro, face).
@@ -160,6 +164,7 @@ func New(cfg config.Config, m *session.Manager, h *hub.Hub, logf func(string, ..
 	lctx, lstop := context.WithCancel(context.Background())
 	s.stopList = lstop
 	go s.watchList(lctx)
+	go s.cronLoop(lctx)
 	s.wireNeeds()
 	if err := s.openGate(); err != nil {
 		s.initErr = err
@@ -412,6 +417,14 @@ func (e fileErr) Is(target error) bool { return target == errFiles }
 
 // sendAs sends req into session id as c, from (the source tag): what Satori's message.create does. /clear starts the session anew.
 func (s *Server) sendAs(ctx context.Context, c caller, from, id string, req api.Send) (api.SendReply, error) {
+	// A script's ir speaks as the script; a script's command goes to the script, not to an agent
+	// (scripts.go).
+	if c.script != "" {
+		return s.scriptSend(c, id, req)
+	}
+	if _, ok := s.scriptCommandOf(id, strings.TrimSpace(req.Text)); ok {
+		return s.sayCommand(c, from, id, req)
+	}
 	// A channel of several agents: said there, given to those it wakes (channels.go). A command
 	// is the agent's own that it is sent to, as ever.
 	command := strings.HasPrefix(strings.TrimSpace(req.Text), "/")
@@ -464,8 +477,8 @@ func (s *Server) sendAs(ctx context.Context, c caller, from, id string, req api.
 		req.ID = session.NewInputID()
 	}
 	var seq int64
+	u := s.satoriUser(c)
 	if st, err := s.m.State(id); err == nil && !command {
-		u := s.satoriUser(c)
 		if tag := s.m.SourceTag(from); tag != "" {
 			u.Name = tag // the name the agent sees it under
 		}
@@ -479,6 +492,9 @@ func (s *Server) sendAs(ctx context.Context, c caller, from, id string, req api.
 			s.unnames(id, seq, named)
 		}
 		return api.SendReply{}, err
+	}
+	if seq != 0 {
+		go s.heard(id, seq, req.Text, readerOf(c), u.Name, s.chain.of(id, "")) // its scripts
 	}
 	if input == session.HandedInput {
 		return api.SendReply{Desktop: true, Seq: seq}, nil

@@ -2,6 +2,7 @@ package assemble
 
 import (
 	"cmp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -16,8 +17,11 @@ import (
 // since the agent last read it, as internal/ctx/strategy planned it.
 
 // ChannelAgent is an agent of the channel: the nick it is called by, the name it goes by, its
-// intro (the head of it).
-type ChannelAgent struct{ Nick, Name, Intro string }
+// intro (the head of it), whom its receive set names (Recv, in words; "": only what names it).
+type ChannelAgent struct{ Nick, Name, Intro, Recv string }
+
+// ChannelScript is a script the channel's IR runs: its name, its intro, its triggers in words.
+type ChannelScript struct{ Name, Intro, On string }
 
 // ChannelPerson is one of the channel's people that has an intro: the name, the intro.
 type ChannelPerson struct{ Name, Intro string }
@@ -60,13 +64,15 @@ type Channel struct {
 	// agent was last told.
 	People  []ChannelPerson
 	Changes []ProfileChange
+	// Scripts: the scripts the channel's IR runs (docs/channels.md "脚本").
+	Scripts []ChannelScript
 }
 
 // ChannelStaticKey names the standing words as they are for c, apart from the names and intros
 // in them: the text of the fragments, which channel, which agents (c.Key), whether it reads
 // more with ir. What a channel's injection record keeps; changed, the words are given again.
 func ChannelStaticKey(c Channel) string {
-	c.You, c.Name, c.People, c.Changes = "", "", nil, nil
+	c.You, c.Name, c.People, c.Changes, c.Scripts = "", "", nil, nil, nil
 	c.Agents = []ChannelAgent{{Nick: c.Key}}
 	return prompts.Hash(ChannelStatic(c))
 }
@@ -88,11 +94,17 @@ func staticPieces(c Channel) []piece {
 	var agents []string
 	for _, a := range c.Agents {
 		s := a.Nick // without @: the agent echoing the list calls nobody
-		switch {
-		case a.Name != "" && a.Intro != "":
-			s += " (" + a.Name + "; " + a.Intro + ")"
-		case a.Name != "" || a.Intro != "":
-			s += " (" + a.Name + a.Intro + ")"
+		var about []string
+		for _, v := range []string{a.Name, a.Intro} {
+			if v != "" {
+				about = append(about, v)
+			}
+		}
+		if a.Recv != "" {
+			about = append(about, "woken by "+a.Recv)
+		}
+		if len(about) > 0 {
+			s += " (" + strings.Join(about, "; ") + ")"
 		}
 		agents = append(agents, s)
 	}
@@ -111,6 +123,28 @@ func staticPieces(c Channel) []piece {
 			people = append(people, p.Name+" ("+p.Intro+")")
 		}
 		ps[0] = piece{parts: mustParts(ps[0], text(idChannelPeople, "people", strings.Join(people, ", ")))}
+	}
+	// The scripts IR runs there, and how receive sets go where an agent has one: with the words
+	// about the agents (static[0]), the way to read more after the rest (static[1]).
+	if len(c.Scripts) > 0 {
+		var scripts []string
+		for _, x := range c.Scripts {
+			s := x.Name
+			var about []string
+			for _, v := range []string{x.Intro, x.On} {
+				if v != "" {
+					about = append(about, v)
+				}
+			}
+			if len(about) > 0 {
+				s += " (" + strings.Join(about, "; ") + ")"
+			}
+			scripts = append(scripts, s)
+		}
+		ps[0] = piece{parts: mustParts(ps[0], text(idChannelScripts, "scripts", strings.Join(scripts, ", ")))}
+	}
+	if c.Pull && slices.ContainsFunc(c.Agents, func(a ChannelAgent) bool { return a.Recv != "" }) {
+		ps[0] = piece{parts: mustParts(ps[0], text(idChannelRecv, "channel", self))}
 	}
 	if c.Pull {
 		ps = append(ps, text(idChannelPull, "channel", self))

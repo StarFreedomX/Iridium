@@ -126,6 +126,9 @@ func (e *env) request(method, path string, body any, hdr ...string) (*http.Respo
 	if e.agent && e.at == nil {
 		req.Header.Set(headerAgent, "1")
 	}
+	if sc := os.Getenv("IRIDIUM_SCRIPT"); sc != "" && e.at == nil {
+		req.Header.Set(headerScript, sc)
+	}
 	resp, err := e.hc.Do(req)
 	if err != nil {
 		if e.at != nil {

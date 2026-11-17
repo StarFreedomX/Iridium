@@ -78,6 +78,8 @@ const (
 
 	// The cards of a channel (channel.go).
 	idChannelPeople         = "channel.context.people"          // the people that have an intro
+	idChannelScripts        = "channel.context.scripts"         // the scripts IR runs there
+	idChannelRecv           = "channel.context.recv"            // receive sets, and how to change one
 	idChannelProfiles       = "channel.context.profiles"        // heads the cards changed
 	idChannelProfileName    = "channel.context.profile-name"    // one renamed
 	idChannelProfileIntro   = "channel.context.profile-intro"   // before a new intro

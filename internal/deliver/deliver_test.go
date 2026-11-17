@@ -32,33 +32,52 @@ func TestMentions(t *testing.T) {
 }
 
 func TestRoute(t *testing.T) {
-	agents := []Agent{{"s1", "claude", true}, {"s2", "codex", false}, {"s3", "pi", true}}
+	agents := []Agent{{"s1", "claude", []string{"*"}}, {"s2", "codex", nil}, {"s3", "pi", []string{"web/kumo", "agent:s1"}}}
 	wake := func(d Decision) string { return strings.Join(d.Wake, " ") }
-	// A person: whoever is named; nobody named, those that receive everything.
-	if d := Route("hello", "", agents); wake(d) != "s1 s3" {
+	person := From{Member: "web/kumo"}
+	// A person: whoever is named; nobody named, those whose set has them.
+	if d := Route("hello", person, agents); wake(d) != "s1 s3" {
 		t.Errorf("a person, nobody named: %+v", d)
 	}
-	if d := Route("@codex hello", "", agents); wake(d) != "s2" || len(d.Named) != 1 {
+	if d := Route("hello", From{Member: "qq/123"}, agents); wake(d) != "s1" {
+		t.Errorf("another person: %+v", d)
+	}
+	// Named: only whom it names, not those whose set has the sender too.
+	if d := Route("@codex hello", person, agents); wake(d) != "s2" || len(d.Named) != 1 {
 		t.Errorf("a person naming one: %+v", d)
 	}
-	// An agent: only whom it names, never itself, never by merely speaking.
-	if d := Route("done", "s1", agents); wake(d) != "" {
+	// An agent: whom it names, or those subscribed to it ("*" is people alone); never itself.
+	if d := Route("done", From{Member: "agent:s1", Session: "s1"}, agents); wake(d) != "s3" {
 		t.Errorf("an agent speaking: %+v", d)
 	}
-	if d := Route("@codex and @claude", "s1", agents); wake(d) != "s2" {
+	if d := Route("done", From{Member: "agent:s2", Session: "s2"}, agents); wake(d) != "" {
+		t.Errorf("an agent nobody follows: %+v", d)
+	}
+	if d := Route("done", From{Member: "agent:s1", Session: "s1", Quiet: true}, agents); wake(d) != "" {
+		t.Errorf("an agent on its way: %+v", d)
+	}
+	if d := Route("@codex and @claude", From{Member: "agent:s1", Session: "s1"}, agents); wake(d) != "s2" {
 		t.Errorf("an agent naming: %+v", d)
 	}
 	// @全体成员 and @全体Agent: every agent but the one speaking, as if each were named.
-	if d := Route("@全体成员 look", "", agents); wake(d) != "s1 s2 s3" || len(d.Named) != 3 {
+	if d := Route("@全体成员 look", person, agents); wake(d) != "s1 s2 s3" || len(d.Named) != 3 {
 		t.Errorf("a person to all: %+v", d)
 	}
-	if d := Route("@全体agent look", "s1", agents); wake(d) != "s2 s3" {
+	if d := Route("@全体agent look", From{Member: "agent:s1", Session: "s1"}, agents); wake(d) != "s2 s3" {
 		t.Errorf("an agent to all agents: %+v", d)
 	}
-	if d := Route("`@全体成员`", "", agents); wake(d) != "s1 s3" {
+	if d := Route("`@全体成员`", person, agents); wake(d) != "s1 s3" {
 		t.Errorf("in code: %+v", d)
 	}
 	if ValidNick("全体成员") || ValidNick("全体AGENT") {
 		t.Error("a reserved name taken as a nick")
+	}
+	for set, want := range map[string]bool{"*": true, "web/*": true, "web/kumo": true, "qq/*": false, "agent:s1": false} {
+		if Receives([]string{set}, "web/kumo") != want {
+			t.Errorf("Receives(%q, web/kumo) != %v", set, want)
+		}
+	}
+	if Receives([]string{"*", "web/*"}, "agent:s1") || !Receives([]string{"agent:s1"}, "agent:s1") {
+		t.Error("an agent's words: only an entry of its own")
 	}
 }

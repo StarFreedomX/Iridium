@@ -15,7 +15,6 @@ var (
 	ErrNick     = errors.New("a nick is letters, digits, _ and -, at most 32, and one agent's alone")
 	ErrNoMember = errors.New("no such member")
 	ErrMember   = errors.New("already in the channel")
-	ErrRecv     = errors.New("recv: all or at")
 	ErrChannel  = errors.New("no such channel")
 	ErrFull     = errors.New("the channel has as many agents as it may")
 )
@@ -47,7 +46,7 @@ func (s *Service) written(channel string, base func(session string) string) erro
 	if _, err := s.nickOf(channel, base); err != nil {
 		return err
 	}
-	return s.st.PutChannelMember(store.ChannelMember{Channel: channel, Member: store.AgentMember(channel), Recv: RecvAll, Send: store.SendDirect, Seen: end})
+	return s.st.PutChannelMember(store.ChannelMember{Channel: channel, Member: store.AgentMember(channel), Recv: EncodeRecv([]string{Everyone}), Send: store.SendDirect, Seen: end})
 }
 
 // nickOf is session's nick: the one it has, else one made from its harness's name (base,
@@ -131,23 +130,21 @@ func (s *Service) SetNick(session, nick string) error {
 	return nil
 }
 
-// Join puts session's agent in channel, receiving recv ("": only what names it): a
+// Join puts session's agent in channel, its receive set recv (none: only what names it): a
 // subscription. There it sees what is said and is called by what names it; it has seen nothing
 // of the channel yet. nick, if any, becomes what it is called by. base names a session's
 // harness. full: given the channel's agents now, there is no room for another (nil: any
 // number). One at a time, so that two joining at once do not both find room; a join that fails
 // leaves the nick as it was.
-func (s *Service) Join(channel, session, recv, nick string, base func(session string) string, full func(agents []string) bool) (Member, error) {
+func (s *Service) Join(channel, session string, recv []string, nick string, base func(session string) string, full func(agents []string) bool) (Member, error) {
 	s.jmu.Lock()
 	defer s.jmu.Unlock()
 	if s.Speaks(channel, session) {
 		return Member{}, ErrMember
 	}
-	if recv == "" {
-		recv = RecvAt
-	}
-	if recv != RecvAll && recv != RecvAt {
-		return Member{}, ErrRecv
+	recv, err := CleanRecv(recv, store.AgentMember(session))
+	if err != nil {
+		return Member{}, err
 	}
 	if nick != "" && !deliver.ValidNick(nick) {
 		return Member{}, ErrNick
@@ -166,8 +163,8 @@ func (s *Service) Join(channel, session, recv, nick string, base func(session st
 	} else if _, err := s.nickOf(session, base); err != nil {
 		return Member{}, err
 	}
-	row := store.ChannelMember{Channel: channel, Member: store.AgentMember(session), Recv: recv, Send: store.SendIR}
-	err := s.st.PutChannelMember(row)
+	row := store.ChannelMember{Channel: channel, Member: store.AgentMember(session), Recv: EncodeRecv(recv), Send: store.SendIR}
+	err = s.st.PutChannelMember(row)
 	s.changed()
 	if err != nil {
 		if was != "" && was != s.Nick(session) {
@@ -200,8 +197,9 @@ func (s *Service) Leave(channel, member string) error {
 	return err
 }
 
-// Change sets a member's nick (an agent's, in every channel) and what it receives (nil: as it is).
-func (s *Service) Change(channel, member string, nick, recv *string, base func(session string) string) (Member, error) {
+// Change sets a member's nick (an agent's, in every channel) and an agent's receive set (nil: as
+// it is).
+func (s *Service) Change(channel, member string, nick *string, recv *[]string, base func(session string) string) (Member, error) {
 	if err := s.written(channel, base); err != nil {
 		return Member{}, err
 	}
@@ -223,11 +221,14 @@ func (s *Service) Change(channel, member string, nick, recv *string, base func(s
 			m.Nick = *nick
 		}
 		if recv != nil {
-			ok := *recv == RecvAll || (m.Agent() && *recv == RecvAt) || (!m.Agent() && *recv == RecvMine)
-			if !ok {
+			if !m.Agent() {
 				return Member{}, ErrRecv
 			}
-			m.Recv = *recv
+			set, err := CleanRecv(*recv, m.Member)
+			if err != nil {
+				return Member{}, err
+			}
+			m.Recv = EncodeRecv(set)
 		}
 		defer s.changed()
 		return m, s.st.PutChannelMember(m.ChannelMember)

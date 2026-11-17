@@ -451,6 +451,8 @@ func (s *Store) MoveAgent(old, next string) error {
 		{`UPDATE OR REPLACE session_roles SET session = ? WHERE session = ?`, []any{next, old}},
 		{`UPDATE memories SET owner = ? WHERE owner = ?`, []any{"c:" + next, "c:" + old}},
 		{`UPDATE OR REPLACE profile_told SET session = ? WHERE session = ?`, []any{next, old}},
+		{`UPDATE OR REPLACE channel_scripts SET channel = ? WHERE channel = ?`, []any{next, old}},
+		{`UPDATE script_runs SET channel = ? WHERE channel = ?`, []any{next, old}},
 		{`INSERT OR REPLACE INTO session_before (session, before, at) VALUES (?, ?, ?)`, []any{next, old, now()}},
 	} {
 		if _, err := tx.Exec(q.q, q.args...); err != nil {

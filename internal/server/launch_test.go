@@ -40,7 +40,7 @@ func TestLaunchJoinsChannel(t *testing.T) {
 	}
 	var ms api.ChannelMembers
 	l.want(200, "web", "GET", "/v1/internal/channels/"+parent+"/members", nil, &ms)
-	if i := slices.IndexFunc(ms.Members, func(m api.ChannelMember) bool { return m.Session == child }); i < 0 || ms.Members[i].Recv != "at" || ms.Members[i].Send != "ir" || ms.Members[i].Nick == "" {
+	if i := slices.IndexFunc(ms.Members, func(m api.ChannelMember) bool { return m.Session == child }); i < 0 || len(ms.Members[i].Recv) != 0 || ms.Members[i].Send != "ir" || ms.Members[i].Nick == "" {
 		t.Errorf("the launched one as a member: %+v", ms.Members)
 	}
 	l.waitSaid("web", parent, "加入了频道")

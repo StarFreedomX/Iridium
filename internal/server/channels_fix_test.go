@@ -175,7 +175,7 @@ func TestChannelRelayStopped(t *testing.T) {
 	// One line of agents: a person calls the second alone, into a turn of its own that runs,
 	// naming someone nobody is called yet; the channel's own agent takes that name meanwhile.
 	// The fake agents echo: the second's reply names the first, whose echo names the second...
-	at, helper := "at", "helper"
+	at, helper := api.Recv{}, "helper"
 	l.want(200, "web", "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+ch, api.MemberPatch{Recv: &at}, nil)
 	if code, _ := l.send("web", second, api.Send{Text: "its own work WAIT"}); code != 200 {
 		t.Fatalf("send to the second: %d", code)
@@ -216,19 +216,19 @@ func TestChannelRelayStopped(t *testing.T) {
 func TestChainsByChannel(t *testing.T) {
 	var c chains
 	lk := c.person("ch1", "me")
-	c.pass("ch1", "a", link{epoch: lk.epoch, hop: 3, kin: 2})
-	if got := c.of("ch1", "a"); got.hop != 3 || got.kin != 2 || got.origin != "me" {
+	c.pass("ch1", "a", link{epoch: lk.epoch, hop: 3})
+	if got := c.of("ch1", "a"); got.hop != 3 || got.origin != "me" {
 		t.Errorf("as passed: %+v", got)
 	}
-	c.pass("ch1", "a", link{epoch: lk.epoch, hop: 1, kin: 5})
-	if got := c.of("ch1", "a"); got.hop != 3 || got.kin != 5 {
+	c.pass("ch1", "a", link{epoch: lk.epoch, hop: 1})
+	if got := c.of("ch1", "a"); got.hop != 3 {
 		t.Errorf("a shorter line shortened the count: %+v", got)
 	}
-	if got := c.of("ch2", "a"); got.hop != 0 || got.kin != 0 {
+	if got := c.of("ch2", "a"); got.hop != 0 {
 		t.Errorf("one channel's count in another: %+v", got)
 	}
 	next := c.person("ch1", "you")
-	if got := c.of("ch1", "a"); got.hop != 0 || got.kin != 0 || got.origin != "you" || got.epoch != next.epoch {
+	if got := c.of("ch1", "a"); got.hop != 0 || got.origin != "you" || got.epoch != next.epoch {
 		t.Errorf("after a person spoke: %+v", got)
 	}
 	// What was on its way as the person spoke belongs to the run that is over.
@@ -262,7 +262,7 @@ func TestChannelSeenOnlyWhatWasGiven(t *testing.T) {
 
 	// Its turn runs; it is called into it; someone speaks meanwhile (to nobody: the channel's
 	// own agent takes only what names it); its reply is said for it.
-	at := "at"
+	at := api.Recv{}
 	l.want(200, "web", "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+ch, api.MemberPatch{Recv: &at}, nil)
 	if code, _ := l.send("web", second, api.Send{Text: "its own work WAIT"}); code != 200 {
 		t.Fatalf("send to the second: %d", code)
@@ -288,13 +288,13 @@ func TestChannelSeenOnlyWhatWasGiven(t *testing.T) {
 	l.waitSaid("web", second, fmt.Sprintf("ok: #%d: @claude2 once more", next.Seq), "]: said meanwhile\n")
 }
 
-// What an agent asked to be given counts only messages that are said: one refused takes
-// nothing from it.
-func TestChannelFollowNotSpentOnRefusal(t *testing.T) {
+// An agent subscribed to every person: a message refused wakes nobody, the next said wakes it.
+func TestChannelRecvAfterRefusal(t *testing.T) {
 	t.Parallel()
 	l, ch, second := two(t)
 	l.want(200, "web", "PUT", "/v1/internal/channels/"+ch+"/people", api.People{People: []string{"*"}}, nil)
-	l.want(200, "agent-in:"+second, "POST", "/v1/internal/channels/"+ch+"/follow", api.Follow{User: "*"}, nil)
+	every := api.Recv{"*"}
+	l.want(200, "agent-in:"+second, "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+second, api.MemberPatch{Recv: &every}, nil)
 	// A Bot with no right to Claude names it: refused.
 	bot := l.newApp("bot", false).Token
 	if code, _ := l.send(bot, ch, api.Send{Text: "@claude for you"}); code != 403 {
@@ -440,14 +440,14 @@ func TestChannelJoinFullAndRolledBack(t *testing.T) {
 	// Full but for one place.
 	for i := range MaxAgents - 2 {
 		id := fmt.Sprintf("filler-%d", i)
-		if _, err := l.s.ch.Join(ch, id, "", "", func(string) string { return "filler" }, atMost(MaxAgents)); err != nil {
+		if _, err := l.s.ch.Join(ch, id, nil, "", func(string) string { return "filler" }, atMost(MaxAgents)); err != nil {
 			t.Fatal(err)
 		}
 	}
 	errs := make(chan error, 2)
 	for _, id := range []string{"racer-a", "racer-b"} {
 		go func() {
-			_, err := l.s.ch.Join(ch, id, "", "", func(string) string { return "racer" }, atMost(MaxAgents))
+			_, err := l.s.ch.Join(ch, id, nil, "", func(string) string { return "racer" }, atMost(MaxAgents))
 			errs <- err
 		}()
 	}
@@ -458,12 +458,12 @@ func TestChannelJoinFullAndRolledBack(t *testing.T) {
 	if n := len(l.s.ch.Agents(ch)); n != MaxAgents {
 		t.Errorf("%d agents in a channel of at most %d", n, MaxAgents)
 	}
-	if _, err := l.s.ch.Join(ch, "late", "", "latecomer", func(string) string { return "late" }, atMost(MaxAgents)); !errors.Is(err, channel.ErrFull) || l.s.ch.Nick("late") != "" {
+	if _, err := l.s.ch.Join(ch, "late", nil, "latecomer", func(string) string { return "late" }, atMost(MaxAgents)); !errors.Is(err, channel.ErrFull) || l.s.ch.Nick("late") != "" {
 		t.Errorf("joining a full channel: %v, its nick %q", err, l.s.ch.Nick("late"))
 	}
 	// A session there is that does not join (what it would receive is no such thing): the nick
 	// asked for it is not set.
-	l.want(400, "web", "POST", "/v1/internal/channels/"+other+"/members", api.NewMember{Session: ch, Nick: "newname", Recv: "bogus"}, nil)
+	l.want(400, "web", "POST", "/v1/internal/channels/"+other+"/members", api.NewMember{Session: ch, Nick: "newname", Recv: api.Recv{"bogus"}}, nil)
 	other = ch
 	if nick := l.s.ch.Nick(other); nick == "newname" {
 		t.Errorf("the nick of one that did not join: %q", nick)
@@ -717,7 +717,7 @@ func TestReadsOfOneAgent(t *testing.T) {
 	l := start(t)
 	ch := l.create(200, "web", api.NewSession{Agent: api.AgentClaude, Cwd: l.work, Text: "first"})
 	l.waitReply("web", ch, "ok: first")
-	at := "at"
+	at := api.Recv{}
 	l.want(200, "web", "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+ch, api.MemberPatch{Recv: &at}, nil)
 	if code, _ := l.send("web", ch, api.Send{Text: "more"}); code != 200 {
 		t.Fatalf("send: %d", code)

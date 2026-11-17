@@ -34,6 +34,8 @@ type caller struct {
 	socket  bool
 	agent   bool
 	session string
+	// script: the script of a channel the local ir runs in ("<channel>/<name>", HeaderScript).
+	script string
 	// web: the browser's session of ir_web (webapp.SessionOf) the request came in.
 	web string
 }
@@ -90,6 +92,12 @@ var localIdentity = gate.HostIdentity
 func (s *Server) socketHandler(mux http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c := caller{Identity: localIdentity, socket: true, agent: r.Header.Get(HeaderAgent) != "", session: r.Header.Get(HeaderSession)}
+		// A script's ir: no agent's session, whatever the environment it was run in said.
+		if sc := r.Header.Get(HeaderScript); sc != "" {
+			if x, ok := s.scriptOfCaller(caller{script: sc}); ok {
+				c = caller{Identity: localIdentity, socket: true, agent: true, script: x.Channel + "/" + x.Name}
+			}
+		}
 		// An agent's ir acts for its session's turn: as the login that turn is for (origin.go).
 		if c.session != "" {
 			if o, ok := s.originOf(c.session); ok && !o.Host() {

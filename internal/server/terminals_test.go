@@ -94,6 +94,10 @@ func (l *live) doWith(as, method, path string, body any, out any, hdr http.Heade
 		c, url = l.sock, "http://ir"+path
 		req, _ = http.NewRequest(method, url, r)
 		req.Header.Set(HeaderSession, strings.TrimPrefix(as, "ir-in:"))
+	case strings.HasPrefix(as, "script-in:"): // a script's ir: "script-in:<channel>/<name>"
+		c, url = l.sock, "http://ir"+path
+		req, _ = http.NewRequest(method, url, r)
+		req.Header.Set(HeaderScript, strings.TrimPrefix(as, "script-in:"))
 	case strings.HasPrefix(as, "ir_"):
 		req.Header.Set("Authorization", "Bearer "+as)
 	}

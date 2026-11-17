@@ -108,6 +108,9 @@ func (s *Service) authorOf(m channel.Message, agentsSeen map[string]*User) *User
 	if m.Author == NoteUser {
 		return &User{ID: NoteUser, Name: "Iridium", IsBot: true}
 	}
+	if m.D.Script != "" {
+		return &User{ID: m.Author, Name: m.D.Script, IsBot: true}
+	}
 	return &User{ID: m.Author, Name: m.Name}
 }
 
@@ -216,10 +219,12 @@ type LogData struct {
 	Quote int64 `json:"quote,omitempty"`
 	// Device: a person's, the device their browser sent it from (api.Device).
 	Device string `json:"device,omitempty"`
+	// Script: a script of the channel's IR said it (its user "script:<name>").
+	Script string `json:"script,omitempty"`
 }
 
 func logData(m channel.Message) LogData {
-	d := LogData{Kind: m.Kind, Session: m.D.Session, Block: m.D.Block, From: m.D.From, To: m.D.To, Card: m.D.Card, Event: m.D.Event, Quote: m.D.Quote, Device: m.D.Device}
+	d := LogData{Kind: m.Kind, Session: m.D.Session, Block: m.D.Block, From: m.D.From, To: m.D.To, Card: m.D.Card, Event: m.D.Event, Quote: m.D.Quote, Device: m.D.Device, Script: m.D.Script}
 	switch m.Kind {
 	case channel.KindUser:
 		if !strings.HasPrefix(m.Ref, "b:") {

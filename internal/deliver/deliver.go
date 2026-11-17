@@ -7,15 +7,25 @@ import (
 	"unicode"
 )
 
-// MaxHops is how many agents in a row may pass a chain on since a person last spoke.
-const MaxHops = 4
+// MaxHops is how many times in a row agents (and the scripts they set off) may wake one another
+// since a person last spoke, by naming or by a receive set alike (the user, 2026-11-17).
+const MaxHops = 8
 
-// Agent is an agent of the channel: the session it is, the nick it is called by, and whether
-// it receives everything people say (All) or only what names it.
+// Agent is an agent of the channel: the session it is, the nick it is called by, and its receive
+// set (Recv): the senders whose messages that name nobody wake it (Receives).
 type Agent struct {
 	Session string
 	Nick    string
-	All     bool
+	Recv    []string
+}
+
+// From is who said a message: Member, as a receive set names it ("agent:<session>", a login
+// "<app>/<login>"); Session, an agent's. Quiet: it wakes only whom it names, nobody by a receive
+// set (a script's words; an agent's words on its way, not its turn's last).
+type From struct {
+	Member  string
+	Session string
+	Quiet   bool
 }
 
 // Decision is what a message does. Wake: the sessions it is delivered to, in the channel's
@@ -38,16 +48,14 @@ func Reserved(n string) bool {
 	return strings.EqualFold(n, AllMembers) || strings.EqualFold(n, AllAgents)
 }
 
-// Route decides for a message with words text. from: the session of the agent that said it,
-// "" for a person. A person's message wakes
-// the agents it names; one that names none, those that receive everything (they read the rest
-// when next called). An agent's wakes only those it names: agents do not wake each other by
-// merely speaking. How many agents in a row may pass a message on (MaxHops) is counted by the
-// channel, by whoever sends.
-func Route(text, from string, agents []Agent) Decision {
+// Route decides for a message with words text, said by from. One that names agents (@nick,
+// @全体…) wakes them alone; one that names nobody wakes the agents whose receive set has its
+// sender (Receives), unless it is quiet. The sender is never woken by its own words. How many in
+// a row may pass a message on (MaxHops) is counted by the channel.
+func Route(text string, from From, agents []Agent) Decision {
 	var nicks []string
 	for _, a := range agents {
-		if a.Session != from {
+		if a.Session != from.Session || from.Session == "" {
 			nicks = append(nicks, a.Nick)
 		}
 	}
@@ -61,14 +69,36 @@ func Route(text, from string, agents []Agent) Decision {
 		named[strings.ToLower(n)] = true
 	}
 	for _, a := range agents {
-		if a.Session == from {
+		if from.Session != "" && a.Session == from.Session {
 			continue
 		}
-		if named[strings.ToLower(a.Nick)] || (from == "" && a.All && len(d.Named) == 0) {
+		if len(d.Named) > 0 {
+			if named[strings.ToLower(a.Nick)] {
+				d.Wake = append(d.Wake, a.Session)
+			}
+		} else if !from.Quiet && from.Member != "" && Receives(a.Recv, from.Member) {
 			d.Wake = append(d.Wake, a.Session)
 		}
 	}
 	return d
+}
+
+// Receives: an agent with receive set is woken by a message of sender ("agent:<session>", a
+// login "<app>/<login>") that names nobody.
+func Receives(set []string, sender string) bool {
+	agent := strings.HasPrefix(sender, "agent:")
+	for _, e := range set {
+		switch {
+		case e == sender:
+			return true
+		case agent:
+		case e == "*":
+			return true
+		case strings.HasSuffix(e, "/*") && strings.HasPrefix(sender, strings.TrimSuffix(e, "*")):
+			return true
+		}
+	}
+	return false
 }
 
 // ValidNick: a nick is letters, digits, "_" and "-", at most 32 of them, so that "@nick"

@@ -376,6 +376,11 @@ var schema = []string{
 	ALTER TABLE web_sessions ADD COLUMN passkey BLOB;
 	ALTER TABLE web_sessions ADD COLUMN device TEXT NOT NULL DEFAULT '';
 	ALTER TABLE inputs ADD COLUMN device TEXT NOT NULL DEFAULT '';`,
+	// 44: an agent's receive set (docs/channels.md "接收"): "all" was every person's words, "at"
+	// only what named it; and the channels' scripts with what each run did (scripts.go).
+	`UPDATE channel_members SET recv = '["*"]' WHERE member LIKE 'agent:%' AND recv = 'all';
+	UPDATE channel_members SET recv = '[]' WHERE member LIKE 'agent:%' AND recv != '' AND substr(recv, 1, 1) != '[';
+	` + scriptsSchema,
 }
 
 // steps run in Go after the migration of their version, in the same transaction.
