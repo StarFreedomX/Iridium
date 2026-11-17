@@ -9,8 +9,8 @@
      g-sheet    on a phone, the sidebar rises from the foot over the composer (sheet.tsx, g-sink)
      g-dialog   the settings rise out of their key at the sidebar's foot (app.tsx)
      g-fade     plain cross-fade
-     g-arrive   a row comes in under the last (an agent called, taking over): its height opens, then it
-                rises in; the conversation above slides up as it opens, never jumps (kumo, 2026-11-15)
+     g-arrive   a row comes in under the last (an agent called, taking over): it rises in, the
+                conversation above pushed up by the chat's glide (chat/stick.tsx); g-depart: it fades
      g-wait     a placeholder of what is coming, of its size: comes after a moment, breathes
      g-swap     one icon for another in place, both drawn, cross-faded (a folder shut / open)
      g-lid      the archive bin's lid, hinged at its right end, springs up as it opens
@@ -179,46 +179,23 @@ details[data-shut] > summary .fold-chev {
 .g-fade {
   animation: g-fade-in var(--dur-2) var(--ease-out) both;
 }
-/* --- arrive: the one exception to transform and opacity, as a fold's height is: a row's height
-   opens (its grid track from 0fr), then what is in it rises in. The child clips while it opens. --- */
-.g-arrive {
-  display: grid;
-  grid-template-rows: 1fr;
-  animation: g-arrive-open var(--dur-3) var(--ease-out) both;
-}
+/* --- arrive: a row comes in at the conversation's end (an agent called, a subagent at work): whole
+   at once in the layout, what is in it rising in; the conversation above is pushed up by the chat's
+   own glide (chat/stick.tsx), on the compositor. Its height is not animated: a track opening laid
+   the whole conversation out again each frame, and moved it against the glide (kumo, 2026-11-17). --- */
 .g-arrive > * {
-  min-height: 0;
-  animation: g-rise var(--dur-2) var(--ease-out) var(--dur-2) both;
+  animation: g-rise var(--dur-2) var(--ease-out) both;
 }
-/* --- depart: arrive the other way (kumo, 2026-11-16: an agent that ends its turn with nothing to
-   say does not just vanish): what is in it fades out, then its height closes. --- */
+/* --- depart: what is in it fades out, then it is gone (motion.ts useLeaving); the room it leaves
+   at the conversation's end is the chat's to close (stick.tsx, the floor), once, gliding. --- */
 .g-depart {
-  display: grid;
-  grid-template-rows: 1fr;
-  animation: g-depart-close var(--dur-3) var(--ease-out) var(--dur-2) both;
   pointer-events: none;
 }
 .g-depart > * {
-  min-height: 0;
   animation: g-fade-out var(--dur-2) var(--ease-out) both;
-}
-@keyframes g-depart-close {
-  to {
-    grid-template-rows: 0fr;
-  }
 }
 @keyframes g-fade-out {
   to {
-    opacity: 0;
-  }
-}
-@keyframes g-arrive-open {
-  from {
-    grid-template-rows: 0fr;
-  }
-}
-@keyframes g-fade-in {
-  from {
     opacity: 0;
   }
 }

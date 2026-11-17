@@ -11,7 +11,7 @@ import { Menu } from "@base-ui/react/menu";
 import { Popover } from "@base-ui/react/popover";
 import { BarChart3, Ellipsis, FolderOpen, Globe, ListTree, Plus, Settings } from "lucide-react";
 import type { Block, Status } from "../api/types.gen";
-import { lazy, Suspense, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type DragEvent, type ReactNode } from "react";
+import { lazy, memo, Suspense, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type DragEvent, type ReactNode } from "react";
 import type { SessionState as LiveSession } from "../api/types.gen";
 import { api } from "../api/client";
 import { LinkDot } from "../link";
@@ -244,6 +244,8 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
   // Compacting, or a /compact on its way: the compaction's line, since when.
   const compacting = s?.status === "compacting" || log.sent.some((x) => x.failed === undefined && compactSent(x));
   // Counted from when the agent began (the daemon's time), not from when this page saw it.
+  const drawnTurns = useRef<{ stamp: unknown[]; nodes: Map<string, ReactNode> }>({ stamp: [], nodes: new Map() });
+  const dispatchingWas = useRef<{ parent: string; by: string; d: ReturnType<typeof dispatched> } | null>(null);
   const liveTurn = useRef("");
   const liveLast = useRef("");
   const compactSince = useRef(0);
@@ -297,7 +299,9 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
   // The context's popover, at the ring after the model name of the agent's latest turn (/context
   // opens it).
   const [ctxOpen, setCtxOpen] = useState(false);
-  const shown = folded(log.blocks);
+  // By the blocks alone: a draft's next piece (ten a second) draws no settled row again.
+  const shown = useMemo(() => folded(log.blocks), [log.blocks]);
+  const sent = useMemo(() => dispatched(shown), [shown]);
   const cwd = s?.cwd ?? row?.cwd ?? "";
   // 在哪干活 under the title (plan, 2026-11-10): the places this one sent sessions to, and those its
   // messages name (as far as they are loaded), as the page has them.
@@ -325,6 +329,8 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
 
   const onSent = (sent: Sent) => {
     sent.from = log.end;
+    // Into a turn already on: it goes under the turn's row, which stays where it is.
+    sent.mid = busy;
     log.sent.push(sent);
     fly.current = sent.key;
     changed();
@@ -395,6 +401,13 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
   const atRows = useMemo(() => [...nicks.agents, ...others], [nicks, others]);
   // The message being answered (<quote>), over the composer till it is sent.
   const [quote, setQuote] = useState<Msg | null>(null);
+  const quoteOf = useMemo(() => (quote ? { n: quote.n, who: nameOfMsg(quote), text: quote.text } : undefined), [quote]);
+  // What the composer is given to call, the same each draw and doing what they do now: the
+  // composer and the bar (memo) are not drawn again with each piece of a draft.
+  const acts = useRef({ onSent, sentDone, openContext: (): boolean => false });
+  acts.current.onSent = onSent;
+  acts.current.sentDone = sentDone;
+  const [under] = useState(() => ({ onSent: (x: Sent) => acts.current.onSent(x), onSentDone: (x: Sent) => acts.current.sentDone(x), openContext: () => acts.current.openContext(), unquote: () => setQuote(null) }));
   // The others at work, and since when this page has seen each at work: one called is shown at
   // work only once what called it is on the page (merge.ts held), at most HOLD after.
   const othersAt = agents.filter((a) => a.session !== id && WORKING.has(stateOf(a.session)?.status ?? ""));
@@ -462,7 +475,6 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
   // steps folded have no time of their own (they go with the words after them), only since when
   // (a turn still at its steps has no words yet: what called it stays above them).
   const rowTimes: RowTime[] = [];
-  const sent = dispatched(shown);
   // The steps each row holds, for the 过程 fold's count.
   const stepsAt = new Map<string, number>();
   // The own agent's words by row, for the fold of words between agents.
@@ -508,10 +520,9 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
   // The others' words (once its channel has another agent): each where it was said among the
   // own agent's rows, a speaker's in a row under one head (merge.ts); the read marks under the
   // last row each member has read, the own rows known by the log's numbers.
-  const msgs = ready?.kept.log.msgs ?? [];
+  const msgs = ready?.kept.log.msgs ?? NO_MSGS;
   const P = ready?.parts;
   const who = P && P.personWho(self, terminals, list ?? [], workspaces ?? []);
-  const nameOfMsg = (m: Msg) => (m.author.kind === "agent" ? m.author.nick || m.author.name : m.author.kind === "person" ? m.author.name : "Iridium");
   const quoted = (n: number) => {
     const m = msgs.find((x) => x.n === n);
     return m ? { who: nameOfMsg(m), text: m.text } : undefined;
@@ -570,7 +581,10 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
   const marks = ready ? marksAt(anchors, side.reads?.readers ?? [], members?.me) : new Map<string, never[]>();
   const turns = turnsOf(merged);
   // Its subagents as people (subwork.tsx): which call, which notice is whose, who dispatched them.
-  const dispatching = { parent: id, by: face.nick || face.name, d: sent };
+  const dispatchedBy = face.nick || face.name;
+  // The same while nothing of it has changed: those that read it are not drawn again for nothing.
+  const dw = dispatchingWas.current;
+  const dispatching = dw && dw.parent === id && dw.by === dispatchedBy && dw.d === sent ? dw : (dispatchingWas.current = { parent: id, by: dispatchedBy, d: sent });
   const marksOf = (keys: string[]) => keys.flatMap((k) => marks.get(k) ?? []);
   // What of yours the log has said already (sent to the channel, not given to its own agent):
   // drawn from the log, no bubble of its own.
@@ -588,12 +602,19 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
   // so no face nor dots, which came and went with nothing said (kumo, 2026-11-16). With words
   // of yours waiting (sent, queued, or the last thing on the page), the turn is on its way.
   const waking = s.status === "starting" && !pendingShown && !s.queue?.length && shown.at(-1)?.kind !== "user" && !log.drafts.length;
-  const headless = busy && !compacting && (turns.at(-1)?.kind !== "agent" || pendingShown);
+  // What you sent into a turn already on waits under that turn's row and takes nothing from it:
+  // the turn is not cut in two, its row put under words the agent has not taken yet, and joined
+  // again as they go to the queue or into the transcript (kumo, 2026-11-17). Only words sent
+  // before the turn began are what it answers: its face comes under them.
+  const pendingBefore = pending.filter((x) => !x.mid);
+  const pendingAfter = pending.filter((x) => x.mid);
+  const headless = busy && !compacting && (turns.at(-1)?.kind !== "agent" || pendingBefore.length > 0);
   // Its usage after its model's name, a strip of its own as small as a phone's (the user,
   // 2026-11-13): the context's ring, the quota's bars; each pressed, its popover.
   // The agent's latest turn: the ring /context opens. None yet: the command is the agent's.
   const ctxTurn = turns.findLastIndex((x) => x.kind === "agent" || (x.kind === "works" && x.rows.length > 0));
   const openContext = () => ctxTurn >= 0 && !!s.context?.max && (setCtxOpen(true), true);
+  acts.current.openContext = openContext;
   const bars = (last: boolean) =>
     s && (
       <span className="flex shrink-0 items-center">
@@ -653,6 +674,41 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
                 )}
               </Relayed>
             );
+  // A turn drawn before stays as it was drawn while nothing it is drawn from has changed: all
+  // that a draft's next piece changes is the turn being written (kumo, 2026-11-17: each piece, ten
+  // a second, drew the whole conversation again, every face with its card, menu and tip, and with
+  // several agents writing at once the page lost its frames). stamp: what the turns are drawn
+  // from but the drafts, each as it is (the same thing while unchanged); the last turn, and one
+  // with a draft in it, are drawn each time.
+  const stamp: unknown[] = [id, log.blocks, s, list, members, may, self, terminals, workspaces, machines, nicks, P, ready, msgs, side.reads, ...side.states, busy, compacting, waking, liveNow, liveTurn.current, headless, turns[ctxTurn]?.key, ctxOpen, pendingShown, face.nick, face.name, face.status, cwd, document.documentElement.lang];
+  if (stamp.length !== drawnTurns.current.stamp.length || stamp.some((v, i) => v !== drawnTurns.current.stamp[i])) drawnTurns.current = { stamp, nodes: new Map() };
+  const drafted = new Set(log.drafts.map((d) => `${d.proc}.${d.n}`));
+  const turnBox = (x: (typeof turns)[number], i: number) => {
+    const settled = i < turns.length - 1 && !(x.kind !== "one" && x.rows.some((r) => drafted.has(r.key)));
+    const was = settled ? drawnTurns.current.nodes.get(x.key) : undefined;
+    if (was) return was;
+    // Each turn in a box of its own, its read marks in the gap under it (over nothing: coming
+    // late, they move nothing); the same box with none, so marks coming draw nothing again.
+    const rs = marksOf(x.kind === "one" ? [x.key] : [...(x.kind === "works" ? [x.key] : []), ...x.rows.map((r) => r.key)]);
+    const node = (
+      <div key={x.key} className="relative flex min-w-0 flex-col">
+        {turnNode(x, i)}
+        {rs.length > 0 && P && P.SHOW_READS && <P.ReadMarks readers={rs} agents={agents} />}
+      </div>
+    );
+    if (settled) drawnTurns.current.nodes.set(x.key, node);
+    return node;
+  };
+  const pendingNode = (x: Sent) => (
+    <Pending
+      key={x.key}
+      s={x}
+      who={yours(self)}
+      bubbleRef={(el) => void (el ? bubbles.current.set(x.key, el) : bubbles.current.delete(x.key))}
+      retry={() => retry(x)}
+      drop={() => ((log.sent = log.sent.filter((y) => y !== x)), changed())}
+    />
+  );
   return (
     <Nicks.Provider value={nicks}>
     <Dispatching.Provider value={dispatching}>
@@ -662,28 +718,8 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
           {/* In a turn, the calls being written or run and the dots share one row at the end, as
               high whatever it shows: the conversation does not jump as a call is drafted, runs and
               folds into the line above (the user, 2026-11-06). */}
-          {turns.map((x, i) => {
-            // Each turn in a box of its own, its read marks in the gap under it (over nothing:
-            // coming late, they move nothing); the same box with none, so marks coming draw
-            // nothing again.
-            const rs = marksOf(x.kind === "one" ? [x.key] : [...(x.kind === "works" ? [x.key] : []), ...x.rows.map((r) => r.key)]);
-            return (
-              <div key={x.key} className="relative flex min-w-0 flex-col">
-                {turnNode(x, i)}
-                {rs.length > 0 && P && P.SHOW_READS && <P.ReadMarks readers={rs} agents={agents} />}
-              </div>
-            );
-          })}
-          {pending.map((x) => (
-            <Pending
-              key={x.key}
-              s={x}
-              who={yours(self)}
-              bubbleRef={(el) => void (el ? bubbles.current.set(x.key, el) : bubbles.current.delete(x.key))}
-              retry={() => retry(x)}
-              drop={() => ((log.sent = log.sent.filter((y) => y !== x)), changed())}
-            />
-          ))}
+          {turns.map(turnBox)}
+          {pendingBefore.map(pendingNode)}
           {/* The turn's row, after what you sent: kept, one line high, even out of a turn, so a
               message sent or the dots coming do not move the conversation (the user, 2026-11-06). */}
           {/* Close under what is above it (the user, 2026-11-06): a call's line by the calls before. */}
@@ -703,6 +739,7 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
               activity
             )
           ) : s.denials?.length ? <Denials session={id} denials={s.denials} cwd={cwd} stuck={s.status === "waiting" && !s.asks.length} /> : <div aria-hidden className="-mt-3 h-7 pointer-coarse:h-9" />)}
+          {pendingAfter.map(pendingNode)}
           {/* The others at work (kumo, 2026-11-15): one called comes in under the words that
               called it, once they are whole (g-arrive: its height opens, then it rises in); under
               its own last words, the dots alone. */}
@@ -791,7 +828,7 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
             // Put away under the cards, kept as it was: it slides down out of the window and back.
             <div aria-hidden={asking || undefined} inert={asking || undefined} className={cn("grid transition-[grid-template-rows,opacity] duration-(--dur-3) ease-(--ease-out)", asking ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr]")}>
               <div className="min-h-0">
-  <Under s={s} ghost={ghost} composer={composer} onSent={onSent} onSentDone={sentDone} modelOpen={modelOpen} setModelOpen={setModelOpen} modeOpen={modeOpen} setModeOpen={setModeOpen} openContext={openContext} people={atRows} quote={quote ? { n: quote.n, who: nameOfMsg(quote), text: quote.text } : undefined} unquote={() => setQuote(null)} />
+  <Under s={s} ghost={ghost} composer={composer} onSent={under.onSent} onSentDone={under.onSentDone} modelOpen={modelOpen} setModelOpen={setModelOpen} modeOpen={modeOpen} setModeOpen={setModeOpen} openContext={under.openContext} people={atRows} quote={quoteOf} unquote={under.unquote} />
               </div>
             </div>
           )}
@@ -807,7 +844,7 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
  *  2026-11-08) and the model key, then send. Its usage (the context's ring, the quota's bars) is
  *  after the agent's model name over its turns (the user, 2026-11-13), not here. */
 /** people: its channel's members an @ lists (chat/channel/person.tsx useNamed). */
-function Under({ s, ghost, composer, onSent, onSentDone, modelOpen, setModelOpen, modeOpen, setModeOpen, openContext, people, quote, unquote }: { s: LiveSession; ghost: boolean; composer: React.RefObject<ComposerHandle | null>; onSent: (x: Sent) => void; onSentDone: (x: Sent) => void; modelOpen: boolean; setModelOpen: (o: boolean) => void; modeOpen: boolean; setModeOpen: (o: boolean) => void; openContext: () => boolean; people: AgentRow[]; quote?: { n: number; who: string; text: string }; unquote?: () => void}) {
+const Under = memo(function Under({ s, ghost, composer, onSent, onSentDone, modelOpen, setModelOpen, modeOpen, setModeOpen, openContext, people, quote, unquote }: { s: LiveSession; ghost: boolean; composer: React.RefObject<ComposerHandle | null>; onSent: (x: Sent) => void; onSentDone: (x: Sent) => void; modelOpen: boolean; setModelOpen: (o: boolean) => void; modeOpen: boolean; setModeOpen: (o: boolean) => void; openContext: () => boolean; people: AgentRow[]; quote?: { n: number; who: string; text: string }; unquote?: () => void}) {
   const mode = useMode(s);
   // The model as the agent says it, once: while its process starts, or runs and has not said it
   // yet, the key waits, not the default's guess shown and then changed (默认模型, Opus, Haiku in
@@ -844,7 +881,7 @@ function Under({ s, ghost, composer, onSent, onSentDone, modelOpen, setModelOpen
       />
     </>
   );
-}
+});
 
 /** How long the model key waits for the agent to say its model. */
 const MODEL_WAIT = 3000;
@@ -863,7 +900,7 @@ function useWaited(ready: boolean, ms: number): boolean {
 /** The top bar: the logo with its lamp, the name (its folder is ⋯'s first row, which copies it);
  *  more. The link's dot is the bar's own, left of ⋯ (link.tsx). Under them, while
  *  there are any, the places it works in (spots, Where). */
-function Bar({ s, onSheet, onMe, spots, asked }: { s?: Session; onSheet?: () => void; onMe?: () => void; spots?: Spot[]; asked?: { session?: string }[] }) {
+const Bar = memo(function Bar({ s, onSheet, onMe, spots, asked }: { s?: Session; onSheet?: () => void; onMe?: () => void; spots?: Spot[]; asked?: { session?: string }[] }) {
   const list = useList();
   // A channel of several: its agents' faces, as its row in the list has them (the list's row: a
   // session's state has not its agents).
@@ -971,7 +1008,7 @@ function Bar({ s, onSheet, onMe, spots, asked }: { s?: Session; onSheet?: () => 
       {!!spots?.length && <Where spots={spots} asked={asked ?? []} />}
     </header>
   );
-}
+});
 
 /** 编辑资料 asked from a menu with no face to open out of (⋯ on a phone; editing.ts): the same
  *  as a card's, out of anchor. */
@@ -1057,6 +1094,12 @@ function Where({ spots, asked }: { spots: Spot[]; asked: { session?: string }[] 
 
 
 type Works = { given: GivenTurn; relay?: Relay; time?: number };
+
+/** Who said a message of the channel's log, by name. */
+const nameOfMsg = (m: Msg) => (m.author.kind === "agent" ? m.author.nick || m.author.name : m.author.kind === "person" ? m.author.name : "Iridium");
+
+/** No log (a channel of one agent): the same one each time. */
+const NO_MSGS: Msg[] = [];
 
 /** What the agent did and said on end, under its face: the face at the left, its nick and what
  *  it runs as over the rest, as in a channel of several (chat/channel/page GroupView). */

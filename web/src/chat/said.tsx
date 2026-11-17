@@ -187,7 +187,7 @@ const Sender = forwardRef<HTMLDivElement, { who: You | From; time?: number; jump
               </button>
             }
           />
-          <PopSurface align={left ? "start" : "end"} className={CARD_POP}>
+          <PopSurface anchor={faceKey.current} still align={left ? "start" : "end"} className={CARD_POP}>
             {card}
           </PopSurface>
         </Popover.Root>

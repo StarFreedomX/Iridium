@@ -15,9 +15,15 @@ const near = (el: HTMLElement) => Math.max(600, el.clientHeight * 2);
 const END = 40; // px from the bottom that count as at the newest
 const SETTLE = 600; // ms after a chat opens that what grows does not glide
 const REST = 500; // ms since the user last scrolled it that a chat at its newest is at rest there
-const HOLD = 350; // ms with nothing changing before what shrank at the newest settles down
+const HOLD = 350; // ms with nothing changing before the room what shrank at the newest left is closed
 
-const padOf = (el: HTMLElement) => parseFloat(getComputedStyle(el).paddingBottom) || 0;
+// The pane's bottom padding: as the page set it (its style), without a style pass of the page.
+const padOf = (el: HTMLElement) => parseFloat(el.style.paddingBottom) || parseFloat(getComputedStyle(el).paddingBottom) || 0;
+
+/** el, inside a chat, changes its own height from now for ms (an animation of its own, which says
+ *  nothing as a transition does): the chat keeps its end under it, and moves nothing itself. */
+const MOVES = "ir:moves";
+export const layoutMoves = (el: Element, ms: number) => el.dispatchEvent(new CustomEvent(MOVES, { bubbles: true, detail: ms }));
 
 /** Each chat's way to its newest, for what puts something at the end itself (a message sent). */
 const ends = new WeakMap<HTMLElement, () => void>();
@@ -50,17 +56,35 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
   const paging = useRef(false);
   const [fresh, setFresh] = useState(false);
   const [, redraw] = useState(0);
+  // One rule for whatever changes the conversation's height at the newest (kumo, 2026-11-17: the
+  // glide, the hold and the folds each moved it their own way, against each other):
+  //   - what grows there pushes the conversation up, gliding (glide);
+  //   - what shrinks there moves nothing: the room it leaves is kept under the conversation (the
+  //     floor) till nothing has changed for HOLD, then closed once, gliding; what grows meanwhile
+  //     fills the floor first, moving nothing;
+  //   - what changes its own height over time (a fold opening, moves) is drawn by itself, frame by
+  //     frame: the end is only kept under it, for its part of the change.
+  // The end is kept each time (pin), so no scroll the browser made of its own (a column a moment
+  // shorter) is read as the user's.
   // The glide: the conversation drawn as far below its place as it was pushed, easing to it, on the
   // compositor (not a frame drawn by script each time: the keyboard and the phone's sheet keep the
   // page busy as they move). A push while one runs adds to where that one is, so a draft growing
   // line by line flows on instead of stuttering.
   const anim = useRef<Animation | null>(null);
+  const colOf = (el: HTMLElement) => el.firstElementChild as HTMLElement | null;
+  /** The floor: room kept under the conversation for what shrank at its end, px. */
+  const spacer = useRef<HTMLDivElement>(null);
+  const floor = useRef(0);
+  const setFloor = (px: number) => {
+    floor.current = px < 0.5 ? 0 : px;
+    if (spacer.current) spacer.current.style.height = floor.current ? `${floor.current}px` : "";
+  };
   /** The very end, by the layout alone: not the glide's overhang below it, which a transform adds
    *  to scrollHeight. */
   const bottomOf = (el: HTMLElement) => {
-    const col = el.firstElementChild as HTMLElement | null;
+    const col = colOf(el);
     if (!col) return el.scrollHeight - el.clientHeight;
-    return Math.max(0, col.offsetTop + col.offsetHeight + padOf(el) - el.clientHeight);
+    return Math.max(0, col.offsetTop + col.offsetHeight + floor.current + padOf(el) - el.clientHeight);
   };
   // The column's height and the pane's bottom padding (the stack under it) as last measured: 0
   // till the first page is in.
@@ -83,70 +107,91 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
   };
   /** To the newest, gliding up by as far as that scrolled it (a message sent). */
   const toBottom = (el: HTMLElement) => glide(pin(el));
-  /** What shrank at the newest (a draft giving way to its block, the turn's row going as the turn
-   *  ends, the composer emptied) is held: the column kept as tall, nothing moving, till nothing has
-   *  changed for HOLD, then it settles down once, gliding. Not a bounce down and back up each time
-   *  something shrinks and grows again (the user, 2026-11-08). */
+  /** What changes its own height over time inside the conversation (a fold's track, a fold
+   *  pressed, long words opened), each with its height as last read, and till when at most. */
+  const moving = useRef(new Map<HTMLElement, { h: number; till: number }>());
+  /** By how much those grew (or shrank) since last read; those done or gone are let go. */
+  const movedBy = () => {
+    let by = 0;
+    const now = performance.now();
+    for (const [m, r] of moving.current) {
+      const h = m.isConnected ? m.offsetHeight : 0;
+      by += h - r.h;
+      r.h = h;
+      if (!m.isConnected || now > r.till) moving.current.delete(m);
+    }
+    return by;
+  };
+  /** m's height changes of itself from now, for ms at most. What the column has changed by and
+   *  was not seen yet is its already (a transition is a frame in when it says it runs). */
+  const moves = (m: HTMLElement, ms: number) => {
+    const el = list.current;
+    if (!el || !colOf(el)?.contains(m)) return;
+    const r = moving.current.get(m);
+    if (r) return void (r.till = performance.now() + ms);
+    moving.current.set(m, { h: m.offsetHeight, till: performance.now() + ms });
+    follow(el, false, true);
+  };
   const floorTimer = useRef(0);
   const settleSoon = () => {
     clearTimeout(floorTimer.current);
     floorTimer.current = window.setTimeout(settleFloor, HOLD);
   };
+  /** The floor closes: nothing has changed for HOLD. Once, gliding (the user, 2026-11-08: not a
+   *  bounce down and back up each time something shrinks and grows again). */
   const settleFloor = () => {
     const el = list.current;
-    const col = el?.firstElementChild as HTMLElement | null;
-    if (!el || !col || !col.style.minHeight) return;
-    // Not under a finger: then once it is lifted.
-    if (touching.current) return settleSoon();
+    if (!el || !floor.current) return;
+    // Not under a finger, nor while something still moves of itself: then once that is over.
+    for (const [m, r] of moving.current) if (!m.isConnected || performance.now() > r.till) moving.current.delete(m);
+    if (touching.current || moving.current.size) return settleSoon();
     const top = el.scrollTop;
-    col.style.minHeight = "";
-    height.current = col.offsetHeight;
-    pad.current = padOf(el);
+    setFloor(0);
     // Let go of meanwhile, it may still have pulled the scroll up, at its foot: that glides too.
     if (atEnd.current) pin(el);
+    else kept.current = el.scrollTop;
     glide(el.scrollTop - top);
   };
   /** Kept at the newest: what came at the end, or the stack under it grown (the composer a line
    *  taller, the phone's sheet out), pushes the conversation up by as much, gliding; a short chat
    *  that does not scroll does not move at all. The pane itself shorter or taller (the phone's
-   *  keyboard) glides nothing: the conversation goes with the pane's foot as it moves. */
-  const follow = (el: HTMLElement, settling = false) => {
-    const col = el.firstElementChild as HTMLElement | null;
+   *  keyboard) glides nothing: the conversation goes with the pane's foot as it moves.
+   *  settling: a push even as the chat settles (new blocks or drafts, not a picture loading).
+   *  own: all of the change is what moves of itself (moves). */
+  const follow = (el: HTMLElement, settling = false, own = false) => {
+    const col = colOf(el);
     const was = height.current;
     const padWas = pad.current;
     height.current = col?.offsetHeight ?? 0;
     pad.current = padOf(el);
-    // A fold opening or shutting (toggleFold): its own height glides, what is below it goes with
-    // the layout; at the newest the end is only kept, frame by frame, nothing more gliding.
-    if (performance.now() < folding.current) {
-      if (atEnd.current) pin(el);
-      return;
-    }
+    const self = movedBy();
     if (!atEnd.current) return;
-    // Shrunk at the newest: held as tall (settleFloor).
+    // Not the first page coming into an empty chat, nor the page before put in (back): those are
+    // drawn in place.
+    const d = was > 0 && !paging.current ? height.current - was + pad.current - padWas : 0;
+    // The part of it that something moving of itself made: that is drawn by itself.
+    const its = own ? d : d > 0 ? Math.min(d, Math.max(0, self)) : Math.max(d, Math.min(0, self));
+    let push = d - its;
     // Not as the chat opens: it is drawn whole at once, padded by the stack's height as last
-    // known, and the stack measured (shorter) right after is no shrinking to hold: held, the
-    // conversation went up by the difference and dropped back a moment later.
-    const lost = was + padWas - height.current - pad.current;
-    if (col && was > 0 && lost > 0.5 && !paging.current && performance.now() - born.current >= SETTLE) {
-      col.style.minHeight = `${height.current + lost}px`;
-      height.current += lost;
-      settleSoon();
-      return;
+    // known, and the stack measured (shorter) right after is no shrinking to hold.
+    if (push < -0.5 && performance.now() - born.current >= SETTLE) {
+      setFloor(floor.current - push);
+      push = 0;
+    } else if (d > 0 && floor.current) {
+      const take = Math.min(floor.current, d);
+      setFloor(floor.current - take);
+      push = Math.max(0, push - take);
     }
-    if (col?.style.minHeight) settleSoon();
+    if (floor.current) settleSoon();
     const by = pin(el);
-    // Not the first page coming into an empty chat: that is drawn in place, at the newest.
-    const want = was > 0 && !paging.current ? height.current - was + pad.current - padWas : 0;
-    glide(want > 0 ? Math.min(want, Math.max(0, by)) : Math.max(want, Math.min(0, by)), settling);
+    glide(push > 0 ? Math.min(push, Math.max(0, by)) : Math.max(push, Math.min(0, by)), settling);
   };
-  /** settling: a push even as the chat settles (new blocks or drafts, not a picture loading). */
   const glide = (by: number, settling = false) => {
     // A chat just opened settles in place (its pictures, the composer's cards): nothing glides. What
     // came since it was last seen, brought as it opens, still does (the user, 2026-11-06).
     if (!settling && performance.now() - born.current < SETTLE) return;
     const el = list.current;
-    const col = el?.firstElementChild as HTMLElement | null;
+    const col = el && colOf(el);
     if (!el || !col || !by || reduced() || document.hidden) return;
     let at = 0;
     if (anim.current?.playState === "running") {
@@ -158,8 +203,6 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     anim.current = Math.abs(from) < 0.5 ? null : col.animate([{ transform: `translateY(${from}px)` }, { transform: "none" }], { duration: motion.dur(3), easing: motion.ease("out") });
   };
 
-  /** Till when a fold's height glides (toggleFold): the growth meanwhile is its. */
-  const folding = useRef(0);
   /** Fold d opened or shut by a press (the user, 2026-11-08: clean, no jump at either end): its
    *  height glides from what it is to what it will be, its rows fading, clipped to it; shutting,
    *  it shuts once the glide is done. Nothing is drawn where it is not: what is below it moves
@@ -167,13 +210,13 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
   const toggleFold = (d: HTMLDetailsElement) => {
     if (d.dataset.anim !== undefined) return;
     const opening = !d.open;
+    moves(d, motion.dur(2) + 100);
     const from = d.offsetHeight;
     if (opening) d.open = true;
     else d.dataset.shut = "";
     const sum = d.querySelector(":scope > summary") as HTMLElement | null;
     const to = opening ? d.offsetHeight : (sum?.offsetHeight ?? 0);
     const opts: KeyframeAnimationOptions = { duration: motion.dur(2), easing: motion.ease("out"), fill: "forwards" };
-    folding.current = performance.now() + motion.dur(2) + 100;
     d.dataset.anim = "";
     d.style.overflow = "clip";
     const fades = [...d.children].filter((c) => c !== sum).map((c) => c.animate([{ opacity: opening ? 0 : 1 }, { opacity: opening ? 1 : 0 }], opts));
@@ -284,19 +327,30 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
       if (["PageUp", "ArrowUp", "Home"].includes(e.key)) return void (atEnd.current && leave());
       if (["PageDown", "ArrowDown", "End", " "].includes(e.key)) down();
     };
-    // A fold whose height is a grid track's (said.tsx Earlier, a forward's rules) opens or shuts,
-    // pressed or as its turn ends: as a fold pressed (toggleFold), its own height glides and the
-    // end is only kept; shut at the newest it is not held as tall and settled after, the answer
-    // under it going up and then down (kumo, 2026-11-16).
-    const track = (e: TransitionEvent) => e.propertyName === "grid-template-rows" && (folding.current = Math.max(folding.current, performance.now() + motion.dur(3) + 100));
-    el.addEventListener("transitionrun", track);
+    // What changes its own height over time (moves): a fold whose height is a grid track's
+    // (said.tsx Earlier, a forward's rules), opened or shut, pressed or as its turn ends; what
+    // says so itself (layoutMoves). Shut at the newest it is not held as tall and settled after,
+    // the answer under it going up and then down (kumo, 2026-11-16).
+    const runs = (e: TransitionEvent) => (e.propertyName === "grid-template-rows" || e.propertyName === "height") && e.target instanceof HTMLElement && moves(e.target, 1000);
+    const ran = (e: TransitionEvent) => {
+      const r = e.target instanceof HTMLElement && moving.current.get(e.target);
+      if (r) r.till = performance.now() + 60;
+    };
+    const told = (e: Event) => e.target instanceof HTMLElement && moves(e.target, (e as CustomEvent<number>).detail + 100);
+    el.addEventListener("transitionrun", runs);
+    el.addEventListener("transitionend", ran);
+    el.addEventListener("transitioncancel", ran);
+    el.addEventListener(MOVES, told);
     el.addEventListener("wheel", wheel, { passive: true });
     for (const k of ["touchstart", "touchmove", "touchend", "touchcancel"] as const) el.addEventListener(k, touch, { passive: true });
     el.addEventListener("keydown", key);
     return () => {
       ro.disconnect();
       clearTimeout(floorTimer.current);
-      el.removeEventListener("transitionrun", track);
+      el.removeEventListener("transitionrun", runs);
+      el.removeEventListener("transitionend", ran);
+      el.removeEventListener("transitioncancel", ran);
+      el.removeEventListener(MOVES, told);
       el.removeEventListener("wheel", wheel);
       for (const k of ["touchstart", "touchmove", "touchend", "touchcancel"] as const) el.removeEventListener(k, touch);
       el.removeEventListener("keydown", key);
@@ -338,6 +392,8 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
           toggleFold(fold);
         }} className="absolute inset-0 overflow-y-auto [overflow-anchor:none] [scrollbar-gutter:stable_both-edges]" style={style}>
         {children}
+        {/* The floor: the room kept for what shrank at the end (follow). */}
+        <div ref={spacer} aria-hidden />
       </div>
       {fresh && !quiet && (
         <button

@@ -6,7 +6,7 @@
 // agent's Markdown (chat/markdown.tsx, by the link lib.ts linkNicks makes of it).
 import { Popover } from "@base-ui/react/popover";
 import { Bot, Users } from "lucide-react";
-import { createContext, useContext, useState, type ReactNode } from "react";
+import { createContext, useContext, useRef, useState, type ReactNode } from "react";
 import { Avatar, PopSurface } from "../../ui";
 import { Face } from "./face";
 import { Worded } from "../mention";
@@ -28,6 +28,7 @@ const LINK = "inline-flex max-w-full items-baseline gap-1 rounded-sm align-basel
 export function NickLink({ nick }: { nick: string }) {
   const ch = useContext(Nicks);
   const [open, setOpen] = useState(false);
+  const key = useRef<HTMLButtonElement>(null);
   const w = nick.toLowerCase();
   const all = w === ALL_MEMBERS.toLowerCase() ? Users : w === ALL_AGENTS.toLowerCase() ? Bot : undefined;
   if (ch && all) {
@@ -46,14 +47,14 @@ export function NickLink({ nick }: { nick: string }) {
     <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger
         render={
-          <button type="button" className={`${LINK} underline decoration-ink-4 underline-offset-2 hover:decoration-ink-2`}>
+          <button ref={key} type="button" className={`${LINK} underline decoration-ink-4 underline-offset-2 hover:decoration-ink-2`}>
             <span className="-mr-0.5 text-ink-3">@</span>
             <span className="self-center">{m.person ? <Avatar src={m.avatar} name={m.nick} size={14} /> : <Face id={m.session} agent={m.agent} size={14} />}</span>
             <span className="min-w-0 [overflow-wrap:anywhere]">{m.nick}</span>
           </button>
         }
       />
-      <PopSurface className={CARD_POP}>{ch.card(m, () => setOpen(false))}</PopSurface>
+      <PopSurface anchor={key.current} still className={CARD_POP}>{ch.card(m, () => setOpen(false))}</PopSurface>
     </Popover.Root>
   );
 }
