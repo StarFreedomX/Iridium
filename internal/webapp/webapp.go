@@ -337,11 +337,11 @@ func hasBearer(r *http.Request) bool {
 	return len(v) > 7 && strings.EqualFold(v[:7], "bearer ")
 }
 
-// toCore: the path is the core's (the API, Satori, avatars, the join line's scripts), not the
-// page's files.
+// toCore: the path is the core's (the API, Satori, avatars, the join line's scripts and
+// ir-computer), not the page's files.
 func toCore(p string) bool {
 	return p == "/v1" || strings.HasPrefix(p, "/v1/") ||
-		strings.HasPrefix(p, gate.AvatarPrefix) || joinscript.Path(p)
+		strings.HasPrefix(p, gate.AvatarPrefix) || joinscript.Path(p) || joinscript.BinaryPath(p)
 }
 
 // Handler is ir_web in front of core (the gate-wrapped API) and app (the page's files). See the

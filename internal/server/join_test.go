@@ -93,6 +93,20 @@ func TestJoin(t *testing.T) {
 		return nil
 	}
 
+	// The line and ir-computer are served past the gate, at the public address: a build of no
+	// release sends to GitHub's latest.
+	nofollow := &http.Client{Transport: asHost("ir.example.com"), CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	for path, want := range map[string]int{"/join": 200, "/join/ir-computer-darwin-arm64": http.StatusFound, "/join/ir-computer-nope": http.StatusUnauthorized} {
+		resp, err := nofollow.Get(l.base + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != want || want == http.StatusFound && !strings.HasSuffix(resp.Header.Get("Location"), "/latest/download/ir-computer-darwin-arm64") {
+			t.Errorf("%s: %d %s", path, resp.StatusCode, resp.Header.Get("Location"))
+		}
+	}
+
 	cancel, done := run(o)
 	l.s.SetPairing(true)
 	var cs api.Needs
