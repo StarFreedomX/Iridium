@@ -306,6 +306,10 @@ func TestDefaultNick(t *testing.T) {
 	if n := NickWithID(strings.Repeat("长", 32), "e4446f91", func(string) bool { return false }); len([]rune(n)) != 32 || !strings.HasSuffix(n, "长-e444") {
 		t.Errorf("a long name taken: %q", n)
 	}
+	few := func(n string) bool { return n == "tester-ab12" }
+	if n := NickWithID("tester", "xyz-ab12", few); len(n) != len("tester-0000") || !strings.HasPrefix(n, "tester-") || n == "tester-ab12" || strings.Trim(n[7:], "0123456789abcdef") != "" {
+		t.Errorf("an id of few digits, all taken: %q", n)
+	}
 	if IsDefaultNick("Fable-fd54") {
 		t.Error("a role's name with digits after it taken for one of Iridium's")
 	}

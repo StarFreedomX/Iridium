@@ -1,10 +1,11 @@
 package store
 
 import (
+	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"strconv"
+	"fmt"
 	"strings"
 
 	"github.com/kumoSleeping/iridium/internal/search"
@@ -574,7 +575,7 @@ func (s *Store) SetNick(session, nick string) error {
 }
 
 // nicksOfSessions gives each agent the nick it had as a member (the migration that made the
-// nicks the sessions'): the first it had, with a number after it where another has it.
+// nicks the sessions'): the first it had, with hex digits of its id after it where another has it.
 func nicksOfSessions(tx *sql.Tx) error {
 	rows, err := tx.Query(`SELECT member, nick FROM channel_members WHERE member LIKE 'agent:%' AND nick != '' ORDER BY joined_at, rowid`)
 	if err != nil {
@@ -600,8 +601,18 @@ func nicksOfSessions(tx *sql.Tx) error {
 			continue
 		}
 		nick := r.nick
-		for i := 2; taken[strings.ToLower(nick)]; i++ {
-			nick = r.nick + strconv.Itoa(i)
+		// Taken: hex digits of its session's id after it, never a number (kumo, 2026-11-17).
+		id := strings.Map(func(c rune) rune {
+			if (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') {
+				return c
+			}
+			return -1
+		}, strings.ToLower(strings.TrimPrefix(r.session, "session-")))
+		for n := 4; taken[strings.ToLower(nick)]; n++ {
+			if n > len(id) {
+				id += fmt.Sprintf("%x", sha256.Sum256([]byte(id)))
+			}
+			nick = r.nick + "-" + id[:n]
 		}
 		taken[strings.ToLower(nick)], has[r.session] = true, true
 		if _, err := tx.Exec(`INSERT OR IGNORE INTO agent_nicks (session, nick) VALUES (?, ?)`, r.session, nick); err != nil {

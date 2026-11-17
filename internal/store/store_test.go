@@ -267,7 +267,7 @@ func must(t *testing.T, err error) {
 }
 
 // The members' nicks become the sessions' (migration 37): each agent keeps the first it had,
-// with a number after it where another has it; the channel's own agent speaks directly, the
+// with hex digits of its id after it where another has it, never a number; the channel's own agent speaks directly, the
 // others with ir.
 func TestNicksOfSessions(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "iridium.db")
@@ -290,7 +290,7 @@ func TestNicksOfSessions(t *testing.T) {
 	}
 	defer s.Close()
 	nicks, err := s.Nicks()
-	if err != nil || len(nicks) != 4 || nicks["a"] != "claude" || nicks["b"] != "helper" || nicks["x"] != "Claude2" || nicks["y"] != "pi" {
+	if err != nil || len(nicks) != 4 || nicks["a"] != "claude" || nicks["b"] != "helper" || nicks["x"] != "Claude-e3b0" || nicks["y"] != "pi" {
 		t.Fatalf("nicks: %v %v", nicks, err)
 	}
 	ms, err := s.ChannelMembers("a")

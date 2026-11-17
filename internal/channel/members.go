@@ -1,10 +1,13 @@
 package channel
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/kumoSleeping/iridium/internal/deliver"
@@ -103,7 +106,7 @@ func DefaultNick(harness, session string, taken func(string) bool) string {
 // while taken says it is taken: the nick of a session whose name another has (kumo,
 // 2026-11-17: not 克劳德大小姐2). base is cut to fit a nick's 32.
 func NickWithID(base, session string, taken func(string) bool) string {
-	hex := strings.Map(func(r rune) rune {
+	digits := strings.Map(func(r rune) rune {
 		if (r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') {
 			return r
 		}
@@ -116,13 +119,15 @@ func NickWithID(base, session string, taken func(string) bool) string {
 		}
 		return string(b) + "-" + tail
 	}
-	for n := 4; n <= len(hex); n++ {
-		if nick := with(hex[:n]); !taken(nick) {
+	for n := 4; n <= len(digits); n++ {
+		if nick := with(digits[:n]); !taken(nick) {
 			return nick
 		}
 	}
-	for i := 2; ; i++ {
-		if nick := with(fmt.Sprintf("%s%d", hex[:min(4, len(hex))], i)); !taken(nick) {
+	// Every digit of its id taken, or an id of few: digits of hashes of it, never a number.
+	for i := 0; ; i++ {
+		sum := sha256.Sum256([]byte(session + "\x00" + strconv.Itoa(i)))
+		if nick := with(hex.EncodeToString(sum[:])[:min(4+i/8, 64)]); !taken(nick) {
 			return nick
 		}
 	}
