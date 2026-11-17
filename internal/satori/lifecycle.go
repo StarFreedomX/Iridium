@@ -145,7 +145,7 @@ func (s *Service) Sessions(l []api.Session) {
 // Input is what someone wrote to session ss (its input id, its text): said in the session's
 // channel, under the number it returns, and sent as message-created, _data.kind "user", to the
 // logins that see it: the agent's words are not alone in the stream. What an agent sent (of's
-// Sent: with ir, or its reply said for it) is an agent's words as those of its turns are: kind
+// Sent: with ir, or what it wrote where it was called) is an agent's words as those of its turns are: kind
 // "said", told as "progress", or "reply" when it is its turn's last.
 func (s *Service) Input(ss api.Session, id, text string, from User, origin string, of ...channel.Data) int64 {
 	if id == "" {
@@ -166,7 +166,7 @@ func (s *Service) Input(ss api.Session, id, text string, from User, origin strin
 		return 0
 	}
 	if isNew {
-		s.tell(m, told, origin, 0)
+		s.tell(m, told, origin, 0, time.Now())
 	}
 	return m.Seq
 }

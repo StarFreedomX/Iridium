@@ -4,7 +4,7 @@
 // (Sync), what a person said is written as it is sent (Say). A session has a channel of its own,
 // under the session's id: what its agent says in its turns is said there. A session may also be
 // in other channels (a subscription, members.go): there it sees only what is said, and what it
-// says there is its turn's reply, said for it, or what it sends with ir. A channel may be no
+// writes in a turn a message there called is said there too, as in its own. A channel may be no
 // session's (store.Channel): then all its agents are such.
 package channel
 
@@ -193,8 +193,10 @@ func (m Member) Agent() bool { return m.Session != "" }
 // RecvSet is an agent member's receive set.
 func (m Member) RecvSet() []string { return RecvSet(m.Recv) }
 
-// Direct: the agent's turns are said in the channel (it is the session's own).
-func (m Member) Direct() bool { return m.Send == store.SendDirect }
+// Direct: the channel is the agent's own session's: what it was given there is in its record as
+// the channel's own words, not as a channel's message (every agent's words go where it was
+// called, its own channel or another: Server.answer).
+func (m Member) Direct() bool { return m.Session != "" && m.Session == m.Channel }
 
 type Service struct {
 	st   *store.Store

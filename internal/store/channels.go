@@ -51,10 +51,9 @@ const channelsSchema = `CREATE TABLE IF NOT EXISTS channel_members (
 // ChannelMember is one member of a channel: a subscription. Member: "agent:<session>", an app's
 // login "<app>/<login>", all of an app's "<app>/*", or everyone "*". Recv: what wakes an agent
 // ("all": what people say; "at": only what names it), what a person is shown ("all", "mine").
-// Send: how an agent speaks there: "direct", what it says in its turn is the channel's (its own
-// channel, at most one); "ir", what it sends with ir, and its turn's reply, said there for it
-// when it was called there. Seen: the number of the last message
-// it has been given (an agent) or has read (a person).
+// Send: written as builds before 0.2.34 read it ("direct": the session's own channel; "ir"),
+// read by none now: an agent's words go where it was called, whichever channel that is. Seen:
+// the number of the last message it has been given (an agent) or has read (a person).
 type ChannelMember struct {
 	Channel string
 	Member  string

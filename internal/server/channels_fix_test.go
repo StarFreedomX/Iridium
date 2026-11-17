@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -103,6 +104,44 @@ func TestChannelCallWaitsForItsTurn(t *testing.T) {
 		}
 	}
 	l.noCalls(second)
+}
+
+// What an agent called in a channel writes is said there as it writes it, as in a chat: its
+// words before a tool call as they come, its last ones as its turn's reply (kumo, 2026-11-17:
+// an agent said where it stood, worked on, and its answer never reached the channel).
+func TestChannelAnswerAsWritten(t *testing.T) {
+	t.Parallel()
+	l, ch, second := two(t)
+	code, r := l.send("web", ch, api.Send{Text: "@claude2 look STREAM"})
+	if code != 200 {
+		t.Fatalf("send: %d", code)
+	}
+	l.waitSaid("web", ch, " @claude2 ", "That is all of it.")
+	all, err := l.s.ch.Between(ch, r.Seq, 0, 200)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, m := range all {
+		if m.Author != "agent:"+second {
+			continue
+		}
+		k := "progress"
+		if m.D.Final {
+			k = "reply"
+		}
+		first, _, _ := strings.Cut(m.Text, "\n")
+		got = append(got, k+": "+first)
+	}
+	if want := []string{"progress: Looking at how the list is drawn first.", "reply: Here is what I found."}; !slices.Equal(got, want) {
+		t.Errorf("what it wrote, as said in the channel: %q, want %q", got, want)
+	}
+	l.noCalls(second)
+	for _, m := range l.said("web", ch) {
+		if strings.Contains(m, "未在频道发话") {
+			t.Errorf("a line that it said nothing: %s", m)
+		}
+	}
 }
 
 // A turn cut short (the agent stopped) closes its calls: the channel is told the agent said
@@ -383,10 +422,10 @@ func TestChannelClearKeepsMembership(t *testing.T) {
 	in = map[string]string{}
 	for _, m := range ms.Members {
 		if m.Session != "" {
-			in[m.Session] = m.Nick + "/" + m.Send
+			in[m.Session] = m.Nick
 		}
 	}
-	if in[r.Session] != "claude/direct" || in[next] != "claude2/ir" || len(in) != 2 {
+	if in[r.Session] != "claude" || in[next] != "claude2" || len(in) != 2 {
 		t.Errorf("the new channel's agents: %+v", in)
 	}
 }

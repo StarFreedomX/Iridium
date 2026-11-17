@@ -167,16 +167,17 @@ func (s *Service) handle(n session.Notice, at time.Time) {
 	case session.NoticeTurnStart:
 		s.mu.Lock()
 		delete(s.held, n.Session)
+		delete(s.heldAt, n.Session)
 		s.origin[n.Session] = n.From
 		s.started[n.Session] = at
 		s.mu.Unlock()
 	case session.NoticeMessage:
-		s.hear(n.Session, n.Text, origin)
+		s.hear(n.Session, n.Text, origin, at)
 	case session.NoticeTool:
 		s.flush(n.Session, "progress", origin, 0)
 	case session.NoticeTurnEnd:
 		if n.Text != "" && !channel.Same(n.Text, held.Text) {
-			s.hear(n.Session, n.Text, origin)
+			s.hear(n.Session, n.Text, origin, at)
 		}
 		s.flush(n.Session, "reply", origin, n.Denied)
 		if s.onTurnEnd != nil {

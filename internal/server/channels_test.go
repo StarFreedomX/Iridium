@@ -69,7 +69,7 @@ func TestChannelOfSeveral(t *testing.T) {
 	// One agent: the default members, the panel's logins and the host's (no Bot's).
 	var ms api.ChannelMembers
 	l.want(200, "web", "GET", "/v1/internal/channels/"+ch+"/members", nil, &ms)
-	if ms.Multi || len(ms.Members) != 3 || ms.Members[0].Session != ch || fmt.Sprint(ms.Members[0].Recv) != "[*]" || ms.Members[0].Send != "direct" ||
+	if ms.Multi || len(ms.Members) != 3 || ms.Members[0].Session != ch || fmt.Sprint(ms.Members[0].Recv) != "[*]" ||
 		ms.Members[1].Member != "ir_web/*" || ms.Members[2].Member != "local/*" || !ms.Joined {
 		t.Fatalf("default members: %+v", ms)
 	}
@@ -78,7 +78,7 @@ func TestChannelOfSeveral(t *testing.T) {
 	l.want(400, "web", "POST", "/v1/internal/channels/"+ch+"/members", api.NewMember{Agent: api.AgentClaude, Nick: "a b"}, nil)
 	l.want(200, "web", "POST", "/v1/internal/channels/"+ch+"/members", api.NewMember{Agent: api.AgentClaude}, &ms)
 	ms.Members = slices.DeleteFunc(ms.Members, func(m api.ChannelMember) bool { return m.Session == "" })
-	if !ms.Multi || len(ms.Members) != 2 || ms.Members[0].Nick != "claude" || ms.Members[1].Nick != "claude2" || len(ms.Members[1].Recv) != 0 || ms.Members[1].Send != "ir" || ms.Members[1].Name == "" {
+	if !ms.Multi || len(ms.Members) != 2 || ms.Members[0].Nick != "claude" || ms.Members[1].Nick != "claude2" || len(ms.Members[1].Recv) != 0 || ms.Members[1].Name == "" {
 		t.Fatalf("members: %+v", ms)
 	}
 	second := ms.Members[1].Session
@@ -186,7 +186,7 @@ func TestChannelOfSeveral(t *testing.T) {
 		t.Fatalf("the second agent's record: %+v", p.Blocks)
 	}
 	got := p.Blocks[0].Text
-	for _, want := range []string{fmt.Sprintf("#%d: now @claude2 look", r.Seq), "<channel-context>", "You are claude2, called in the channel", "message.create channel_id=" + ch,
+	for _, want := range []string{fmt.Sprintf("#%d: now @claude2 look", r.Seq), "<channel-context>", "You are claude2, called in the channel", "(" + ch + ")", "said in the channel as you write it",
 		"message.list channel_id=" + ch, "claude (", "]: first\n", "]: ok: first\n", "]: plain words\n", "</channel-context>"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("given without %q:\n%s", want, got)
@@ -529,7 +529,7 @@ func TestChannelBare(t *testing.T) {
 	// An agent joins: a session of its own in the channel's folder; it is given what names it,
 	// with what it has not seen, and answers with ir.
 	l.want(200, "web", "POST", "/v1/internal/channels/"+ch+"/members", api.NewMember{Agent: api.AgentClaude}, &ms)
-	if len(ms.Members) != 3 || ms.Members[2].Send != "ir" || ms.Members[2].Cwd != l.work {
+	if len(ms.Members) != 3 || ms.Members[2].Session == "" || ms.Members[2].Cwd != l.work {
 		t.Fatalf("members with an agent: %+v", ms)
 	}
 	agent, nick := ms.Members[2].Session, ms.Members[2].Nick
@@ -539,7 +539,7 @@ func TestChannelBare(t *testing.T) {
 	l.wantSat(200, bot, "message.create", map[string]any{"channel_id": ch, "content": `<at id="agent:` + agent + `"/> look at this`}, &sent)
 	l.waitSaid("web", agent, "@"+nick+" look at this")
 	got := l.page("web", agent).Blocks[0].Text
-	for _, want := range []string{"called in the channel \"room\"", "]: anyone here\n", "message.create channel_id=" + ch} {
+	for _, want := range []string{"called in the channel \"room\"", "]: anyone here\n", "(" + ch + ")", "said in the channel as you write it"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("given without %q:\n%s", want, got)
 		}

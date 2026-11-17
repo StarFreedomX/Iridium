@@ -90,6 +90,7 @@ type Server struct {
 	viewers viewers          // who is looking at each channel now (channels.go)
 	dms     dms              // the channels that are two people's (channels.go)
 	calls   calls            // the channels each agent was called in by a subscription (channels.go)
+	answers answers          // what each agent writes, said in turn where it was called (channels.go)
 	// channelsSeq: the state "channels", up by one at each change of a channel's members.
 	channelsSeq atomic.Int64
 	// scripts: the channels' scripts running and waiting (scripts.go); scriptsSeq, the state
@@ -140,7 +141,7 @@ func New(cfg config.Config, m *session.Manager, h *hub.Hub, logf func(string, ..
 	s.sat = satori.New(satoriBackend{s}, logf)
 	s.sat.Channels(s.ch)
 	s.sat.OnSaid(s.routeSaid)
-	s.sat.OnTurnEnd(func(id, reply string, waiting []string) { go s.turnEnded(id, reply, waiting) })
+	s.sat.OnTurnEnd(func(id, _ string, waiting []string) { go s.turnEnded(id, waiting) })
 	m.Watch(func(n session.Notice) {
 		if n.Kind == session.NoticeTurnStart {
 			go s.turnBegan(n.Session)

@@ -252,8 +252,9 @@ func (s *Service) logged(ch, id string) (channel.Message, bool) {
 }
 
 // tell sends message m of the log as message-created (kind: user, progress, reply, error) to
-// those who see its channel; denied, on a reply: how many steps auto mode turned down.
-func (s *Service) tell(m channel.Message, kind, origin string, denied int) {
+// those who see its channel; denied, on a reply: how many steps auto mode turned down; at, when
+// it came from its agent.
+func (s *Service) tell(m channel.Message, kind, origin string, denied int, at time.Time) {
 	st, err := s.b.Session(m.Channel)
 	if err != nil {
 		return
@@ -268,14 +269,14 @@ func (s *Service) tell(m channel.Message, kind, origin string, denied int) {
 	s.emitOf(st.Session, m.D.Session, Event{Type: "message-created", Message: &msg, User: msg.User}, m.D.Files, kind, origin)
 	// What an agent said in its turn; what it sent with ir went to whom it names as it was sent.
 	if s.onSaid != nil && m.Kind == channel.KindSaid && !m.D.Sent {
-		s.onSaid(m)
+		s.onSaid(m, at)
 	}
 }
 
-// hear: session's agent said text. What its record has that the channel has not is told (a
-// person's words typed in the agent's terminal; what the agent said before), then text is held:
-// the next thing the agent does tells whether it was its reply.
-func (s *Service) hear(session, text, origin string) {
+// hear: session's agent said text, heard at at. What its record has that the channel has not is
+// told (a person's words typed in the agent's terminal; what the agent said before), then text
+// is held: the next thing the agent does tells whether it was its reply.
+func (s *Service) hear(session, text, origin string, at time.Time) {
 	s.mu.Lock()
 	after := s.heard[session]
 	// A block's time is the agent's clock, the turn's start ours: a little slack.
@@ -292,10 +293,10 @@ func (s *Service) hear(session, text, origin string) {
 		if o.Kind == channel.KindUser {
 			kind = "user"
 		}
-		s.tell(o, kind, origin, 0)
+		s.tell(o, kind, origin, 0, at)
 	}
 	s.mu.Lock()
-	s.held[session] = said
+	s.held[session], s.heldAt[session] = said, at
 	s.heard[session] = said.Seq
 	s.mu.Unlock()
 }
@@ -304,7 +305,9 @@ func (s *Service) hear(session, text, origin string) {
 func (s *Service) flush(session, kind, origin string, denied int) {
 	s.mu.Lock()
 	held, ok := s.held[session]
+	at := s.heldAt[session]
 	delete(s.held, session)
+	delete(s.heldAt, session)
 	s.mu.Unlock()
 	if !ok || held.Seq == 0 {
 		return
@@ -314,7 +317,7 @@ func (s *Service) flush(session, kind, origin string, denied int) {
 	} else if cur, ok := s.log.Get(held.Channel, held.Seq); ok {
 		held = cur // found in the record meanwhile: its files
 	}
-	s.tell(held, kind, origin, denied)
+	s.tell(held, kind, origin, denied, at)
 }
 
 // noteIn writes a line that is not words into channel ch (session's own, or one its agent is

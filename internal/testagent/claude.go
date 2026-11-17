@@ -367,6 +367,10 @@ func Claude() int {
 				continue
 			}
 			begin(f)
+			// A channel's message: its words are before its context.
+			if i := strings.Index(text, "\n\n<channel-context>"); i >= 0 {
+				text = text[:i]
+			}
 			switch {
 			case strings.HasSuffix(text, "crash"), strings.HasSuffix(text, "crash!"), strings.HasSuffix(text, "crashloop"):
 				record.Close()
