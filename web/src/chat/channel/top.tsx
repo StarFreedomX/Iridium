@@ -6,7 +6,7 @@
 import { Menu } from "@base-ui/react/menu";
 import { Popover } from "@base-ui/react/popover";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, ChevronRight, PencilLine, UserPlus, Users } from "lucide-react";
+import { Check, ChevronRight, PencilLine, Plus, UserPlus, Users } from "lucide-react";
 import { useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { api } from "../../api/client";
 import type { ChannelMembers, Viewer } from "../../api/types.gen";
@@ -26,6 +26,9 @@ import { prefetchChoices } from "./pick";
 import { memberError } from "./key";
 import type { AgentRow } from "./lib";
 import { MemberAsks, MemberItems, type Ask } from "./members";
+import { useRecvLabel } from "./recv";
+import { ScriptFace, ScriptPop, scriptState, useScripts, type ScriptPage } from "./script";
+import { recvOf } from "./scripts";
 import { actsOf } from "./menu";
 import { subName, SubTag } from "../subwork";
 import { appAll, hasApp, hasLogin, loginOf, peopleCount, peopleOf, pressApp, pressLogin } from "./setup";
@@ -72,6 +75,10 @@ export function TopRight({ id }: { id: string }) {
   // menu asks with, under the members' key.
   const key = useRef<HTMLButtonElement>(null);
   const [asked, setAsked] = useState<Ask | null>(null);
+  // A script's card, or a new one, out of the members' key (script.tsx): its pages in one popover.
+  const [script, setScript] = useState<ScriptPage | null>(null);
+  // Asked for as the bar is drawn: the list and each card open whole.
+  useScripts(id);
   return (
     <span className="g-fade flex shrink-0 items-center gap-0.5">
       {viewers.length > 0 && (
@@ -116,21 +123,25 @@ export function TopRight({ id }: { id: string }) {
           <Menu.Positioner side="bottom" align="end" sideOffset={6} collisionPadding={8} className="z-50">
             <Menu.Popup finalFocus={false} className={cn(POPUP, SUB)}>
               <div className="g-stagger flex flex-col">
-                <MemberList id={id} ask={setAsked} />
+                <MemberList id={id} ask={setAsked} script={(p) => requestAnimationFrame(() => setScript(p))} />
               </div>
             </Menu.Popup>
           </Menu.Positioner>
         </Menu.Portal>
       </Menu.Root>
       <MemberAsks channel={id} anchor={key} asked={asked} done={() => setAsked(null)} />
+      <ScriptPop channel={id} anchor={key} page={script} done={() => setScript(null)} align="end" />
     </span>
   );
 }
 
 /** The members: each agent a submenu, the menu its face has (members.tsx MemberItems; what it
- *  asks with, ask, drawn by the bar), what it receives at its row's end; then 邀请. */
-function MemberList({ id, ask }: { id: string; ask: (a: Ask) => void }) {
+ *  asks with, ask, drawn by the bar), what it receives at its row's end; the scripts of its IR,
+ *  each pressed its card (script), and 新建脚本; then 邀请. */
+function MemberList({ id, ask, script }: { id: string; ask: (a: Ask) => void; script: (p: ScriptPage) => void }) {
   const list = useList();
+  const { short } = useRecvLabel(id);
+  const scripts = useScripts(id) ?? [];
   const members = useMembers(id);
   const may = mayAct(members);
   const agents = (members?.members ?? []).filter((m) => m.session);
@@ -144,9 +155,9 @@ function MemberList({ id, ask }: { id: string; ask: (a: Ask) => void }) {
       {agents.map((m) => {
         const row = list?.find((x) => x.id === m.session);
         const agent = m.agent ?? row?.agent ?? "claude";
-        const a: AgentRow = { session: m.session!, member: m.member, agent, nick: m.nick ?? "", name: m.name ?? agentName(agent), status: m.status ?? row?.status ?? "idle", recv: m.recv };
+        const a: AgentRow = { session: m.session!, member: m.member, agent, nick: m.nick ?? "", name: m.name ?? agentName(agent), status: m.status ?? row?.status ?? "idle", recv: recvOf(m.recv) };
         return (
-          <Sub key={m.member} icon={<Face id={m.session!} agent={agent} size={16} />} lead={<ContextMark session={m.session!} />} label={m.nick || agentName(agent)} now={t(m.recv === "all" ? "channel.recvAll" : "channel.recvAt")} i={0}>
+          <Sub key={m.member} icon={<Face id={m.session!} agent={agent} size={16} />} lead={<ContextMark session={m.session!} />} label={m.nick || agentName(agent)} now={short(a.recv)} i={0}>
             <MemberItems channel={id} a={a} may={may} call={lent.call} record={lent.record} ask={(kind) => ask({ kind, a })} />
           </Sub>
         );
@@ -160,6 +171,27 @@ function MemberList({ id, ask }: { id: string; ask: (a: Ask) => void }) {
           <Lamp status="running" />
         </Menu.Item>
       ))}
+      {/* The scripts of its IR (docs/channels.md "脚本"): a row each, its face, name, intro, state. */}
+      {(scripts.length > 0 || may) && <div className={HEAD}>{t("script.group")}</div>}
+      {scripts.map((x) => {
+        const state = scriptState(x);
+        return (
+          <Menu.Item key={x.name} onClick={() => script({ k: "card", name: x.name })} className={ITEM}>
+            <ScriptFace avatar={x.avatar} size={16} />
+            <span className="shrink-0">{x.name}</span>
+            <span className="min-w-0 flex-1 truncate text-xs text-ink-3">{x.intro}</span>
+            {state && <span className={cn("shrink-0 text-xs", x.enabled ? "text-err" : "text-ink-3")}>{state}</span>}
+          </Menu.Item>
+        );
+      })}
+      {may && (
+        <Menu.Item onClick={() => script({ k: "new" })} className={ITEM}>
+          <span className="text-ink-2">
+            <Plus size={15} />
+          </span>
+          <span className="flex-1">{t("script.new")}</span>
+        </Menu.Item>
+      )}
       {/* No 人 / 所有人 here (kumo, 2026-11-16): who the people are is 邀请's to show and set. */}
       {may && <Invite id={id} />}
     </>

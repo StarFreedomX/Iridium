@@ -12,7 +12,7 @@ import { AtSign, MessageCircle, Box, Check, ChevronRight, CircleStop, Eraser, Fo
 import { useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 import { api } from "../../api/client";
 import { stopTurn } from "../live";
-import type { ChannelMembers, SessionState as LiveSession, Session } from "../../api/types.gen";
+import type { ChannelMembers, Recv, SessionState as LiveSession, Session } from "../../api/types.gen";
 import { CardHead, MainKey, SecondKey } from "../../card";
 import { t, useLang } from "../../i18n";
 import { ModeMark, modeName } from "../../modes";
@@ -29,6 +29,8 @@ import { useMembers } from "./gate";
 import { memberError } from "./key";
 import { givenKind, givenParts, givenText, ownAgent, type AgentRow, type GivenKind } from "./lib";
 import { memberMenu, type MenuKey } from "./menu";
+import { useRecvLabel, useRecvOptions } from "./recv";
+import { toggle } from "./scripts";
 import { CARD_POP, ProfileCard, useCard, type CardKey } from "./profilecard";
 
 const ITEM = "flex h-8 cursor-default items-center gap-2.5 rounded-md px-2.5 text-base outline-none select-none data-highlighted:bg-fill data-popup-open:bg-fill pointer-coarse:h-11";
@@ -179,6 +181,43 @@ function Pick({ icon, label, now, value, options, set, i }: { icon: ReactNode; l
   );
 }
 
+/** 接收消息 (docs/channels.md "接收"): whom a message that names nobody wakes it by, several at
+ *  once. What names it always does (its row checked, not to be pressed); then every person, the
+ *  channel's people, its other agents, each pressed in or out, the menu left open. */
+function RecvPick({ channel, a, set, i }: { channel: string; a: AgentRow; set: (r: Recv) => void; i: number }) {
+  const options = useRecvOptions(channel, a.session);
+  const { short } = useRecvLabel(channel);
+  const row = (key: string, on: boolean, face: ReactNode, label: string, run?: () => void, j = 0) => (
+    <Menu.Item key={key} closeOnClick={false} disabled={!run} onClick={run} style={{ "--i": j } as CSSProperties} className={cn(ITEM, "data-disabled:text-ink-2")}>
+      <span className="grid size-3.5 shrink-0 place-items-center text-ink">{on && <Check size={14} />}</span>
+      {face}
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+    </Menu.Item>
+  );
+  return (
+    <Menu.SubmenuRoot>
+      <Menu.SubmenuTrigger style={{ "--i": i } as CSSProperties} className={ITEM}>
+        <span className="text-ink-2">
+          <Mail size={15} />
+        </span>
+        <span className="flex-1">{t("channel.recv")}</span>
+        <span className="max-w-36 truncate text-xs text-ink-3">{short(a.recv)}</span>
+        <ChevronRight size={14} className="text-ink-4" />
+      </Menu.SubmenuTrigger>
+      <Menu.Portal>
+        <Menu.Positioner className="z-50" sideOffset={4} collisionPadding={8}>
+          <Menu.Popup className={cn(POPUP, "no-bar max-h-[min(480px,var(--available-height))] min-w-52 max-w-[calc(100vw-16px)] overflow-y-auto p-1.5")}>
+            <div className="g-stagger flex flex-col">
+              {row("@", true, <AtSign size={15} className="shrink-0 text-ink-2" />, t("channel.recvMention"))}
+              {options.map((o, j) => row(o.entry, a.recv.includes(o.entry), o.face, o.label, () => set(toggle(a.recv, o.entry)), j + 1))}
+            </div>
+          </Menu.Popup>
+        </Menu.Positioner>
+      </Menu.Portal>
+    </Menu.SubmenuRoot>
+  );
+}
+
 /** What a member's menu asks with a card or a popover at its anchor: 移出 (asked first),
  *  注入记录, 编辑资料. */
 export type AskKind = "remove" | "given" | "edit";
@@ -247,12 +286,15 @@ function Items({ channel, a, s, may, call, record, ask }: Parameters<typeof Memb
   const m = useModelMenu(s);
   const mine = ownAgent(channel, a);
   const act = (f: () => Promise<unknown>, err: string) => () => void f().catch((e) => toast(err, { error: true, description: errText(e) }));
-  const recv = (r: string) =>
-    r !== a.recv &&
+  // A receive set, whole, as each entry is pressed: shown at once, then as the server has it.
+  const recv = (r: Recv) => {
+    const was = qc.getQueryData<ChannelMembers>(["members", channel]);
+    if (was) qc.setQueryData<ChannelMembers>(["members", channel], { ...was, members: was.members.map((m) => (m.member === a.member ? { ...m, recv: r } : m)) });
     void api.patchMember(channel, a.member, { recv: r }).then(
       (ms) => qc.setQueryData<ChannelMembers>(["members", channel], ms),
-      (e) => toast(t("err.action"), { error: true, description: memberError(e) }),
+      (e) => (was && qc.setQueryData<ChannelMembers>(["members", channel], was), toast(t("err.action"), { error: true, description: memberError(e) })),
     );
+  };
   // Each after a frame: the menu shuts first, and what opens is not shut with it.
   const later = (f: () => void) => () => requestAnimationFrame(f);
   // 清空 asked in its own place: pressed, it turns red and asks again, the menu left open; pressed
@@ -307,21 +349,7 @@ function Items({ channel, a, s, may, call, record, ask }: Parameters<typeof Memb
       />
     ),
     stop: (i) => item(i, <CircleStop size={15} />, t("channel.stop"), () => void stopTurn(a.session)),
-    recv: (i) => (
-      <Pick
-        key="recv"
-        icon={<Mail size={15} />}
-        label={t("channel.recv")}
-        now={t(a.recv === "all" ? "channel.recvAll" : "channel.recvAt")}
-        value={a.recv}
-        options={[
-          { value: "all", label: t("channel.recvAll") },
-          { value: "at", label: t("channel.recvAt") },
-        ]}
-        set={recv}
-        i={i}
-      />
-    ),
+    recv: (i) => <RecvPick key="recv" channel={channel} a={a} set={recv} i={i} />,
     edit: (i) => item(i, <PencilLine size={15} />, t("profile.edit"), later(() => ask("edit"))),
     session: (i) => item(i, <ScrollText size={15} />, t("channel.session"), () => view?.()),
     given: (i) => item(i, <Inbox size={15} />, t("channel.given"), later(() => ask("given"))),

@@ -7,7 +7,7 @@
 // cards on top, the code checked against the one the app shows. No TOKEN is handed out here.
 import { Menu } from "@base-ui/react/menu";
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { Check, ChevronLeft, ChevronRight, Copy, EyeOff, KeyRound, Laptop, Link2, LoaderCircle, Monitor, MonitorSmartphone, PencilLine, Plus, SlidersHorizontal, Smartphone, Trash2, X, type LucideIcon } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, EyeOff, KeyRound, Laptop, Link2, LoaderCircle, Monitor, MonitorSmartphone, PencilLine, Plus, SlidersHorizontal, Smartphone, Trash2, X, type LucideIcon } from "lucide-react";
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { ApiError, api } from "./api/client";
 import type { Agent, App, Apps, Computer, Device, Login, Passkey, PasskeyLink, Perms, PendingInvite } from "./api/types.gen";
@@ -23,7 +23,7 @@ import { showSecret, useSecret } from "./secrets";
 import { Group } from "./settings";
 import { useConfirms, usePairing } from "./store";
 import { errText, toast } from "./toast";
-import { agentName, AGENTS as AGENT_MARKS, ago, Avatar, AvatarKey, cn, IconKey, IrMark, Logo, own, Switch, Tip, useLongPress, useMenuAt } from "./ui";
+import { agentName, AGENTS as AGENT_MARKS, ago, Avatar, AvatarKey, cn, CopyKey, IconKey, IrMark, Logo, own, Switch, Tip, useLongPress, useMenuAt } from "./ui";
 import { MenuItems, type MenuItem } from "./sidebar";
 
 const systems: Record<string, string> = {
@@ -167,20 +167,6 @@ function Line({ text, lang }: { text: string; lang: string }) {
         <Code text={text} lang={lang} />
       </code>
     </pre>
-  );
-}
-
-/** Copies text; a check for a moment after. */
-function CopyKey({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <IconKey
-      label={copied ? t("msg.copied") : t("msg.copy")}
-      onClick={() => void navigator.clipboard.writeText(text).then(() => (setCopied(true), setTimeout(() => setCopied(false), 1500)))}
-      className="-my-2 size-6 pointer-coarse:size-8"
-    >
-      {copied ? <Check size={13} /> : <Copy size={13} />}
-    </IconKey>
   );
 }
 

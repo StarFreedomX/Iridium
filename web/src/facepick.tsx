@@ -42,7 +42,7 @@ export const asDataURL = (f: Blob) =>
 /** label: what it is (头像, 背景); preview: how it looks now; set: the value given, as the
  *  daemon takes it (a data: URL, an emoji, a colour, "" for none), saved at once. upload: a
  *  picture chosen goes there instead (a face: cropped first, as the face itself does). */
-export function FacePick({ label, preview, set, disabled, upload }: { label: string; preview: ReactNode; set: (v: string) => Promise<unknown>; disabled?: boolean; upload?: (f: File) => void }) {
+export function FacePick({ label, preview, set, disabled, upload, still }: { label: string; preview: ReactNode; set: (v: string) => Promise<unknown>; disabled?: boolean; upload?: (f: File) => void; still?: boolean }) {
   const [open, setOpen] = useState<"emoji" | "colour" | null>(null);
   // What was open stays drawn while it folds away.
   const [shown, setShown] = useState<"emoji" | "colour">("emoji");
@@ -99,9 +99,12 @@ export function FacePick({ label, preview, set, disabled, upload }: { label: str
           }}
         />
         <span className="flex shrink-0 items-center gap-0.5">
-          <IconKey label={t("profile.upload")} disabled={off} onClick={() => file.current?.click()} className="size-7">
-            <ImagePlus size={15} />
-          </IconKey>
+          {/* still: no picture, only an emoji or a colour (a script's face). */}
+          {!still && (
+            <IconKey label={t("profile.upload")} disabled={off} onClick={() => file.current?.click()} className="size-7">
+              <ImagePlus size={15} />
+            </IconKey>
+          )}
           <IconKey label={t("profile.emoji")} disabled={off} aria-expanded={open === "emoji"} onClick={() => toggle("emoji")} className={cn("size-7", open === "emoji" && "bg-fill text-ink")}>
             <Smile size={15} />
           </IconKey>

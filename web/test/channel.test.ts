@@ -18,6 +18,8 @@ describe("a channel's messages", () => {
     expect(m.files.map((f) => f.ref)).toEqual(["ref1"]);
     expect(msgOf(person(1))!.author).toEqual({ kind: "person", id: "local", name: "主机" });
     expect(msgOf(note(2))!.author).toEqual({ kind: "iridium" });
+    expect(msgOf({ id: "3", content: "hi", user: { id: "script:echo", name: "echo", is_bot: true } })!.author).toEqual({ kind: "script", name: "echo" });
+    expect(msgOf({ id: "4", content: "hi", user: { id: "iridium", name: "echo" }, _data: { script: "echo" } })!.author).toEqual({ kind: "script", name: "echo" });
     expect(msgOf({ id: "ask:s1:r", content: "" })).toBeUndefined();
   });
   test("grouped: an agent's in a row share a head; a person's and Iridium's stand alone", () => {
@@ -252,7 +254,7 @@ describe("didOf", () => {
 });
 
 describe("a channel's events", () => {
-  const w: EventWords = { join: "{nick} 已加入", leave: "{nick} 已移出", rename: "{from} 改名 {nick}", recv: "{nick} 接收{recv}", everyone: "人：全部", added: "已加入：{added}", removed: "已移出：{removed}", undelivered: "#{seq} 未送达 {nick}", stopped: "#{seq} 未转交", silent: "#{seq} {nick} 未发话", silentWhy: "#{seq} {nick} 未发话：{reason}", by: "（{by}）", sep: "，", all: "全部", at: "@我", reasons: { 余额不足: "no balance left" } };
+  const w: EventWords = { join: "{nick} 已加入", leave: "{nick} 已移出", rename: "{from} 改名 {nick}", recv: "{nick} 接收{recv}", everyone: "人：全部", added: "已加入：{added}", removed: "已移出：{removed}", undelivered: "#{seq} 未送达 {nick}", stopped: "#{seq} 未转交", silent: "#{seq} {nick} 未发话", silentWhy: "#{seq} {nick} 未发话：{reason}", by: "（{by}）", sep: "，", reasons: { 余额不足: "no balance left" }, script: { add: "{by} 添加了脚本「{script}」", remove: "{by} 删除了脚本「{script}」", enabled: "{by} 启用了脚本「{script}」", disabled: "{by} 停用了脚本「{script}」", changed: "{by} 修改了脚本「{script}」", renamed: "{by} 把脚本「{old}」改名为「{script}」" } };
   test("join and leave: the agent, then who did it", () => {
     expect(eventParts({ type: "join", member: "agent:s", nick: "pi2", name: "pi Low", by: "主机" }, w)).toEqual([{ nick: "pi2" }, " 已加入（Iridium）"]);
     expect(eventParts({ type: "leave", nick: "pi2" }, w)).toEqual([{ nick: "pi2" }, " 已移出"]);
@@ -260,9 +262,18 @@ describe("a channel's events", () => {
   test("rename: the old nick as words, the new one the agent", () => {
     expect(eventParts({ type: "rename", from: "pi2", nick: "bob", by: "主机" }, w)).toEqual(["@pi2 改名 ", { nick: "bob" }, "（Iridium）"]);
   });
-  test("recv: what it receives now", () => {
-    expect(eventParts({ type: "recv", nick: "pi", recv: "all" }, w)).toEqual([{ nick: "pi" }, " 接收全部"]);
-    expect(eventParts({ type: "recv", nick: "pi", recv: "at" }, w)).toEqual([{ nick: "pi" }, " 接收@我"]);
+  test("recv: its receive set now, the old words read as sets", () => {
+    expect(eventParts({ type: "recv", nick: "pi", recv: ["*", "agent:s2"] }, w)).toEqual([{ nick: "pi" }, " 接收", { recv: ["*", "agent:s2"] }]);
+    expect(eventParts({ type: "recv", nick: "pi", recv: "all" }, w)).toEqual([{ nick: "pi" }, " 接收", { recv: ["*"] }]);
+    expect(eventParts({ type: "recv", nick: "pi", recv: "at" }, w)).toEqual([{ nick: "pi" }, " 接收", { recv: [] }]);
+  });
+  test("script: what was done to it, by whom, in the line's own words", () => {
+    expect(eventParts({ type: "script", name: "echo", what: ["add"], by: "kumo" }, w)).toEqual(["kumo 添加了脚本「echo」"]);
+    expect(eventParts({ type: "script", name: "echo", what: ["disabled"], by: "kumo" }, w)).toEqual(["kumo 停用了脚本「echo」"]);
+    expect(eventParts({ type: "script", name: "echo", what: ["run", "on"], by: "kumo" }, w)).toEqual(["kumo 修改了脚本「echo」"]);
+    expect(eventParts({ type: "script", name: "echo2", from: "echo", what: ["name"], by: "kumo" }, w)).toEqual(["kumo 把脚本「echo」改名为「echo2」"]);
+    expect(eventParts({ type: "script", name: "echo", what: ["remove"] }, w)).toEqual(["删除了脚本「echo」"]);
+    expect(eventParts({ type: "script", what: ["add"] }, w)).toBeUndefined();
   });
   test("people: everyone, or those added and removed", () => {
     expect(eventParts({ type: "people", everyone: true, by: "主机" }, w)).toEqual(["人：全部（Iridium）"]);

@@ -2,7 +2,7 @@
 // popover shell, icon keys, agent logos with their status lamp, terminal avatars, switches.
 import { Popover } from "@base-ui/react/popover";
 import { Tooltip } from "@base-ui/react/tooltip";
-import { Bot, Camera, Monitor, Puzzle, ScrollText, UsersRound, type LucideIcon } from "lucide-react";
+import { Bot, Camera, Check, Copy, Monitor, Puzzle, ScrollText, UsersRound, type LucideIcon } from "lucide-react";
 import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type ComponentProps, type CSSProperties, type ReactElement, type ReactNode } from "react";
 import { useLeaving } from "./motion";
 import type { Agent, Status } from "./api/types.gen";
@@ -220,6 +220,20 @@ export function IconKey({ label, className, children, tipSide, ...rest }: Compon
         {children}
       </button>
     </Tip>
+  );
+}
+
+/** Copies text; a check for a moment after (a command's, over it: docs/前端设计规范.md "命令"). */
+export function CopyKey({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <IconKey
+      label={copied ? t("msg.copied") : t("msg.copy")}
+      onClick={() => void navigator.clipboard.writeText(text).then(() => (setCopied(true), setTimeout(() => setCopied(false), 1500)))}
+      className="-my-2 size-6 pointer-coarse:size-8"
+    >
+      {copied ? <Check size={13} /> : <Copy size={13} />}
+    </IconKey>
   );
 }
 

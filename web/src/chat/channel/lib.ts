@@ -4,12 +4,13 @@
 // (internal/deliver Mentions) and put into the composer; the agents listed under a channel's row;
 // a channel's lamp.
 import type { ChannelMessage } from "../../api/client";
-import type { Agent, Device, FileRef, Session, Status } from "../../api/types.gen";
+import type { Agent, Device, FileRef, Recv, Session, Status } from "../../api/types.gen";
 import { blockOf } from "../../satori";
+import { recvOf, scriptOfUser } from "./scripts";
 
 /** Who said a message: an agent of the channel (its session, the nick it is called by, what it
- *  ran as), a person (their tag), or Iridium itself. */
-export type Author = { kind: "agent"; session: string; nick: string; name: string } | { kind: "person"; id: string; name: string; device?: Device } | { kind: "iridium" };
+ *  ran as), a person (their tag), a script of the channel's IR (its name), or Iridium itself. */
+export type Author = { kind: "agent"; session: string; nick: string; name: string } | { kind: "person"; id: string; name: string; device?: Device } | { kind: "script"; name: string } | { kind: "iridium" };
 
 /** A message of a channel: n, its number there. kind: as its event said it (user, progress, reply,
  *  ask, error, note); the log itself does not say. */
@@ -45,20 +46,28 @@ export function workOf<B extends { at: string; kind: string; text?: string }>(bl
 }
 
 /** Something that happened to a channel, a line of Iridium's own in it (internal/channel Event):
- *  join, leave (nick), rename (from, nick), recv (nick, recv), people (added, removed: member
+ *  join, leave (nick), rename (from, nick), recv (nick, recv: its receive set; before 2026-11-17
+ *  "all" or "at"), script (name, what: add, remove, enabled, disabled or the fields changed;
+ *  from: its old name), people (added, removed: member
  *  strings; everyone), undelivered (seq, nick), stopped (seq), silent (seq, nick: called for it,
  *  it said nothing in the channel; reason: why, its turn ending in an error), profile (a card
  *  changed: member's, by nick, or the channel's own with no member; what: the fields, "name",
  *  "intro", "avatar", "background"). by: who did it, by
  *  name (the host's as Iridium, however it was kept: 主机 before 2026-11-15). */
-export type ChEvent = { type: string; member?: string; nick?: string; name?: string; from?: string; recv?: string; added?: string[]; removed?: string[]; everyone?: boolean; seq?: number; reason?: string; by?: string; what?: string[] };
+export type ChEvent = { type: string; member?: string; nick?: string; name?: string; from?: string; recv?: string[] | string; added?: string[]; removed?: string[]; everyone?: boolean; seq?: number; reason?: string; by?: string; what?: string[] };
 
-/** A piece of an event's line: words, an agent by its nick, people by their member strings. */
-export type EventPart = string | { nick: string } | { people: string[] };
+/** A piece of an event's line: words, an agent by its nick, people by their member strings, a
+ *  receive set (named as the page names its entries). */
+export type EventPart = string | { nick: string } | { people: string[] } | { recv: Recv };
+
+/** What a script's line says, by what was done to it (ChEvent what; renamed: from is set). */
+export type ScriptDone = "add" | "remove" | "enabled" | "disabled" | "changed" | "renamed";
 
 /** The line's words by event (i18n: channel.event.*), their slots in braces: {nick} {from}
- *  {recv} {people} {seq} {reason} {by}; reasons: the server's usual reasons (余额不足…) in them. */
-export type EventWords = Record<"join" | "leave" | "rename" | "recv" | "everyone" | "added" | "removed" | "undelivered" | "stopped" | "silent" | "silentWhy" | "by" | "sep" | "all" | "at", string> & {
+ *  {recv} {people} {seq} {reason} {by} {script} {old}; reasons: the server's usual reasons (余额不足…) in them. */
+export type EventWords = Record<"join" | "leave" | "rename" | "recv" | "everyone" | "added" | "removed" | "undelivered" | "stopped" | "silent" | "silentWhy" | "by" | "sep", string> & {
+  /** A script added, removed, turned on or off, changed, renamed: each with who did it in its words. */
+  script?: Record<ScriptDone, string>;
   reasons?: Record<string, string>;
   /** A card changed: a member's, the channel's; each with who did it in its words, and without. */
   profile?: string;
@@ -84,7 +93,11 @@ export function eventParts(e: ChEvent, w: EventWords): EventPart[] | undefined {
           case "{from}":
             return `@${e.from ?? ""}`;
           case "{recv}":
-            return e.recv === "all" ? w.all : w.at;
+            return { recv: recvOf(e.recv) };
+          case "{script}":
+            return e.name ?? "";
+          case "{old}":
+            return e.from ?? "";
           case "{seq}":
             return String(e.seq ?? "");
           case "{by}":
@@ -119,6 +132,12 @@ export function eventParts(e: ChEvent, w: EventWords): EventPart[] | undefined {
       out = bits.flatMap((b, i) => (i ? [w.sep, ...b] : b));
       break;
     }
+    case "script": {
+      const tpl = w.script?.[scriptDone(e)];
+      if (!tpl || !e.name) return undefined;
+      out = fill(tpl);
+      break;
+    }
     case "profile": {
       // Who did it is in the line's own words, not after it.
       const tpl = e.member ? (e.by ? w.profile : w.profileNoBy) : e.by ? w.profileChannel : w.profileChannelNoBy;
@@ -129,9 +148,19 @@ export function eventParts(e: ChEvent, w: EventWords): EventPart[] | undefined {
     default:
       return undefined;
   }
-  if (e.by && e.type !== "profile") out.push(...fill(w.by));
-  // Words side by side are one piece.
-  return out.reduce<EventPart[]>((all, p) => (typeof p === "string" && typeof all.at(-1) === "string" ? [...all.slice(0, -1), (all.at(-1) as string) + p] : [...all, p]), []);
+  if (e.by && e.type !== "profile" && e.type !== "script") out.push(...fill(w.by));
+  // Words side by side are one piece; none by whom, no space before the rest.
+  const one = out.reduce<EventPart[]>((all, p) => (typeof p === "string" && typeof all.at(-1) === "string" ? [...all.slice(0, -1), (all.at(-1) as string) + p] : [...all, p]), []);
+  if (typeof one[0] === "string") one[0] = one[0].trimStart();
+  return one.filter((p) => p !== "");
+}
+
+/** What a script's line says was done to it: renamed (its old name given) before the rest. */
+function scriptDone(e: ChEvent): ScriptDone {
+  const what = e.what ?? [];
+  if (e.from) return "renamed";
+  for (const k of ["add", "remove", "enabled", "disabled"] as const) if (what.includes(k)) return k;
+  return "changed";
 }
 
 /** A person's entry by name: an app's all its name, a login its own; not known, as written. */
@@ -175,7 +204,8 @@ export function msgOf(m: ChannelMessage): Msg | undefined {
   if (!Number.isInteger(n) || n <= 0) return undefined;
   const b = blockOf({ id: m.id, content: m.content, created_at: m.created_at });
   const u = m.user;
-  const author: Author = u?.id.startsWith(AGENT) ? { kind: "agent", session: u.id.slice(AGENT.length), nick: u.nick ?? "", name: u.name ?? "" } : !u || u.id === "iridium" ? { kind: "iridium" } : { kind: "person", id: u.id, name: u.name ?? "", ...(m._data?.device ? { device: m._data.device } : {}) };
+  const script = scriptOfUser(u?.id, m._data?.script);
+  const author: Author = script ? { kind: "script", name: script } : u?.id.startsWith(AGENT) ? { kind: "agent", session: u.id.slice(AGENT.length), nick: u.nick ?? "", name: u.name ?? "" } : !u || u.id === "iridium" ? { kind: "iridium" } : { kind: "person", id: u.id, name: u.name ?? "", ...(m._data?.device ? { device: m._data.device } : {}) };
   // The message it answers: Satori's <quote id/> at its start.
   const q = /^<quote id="(\d+)"\s*\/>/.exec(m.content);
   return { n, text: b.text ?? "", files: b.files ?? [], author, ...(q ? { quote: Number(q[1]) } : {}), ...(m.created_at ? { time: m.created_at } : {}), ...(m._data?.kind ? { kind: m._data.kind } : {}), ...(m._data?.input ? { input: m._data.input } : {}), ...(author.kind === "agent" && didOf(m.content) ? { did: didOf(m.content)! } : {}), ...(m._data?.event && typeof m._data.event === "object" ? { event: m._data.event as ChEvent } : {}), ...(author.kind === "agent" && m._data?.session ? { src: { session: m._data.session, ...(m._data.block ? { block: m._data.block } : {}), ...(typeof m._data.from === "number" ? { from: m._data.from } : {}), ...(m._data.to ? { to: m._data.to } : {}) } } : {}) };
@@ -204,8 +234,8 @@ export function merge(have: Msg[], more: Msg[]): Msg[] {
   return changed ? [...by.values()].sort((a, b) => a.n - b.n) : have;
 }
 
-/** Messages one after another under one head: an agent's, while the same agent speaks; Iridium's
- *  lines in a row close together; a person's each by itself. */
+/** Messages one after another under one head: an agent's, while the same agent speaks, and a
+ *  script's the same; Iridium's lines in a row close together; a person's each by itself. */
 export type Group = { key: string; author: Author; msgs: Msg[] };
 
 /** Where each reader's mark goes (docs/channels.md "已读"): under the group that holds the last
@@ -230,6 +260,7 @@ export function groupMessages(msgs: Msg[]): Group[] {
   for (const m of msgs) {
     const last = out.at(-1);
     if (last && m.author.kind === "agent" && last.author.kind === "agent" && last.author.session === m.author.session) last.msgs.push(m);
+    else if (last && m.author.kind === "script" && last.author.kind === "script" && last.author.name === m.author.name) last.msgs.push(m);
     else if (last && m.author.kind === "iridium" && last.author.kind === "iridium") last.msgs.push(m);
     else out.push({ key: `m${m.n}`, author: m.author, msgs: [m] });
   }
@@ -333,7 +364,7 @@ export function insertNick(text: string, a: number, b: number, nick: string): { 
 
 /** A member as the @ list and the words that name it show it: an agent; or (person) a login or
  *  an app, its name as nick, its app (or 应用) as name, its avatar. */
-export type AgentRow = { session: string; member: string; agent: Agent; nick: string; name: string; status: Status; recv: string; avatar?: string; person?: boolean };
+export type AgentRow = { session: string; member: string; agent: Agent; nick: string; name: string; status: Status; recv: Recv; avatar?: string; person?: boolean };
 
 /** Whether user (a Satori user id) may be talked to alone (docs/channels.md "私聊"): the host, or
  *  one of logins; not an app, nor an author that is no login (the server has no one to open the

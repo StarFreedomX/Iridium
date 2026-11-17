@@ -55,9 +55,10 @@ import type { Device, Passkeys, PasskeyDevice, ShellOutput, ShellRun, ShellStart
 import type { SecretInfo, Secrets, SetSecret, Usage } from "./types.gen";
 import type { AgentChoices, Block, ChannelMembers, ChannelReads, Injection, MemberPatch, NewMember } from "./types.gen";
 import type { MemberCard, Memory, Profile as Card, ProfilePatch, Self } from "./types.gen";
+import type { NewScript, Script, ScriptPatch, ScriptRun } from "./types.gen";
 
 /** A message of a channel's log (Satori's message.list): id its number there. */
-export type ChannelMessage = { id: string; content: string; created_at?: number; user?: { id: string; name?: string; nick?: string; is_bot?: boolean }; _data?: { kind?: string; event?: unknown; session?: string; block?: string; from?: number; to?: number; input?: string; device?: Device } };
+export type ChannelMessage = { id: string; content: string; created_at?: number; user?: { id: string; name?: string; nick?: string; is_bot?: boolean }; _data?: { kind?: string; event?: unknown; session?: string; block?: string; from?: number; to?: number; input?: string; device?: Device; script?: string } };
 /** A page of a channel's log: start and end, the numbers of its first and last; more, earlier ones. */
 export type ChannelPage = { data: ChannelMessage[]; start: number; end: number; more: boolean };
 
@@ -267,6 +268,15 @@ export const api = {
   addMember: (id: string, m: NewMember) => write<ChannelMembers>("POST", `/v1/internal/channels/${enc(id)}/members`, m, { signal: AbortSignal.timeout(SEND_WAIT) }),
   patchMember: (id: string, member: string, p: MemberPatch) => write<ChannelMembers>("PATCH", `/v1/internal/channels/${enc(id)}/members/${enc(member)}`, p),
   removeMember: (id: string, member: string) => write<ChannelMembers>("DELETE", `/v1/internal/channels/${enc(id)}/members/${enc(member)}`),
+  // --- the scripts of a channel's IR (docs/channels.md "脚本") ---
+  scripts: (id: string) => get<Script[]>(`/v1/internal/channels/${enc(id)}/scripts`),
+  addScript: (id: string, x: NewScript) => write<Script>("POST", `/v1/internal/channels/${enc(id)}/scripts`, x),
+  patchScript: (id: string, name: string, p: ScriptPatch) => write<Script>("PATCH", `/v1/internal/channels/${enc(id)}/scripts/${enc(name)}`, p),
+  removeScript: (id: string, name: string) => write<{ ok: boolean }>("DELETE", `/v1/internal/channels/${enc(id)}/scripts/${enc(name)}`),
+  /** Its latest runs, the newest first. */
+  scriptRuns: (id: string, name: string) => get<ScriptRun[]>(`/v1/internal/channels/${enc(id)}/scripts/${enc(name)}/runs`),
+  /** Runs it now, by hand, and waits for it (a minute at most). */
+  runScript: (id: string, name: string, text?: string) => write<ScriptRun>("POST", `/v1/internal/channels/${enc(id)}/scripts/${enc(name)}/run`, text ? { text } : {}, { signal: AbortSignal.timeout(SEND_WAIT) }),
   // --- roles (docs/channels.md "角色"): cards kept to start sessions as ---
   roles: () => get<Role[]>("/v1/internal/roles"),
   patchRole: (id: string, p: RolePatch) => write<Role>("PATCH", `/v1/internal/roles/${enc(id)}`, p),

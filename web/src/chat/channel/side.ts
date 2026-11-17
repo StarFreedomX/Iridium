@@ -48,9 +48,10 @@ export type Side = {
 
 /** A session's channel as its page holds it. row: its agents, as the list has them (or, before
  *  the list came, its members); may: the one looking is of its people (its reads are said only
- *  then). */
-export function useSide(id: string, row: Pick<Session, "agents"> | undefined, may: boolean): Side {
-  if (isMulti(row)) several.add(id);
+ *  then); scripted: its IR has scripts, whose words (and the commands said to them) are the log's
+ *  alone, an agent of its own or not (docs/channels.md "脚本"). */
+export function useSide(id: string, row: Pick<Session, "agents"> | undefined, may: boolean, scripted = false): Side {
+  if (isMulti(row) || scripted) several.add(id);
   const on = several.has(id);
   const [version, setVersion] = useState(0);
   const bump = () => setVersion((n) => n + 1);

@@ -26,7 +26,7 @@ test("one answer brings the state, the record, the members and the channel's sid
   answer = () => ({
     session: state("s1"),
     page: { data: [block("3.0", "user", "hello", 100), block("5.0", "assistant", "hi", 200)], _data: { start: 3, end: 9, more: false } },
-    members: { channel: "s1", multi: true, joined: true, members: [{ member: "agent:s1", session: "s1", recv: "all" }, { member: "agent:s2", session: "s2", recv: "at" }] },
+    members: { channel: "s1", multi: true, joined: true, members: [{ member: "agent:s1", session: "s1", recv: ["*"] }, { member: "agent:s2", session: "s2", recv: [] }] },
     reads: { channel: "s1", end: 2, readers: [] },
     log: { data: [{ id: "1", content: "hello", created_at: 100, user: { id: "ir_web/a", name: "a" } }, { id: "2", content: "done", created_at: 300, user: { id: "agent:s2", nick: "b" }, _data: { session: "s2", from: 4, to: 8 } }], _data: { start: 1, end: 2, more: false } },
     sessions: { s2: state("s2") },

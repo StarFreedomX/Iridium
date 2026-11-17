@@ -30,6 +30,8 @@ import { errText, toast } from "../toast";
 import { groupPath, working } from "../tree";
 import { agentName, cn, IrMark, Lamp, lampOf, Leaving, LogoLamp, PopSurface, sessionStatusText, tilde, Tip, titleOf, untitled } from "../ui";
 import { givenTurn, groupMessages, isMulti, type AgentRow, type GivenTurn, type Msg } from "./channel/lib";
+import { recvOf } from "./channel/scripts";
+import { useScripts } from "./channel/script";
 import { betweenAgents, callerOf, foreignOf, givenHere, held, HOLD, linesOf, marksAt, named as namedIn, ownAnchors, slotsOf, type Anchor, type RowTime } from "./channel/merge";
 import { LongWords } from "./longwords";
 import { dispatched, type Start } from "./dispatch";
@@ -196,7 +198,8 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
   // Its agents as the list has them; before the list came, as its members do.
   const fromMembers = useMemo(() => (members?.members ?? []).flatMap((m) => (m.session ? [{ session: m.session, ...(m.agent ? { agent: m.agent } : {}), ...(m.nick ? { nick: m.nick } : {}) }] : [])), [members]);
   const chAgents = row ? row.agents : fromMembers;
-  const side = useSide(id, chAgents ? { agents: chAgents } : undefined, may);
+  const scripted = (useScripts(id)?.length ?? 0) > 0;
+  const side = useSide(id, chAgents ? { agents: chAgents } : undefined, may, scripted);
   const ownNeeds = confirms.filter((c) => c.session === id && c.kind !== "ask");
   // A card waiting for an answer (asks.tsx): the composer goes, and on a phone no swipe up brings
   // the sheet (sheet.tsx), the cards scrolling instead (the user, 2026-11-15).
@@ -375,7 +378,7 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
   // The agent as its face shows it (the user, 2026-11-13: both sides have a face from the start,
   // not only once a second agent is in): its nick and what it runs as from the members.
   const mine = members?.members.find((m) => m.session === id);
-  const faceRow: AgentRow | undefined = s && { session: id, member: `agent:${id}`, agent: s.agent, nick: mine?.nick ?? "", name: mine?.name ?? agentName(s.agent), status: lampOf(s), recv: mine?.recv ?? "all" };
+  const faceRow: AgentRow | undefined = s && { session: id, member: `agent:${id}`, agent: s.agent, nick: mine?.nick ?? "", name: mine?.name ?? agentName(s.agent), status: lampOf(s), recv: mine ? recvOf(mine.recv) : ["*"] };
   // 发消息 on its own agent's card: the composer here.
   const talk = () => composer.current?.focus();
   // Its members as words name them and as the composer's @ lists them (agents, people and apps
@@ -392,7 +395,7 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
             const m = members?.members.find((x) => x.session === a.session);
             const of = side.states[side.sessions.indexOf(a.session)] ?? list?.find((x) => x.id === a.session);
             const agent = of?.agent ?? m?.agent ?? a.agent ?? "claude";
-            return [{ session: a.session, member: `agent:${a.session}`, agent, nick: m?.nick ?? a.nick ?? "", name: m?.name ?? agentName(agent), status: of ? lampOf(of) : (m?.status ?? "idle"), recv: m?.recv ?? "at" }];
+            return [{ session: a.session, member: `agent:${a.session}`, agent, nick: m?.nick ?? a.nick ?? "", name: m?.name ?? agentName(agent), status: of ? lampOf(of) : (m?.status ?? "idle"), recv: recvOf(m?.recv) }];
           }),
         ];
   const stateOf = (session: string): LiveSession | undefined => (session === id ? s : side.states[side.sessions.indexOf(session)]);
@@ -1096,7 +1099,7 @@ function Where({ spots, asked }: { spots: Spot[]; asked: { session?: string }[] 
 type Works = { given: GivenTurn; relay?: Relay; time?: number };
 
 /** Who said a message of the channel's log, by name. */
-const nameOfMsg = (m: Msg) => (m.author.kind === "agent" ? m.author.nick || m.author.name : m.author.kind === "person" ? m.author.name : "Iridium");
+const nameOfMsg = (m: Msg) => (m.author.kind === "agent" ? m.author.nick || m.author.name : m.author.kind === "person" || m.author.kind === "script" ? m.author.name : "Iridium");
 
 /** No log (a channel of one agent): the same one each time. */
 const NO_MSGS: Msg[] = [];

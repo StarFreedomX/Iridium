@@ -35,18 +35,18 @@ function useAgain(state: string, key: unknown[]) {
   }, [seq, k, qc]);
 }
 
-/** The popover's frame for 编辑资料: its head (back to the card, when it came from one; its
- *  name), what scrolls under it. */
-function Frame({ back, children }: { back?: () => void; children: ReactNode }) {
+/** The popover's frame for 编辑资料 (and the like: a script's editor, title): its head (back to
+ *  the card, when it came from one; its name), what scrolls under it. dir: "back", come back to. */
+export function Frame({ back, title = t("profile.edit"), dir, children }: { back?: () => void; title?: string; dir?: "back"; children: ReactNode }) {
   return (
-    <div className="g-slide flex max-h-[min(600px,var(--available-height))] flex-col" role="dialog" aria-label={t("profile.edit")}>
+    <div data-dir={dir} className="g-slide flex max-h-[min(600px,var(--available-height))] flex-col" role="dialog" aria-label={title}>
       <header className="flex h-10 shrink-0 items-center gap-0.5 px-1.5 pointer-coarse:h-12">
         {back && (
           <IconKey label={t("nav.back")} onClick={back} tipSide="bottom" className="size-7 pointer-coarse:size-9">
             <ChevronLeft size={16} />
           </IconKey>
         )}
-        <h2 className={cn("m-0 min-w-0 flex-1 truncate text-sm font-semibold", !back && "px-2")}>{t("profile.edit")}</h2>
+        <h2 className={cn("m-0 min-w-0 flex-1 truncate text-sm font-semibold", !back && "px-2")}>{title}</h2>
       </header>
       <div className="no-bar min-h-0 flex-1 overflow-y-auto px-3.5 pb-3.5">{children}</div>
     </div>

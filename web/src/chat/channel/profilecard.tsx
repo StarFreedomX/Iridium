@@ -27,12 +27,13 @@ export function useCard(who: string) {
   return q.data;
 }
 
-/** A key of the card. */
-export type CardKey = { icon: ReactNode; label: string; run: () => void; disabled?: boolean };
+/** A key of the card. tone: its colour (a removal asked again, red). */
+export type CardKey = { icon: ReactNode; label: string; run: () => void; disabled?: boolean; tone?: string; key?: string };
 
 /** face: 56 across, round. sub: the line under the name (what an agent runs as, a person's
- *  app); state: the line after it (an agent's lamp and state). */
-export function ProfileCard({ face, name, sub, state, intro, background, keys }: { face: ReactNode; name: string; sub?: ReactNode; state?: ReactNode; intro?: string; background?: string; keys: CardKey[] }) {
+ *  app); state: the line after it (an agent's lamp and state). more: what else it shows, before
+ *  its keys; after: what they bring, under them (a script's, script.tsx). */
+export function ProfileCard({ face, name, sub, state, intro, background, keys, more, after }: { face: ReactNode; name: string; sub?: ReactNode; state?: ReactNode; intro?: string; background?: string; keys: CardKey[]; more?: ReactNode; after?: ReactNode }) {
   const [gone, setGone] = useState<string | null>(null);
   const banner = background && gone !== background ? background : undefined;
   return (
@@ -57,16 +58,18 @@ export function ProfileCard({ face, name, sub, state, intro, background, keys }:
             <p className="m-0 pt-2 text-sm leading-5 whitespace-pre-wrap text-ink-2 [overflow-wrap:anywhere]">{intro}</p>
           </div>
         </div>
+        {more}
         {keys.length > 0 && (
           <div className={cn("mt-3 gap-1.5", keys.length > 3 ? "grid grid-cols-2" : "flex")}>
             {keys.map((k) => (
-              <button key={k.label} type="button" disabled={k.disabled} onClick={k.run} className="g-press flex h-8 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md bg-fill px-2 text-sm text-ink hover:bg-fill-2 disabled:opacity-50 pointer-coarse:h-10">
-                <span className="shrink-0 text-ink-2">{k.icon}</span>
+              <button key={k.key ?? k.label} type="button" disabled={k.disabled} onClick={k.run} className={cn("g-press flex h-8 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md bg-fill px-2 text-sm hover:bg-fill-2 disabled:opacity-50 pointer-coarse:h-10", k.tone ?? "text-ink")}>
+                <span className={cn("shrink-0", k.tone ?? "text-ink-2")}>{k.icon}</span>
                 <span className="truncate">{k.label}</span>
               </button>
             ))}
           </div>
         )}
+        {after}
       </div>
     </div>
   );

@@ -15,7 +15,8 @@
 import { ArrowUp, Box, Brain, ChartPie, Eraser, FileCode2, FileText, FoldVertical, Gauge, LoaderCircle, Paperclip, Reply, ShieldCheck, X, type LucideIcon } from "lucide-react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { forwardRef, Fragment, useEffect, useImperativeHandle, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
-import type { Agent, Command, SessionState as LiveSession } from "../api/types.gen";
+import type { Agent, Command, Script, SessionState as LiveSession } from "../api/types.gen";
+import { ScriptFace, useScripts } from "./channel/script";
 import { runShell, shellLine, useShellable } from "./shell";
 import { api, missing } from "../api/client";
 import type { Sent } from "../chats";
@@ -61,9 +62,9 @@ export function keyMode(turn: boolean, text: string, files: number, queues: bool
 
 /** The commands for what was typed after the /: names that start with it first, then names that
  *  have it, then descriptions that do. */
-export function matching(commands: Command[], typed: string): Command[] {
+export function matching<C extends Command>(commands: C[], typed: string): C[] {
   const q = typed.toLowerCase();
-  const rank = (c: Command) => (c.name.toLowerCase().startsWith(q) ? 0 : c.name.toLowerCase().includes(q) ? 1 : (c.description ?? "").toLowerCase().includes(q) ? 2 : 3);
+  const rank = (c: C) => (c.name.toLowerCase().startsWith(q) ? 0 : c.name.toLowerCase().includes(q) ? 1 : (c.description ?? "").toLowerCase().includes(q) ? 2 : 3);
   return commands
     .map((c) => [rank(c), c] as const)
     .filter(([r]) => r < 3)
@@ -136,8 +137,8 @@ type Props = {
 /** The names that call more than one in a channel (internal/deliver AllMembers, AllAgents), as
  *  rows of the @ list. */
 const everyoneRows = (): AgentRow[] => [
-  { session: "", member: "*", agent: "" as Agent, nick: ALL_MEMBERS, name: t("channel.atMembers"), status: "idle", recv: "" },
-  { session: "", member: "agent:*", agent: "" as Agent, nick: ALL_AGENTS, name: t("channel.atAgents"), status: "idle", recv: "" },
+  { session: "", member: "*", agent: "" as Agent, nick: ALL_MEMBERS, name: t("channel.atMembers"), status: "idle", recv: [] },
+  { session: "", member: "agent:*", agent: "" as Agent, nick: ALL_AGENTS, name: t("channel.atAgents"), status: "idle", recv: [] },
 ];
 
 export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s, turn, onSent, onSentDone, cycleMode, openModel, openMode, openUsage, openContext, cleared, tools, nicks, quote, unquote, people }, ref) {
@@ -253,8 +254,14 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
   const shownAtts = row ? atts : lastAtts.current;
 
   const commands = commandsOf(s);
-  // Nothing typed after the /: the common ones first, then the agent's own, under their heads.
-  const list = !multi && /^\/\S*$/.test(text) && text !== shut ? (text === "/" ? [...commands.filter(isCommon), ...commands.filter((c) => !isCommon(c))] : matching(commands, text.slice(1))) : [];
+  // The commands of the channel's scripts (docs/channels.md "脚本"): "/name" goes to the script,
+  // in a channel of several too.
+  const scriptCmds = scriptCommands(useScripts(s.id));
+  const isScriptCmd = (words: string) => scriptCmds.some((c) => c.name === /^\/(\S+)/.exec(words.trim())?.[1]);
+  // Nothing typed after the /: the common ones first, then the agent's own, then the scripts',
+  // under their heads.
+  const cmds: Cmd[] = multi ? scriptCmds : [...commands.filter(isCommon), ...commands.filter((c) => !isCommon(c)), ...scriptCmds];
+  const list = /^\/\S*$/.test(text) && text !== shut ? (text === "/" ? cmds : matching(cmds, text.slice(1))) : [];
   const sessions = useList();
   const machines = useMachines();
   const workspaces = useWorkspaces().data ?? [];
@@ -322,7 +329,8 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
   const empty = !text.trim() && !atts.length;
   const queues = s.queue !== undefined;
   const steers = (useSettings().data?.enterInTurn ?? "steer") !== "queue";
-  const mode = keyMode(turn, text, atts.length, queues, steers);
+  // A script's command is said in the channel at once, never queued for the agent.
+  const mode = isScriptCmd(text) ? "send" : keyMode(turn, text, atts.length, queues, steers);
   const shellable = useShellable(s);
 
   /** Page-handled commands: true when done here. */
@@ -352,7 +360,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
     }
   };
   const go = async (other = false) => {
-    const mode = keyMode(turn, text, atts.length, queues, steers, other);
+    const mode = isScriptCmd(text) ? "send" : keyMode(turn, text, atts.length, queues, steers, other);
     if (busy || uploading || empty) return;
     if (atts.some((a) => a.error)) return toast(t("err.upload"), { error: true });
     // $ and a command line: run at the session's machine, not sent to the agent (shell.tsx).
@@ -410,7 +418,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
   // The palette beside the composer, not in it: a frosted layer inside another sees only that one.
   return (
     <div className="relative">
-      {list.length > 0 && <Palette list={list} at={Math.min(at ?? 0, list.length - 1)} agent={s.agent} grouped={text === "/"} point={setAt} pick={(c) => (own(`/${c.name}`) ? undefined : (type(`/${c.name} `), box.current?.focus()))} />}
+      {list.length > 0 && <Palette list={list} at={Math.min(at ?? 0, list.length - 1)} agent={s.agent} grouped={text === "/"} point={setAt} pick={(c) => (!c.script && own(`/${c.name}`) ? undefined : (type(`/${c.name} `), box.current?.focus()))} />}
       {atOpen && <AtList sections={sections} at={sel} point={setAt} pick={name} />}
       {nickOpts.length > 0 && <NickList rows={nickOpts} at={nickSel} point={setAt} pick={call} />}
       {secretish && (
@@ -556,7 +564,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
             if (move) setAt((now + move + shown) % shown);
             else if (list.length && (e.key === "Enter" || e.key === "Tab") && !e.shiftKey) {
               const c = list[now]!;
-              if (!own(`/${c.name}`)) type(`/${c.name} `);
+              if (c.script || !own(`/${c.name}`)) type(`/${c.name} `);
             } else if (opts.length && (e.key === "Enter" || e.key === "Tab") && !e.shiftKey) name(opts[sel]!);
             else if (nickOpts.length && (e.key === "Enter" || e.key === "Tab") && !e.shiftKey) call(nickOpts[nickSel]!);
             // → goes into the folder pointed at, only while the list is open on one.
@@ -689,22 +697,28 @@ function AtHeadRow({ head, off }: { head: AtHead; off?: boolean }) {
 
 /** The common commands' icons; an agent's own have none (no slash: the user, 2026-11-09). */
 const CMD_ICONS: Record<(typeof COMMON)[number], LucideIcon> = { clear: Eraser, compact: FoldVertical, context: ChartPie, usage: Gauge, model: Box, effort: Brain, mode: ShieldCheck };
-const isCommon = (c: Command) => COMMON.includes(c.name as (typeof COMMON)[number]);
+const isCommon = (c: Cmd) => !c.script && COMMON.includes(c.name as (typeof COMMON)[number]);
+
+/** A command of the palette: the agent's, or a script's (its face beside it). */
+type Cmd = Command & { script?: Script };
+/** The commands of a channel's scripts that are on, each its script's intro (or name) as what it does. */
+const scriptCommands = (scripts?: Script[]): Cmd[] => (scripts ?? []).filter((x) => x.enabled).flatMap((x) => x.on.flatMap((tr) => (tr.command ? [{ name: tr.command, description: x.intro || x.name, script: x }] : [])));
+const groupOf = (c: Cmd) => (c.script ? "script" : isCommon(c) ? "common" : "agent");
 
 /** The commands as the page's menus are (the model's, a right press's), not a bar as wide as the
  *  composer over it (the user, 2026-11-09): a card at the box's corner, grown out of the /; a row
  *  each, its icon, its name, what it does faint at its end; while nothing is typed after the /, the
  *  common ones, then the agent's own, each under its head. ↑↓ and Enter or Tab on a keyboard. */
-function Palette({ list, at, agent, grouped, pick, point }: { list: Command[]; at: number; agent: Agent; grouped: boolean; pick: (c: Command) => void; point: (i: number) => void }) {
+function Palette({ list, at, agent, grouped, pick, point }: { list: Cmd[]; at: number; agent: Agent; grouped: boolean; pick: (c: Cmd) => void; point: (i: number) => void }) {
   return (
     <div role="listbox" aria-label={t("composer.commands")} className="g-pop glass thick float absolute bottom-full left-2 z-10 mb-2 max-h-[min(360px,50dvh)] w-80 max-w-[calc(100%-16px)] origin-bottom-left no-bar overflow-y-auto overscroll-contain rounded-lg p-1.5 text-ink">
       <div className="g-stagger flex flex-col">
         {list.map((c, i) => {
           const Icon = isCommon(c) ? CMD_ICONS[c.name as (typeof COMMON)[number]] : undefined;
-          const head = grouped && (i === 0 || isCommon(list[i - 1]!) !== isCommon(c));
+          const head = grouped && (i === 0 || groupOf(list[i - 1]!) !== groupOf(c));
           return (
-            <Fragment key={c.name}>
-              {head && <div className="truncate px-2.5 pt-2 pb-0.5 text-xs text-ink-3 select-none first:pt-1">{isCommon(c) ? t("composer.cmdCommon") : agentName(agent)}</div>}
+            <Fragment key={`${groupOf(c)}:${c.name}`}>
+              {head && <div className="truncate px-2.5 pt-2 pb-0.5 text-xs text-ink-3 select-none first:pt-1">{c.script ? t("script.group") : isCommon(c) ? t("composer.cmdCommon") : agentName(agent)}</div>}
               <button
                 type="button"
                 role="option"
@@ -717,6 +731,7 @@ function Palette({ list, at, agent, grouped, pick, point }: { list: Command[]; a
                 className={cn("flex h-8 w-full shrink-0 cursor-default items-center gap-2.5 rounded-md px-2.5 text-left text-base outline-none select-none pointer-coarse:h-11", i === at && "bg-fill")}
               >
                 {Icon && <Icon size={15} className="shrink-0 text-ink-2" aria-hidden />}
+                {c.script && <ScriptFace avatar={c.script.avatar} size={15} />}
                 <span className="shrink-0">{c.name}</span>
                 {c.argumentHint && <span className="max-w-[30%] min-w-0 shrink truncate font-mono text-xs text-ink-3">{c.argumentHint}</span>}
                 <span className="min-w-0 flex-1 truncate text-right text-xs text-ink-3">{c.description}</span>

@@ -7,7 +7,7 @@ import { Tooltip } from "@base-ui/react/tooltip";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bot, Check, ChevronDown, ChevronRight, Folder, FolderPlus, LoaderCircle, Play, UserMinus } from "lucide-react";
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactElement, type ReactNode } from "react";
-import type { NewMember, NewSession as NewSessionReq, Workspace } from "./api/types.gen";
+import type { NewMember, NewSession as NewSessionReq, Recv, Workspace } from "./api/types.gen";
 import { api, missing } from "./api/client";
 import { openChat } from "./route";
 import type { Agent, Role } from "./api/types.gen";
@@ -295,7 +295,7 @@ export function NewSession({ ws, folder, onFolder, onPick, busy, onMake }: { ws:
     const key = next.current++;
     // The session's own agent receives all, as a session's always has; one invited, what names it.
     const own = bare === "off" && !shown.length;
-    setSeats((ss) => [...ss, { key, agent, role, pick: {}, nick: "", recv: own ? "all" : "at" }]);
+    setSeats((ss) => [...ss, { key, agent, role, pick: {}, nick: "", recv: own ? ["*"] : [] }]);
     setLast(role ? key : null);
   };
   const change = (key: number, p: Partial<Seat>) => setSeats((ss) => ss.map((x) => (x.key === key ? { ...x, ...p } : x)));
@@ -327,7 +327,7 @@ export function NewSession({ ws, folder, onFolder, onPick, busy, onMake }: { ws:
     const ps = people ?? undefined;
     if (bare === "on") return onPick("" as Agent, to, ps, shown.length ? { agents: shown.map(member) } : undefined);
     const [first, ...rest] = shown;
-    const as: As = { ...runs(first!), ...(typed(first!) ? { nick: typed(first!) } : {}), ...(first!.recv !== "all" ? { recv: first!.recv } : {}), ...(rest.length ? { agents: rest.map(member) } : {}) };
+    const as: As = { ...runs(first!), ...(typed(first!) ? { nick: typed(first!) } : {}), ...(!everyone(first!.recv) ? { recv: first!.recv } : {}), ...(rest.length ? { agents: rest.map(member) } : {}) };
     onPick(first!.agent, to, ps, as);
   };
   // A subfolder being named, in the folder's line (the user, 2026-11-10). What it holds now is read
@@ -439,7 +439,7 @@ export function NewSession({ ws, folder, onFolder, onPick, busy, onMake }: { ws:
         </Grow>
         {seats.map((x) => (
           <Grow key={x.key} open={!x.going}>
-            <SeatRow rowRef={x.key === lastRole?.key ? setRoleRow : undefined} seat={x} at={at} recv={bare !== "off" || shown.length > 1 || x.recv !== "all"} own={bare === "off" && shown[0]?.key === x.key} bad={bad(x)} set={(p) => change(x.key, p)} remove={() => remove(x.key)} />
+            <SeatRow rowRef={x.key === lastRole?.key ? setRoleRow : undefined} seat={x} at={at} recv={bare !== "off" || shown.length > 1 || !everyone(x.recv)} own={bare === "off" && shown[0]?.key === x.key} bad={bad(x)} set={(p) => change(x.key, p)} remove={() => remove(x.key)} />
           </Grow>
         ))}
       </div>
@@ -460,7 +460,12 @@ export function NewSession({ ws, folder, onFolder, onPick, busy, onMake }: { ws:
 
 /** One of the lineup: its agent, or a role (as which it starts); its model, effort, preset for
  *  this once (pick); its 称呼 ("": the server's); what it receives; going: being taken out. */
-type Seat = { key: number; agent: Agent; role?: Role; pick: RolePick; nick: string; recv: string; going?: boolean };
+type Seat = { key: number; agent: Agent; role?: Role; pick: RolePick; nick: string; recv: Recv; going?: boolean };
+
+/** Whether a seat's receive set is 全部 (every person's words), not 点名 (only what names it):
+ *  the two the lineup offers (docs/channels.md "接收"). */
+const everyone = (r: Recv) => r.includes("*");
+const RECV: Record<"all" | "at", Recv> = { all: ["*"], at: [] };
 
 /** What a seat starts with: as its role (what pick changes of it), else its agent's model,
  *  effort, preset as picked. */
@@ -473,7 +478,7 @@ const member = (x: Seat): NewMember => ({ agent: x.agent, ...runs(x), ...(x.nick
 /** What a start adds: its 称呼 (nick); as a role, the role and what this one session changes of
  *  it (roles.tsx roleStart); its model, effort, preset; what its own agent receives (recv); the
  *  agents invited with it (agents). */
-export type As = Partial<ReturnType<typeof roleStart>> & { nick?: string; recv?: string; agents?: NewMember[] };
+export type As = Partial<ReturnType<typeof roleStart>> & { nick?: string; recv?: Recv; agents?: NewMember[] };
 
 /** What opens and shuts in the "+" (开始): its height glides, nothing jumps. */
 function Fold({ open, children }: { open: boolean; children: ReactNode }) {
@@ -537,7 +542,7 @@ function RolesRow({ roles, at, add }: { roles: Role[]; at: object; add: (r: Role
 }
 
 /** A row's menu, at the right button or a finger held: what it receives, and 移出. */
-function RowMenu({ at, close, recv, setRecv, remove }: { at: { x: number; y: number } | null; close: () => void; recv?: string; setRecv?: (r: string) => void; remove: () => void }) {
+function RowMenu({ at, close, recv, setRecv, remove }: { at: { x: number; y: number } | null; close: () => void; recv?: Recv; setRecv?: (r: Recv) => void; remove: () => void }) {
   const anchor = at && { getBoundingClientRect: () => DOMRect.fromRect({ x: at.x, y: at.y, width: 0, height: 0 }) };
   return (
     <Menu.Root open={at !== null} onOpenChange={(o) => !o && close()}>
@@ -545,7 +550,7 @@ function RowMenu({ at, close, recv, setRecv, remove }: { at: { x: number; y: num
         <Menu.Positioner anchor={anchor} side="bottom" align="start" sideOffset={4} collisionPadding={8} className="z-50">
           <Menu.Popup finalFocus={false} className="g-unfold glass thick float min-w-44 rounded-lg p-1.5 text-ink outline-none">
             {recv !== undefined && setRecv && (
-              <Menu.RadioGroup value={recv} onValueChange={(v) => setRecv(v as string)} className="flex flex-col">
+              <Menu.RadioGroup value={everyone(recv) ? "all" : "at"} onValueChange={(v) => setRecv(RECV[v as "all" | "at"])} className="flex flex-col">
                 {(["at", "all"] as const).map((r) => (
                   <Menu.RadioItem key={r} value={r} closeOnClick className={ROW}>
                     <span className="min-w-0 flex-1 truncate">{t(r === "all" ? "channel.recvAll" : "channel.recvAt")}</span>
@@ -621,7 +626,8 @@ function SeatRow({ rowRef, seat, at, recv, own: mine, bad, set, remove }: { rowR
   // A kind's line: the model it runs and its effort (its face says which agent).
   const model = seat.pick.model ? (asked?.models.find((x) => x.value === seat.pick.model)?.name ?? seat.pick.model) : draftDefault(asked).def?.name;
   const kindLine = [model ?? agentName(seat.agent), seat.pick.effort ? effortName(seat.pick.effort) : ""].filter(Boolean).join(" · ");
-  const recvLabel = t(seat.recv === "all" ? "new.recvAll" : "new.recvAt");
+  const all = everyone(seat.recv);
+  const recvLabel = t(all ? "new.recvAll" : "new.recvAt");
   return (
     <div ref={rowRef} role="listitem" {...m.props} className="flex min-h-11 items-center gap-2 rounded-md px-1.5 py-1 pointer-coarse:min-h-13">
       {seat.role ? (
@@ -663,9 +669,9 @@ function SeatRow({ rowRef, seat, at, recv, own: mine, bad, set, remove }: { rowR
       </span>
       {/* What it receives: pressed, the other (kumo, 2026-11-16: a choice, never assumed). */}
       {recv && (
-        <Tip label={`${t("channel.recv")} · ${t(seat.recv === "all" ? "channel.recvAll" : "channel.recvAt")}`}>
-          <button type="button" aria-label={`${t("channel.recv")}: ${recvLabel}`} onClick={() => set({ recv: seat.recv === "all" ? "at" : "all" })} className="g-press h-6 shrink-0 rounded-full bg-fill px-2 text-xs text-ink-2 hover:bg-fill-2 pointer-coarse:h-8">
-            <span key={seat.recv} className="g-fade">
+        <Tip label={`${t("channel.recv")} · ${t(all ? "channel.recvAll" : "channel.recvAt")}`}>
+          <button type="button" aria-label={`${t("channel.recv")}: ${recvLabel}`} onClick={() => set({ recv: all ? RECV.at : RECV.all })} className="g-press h-6 shrink-0 rounded-full bg-fill px-2 text-xs text-ink-2 hover:bg-fill-2 pointer-coarse:h-8">
+            <span key={String(all)} className="g-fade">
               {recvLabel}
             </span>
           </button>

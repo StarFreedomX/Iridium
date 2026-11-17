@@ -89,9 +89,9 @@ export function usePeople(members?: ChannelMembers): AgentRow[] {
     for (const a of apps?.apps ?? []) {
       if (isComputer(a)) continue;
       const appName = a.web ? t("term.panel") : a.name;
-      if (hasApp(ps, a.id)) out.push({ session: "", member: `${a.id}/*`, agent: "" as AgentRow["agent"], nick: appName, name: t("channel.app"), status: "idle", recv: "", avatar: a.avatar, person: true });
+      if (hasApp(ps, a.id)) out.push({ session: "", member: `${a.id}/*`, agent: "" as AgentRow["agent"], nick: appName, name: t("channel.app"), status: "idle", recv: [], avatar: a.avatar, person: true });
       for (const l of (apps?.logins ?? []).filter((x) => x.app === a.id)) {
-        if (hasLogin(ps, a.id, l.id)) out.push({ session: "", member: `${a.id}/${l.id}`, agent: "" as AgentRow["agent"], nick: l.name, name: appName, status: "idle", recv: "", avatar: l.avatar, person: true });
+        if (hasLogin(ps, a.id, l.id)) out.push({ session: "", member: `${a.id}/${l.id}`, agent: "" as AgentRow["agent"], nick: l.name, name: appName, status: "idle", recv: [], avatar: l.avatar, person: true });
       }
     }
     return out;
