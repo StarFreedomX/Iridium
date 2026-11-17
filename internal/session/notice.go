@@ -15,6 +15,9 @@ const (
 	NoticeError     NoticeKind = "error"    // the agent process ended badly: Text says how
 	NoticeStatus    NoticeKind = "status"   // the lamp changed to Status
 	NoticeCompacted NoticeKind = "compacted"
+	// NoticeTaken: input Text is given to the agent now, told before it is written: what the
+	// agent says after this notice may answer it, what it said before may not.
+	NoticeTaken NoticeKind = "taken"
 	// NoticeEnded: the agent process ended while a turn ran and the turn is not run again (a stop,
 	// a crash not continued): no turn_end follows. Waiting as at a turn's end.
 	NoticeEnded NoticeKind = "ended"

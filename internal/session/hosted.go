@@ -640,11 +640,19 @@ func (h *Hosted) onEvent(e agent.Event) {
 			notes = append(notes, n)
 		}
 	}
+	// What is done later starts once this event's notices are out: the next queued input is not
+	// told given (NoticeTaken) before the turn's end it follows.
+	var laters []func()
 	later := func(f func()) {
 		if !replay {
-			go f()
+			laters = append(laters, f)
 		}
 	}
+	defer func() {
+		for _, f := range laters {
+			go f()
+		}
+	}()
 	h.mu.Lock()
 	proc := h.proc
 	list := false // whether the session list changes

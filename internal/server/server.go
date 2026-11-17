@@ -82,15 +82,15 @@ type Server struct {
 	// Remote, if set, takes executors' connections at /v1/internal/exec (docs/exec.md).
 	Remote *remote.Hub
 
-	files   *files.Service   // routes_files.go
-	sat     *satori.Service  // /v1/: Satori with ir (satori.go)
-	ch      *channel.Service // what is said in the channels (docs/channels.md)
-	chain   chains           // each channel's run of agents passing messages on (channels.go)
+	files *files.Service   // routes_files.go
+	sat   *satori.Service  // /v1/: Satori with ir (satori.go)
+	ch    *channel.Service // what is said in the channels (docs/channels.md)
+	chain chains           // each channel's run of agents passing messages on (channels.go)
 
-	viewers viewers          // who is looking at each channel now (channels.go)
-	dms     dms              // the channels that are two people's (channels.go)
-	calls   calls            // the channels each agent was called in by a subscription (channels.go)
-	answers answers          // what each agent writes, said in turn where it was called (channels.go)
+	viewers viewers // who is looking at each channel now (channels.go)
+	dms     dms     // the channels that are two people's (channels.go)
+	calls   calls   // the channels each agent was called in by a subscription (channels.go)
+	answers answers // what each agent writes, said in turn where it was called (channels.go)
 	// channelsSeq: the state "channels", up by one at each change of a channel's members.
 	channelsSeq atomic.Int64
 	// scripts: the channels' scripts running and waiting (scripts.go); scriptsSeq, the state
@@ -141,11 +141,13 @@ func New(cfg config.Config, m *session.Manager, h *hub.Hub, logf func(string, ..
 	s.sat = satori.New(satoriBackend{s}, logf)
 	s.sat.Channels(s.ch)
 	s.sat.OnSaid(s.routeSaid)
-	s.sat.OnTurnEnd(func(id, _ string, waiting []string) { go s.turnEnded(id, waiting) })
-	m.Watch(func(n session.Notice) {
-		if n.Kind == session.NoticeTurnStart {
-			go s.turnBegan(n.Session)
-		}
+	// A turn's start and end in order with what its agent wrote (answers), so that its words
+	// are said where it was called before the call closes.
+	s.sat.OnTaken(s.answers.took)
+	s.sat.OnTurnStart(func(id string) { s.answers.add(id, func() { s.turnBegan(id) }) })
+	s.sat.OnTurnEnd(func(id, _ string, _ []string) {
+		taken := s.answers.given(id)
+		s.answers.add(id, func() { s.turnEnded(id, taken) })
 	})
 	m.SetInChannel(s.multi)
 	m.SetChannelOf(s.channelOf)
@@ -194,6 +196,7 @@ func (s *Server) Close() {
 	if s.stopList != nil {
 		s.stopList()
 	}
+	s.answers.close()
 	s.sat.Close()
 }
 

@@ -630,9 +630,15 @@ func (m *Manager) provide(key string) (any, bool) {
 func (m *Manager) PublishList() { m.publishList() }
 
 func (m *Manager) publishList() {
+	// Closed: no list to make (a timer that fires after, its store gone).
+	if m.ctx.Err() != nil {
+		return
+	}
 	l, err := m.List(m.ctx)
 	if err != nil {
-		m.o.Logf("session: list: %v", err)
+		if m.ctx.Err() == nil {
+			m.o.Logf("session: list: %v", err)
+		}
 		return
 	}
 	m.o.Hub.Set("list", l)

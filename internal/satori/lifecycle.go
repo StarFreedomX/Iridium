@@ -166,7 +166,7 @@ func (s *Service) Input(ss api.Session, id, text string, from User, origin strin
 		return 0
 	}
 	if isNew {
-		s.tell(m, told, origin, 0, time.Now())
+		s.tell(m, told, origin, 0)
 	}
 	return m.Seq
 }

@@ -178,12 +178,13 @@ type Service struct {
 	ch  channels
 	log *channel.Service // what was said in the channels (Channels)
 	// onSaid is told each message an agent said, as it is sent out (OnSaid).
-	onSaid    func(channel.Message, time.Time)
+	onSaid    func(channel.Message)
 	onTurnEnd func(session, reply string, waiting []string)
+	onTaken   func(session, input string)
+	onBegan   func(session string)
 
 	mu      sync.Mutex
 	held    map[string]channel.Message  // session: the agent's last message this turn, not sent yet
-	heldAt  map[string]time.Time        // session: when the held message came from its agent
 	heard   map[string]int64            // session: the number of the last message heard from it
 	origin  map[string]string           // session: who began its turn
 	started map[string]time.Time        // session: when its turn began
@@ -191,9 +192,16 @@ type Service struct {
 	words   map[string]map[int]string   // an ask's card: own words so far, by group
 }
 
-// OnSaid has f told each thing an agent says in a channel, after the event of it is kept, with
-// when it came from its agent (as Iridium heard it, not the agent's clock); f must not wait.
-func (s *Service) OnSaid(f func(m channel.Message, at time.Time)) { s.onSaid = f }
+// OnSaid has f told each thing an agent says in a channel, after the event of it is kept; f
+// must not wait.
+func (s *Service) OnSaid(f func(channel.Message)) { s.onSaid = f }
+
+// OnTaken has f told each input given to a session's agent, in order with what the agent says
+// (session.NoticeTaken): what f is told before a thing said is told were given before it.
+func (s *Service) OnTaken(f func(session, input string)) { s.onTaken = f }
+
+// OnTurnStart has f told each turn of a session that begins, in order with what its agent says.
+func (s *Service) OnTurnStart(f func(session string)) { s.onBegan = f }
 
 // OnTurnEnd has f told each turn of a session that ends, after its reply was said: the
 // session, the reply's words ("" if it said none), and the inputs that still wait in its queue
@@ -207,7 +215,7 @@ func (s *Service) Note(ch, text, origin string, ev *channel.Event) int64 {
 	if err != nil || !isNew {
 		return 0
 	}
-	s.tell(m, "note", origin, 0, time.Now())
+	s.tell(m, "note", origin, 0)
 	return m.Seq
 }
 
@@ -223,7 +231,7 @@ func New(b Backend, logf func(string, ...any)) *Service {
 		logf = log.Printf
 	}
 	s := &Service{b: b, logf: logf, out: newOutbox(logf), qwake: make(chan struct{}, 1), stop: make(chan struct{}), done: make(chan struct{}),
-		held: map[string]channel.Message{}, heldAt: map[string]time.Time{}, heard: map[string]int64{}, origin: map[string]string{}, started: map[string]time.Time{}, picks: map[string]map[int][]string{}, words: map[string]map[int]string{}}
+		held: map[string]channel.Message{}, heard: map[string]int64{}, origin: map[string]string{}, started: map[string]time.Time{}, picks: map[string]map[int][]string{}, words: map[string]map[int]string{}}
 	go s.work()
 	return s
 }

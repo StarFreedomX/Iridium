@@ -1,7 +1,6 @@
 package store
 
 import (
-	"database/sql"
 	"errors"
 )
 
@@ -26,15 +25,6 @@ func (s *Store) InputOf(id string) (session, state string, ok bool) {
 		return "", "", false
 	}
 	return session, state, true
-}
-
-// InputTaken is when input id was given to its agent (ms), if it has been.
-func (s *Store) InputTaken(id string) (int64, bool) {
-	var at sql.NullInt64
-	if s.db.QueryRow(`SELECT sent_at FROM inputs WHERE id = ? AND state = 'sent'`, id).Scan(&at) != nil || !at.Valid {
-		return 0, false
-	}
-	return at.Int64, true
 }
 
 // ForgetInput drops input id whatever its state: one whose writing to the agent failed.

@@ -272,37 +272,46 @@ func (k *calls) add(session string, c called) {
 	k.save(session)
 }
 
-// current is the channel session's agent works for now: that of its latest open call it has
-// taken; "" none.
+// current is the channel session's agent works for now: that of its latest open call; "" none.
 func (k *calls) current(session string) string {
-	c, _ := k.answering(session, time.Now())
-	return c.Channel
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	cs := k.load(session)
+	if len(cs) == 0 {
+		return ""
+	}
+	return cs[len(cs)-1].Channel
 }
 
-// answering is session's latest open call whose input its agent had been given before at: what
-// it wrote at answers that call, and is said in its channel. Not one given after (its last turn's
-// words heard late, as the next turn takes the call: kumo, 2026-11-17), nor one still queued.
-func (k *calls) answering(session string, at time.Time) (called, bool) {
+// answering is session's latest open call whose input its agent had been given (taken: the
+// inputs given before the words it wrote, answers.took): what it wrote answers that call, and is
+// said in its channel. Not one given after (its last turn's words heard late, as the next turn
+// takes the call: kumo, 2026-11-17), nor one still queued. One kept from before this process,
+// its input given by then, was taken: a turn going on across a restart still answers it.
+func (k *calls) answering(session string, taken []string) (called, bool) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	cs := k.load(session)
 	for i := len(cs) - 1; i >= 0; i-- {
-		c := cs[i]
-		// An old one was for a turn that ended while nobody listened (turnBegan).
-		if c.old {
-			continue
-		}
-		if c.Input == "" {
-			return c, true // kept before calls had one: taken
-		}
-		if k.st == nil {
-			continue
-		}
-		if t, ok := k.st.InputTaken(c.Input); ok && t < at.UnixMilli() {
-			return c, true
+		if wasGiven(k.st, cs[i], taken) {
+			return cs[i], true
 		}
 	}
 	return called{}, false
+}
+
+// wasGiven: call c's input was given to its agent, taken naming those given lately. One kept from
+// before this process (old), from before calls had an input, or whose input the store no longer
+// has (not waiting either), was.
+func wasGiven(st *store.Store, c called, taken []string) bool {
+	if c.old || c.Input == "" || slices.Contains(taken, c.Input) {
+		return true
+	}
+	if st == nil {
+		return false
+	}
+	_, _, ok := st.InputOf(c.Input)
+	return !ok
 }
 
 // spoke: session's agent said something in channel, its record at line to by then. It gives
@@ -352,14 +361,15 @@ func (s *Server) turnBegan(id string) {
 	s.closeCalls(id, over)
 }
 
-// turnEnded: a turn of session's agent ended (also one cut short, its process gone); waiting,
-// the inputs that still wait in its queue. The calls it took are over, those whose input still
-// waits stay open for the turn that takes them. What it wrote was said where it was called as it
-// wrote it (answer); a call it said nothing for leaves a line in its channel.
-func (s *Server) turnEnded(id string, waiting []string) {
+// turnEnded: a turn of session's agent ended (also one cut short, its process gone); taken, the
+// inputs it had been given by then (answers.given, as the end was told). The calls it took are
+// over; the others, still queued or given after (a message steered in as the turn ended, which
+// the next turn takes), stay open for the turn that takes them. What it wrote was said where it
+// was called as it wrote it (answer); a call it said nothing for leaves a line in its channel.
+func (s *Server) turnEnded(id string, taken []string) {
 	// Not while it is being given a message: that call is made once the message is its.
 	unlock := s.chain.lock(id)
-	over := s.calls.take(id, func(c called) bool { return !waits(s.st, c, waiting) })
+	over := s.calls.take(id, func(c called) bool { return wasGiven(s.st, c, taken) })
 	unlock()
 	s.closeCalls(id, over)
 }
@@ -2235,6 +2245,7 @@ func (s *Server) deliverTo(ctx context.Context, ch, to string, seq int64, said, 
 	s.seen(ch, to, seq)
 	if !me.Direct() {
 		s.calls.add(to, called{Channel: ch, Seq: seq, From: before, Input: id})
+
 	}
 	s.chain.pass(ch, to, lk)
 	return queued, nil
@@ -2303,13 +2314,13 @@ func fileNames(text string, files []api.FileRef) string {
 
 // routeSaid: an agent said m in its channel. In a channel of several, the agents it names are
 // given it; after too many agents in a row, nobody is, and the channel says so.
-func (s *Server) routeSaid(m channel.Message, at time.Time) {
+func (s *Server) routeSaid(m channel.Message) {
 	sender, ok := store.SessionOfMember(m.Author)
 	// What it sent with ir (or wrote where it was called) was given to whom it names as it was sent.
 	if !ok || m.Kind != channel.KindSaid || m.D.Sent {
 		return
 	}
-	s.answer(sender, m, at)
+	s.answer(sender, m)
 	// The logins it names (ats.go), once it is on its way to the agents it names: what is said
 	// after it is told after this returns.
 	defer s.names(m.Channel, m.Seq, m.Text, 0, "")
@@ -2349,23 +2360,33 @@ func (s *Server) routeSaid(m channel.Message, at time.Time) {
 	}()
 }
 
-// answer: session id's agent wrote m in its own channel, heard at at. Called in another channel and answering
-// there (calls.answering), it is said there too, as it was written: what an agent writes is
-// said where it was called, as a person answers where they were spoken to (kumo, 2026-11-17).
-// Which channel, and that it spoke there, is settled now, before its turn's end closes the
-// call; the words are said in order, one after the other, apart from the caller.
-func (s *Server) answer(id string, m channel.Message, at time.Time) {
-	c, ok := s.calls.answering(id, at)
-	if !ok || c.Channel == m.Channel || !s.ch.Speaks(c.Channel, id) {
-		return
-	}
-	w := &written{final: m.D.Final}
-	if st, err := s.m.State(id); err == nil {
-		w.to = st.End
-	}
-	w.from = s.calls.spoke(id, c.Channel, w.to)
-	text, nick := m.Text, s.ch.Nick(id)
+// answer: session id's agent wrote m in its own channel. Called in another channel and
+// answering there (calls.answering), it is said there too, as it was written: what an agent
+// writes is said where it was called, as a person answers where they were spoken to (kumo,
+// 2026-11-17). Which inputs it had been given by then is taken now, in order with its words;
+// the rest is done in its turn of answers, after what it wrote before and before its turn's end
+// closes the call.
+func (s *Server) answer(id string, m channel.Message) {
+	taken := s.answers.given(id)
+	text, nick, final := m.Text, s.ch.Nick(id), m.D.Final
 	s.answers.add(id, func() {
+		// A message being given to it has its call made by the time this lock is had (deliverTo).
+		unlock := s.chain.lock(id)
+		c, ok := s.calls.answering(id, taken)
+		// Its own channel may have the same words twice (heard live, then read from its record
+		// as another): they are said for a call once.
+		ok = ok && c.Channel != m.Channel && s.ch.Speaks(c.Channel, id) && s.answers.first(id, c, text)
+		w := &written{final: final}
+		if ok {
+			if st, err := s.m.State(id); err == nil {
+				w.to = st.End
+			}
+			w.from = s.calls.spoke(id, c.Channel, w.to)
+		}
+		unlock()
+		if !ok {
+			return
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
 		if _, err := s.sendChannelAs(ctx, caller{Identity: localIdentity, socket: true, agent: true, session: id}, session.From(gate.HostID, "@"+nick), c.Channel, api.Send{Text: text}, w); err != nil {
@@ -2374,21 +2395,94 @@ func (s *Server) answer(id string, m channel.Message, at time.Time) {
 	})
 }
 
-// answers are the words each agent wrote, waiting to be said where it was called: one at a
-// time, in the order written.
+// answers is, for each agent, what is done of its turns in order: what it wrote said where it
+// was called, its turn's start and end closing calls (server.go), one at a time; and the inputs
+// it was given lately (took), in order with what it says.
 type answers struct {
-	mu sync.Mutex
-	of map[string][]func()
+	mu     sync.Mutex
+	of     map[string][]func()
+	taken  map[string][]string
+	said   map[string][]saidFor
+	closed bool
+	wg     sync.WaitGroup
 }
 
-// add queues say for session's agent; the first queued starts the one that says them.
-func (a *answers) add(session string, say func()) {
+// close drops what waits and waits a little for what is being done (Server.Close).
+func (a *answers) close() {
 	a.mu.Lock()
+	a.closed = true
+	for k := range a.of {
+		a.of[k] = a.of[k][:min(1, len(a.of[k]))] // the one being done, if any
+	}
+	a.mu.Unlock()
+	done := make(chan struct{})
+	go func() { a.wg.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+	}
+}
+
+// saidFor is words said for a call (its channel and number).
+type saidFor struct {
+	channel string
+	seq     int64
+	text    string
+}
+
+// first: text is not yet said for call c of session's agent; it is now. The last few are kept.
+func (a *answers) first(session string, c called, text string) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.said == nil {
+		a.said = map[string][]saidFor{}
+	}
+	for _, x := range a.said[session] {
+		if x.channel == c.Channel && x.seq == c.Seq && channel.Same(x.text, text) {
+			return false
+		}
+	}
+	l := append(a.said[session], saidFor{c.Channel, c.Seq, text})
+	a.said[session] = l[max(0, len(l)-keptTaken):]
+	return true
+}
+
+// keptTaken is how many inputs given are kept for each agent.
+const keptTaken = 64
+
+// took: session's agent is given input now (session.NoticeTaken).
+func (a *answers) took(session, input string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.taken == nil {
+		a.taken = map[string][]string{}
+	}
+	t := append(a.taken[session], input)
+	a.taken[session] = t[max(0, len(t)-keptTaken):]
+}
+
+// given are the inputs session's agent was given lately, as told so far.
+func (a *answers) given(session string) []string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return slices.Clone(a.taken[session])
+}
+
+// add queues do for session's agent; the first queued starts the one that does them.
+func (a *answers) add(session string, do func()) {
+	a.mu.Lock()
+	if a.closed {
+		a.mu.Unlock()
+		return
+	}
 	if a.of == nil {
 		a.of = map[string][]func(){}
 	}
-	a.of[session] = append(a.of[session], say)
+	a.of[session] = append(a.of[session], do)
 	first := len(a.of[session]) == 1
+	if first {
+		a.wg.Add(1)
+	}
 	a.mu.Unlock()
 	if first {
 		go a.run(session)
@@ -2396,6 +2490,7 @@ func (a *answers) add(session string, say func()) {
 }
 
 func (a *answers) run(session string) {
+	defer a.wg.Done()
 	for {
 		a.mu.Lock()
 		q := a.of[session]
@@ -2404,9 +2499,9 @@ func (a *answers) run(session string) {
 			a.mu.Unlock()
 			return
 		}
-		say := q[0]
+		do := q[0]
 		a.mu.Unlock()
-		say()
+		do()
 		a.mu.Lock()
 		a.of[session] = a.of[session][1:]
 		a.mu.Unlock()

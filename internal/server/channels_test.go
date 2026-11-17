@@ -290,18 +290,20 @@ func TestChannelOfSeveral(t *testing.T) {
 	// Its record in outline: a turn a line, the channel's message by its words alone. Once its
 	// turns have settled (what it said with ir woke the first, whose echo may call it back):
 	// the outline's end is then the record's.
-	// Settled: no turn after the outline's end (an echo may wake one more after idle; again).
+	// Settled: no turn after the outline's end, three times in a row (an echo may wake one more
+	// after idle, its words said a moment after its turn: again).
 	var outline api.Outline
-	for k := 0; ; k++ {
+	for k, quiet, last := 0, 0, int64(-1); quiet < 3 && k < 100; k++ {
 		l.idle(ch)
 		l.idle(second)
 		l.wantSat(200, "agent-in:"+ch, "internal/block.outline", map[string]any{"channel_id": second}, &outline)
 		var after api.Outline
 		l.wantSat(200, "web", "internal/block.outline", map[string]any{"channel_id": second, "from": fmt.Sprint(outline.End)}, &after)
-		if len(after.Turns) == 0 || k == 20 {
-			break
+		if quiet = quiet + 1; len(after.Turns) > 0 || outline.End != last {
+			quiet = 0
 		}
-		time.Sleep(100 * time.Millisecond)
+		last = outline.End
+		time.Sleep(150 * time.Millisecond)
 	}
 	if len(outline.Turns) < 1 || !strings.HasPrefix(outline.Turns[0].Asked, fmt.Sprintf("#%d: now @claude2 look", r.Seq)) || strings.Contains(outline.Turns[0].Asked, "channel-context") ||
 		!strings.HasPrefix(outline.Turns[0].Said, "ok: #") || outline.Turns[0].Words != 1 || outline.Turns[0].At == "" || outline.End == 0 {

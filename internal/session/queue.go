@@ -173,6 +173,8 @@ func (h *Hosted) writeLine(ctx context.Context, in store.Input, line assemble.In
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+	// Told before it is written: whatever the agent says to it is told after this.
+	h.m.notify(Notice{Session: h.id, Kind: NoticeTaken, Text: in.ID})
 	if err := h.drv.Send(ctx, agent.Message{ID: in.ID, Text: line, Human: true, Images: images}); err != nil {
 		return err
 	}
