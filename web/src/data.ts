@@ -3,7 +3,7 @@
 // empty rather than failing the page. The workspaces and the update are carried on the stream,
 // asked for once at first.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { api, missing, speakAs } from "./api/client";
 import type { AgentInfo, App, Apps, LastSaid, Me, Session, Settings, UpdateState, Workspace } from "./api/types.gen";
 import type { Machine } from "./machines";
@@ -115,10 +115,12 @@ export function useMachines(): Machine[] {
 }
 
 /** Everyone a message may come from: the apps and the host, and ir_web's logins (web). */
+/** None: the same one each time. */
+const NO_WHO: Who[] = [];
 export function useWhoList(): Who[] {
   const d = useApps().data;
-  if (!d) return [];
-  return [...d.apps.filter((a) => !a.web).map((a) => ({ id: a.id, name: a.name, avatar: a.avatar, device: a.device, host: a.host, type: a.type })), ...d.logins.map((l) => ({ id: l.id, name: l.name, avatar: l.avatar, device: l.device, web: true }))];
+  // The same list while the apps are the same: what is drawn from it is not drawn again each time.
+  return useMemo(() => (d ? [...d.apps.filter((a) => !a.web).map((a) => ({ id: a.id, name: a.name, avatar: a.avatar, device: a.device, host: a.host, type: a.type })), ...d.logins.map((l) => ({ id: l.id, name: l.name, avatar: l.avatar, device: l.device, web: true }))] : NO_WHO), [d]);
 }
 
 /** The last thing said, on one line: yours after 你：, another's after its name. Yours: none tagged

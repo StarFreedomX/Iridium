@@ -5,7 +5,7 @@
 // message of its own (dispatched.tsx).
 import { Popover } from "@base-ui/react/popover";
 import { Bot, ScrollText } from "lucide-react";
-import { createContext, useContext, useState } from "react";
+import { createContext, useContext, useRef, useState } from "react";
 import type { Agent, Session } from "../api/types.gen";
 import { t } from "../i18n";
 import { openChat } from "../route";
@@ -85,16 +85,17 @@ export function SubCard({ sub, by, done }: { sub: Sub; by?: string; done?: () =>
 export function SubFaceKey({ sub, size = 28 }: { sub: Sub; size?: number }) {
   const [open, setOpen] = useState(false);
   const { by } = useContext(Dispatching);
+  const key = useRef<HTMLButtonElement>(null);
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger
         render={
-          <button type="button" aria-label={`${sub.name} · ${t("sub.kind")}`} className="g-press grid shrink-0 rounded-full hover:brightness-95">
+          <button ref={key} type="button" aria-label={`${sub.name} · ${t("sub.kind")}`} className="g-press grid shrink-0 rounded-full hover:brightness-95">
             <SubFace agent={sub.agent} size={size} />
           </button>
         }
       />
-      <PopSurface className={CARD_POP}>
+      <PopSurface anchor={key.current} still className={CARD_POP}>
         <SubCard sub={sub} by={by} done={() => setOpen(false)} />
       </PopSurface>
     </Popover.Root>

@@ -62,6 +62,7 @@ func Main() (code int, ok bool) {
 //   - crash begins the turn, then exits 3. Resumed with CLAUDE_CODE_RESUME_INTERRUPTED_TURN=1, it
 //     runs that turn again by itself, saying "ok: continued". crash! exits the same way but is
 //     never run again by itself; crashloop crashes again each time it is run again.
+//   - STREAM writes a turn as a real one comes: words, two calls and a long answer, piece by piece.
 //   - QUOTA is refused for the quota, which comes back in half a second to one and a half.
 //
 // /compact compacts for three seconds (a compacting status, then the boundary with its figures).
@@ -407,6 +408,48 @@ func Claude() int {
 					note(map[string]any{"type": m["role"], "timestamp": stamp(), "message": m})
 				}
 				finish(f, nil)
+				continue
+			case strings.HasSuffix(text, "STREAM"):
+				// A turn as a real one comes: a line of words, two calls written piece by piece
+				// and run, then a long answer in Markdown, each a few letters at a time.
+				delta := func(d map[string]any) {
+					say(map[string]any{"type": "stream_event", "parent_tool_use_id": nil, "event": map[string]any{"type": "content_block_delta", "delta": d}})
+					time.Sleep(20 * time.Millisecond)
+				}
+				words := func(reply string) {
+					for r := []rune(reply); len(r) > 0; r = r[min(6, len(r)):] {
+						delta(map[string]any{"type": "text_delta", "text": string(r[:min(6, len(r))])})
+					}
+					m := map[string]any{"role": "assistant", "content": []any{map[string]any{"type": "text", "text": reply}}}
+					say(map[string]any{"type": "assistant", "parent_tool_use_id": nil, "message": m})
+					note(map[string]any{"type": "assistant", "timestamp": stamp(), "message": m})
+				}
+				call := func(id, name string, input map[string]any, result string) {
+					say(map[string]any{"type": "stream_event", "parent_tool_use_id": nil, "event": map[string]any{"type": "content_block_start", "content_block": map[string]any{"type": "tool_use", "id": id, "name": name}}})
+					b, _ := json.Marshal(input)
+					for s := string(b); len(s) > 0; s = s[min(8, len(s)):] {
+						delta(map[string]any{"type": "input_json_delta", "partial_json": s[:min(8, len(s))]})
+					}
+					use := map[string]any{"role": "assistant", "content": []any{map[string]any{"type": "tool_use", "id": id, "name": name, "input": input}}}
+					say(map[string]any{"type": "assistant", "parent_tool_use_id": nil, "message": use})
+					note(map[string]any{"type": "assistant", "timestamp": stamp(), "message": use})
+					time.Sleep(400 * time.Millisecond)
+					res := map[string]any{"role": "user", "content": []any{map[string]any{"type": "tool_result", "tool_use_id": id, "content": result}}}
+					say(map[string]any{"type": "user", "parent_tool_use_id": nil, "message": res})
+					note(map[string]any{"type": "user", "timestamp": stamp(), "message": res})
+				}
+				n := fmt.Sprint(time.Now().UnixNano())
+				words("Looking at how the list is drawn first.")
+				call("toolu_s1_"+n, "Bash", map[string]any{"command": "grep -rn \"useFlip\" web/src | head -20", "description": "find the list's motion"}, "web/src/motion.ts:36:export function useFlip")
+				call("toolu_s2_"+n, "Read", map[string]any{"file_path": "/w/web/src/motion.ts"}, "export function useFlip() {}")
+				var long strings.Builder
+				long.WriteString("Here is what I found.\n\n")
+				for i := 1; i <= 6; i++ {
+					fmt.Fprintf(&long, "**Part %d.** The rows are placed by the layout, and what moves them is one animation on the column: it reads where each row was, where it is now, and plays the difference. Nothing else moves a row while that runs.\n\n- the first point of part %d, a line long enough to wrap on a narrow pane and not on a wide one\n- the second point, shorter\n\n", i, i)
+				}
+				long.WriteString("```ts\nexport function glide(by: number) {\n  const from = at + by;\n  return col.animate([{ transform: `translateY(${from}px)` }, { transform: \"none\" }]);\n}\n```\n\nThat is all of it.")
+				words(long.String())
+				end(f, "success")
 				continue
 			case strings.HasSuffix(text, "PICTURE"):
 				// A Read of a picture: its result carries the picture (TinyPNG), then one more by a

@@ -43,7 +43,7 @@ const ghostOf = (row: Session): LiveSession => ({ ...row, asks: [], tasks: [], d
 function At({ anchor, open, onOpenChange, children, className }: { anchor: RefObject<HTMLElement | null>; open: boolean; onOpenChange: (o: boolean) => void; children: ReactNode; className?: string }) {
   return (
     <Popover.Root open={open} onOpenChange={onOpenChange}>
-      <PopSurface anchor={anchor.current} className={className}>
+      <PopSurface anchor={anchor.current} still className={className}>
         {children}
       </PopSurface>
     </Popover.Root>

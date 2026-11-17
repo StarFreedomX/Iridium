@@ -3,7 +3,7 @@
 import { Popover } from "@base-ui/react/popover";
 import { Tooltip } from "@base-ui/react/tooltip";
 import { Bot, Camera, Monitor, Puzzle, ScrollText, UsersRound, type LucideIcon } from "lucide-react";
-import { Fragment, useCallback, useEffect, useId, useRef, useState, useSyncExternalStore, type ComponentProps, type CSSProperties, type ReactElement, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type ComponentProps, type CSSProperties, type ReactElement, type ReactNode } from "react";
 import { useLeaving } from "./motion";
 import type { Agent, Status } from "./api/types.gen";
 import { t } from "./i18n";
@@ -233,6 +233,7 @@ export function PopSurface({
   initialFocus,
   finalFocus,
   anchor,
+  still,
 }: {
   children: ReactNode;
   className?: string;
@@ -243,15 +244,32 @@ export function PopSurface({
   finalFocus?: ComponentProps<typeof Popover.Popup>["finalFocus"];
   /** What it unfolds out of, when not its trigger (a row it was opened from). */
   anchor?: Element | null;
+  /** Out of something in a conversation (a face, a name): it stays where it opened while the
+   *  conversation moves under it (a turn being written, the wheel). Following its anchor it came
+   *  a frame behind each push, and flipped over the face as that neared an edge (kumo,
+   *  2026-11-17). Needs anchor. */
+  still?: boolean;
 }) {
   return (
     <Popover.Portal>
-      <Popover.Positioner side={side} align={align} sideOffset={sideOffset} collisionPadding={8} anchor={anchor ?? undefined} className="z-50">
+      <Placed side={side} align={align} sideOffset={sideOffset} anchor={anchor} still={still}>
         <Popover.Popup initialFocus={initialFocus ?? ((type) => type === "keyboard")} finalFocus={finalFocus} className={cn("g-unfold glass thick float rounded-lg text-ink outline-none", className)}>
           {children}
         </Popover.Popup>
-      </Popover.Positioner>
+      </Placed>
     </Popover.Portal>
+  );
+}
+
+/** PopSurface's place; drawn only while it is open, so a still one's anchor is where it was as
+ *  it opened: its box then, not the element, which moves. */
+function Placed({ children, side, align, sideOffset, anchor, still }: { children: ReactNode; side: "top" | "bottom" | "left" | "right"; align: "start" | "center" | "end"; sideOffset: number; anchor?: Element | null; still?: boolean }) {
+  const [box] = useState(() => (still && anchor ? anchor.getBoundingClientRect() : null));
+  const at = useMemo(() => (box ? { getBoundingClientRect: () => box } : undefined), [box]);
+  return (
+    <Popover.Positioner side={side} align={align} sideOffset={sideOffset} collisionPadding={8} anchor={at ?? anchor ?? undefined} className="z-50">
+      {children}
+    </Popover.Positioner>
   );
 }
 
@@ -495,7 +513,7 @@ export function tilde(p: string, home = knownHome ?? homeOf(p)) {
   return home && (p === home || p.startsWith(home + "/")) ? "~" + p.slice(home.length) : p;
 }
 
-/** A list whose items, once gone, fade and close where they were (motion.ts useLeaving, .g-depart)
+/** A list whose items, once gone, fade where they were, then go (motion.ts useLeaving, .g-depart)
  *  rather than vanish. draw: an item, and whether it is leaving. */
 export function Leaving<T>({ items, keyOf, draw }: { items: T[]; keyOf: (x: T) => string; draw: (x: T, leaving: boolean) => ReactNode }) {
   const all = useLeaving(items, keyOf);

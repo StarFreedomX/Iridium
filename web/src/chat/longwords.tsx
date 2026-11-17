@@ -7,6 +7,7 @@ import { useRef, useState, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { t, useLang } from "../i18n";
 import { motion, reduced } from "../motion";
+import { layoutMoves } from "./stick";
 import { cn } from "../ui";
 import { FOLD_AT, FOLD_SHOW } from "./channel/merge";
 
@@ -19,6 +20,8 @@ export function LongWords({ fold, lines, children }: { fold: boolean; lines: num
   const toggle = () => {
     const el = box.current;
     if (!el || reduced()) return setOpen((o) => !o);
+    // Its height is its own to draw: the chat only keeps its end under it (stick.tsx).
+    layoutMoves(el, motion.dur(2));
     const from = el.offsetHeight;
     flushSync(() => setOpen((o) => !o));
     const to = el.offsetHeight;
