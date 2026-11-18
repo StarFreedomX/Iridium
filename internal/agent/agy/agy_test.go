@@ -616,3 +616,33 @@ func TestDefaultModel(t *testing.T) {
 		t.Fatalf("set_config_option %v", p)
 	}
 }
+
+// A message sent while a process taken up is still being fed again: the end of a turn fed again
+// does not forget its echo (agy before 1.5.10), so the prompt is recorded once.
+func TestEchoAfterReplay(t *testing.T) {
+	r := newRig(t)
+	r.d.Attach(r.write, 3)
+	for _, l := range []string{
+		`{"jsonrpc":"2.0","result":` + openedJSON + `,"id":"ir-aa-2"}`,
+		upd(`{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"go"}}`),
+	} {
+		r.d.Feed([]byte(l), true)
+	}
+	r.take()
+	send(t, r.d, "in-9", "next")
+	r.next("session/prompt")
+	r.d.Feed([]byte(`{"jsonrpc":"2.0","result":{"stopReason":"end_turn","usage":{"inputTokens":1,"outputTokens":1}},"id":"x"}`), true)
+	r.feed(
+		upd(`{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"next"}}`),
+		upd(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"ok"}}`),
+	)
+	var users []string
+	for _, e := range records(r.take()) {
+		if e.Kind == "user" {
+			users = append(users, e.ID+":"+e.Text)
+		}
+	}
+	if !slices.Equal(users, []string{"in-9:next"}) {
+		t.Errorf("user records %v", users)
+	}
+}

@@ -1010,6 +1010,9 @@ func (d *Driver) response(f *frame, replay bool) {
 	if s.StopReason == "cancelled" {
 		d.record(transcript.Entry{Kind: string(api.BlockKindSystem), Event: string(api.SystemEventInterrupted), Text: "Interrupted"})
 	}
+	if !replay {
+		d.echoes = nil // a turn fed again ends while one sent now runs: its echo is still to come
+	}
 	d.settled()
 }
 
@@ -1024,7 +1027,6 @@ func (d *Driver) settled() {
 	}
 	d.tools = map[string]tool{}
 	d.starting = false
-	d.echoes = nil
 	if d.state == agent.Idle {
 		return
 	}
