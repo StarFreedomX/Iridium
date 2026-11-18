@@ -7,6 +7,7 @@
 // own record; Iridium's lines small and centred. The newest at the bottom, paged back as you
 // scroll up. Under it: each agent's asks, under its nick; a composer whose @ names a
 // member (agents, people, apps).
+import { flushSync } from "react-dom";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
 import { Popover } from "@base-ui/react/popover";
 import { useQuery } from "@tanstack/react-query";
@@ -181,7 +182,10 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
     if (!el) return;
     const measure = () => setStackH((lastStackH = el.offsetHeight));
     measure();
-    const ro = new ResizeObserver(measure);
+    // Drawn at once, in the frame the stack changed in: drawn whenever React next got to it, the
+    // conversation's padding was a frame behind the stack (the composer a line taller over the
+    // last message; emptied, the conversation a frame lower and back).
+    const ro = new ResizeObserver(() => flushSync(measure));
     ro.observe(el);
     return () => ro.disconnect();
   }, [!!s]);

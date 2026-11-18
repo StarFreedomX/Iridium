@@ -194,22 +194,32 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     if (performance.now() - resized.current < RESIZED) return void pin(el);
     // Not the first page coming into an empty chat, nor the page before put in (back): those are
     // drawn in place.
-    const d = was > 0 && !paging.current ? height.current - was + pad.current - padWas : 0;
+    const live = was > 0 && !paging.current;
+    // The stack under it taller or shorter (the composer's lines), and all of the change.
+    const dPad = live ? pad.current - padWas : 0;
+    const d = live ? height.current - was + dPad : 0;
     // The part of it that something moving of itself made: that is drawn by itself.
     const its = own ? d : d > 0 ? Math.min(d, Math.max(0, self)) : Math.max(d, Math.min(0, self));
     let push = d - its;
-    // Not as the chat opens: it is drawn whole at once, padded by the stack's height as last
-    // known, and the stack measured (shorter) right after is no shrinking to hold.
-    if (push < -0.5 && performance.now() - born.current >= SETTLE) {
-      setFloor(floor.current - push);
-      push = 0;
-    } else if (d > 0 && floor.current) {
-      const take = Math.min(floor.current, d);
+    // What the conversation itself shrank by is held as the floor: something in it may grow back.
+    // Not as the chat opens: it is drawn whole at once. The stack made shorter is not held: the
+    // conversation comes down with the composer's top at once, gliding (kumo, 2026-11-19: the
+    // composer emptied left a hole over it for a moment, then the conversation dropped).
+    const shrank = own ? 0 : push - dPad;
+    if (shrank < -0.5 && performance.now() - born.current >= SETTLE) {
+      setFloor(floor.current - shrank);
+      push -= shrank;
+    } else if (push > 0 && floor.current) {
+      const take = Math.min(floor.current, push);
       setFloor(floor.current - take);
-      push = Math.max(0, push - take);
+      push -= take;
     }
     if (floor.current > SLACK) settleSoon();
-    const by = pin(el);
+    // From where this last put it: the browser has by now pulled the scroll up itself to an end
+    // made shorter, and from there nothing would be seen to move.
+    const before = ours.current;
+    pin(el);
+    const by = before >= 0 ? el.scrollTop - before : 0;
     glide(push > 0 ? Math.min(push, Math.max(0, by)) : Math.max(push, Math.min(0, by)), settling);
   };
   const glide = (by: number, settling = false) => {
@@ -403,6 +413,15 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
       place.top = end ? null : el.scrollTop;
     };
   }, []);
+
+  // The stack under it another height (its padding, the page's to set): followed in the same draw,
+  // before it is painted. The observer sees it too, a frame after: the browser had by then pulled
+  // the scroll up to the shorter end and drawn it there.
+  const padNow = style?.paddingBottom;
+  useLayoutEffect(() => {
+    const el = list.current;
+    if (el && height.current) follow(el);
+  }, [padNow]);
 
   const scrolled = () => {
     const el = list.current!;

@@ -12,6 +12,7 @@ import { Popover } from "@base-ui/react/popover";
 import { BarChart3, Ellipsis, FolderOpen, Globe, ListTree, Plus, Settings } from "lucide-react";
 import type { Block, Device, Status } from "../api/types.gen";
 import { lazy, memo, Suspense, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties, type DragEvent, type ReactNode } from "react";
+import { flushSync } from "react-dom";
 import type { SessionState as LiveSession } from "../api/types.gen";
 import { api, queryClient } from "../api/client";
 import { LinkDot } from "../link";
@@ -279,7 +280,10 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
     // Measured now, before the first paint, then as it changes.
     const measure = () => setStackH((lastStackH = el.offsetHeight));
     measure();
-    const ro = new ResizeObserver(measure);
+    // Drawn at once, in the frame the stack changed in: drawn whenever React next got to it, the
+    // conversation's padding was a frame behind the stack (the composer a line taller over the
+    // last message; emptied, the conversation a frame lower and back).
+    const ro = new ResizeObserver(() => flushSync(measure));
     ro.observe(el);
     return () => ro.disconnect();
   }, [!!s]); // the stack is drawn only once the session or its row has come
