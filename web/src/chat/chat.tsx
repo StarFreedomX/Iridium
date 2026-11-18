@@ -61,8 +61,8 @@ import { useSecret } from "../secrets";
 import { Asks, Denials } from "./asks";
 import { renameOnly } from "./cmd";
 import { Composer, type ComposerHandle } from "./composer";
-import { folded, type Tool } from "./fold";
-import { StopKey, ToolDraft, Waiting } from "./live";
+import { folded } from "./fold";
+import { StopKey, ToolDraft } from "./live";
 import { Draft } from "./markdown";
 import { ContextRing, ModeKey, ModelKey, modelView, QuotaBars, useMode } from "./meters";
 import { PublicLink } from "./publiclink";
@@ -73,9 +73,10 @@ import { placesIn, PLACE_DRAG, SESSION_DRAG, sourceOf, withDevice, yours } from 
 import { placeDropped, type NamedPlace } from "./at";
 import { PlaceIcon, placeOf } from "./mention";
 import { spotsOf, type Spot } from "./where";
-import { Compaction, Earlier, Pending, Relayed, Running, Said, useWhenRow, When } from "./said";
+import { Compaction, Earlier, Pending, Relayed, Said, When } from "./said";
 import { earlierOf, turnsOf, type Row } from "./turns";
 import { Stick, toEnd } from "./stick";
+import { Activity, OtherTurn, TurnFrame } from "./atwork";
 import { VoiceDock } from "../voice/dock";
 
 const BUSY = new Set(["running", "compacting", "starting", "waiting"]);
@@ -611,7 +612,10 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
   // before the turn began are what it answers: its face comes under them.
   const pendingBefore = pending.filter((x) => !x.mid);
   const pendingAfter = pending.filter((x) => x.mid);
-  const headless = busy && !compacting && (turns.at(-1)?.kind !== "agent" || pendingBefore.length > 0);
+  // A turn another channel called (works) is the agent's too once it has rows: its row at work
+  // goes on under them, not under a face and name again (kumo, 2026-11-18).
+  const atEnd = turns.at(-1);
+  const headless = busy && !compacting && (!(atEnd?.kind === "agent" || (atEnd?.kind === "works" && atEnd.rows.length > 0)) || pendingBefore.length > 0);
   // Its usage after its model's name, a strip of its own as small as a phone's (the user,
   // 2026-11-13): the context's ring, the quota's bars; each pressed, its popover.
   // The agent's latest turn: the ring /context opens. None yet: the command is the agent's.
@@ -632,7 +636,7 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
     return ch ? titleOf(ch) : (g.channel?.name ?? "");
   };
   // What changes as the conversation grows: it keeps to the bottom, the dots wait again.
-  const grew = `${log.blocks.at(-1)?.at} ${log.drafts.length} ${log.drafts.at(-1)?.text.length} ${log.drafts.at(-1)?.whole} ${log.sent.length} ${ready?.kept.log.end ?? 0} ${atWork.map((a) => a.session).join(",")} ${subs.map((x) => x.id).join(",")}`;
+  const grew = `${log.blocks.at(-1)?.at} ${log.drafts.length} ${log.drafts.at(-1)?.text.length} ${log.drafts.at(-1)?.whole} ${log.sent.length} ${ready?.kept.log.end ?? 0} ${atWork.map((a) => `${a.session}:${stateOf(a.session)?.end ?? 0}`).join(",")} ${subs.map((x) => x.id).join(",")}`;
   // The own agent's stop key, on its row at work; starting is no turn yet.
   const stop = may && s.status !== "starting" && !s.subagent && !elsewhere ? <StopKey session={id} esc /> : null;
   const activity = <Activity stop={stop} calls={log.drafts.filter((d) => d.tool && !renamesDraft(d))} running={shown.flatMap((b) => (b.kind === "running" ? [b.tool] : []))} cwd={cwd} quiet={s.status !== "waiting" && !log.drafts.some((d) => !d.whole && !d.tool)} grew={grew} under={headless} />;
@@ -671,7 +675,7 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
             ) : (
               <Relayed key={x.key} given={x.works.given} relay={x.works.relay} name={nameOf(x.works.given)} time={x.works.time} onJump={openChat}>
                 {x.rows.length > 0 && (
-                  <AgentTurn channel={id} a={resting} may={may} call={may ? callAt : undefined} bars={bars(i === ctxTurn)} talk={talk} time={began(x.rows)}>
+                  <AgentTurn channel={id} a={i === turns.length - 1 && !headless ? face : resting} may={may} call={may ? callAt : undefined} bars={bars(i === ctxTurn)} talk={talk} time={began(x.rows)}>
                     {rowsOf(x.rows, !(liveNow && i === turns.length - 1), x.key)}
                   </AgentTurn>
                 )}
@@ -744,8 +748,9 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
           ) : s.denials?.length ? <Denials session={id} denials={s.denials} cwd={cwd} stuck={s.status === "waiting" && !s.asks.length} /> : <div aria-hidden className="-mt-3 h-7 pointer-coarse:h-9" />)}
           {pendingAfter.map(pendingNode)}
           {/* The others at work (kumo, 2026-11-15): one called comes in under the words that
-              called it, once they are whole (g-arrive: its height opens, then it rises in); under
-              its own last words, the dots alone. */}
+              called it, once they are whole (g-arrive: its height opens, then it rises in), what it
+              has done so far under its face as on its own page (kumo, 2026-11-18); under its own
+              last words, no face again. */}
           {/* One that goes with nothing said (ir's interrupt of itself) fades and closes (Leaving). */}
           {P && (
             <Leaving
@@ -756,7 +761,7 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
                 return (
                   <div className={cn(!alone && !leaving && "g-arrive", "-mt-2")}>
                     <div>
-                      <P.AtWork a={a} channel={id} alone={alone} quiet={alone ? `${a.session} ${ready?.kept.log.end}` : a.session} bars={barsOf(a.session)} call={may ? callAt : undefined} record={openChat} may={may} />
+                      <OtherTurn a={a} channel={id} st={stateOf(a.session)} said={msgs.findLast((m) => m.author.kind === "agent" && m.author.session === a.session && !!m.src)?.src} alone={alone} bars={barsOf(a.session)} call={may ? callAt : undefined} record={openChat} may={may} />
                     </div>
                   </div>
                 );
@@ -1127,20 +1132,6 @@ function AgentTurn({ channel, a, may, bars, talk, call, time, children }: { chan
   );
 }
 
-/** A turn's frame: the face at the left, the head's line over the rest. */
-function TurnFrame({ face, head, children }: { face: ReactNode; head: ReactNode; children: ReactNode }) {
-  const row = useWhenRow();
-  return (
-    <div {...row} className={cn(row.className, "flex min-w-0 items-start gap-2.5")}>
-      {face}
-      <div className="flex min-w-0 flex-1 flex-col gap-5">
-        <div className="-mb-3.5 flex h-4 min-w-0 items-center gap-1.5">{head}</div>
-        {children}
-      </div>
-    </div>
-  );
-}
-
 /** Its blocks are drawn as the parent's own: who sent words is not asked (it is told only by
  *  its parent, whose words to it are the parent's line, not here). */
 const noSource = () => ({ kind: "you" }) as ReturnType<ComponentProps<typeof Said>["source"]>;
@@ -1222,32 +1213,3 @@ function SubTurn({ s }: { s: Session }) {
 
 /** A call being written that only names the session (ir rename): left out, as its block is. */
 const renamesDraft = (d: Drafted) => !!d.tool && renameOnly({ name: d.tool.name, input: d.text });
-
-/** The turn's row at the end of the conversation: the call being written, else the one running
- *  (the newest, how many more beside it), else the dots once it has gone quiet; one line high, even
- *  empty, while the turn lasts. */
-/** under: in a turn's frame of its own, under the face and name (the turn's first). stop: the
- *  agent's stop key, at the row's right. */
-function Activity({ calls, running, cwd, quiet, grew, under, stop }: { calls: Drafted[]; running: Tool[]; cwd: string; quiet: boolean; grew: string; under?: boolean; stop?: ReactNode }) {
-  const writing = calls.at(-1);
-  const run = running.at(-1);
-  return (
-    <div className={cn("flex h-7 min-w-0 items-center pointer-coarse:h-9", under ? "-mt-1" : "-mt-3 pl-[38px]")}>
-      {writing?.tool ? (
-        <div key={writing.tool.id} className="min-w-0 flex-1">
-          <ToolDraft name={writing.tool.name} input={writing.text} whole={writing.whole} />
-        </div>
-      ) : run ? (
-        <div key={run.id ?? run.at} className="g-fade flex min-w-0 flex-1 items-center gap-2">
-          <div className="min-w-0 flex-1">
-            <Running tool={run} cwd={cwd} />
-          </div>
-          {running.length > 1 && <span className="shrink-0 text-xs text-ink-4 tabular-nums">+{running.length - 1}</span>}
-        </div>
-      ) : (
-        <Waiting on={quiet} quiet={grew} />
-      )}
-      {stop}
-    </div>
-  );
-}

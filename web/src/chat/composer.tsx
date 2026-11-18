@@ -25,8 +25,8 @@ import { errText, toast } from "../toast";
 import { stopTurn } from "./live";
 import { useList } from "../store";
 import { useHome, useMachines, useSettings, useWorkspaces } from "../data";
-import { ago, agentName, cn, fine, IconKey, keep, kept, Logo, steerKey, tilde, Tip, titleOf, useMinute } from "../ui";
-import { hasMention, MentionMarks, mentionOf, PlaceIcon, placeMention } from "./mention";
+import { ago, agentName, cn, fine, IconKey, keep, kept, steerKey, tilde, Tip, titleOf, useMinute } from "../ui";
+import { hasMention, MentionMarks, mentionOf, PlaceIcon, placeMention, SessionFace } from "./mention";
 import { atWord, boxAt, boxed, edited, outOf, wordsAt } from "./refs";
 import { arrowInto, atPath, atSections, pathSection, typedPath, type AtHead, type AtRow, type AtSection, type NamedPlace } from "./at";
 import { MachineFace, MachineLink, type Machine } from "../machines";
@@ -522,6 +522,9 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
           rows={1}
           value={shownBox.value}
           data-draft="1"
+          // Its letters clear over what it names: the browser's spelling marks would lie under the
+          // marks' names (a title is no misspelling).
+          spellCheck={marked ? false : undefined}
           placeholder={t("composer.placeholder")}
           aria-label={t("composer.placeholder")}
           onChange={(e) => {
@@ -617,6 +620,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
  *  name, its path faint at the end. ↑↓, → into a folder, Enter or Tab on a keyboard, a tap on a
  *  phone. */
 function AtList({ sections, at, pick, point }: { sections: AtSection[]; at: number; pick: (r: AtRow) => void; point: (i: number) => void }) {
+  const sessions = useList();
   const now = useMinute();
   let i = -1;
   let n = 0;
@@ -646,7 +650,7 @@ function AtList({ sections, at, pick, point }: { sections: AtSection[]; at: numb
                 >
                   {r.kind === "session" ? (
                     <>
-                      <Logo agent={r.s.agent} size={14} className="shrink-0" />
+                      <SessionFace s={r.s} list={sessions ?? []} size={18} />
                       <span className="min-w-0 flex-1 truncate">{titleOf(r.s)}</span>
                       <span className="shrink-0 text-xs text-ink-3 tabular-nums">{ago(r.s.updatedAt, now, true)}</span>
                     </>

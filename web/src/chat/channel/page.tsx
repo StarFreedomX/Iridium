@@ -26,7 +26,6 @@ import { Asks } from "../asks";
 import { placeDropped } from "../at";
 import { Composer, type ComposerHandle } from "../composer";
 import { Copyable } from "../copyable";
-import { StopKey, Waiting } from "../live";
 import { ContextRing, modelView, QuotaBars } from "../meters";
 import { Queue } from "../queue";
 import { fromSatori, PLACE_DRAG, SESSION_DRAG, sourceOf, withDevice, yours } from "../refs";
@@ -44,6 +43,7 @@ import { mayAct, useMembers } from "./gate";
 import { NotJoined } from "./key";
 import { MemberFace } from "./face";
 import { AgentFace } from "./members";
+import { OtherTurn } from "../atwork";
 import { PersonCard, PersonMenu, useNamed } from "./person";
 import { NickLink, Nicks, NickWords } from "./nick";
 
@@ -254,7 +254,8 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
   const marks = useMemo(() => readMarks(groups, reads?.readers ?? [], members?.me), [groups, reads, members?.me]);
   const working = agents.filter((a) => WORKING.has(a.status));
   const asking = agents.some((_, i) => states[i]?.asks.length);
-  const grew = `${log.end} ${sent.length} ${working.map((a) => a.session).join(" ")}`;
+  const stateAt = (session: string) => states[sessions.indexOf(session)];
+  const grew = `${log.end} ${sent.length} ${working.map((a) => `${a.session}:${stateAt(a.session)?.end ?? 0}`).join(" ")}`;
   const padTop = 64; // the bar's 48px, a gap
 
   if (!s) return <div className="relative h-full">{bar(row)}</div>;
@@ -282,8 +283,9 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
               />
             ))}
             {/* Each called agent at work: its face and name at once, as its words will be, the dots
-                under them (kumo, 2026-11-15: not a line of its own without the face); under its
-                own last words, the dots alone. */}
+                under them (kumo, 2026-11-15: not a line of its own without the face), what it has
+                done so far as on its own page (kumo, 2026-11-18); under its own last words, no
+                face again. */}
             {log.loaded && (
               <div className="-mt-2 flex min-h-7 flex-col gap-5 pointer-coarse:min-h-9">
                 <Leaving
@@ -294,7 +296,7 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
                     const alone = !sent.length && last?.kind === "agent" && last.session === a.session;
                     return (
                       <div className={cn(!alone && !leaving && "g-fade")}>
-                        <AtWork a={a} channel={id} alone={alone} quiet={alone ? `${a.session} ${log.end}` : a.session} bars={bars(a.session)} call={may ? call : undefined} record={record} may={may} />
+                        <OtherTurn a={a} channel={id} st={stateAt(a.session)} said={log.msgs.findLast((m) => m.author.kind === "agent" && m.author.session === a.session && !!m.src)?.src} alone={alone} bars={bars(a.session)} call={may ? call : undefined} record={record} may={may} />
                       </div>
                     );
                   }}
@@ -355,36 +357,6 @@ export function AgentBars({ a, st }: { a: AgentRow; st?: LiveSession }) {
       <ContextRing session={a.session} summary={st?.context} tokens={st?.tokens} compact />
       <QuotaBars agent={a.agent} machine={st?.machine} live={st?.live ?? false} using={st ? [st.model, st.pick, modelView(st).name] : []} compact />
     </span>
-  );
-}
-
-/** A called agent at work (kumo, 2026-11-15): its face and name at once, as its words will be,
- *  the dots under them; under its own last words (alone: no face again), the dots only. Its
- *  stop key at the row's right, for one of the channel's people (live.tsx StopKey). */
-export function AtWork({ a, channel, alone, quiet, bars, call, record, may }: { a: AgentRow; channel: string; alone: boolean; quiet: string; bars: ReactNode; call?: (nick: string) => void; record: (session: string) => void; may: boolean }) {
-  useLang();
-  if (alone)
-    return (
-      <div className="flex h-7 items-center pl-[38px] pointer-coarse:h-9" role="status" aria-label={`${a.nick} · ${t("chat.working")}`}>
-        <Waiting on quiet={quiet} />
-        {may && <StopKey session={a.session} />}
-      </div>
-    );
-  return (
-    <div className="flex min-w-0 items-start gap-2.5" role="status" aria-label={`${a.nick} · ${t("chat.working")}`}>
-      <AgentFace channel={channel} a={a} call={call} record={record} may={may} />
-      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-        <div className="flex h-4 min-w-0 items-center gap-1.5">
-          <span className="shrink-0 text-xs font-medium text-ink-2">{a.nick}</span>
-          <span className="min-w-0 truncate text-xs text-ink-4">{a.name}</span>
-          {bars}
-        </div>
-        <div className="flex h-7 items-center pointer-coarse:h-9">
-          <Waiting on quiet={quiet} />
-          {may && <StopKey session={a.session} />}
-        </div>
-      </div>
-    </div>
   );
 }
 

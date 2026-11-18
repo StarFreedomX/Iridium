@@ -2,7 +2,7 @@
 import { describe, expect, test } from "vitest";
 import type { ChannelMessage, ChannelPage } from "../src/api/client";
 import type { Session } from "../src/api/types.gen";
-import { askQueue, eventParts, personName, type EventWords, channelLamp, givenParts, givenTurn, groupMessages, insertNick, isMulti, linkNicks, matchAgents, mayDM, merge, msgOf, ownAgent, nickOfURL, nickParts, nickSpans, readMarks, stillWaiting, userOf, validNick, watchExtra, workOf } from "../src/chat/channel/lib";
+import { askQueue, eventParts, personName, type EventWords, channelLamp, givenParts, givenTurn, groupMessages, insertNick, isMulti, linkNicks, matchAgents, mayDM, merge, msgOf, ownAgent, nickOfURL, nickParts, nickSpans, readMarks, stillWaiting, userOf, validNick, watchExtra, workOf, liveOf } from "../src/chat/channel/lib";
 import { ChannelLog } from "../src/chat/channel/log";
 import { buildTree, standing } from "../src/tree";
 
@@ -325,6 +325,30 @@ describe("workOf", () => {
   });
   test("a reply said for it at its turn's end: its words drawn once, under the work, not in it", () => {
     expect(workOf(bs, { session: "s", from: 10, to: 16 }, " done\n").map((b) => b.at)).toEqual(["11.0", "12.0", "13.0", "14.0"]);
+  });
+});
+
+describe("liveOf", () => {
+  const bs = [
+    { at: "8.0", kind: "tool", name: "Old" },
+    { at: "10.0", kind: "user", text: "do it" },
+    { at: "11.0", kind: "thinking", text: "hm" },
+    { at: "12.0", kind: "tool", name: "Bash" },
+    { at: "13.0", kind: "assistant", text: "half way" },
+    { at: "13.1", kind: "tool", name: "Read" },
+    { at: "14.0", kind: "tool", name: "Edit" },
+  ];
+  test("since it was last given something", () => {
+    expect(liveOf(bs).map((b) => b.at)).toEqual(["11.0", "12.0", "13.0", "13.1", "14.0"]);
+  });
+  test("after its last words in the channel: said straight out, past their block", () => {
+    expect(liveOf(bs, { session: "s", block: "13.0" }).map((b) => b.at)).toEqual(["13.1", "14.0"]);
+  });
+  test("after its last words in the channel: with ir, from where it spoke", () => {
+    expect(liveOf(bs, { session: "s", from: 10, to: 13 }).map((b) => b.at)).toEqual(["13.0", "13.1", "14.0"]);
+  });
+  test("words of an earlier turn cut nothing", () => {
+    expect(liveOf(bs, { session: "s", block: "5.0" }).map((b) => b.at)).toEqual(["11.0", "12.0", "13.0", "13.1", "14.0"]);
   });
 });
 

@@ -22,6 +22,8 @@ import { CloudBadge, MachineFace, type Machine } from "../machines";
 import { openPlace, type Place } from "../places";
 import { AGENTS, agentName, cn, Logo, tilde, Tip, titleOf } from "../ui";
 import { baseName, nativeAt, type NamedPlace } from "./at";
+import { Face, FaceStack } from "./channel/face";
+import { isMulti } from "./channel/lib";
 import { boxed, MARK, mentions, placeLink, sessionIds, sessionLink, shortId, type Mention } from "./refs";
 
 /** How the composer names session to, among list: what a row dropped or picked after @ puts in. */
@@ -122,19 +124,26 @@ export function MentionMarks({ text, box, className }: { text: string; box: RefO
   );
 }
 
-/** A named one's mark: a session's agents' logos (one now; a channel of several, each), a place's
- *  folder. */
+/** A named one's mark: a session's own face, as its row in the list has it (kumo, 2026-11-18:
+ *  its picture, else its agents' faces, else its agent's logo); one not in the list, its agent's
+ *  logo; a place's folder. */
 function Mark({ m, size }: { m: Mention; size: number }) {
   const list = useList();
   if (m.kind === "place") return <PlaceIcon remote={!!m.machine} size={size} />;
   const s = list?.find((x) => x.id.startsWith(m.id));
-  const agents: Agent[] = s ? [s.agent] : m.agent ? AGENTS.filter((a) => a === m.agent || agentName(a) === m.agent) : [];
+  if (s) return <SessionFace s={s} list={list ?? []} size={size} />;
+  const agents: Agent[] = m.agent ? AGENTS.filter((a) => a === m.agent || agentName(a) === m.agent) : [];
   if (!agents.length) return <MessageSquare size={size} className="shrink-0 text-ink-3" />;
+  return <Logo agent={agents[0]!} size={size} className="shrink-0" />;
+}
+
+/** A session's face, size across, as the list draws its row's (sidebar.tsx RowFace). */
+export function SessionFace({ s, list, size }: { s: Session; list: Session[]; size: number }) {
+  const group = isMulti(s) ? s.agents!.map((a) => ({ id: a.session, agent: list.find((x) => x.id === a.session)?.agent ?? a.agent ?? s.agent })) : undefined;
+  const logo = group ? <FaceStack members={group} size={size} /> : <Logo agent={s.agent} size={Math.round(size * 0.86)} />;
   return (
-    <span className="inline-flex shrink-0">
-      {agents.map((a, i) => (
-        <Logo key={a} agent={a} size={size} className={cn(i > 0 && "-ml-1 rounded-full ring-1 ring-paper")} />
-      ))}
+    <span className={cn("grid shrink-0 place-items-center rounded-full", !group && "bg-fill")} style={{ width: size, height: size }}>
+      <Face id={s.id} agent={s.agent} size={size} none={logo} className="place-items-center" channel />
     </span>
   );
 }
@@ -208,7 +217,7 @@ function SessionCard({ m }: { m: Extract<Mention, { kind: "session" }> }) {
       onClick={() => s && openChat(s.id)}
       className={CARD}
     >
-      {agent ? <Logo agent={agent} size={16} className="shrink-0" /> : <MessageSquare size={16} className="shrink-0 text-ink-3" />}
+      {s ? <SessionFace s={s} list={list ?? []} size={20} /> : agent ? <Logo agent={agent} size={16} className="shrink-0" /> : <MessageSquare size={16} className="shrink-0 text-ink-3" />}
       <span className="min-w-0">
         <span className="block truncate text-sm text-ink">{title}</span>
         <span className="block truncate text-xs text-ink-3">

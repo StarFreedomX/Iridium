@@ -45,6 +45,23 @@ export function workOf<B extends { at: string; kind: string; text?: string }>(bl
   return out;
 }
 
+/** Whether a block's at ("<line>.<n>") comes after another's. */
+const atAfter = (a: string, b: string) => {
+  const [la = 0, na = 0] = a.split(".").map(Number);
+  const [lb = 0, nb = 0] = b.split(".").map(Number);
+  return la > lb || (la === lb && na > nb);
+};
+
+/** What an agent at work has done in its turn so far (kumo, 2026-11-18: as its own page shows it,
+ *  not dots alone): its record's blocks since it was last given something, and since its last
+ *  words in the channel (said: where they are from in its record), whose work is under them. */
+export function liveOf<B extends { at: string; kind: string }>(blocks: B[], said?: Src): B[] {
+  let out = blocks.slice(blocks.findLastIndex((b) => b.kind === "user") + 1).filter((b) => b.kind !== "system");
+  if (said?.to !== undefined) out = out.filter((b) => lineOf(b.at) >= said.to!);
+  else if (said?.block) out = out.filter((b) => atAfter(b.at, said.block!));
+  return out;
+}
+
 /** Something that happened to a channel, a line of Iridium's own in it (internal/channel Event):
  *  join, leave (nick), rename (from, nick), recv (nick, recv: its receive set; before 2026-11-17
  *  "all" or "at"), script (name, what: add, remove, enabled, disabled or the fields changed;
