@@ -11,7 +11,7 @@ import { Menu } from "@base-ui/react/menu";
 import { Popover } from "@base-ui/react/popover";
 import { BarChart3, Ellipsis, FolderOpen, Globe, ListTree, Plus, Settings } from "lucide-react";
 import type { Block, Device, Status } from "../api/types.gen";
-import { lazy, memo, Suspense, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type DragEvent, type ReactNode } from "react";
+import { lazy, memo, Suspense, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties, type DragEvent, type ReactNode } from "react";
 import type { SessionState as LiveSession } from "../api/types.gen";
 import { api } from "../api/client";
 import { LinkDot } from "../link";
@@ -321,15 +321,8 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
     return out;
   }, [said, machines]);
   const spots = useMemo(() => (row ? spotsOf(row, list ?? [], named, workspaces ?? []) : []), [row, list, named, workspaces]);
-  // The bar a row taller with them: the conversation padded as much, and kept where it was as the
-  // row comes or goes (the bar's 48px and a gap; the row's 32px).
-  const padTop = 64 + (spots.length ? 32 : 0);
-  const padWas = useRef(padTop);
-  useLayoutEffect(() => {
-    const d = padTop - padWas.current;
-    padWas.current = padTop;
-    if (d && scroller.current) scroller.current.scrollTop += d;
-  }, [padTop]);
+  // The bar's 48px and a gap.
+  const padTop = 64;
 
   const onSent = (sent: Sent) => {
     sent.from = log.end;
@@ -906,7 +899,7 @@ function useWaited(ready: boolean, ms: number): boolean {
 }
 
 /** The top bar: the logo with its lamp, the name (its folder is ⋯'s first row, which copies it);
- *  more. The link's dot is the bar's own, left of ⋯ (link.tsx). Under them, while
+ *  more. The link's dot is the bar's own, left of ⋯ (link.tsx). After the name, while
  *  there are any, the places it works in (spots, Where). */
 const Bar = memo(function Bar({ s, onSheet, onMe, spots, asked }: { s?: Session; onSheet?: () => void; onMe?: () => void; spots?: Spot[]; asked?: { session?: string }[] }) {
   const list = useList();
@@ -962,6 +955,7 @@ const Bar = memo(function Bar({ s, onSheet, onMe, spots, asked }: { s?: Session;
                   {titleOf(s)}
                 </h1>
               )}
+              {!renaming && !!spots?.length && <Where spots={spots} asked={asked ?? []} phone={!!onSheet} />}
             </>
           )}
         </div>
@@ -1013,7 +1007,6 @@ const Bar = memo(function Bar({ s, onSheet, onMe, spots, asked }: { s?: Session;
           </span>
         )}
       </div>
-      {!!spots?.length && <Where spots={spots} asked={asked ?? []} />}
     </header>
   );
 });
@@ -1064,38 +1057,86 @@ function lampFor(ss: Session[], asked: { session?: string }[]): Status {
   return ss.some((s) => ["running", "compacting", "starting"].includes(lampOf(s))) ? "running" : "idle";
 }
 
-/** 在哪干活 (plan, 2026-11-10): a row of chips under the title, in line with it, scrolled sideways
- *  when they do not fit (on a phone, from the bar's edge). Its own folder; the places it sent
- *  sessions to (another machine's with its face and name), how many, their lamp, pressed the first
- *  of them; those it named and sent none to, faint, dashed. Its own and those named, pressed, show
- *  in the list (places.ts openPlace). */
-function Where({ spots, asked }: { spots: Spot[]; asked: { session?: string }[] }) {
+/** 在哪干活 (plan, 2026-11-10; kumo, 2026-11-18: in the title's row, after the name, not a row of
+ *  its own). Chips, scrolled sideways when they do not fit, the name kept before them: its own
+ *  folder; the places it sent sessions to (another machine's with its face), how many, their lamp,
+ *  pressed the first of them; those it named and sent none to, faint, dashed. Its own and those
+ *  named, pressed, show in the list (places.ts openPlace). A place at another machine is named by
+ *  the machine alone, by its folder where two of them are at one machine; the rest is its tip's.
+ *  phone: the marks alone, one over the next, pressed a menu of the places. */
+function Where({ spots, asked, phone }: { spots: Spot[]; asked: { session?: string }[]; phone?: boolean }) {
   const ms = useMachines();
-  return (
-    <div role="list" aria-label={t("chat.where")} className="g-fade flex h-8 min-w-0 items-start gap-1.5 overflow-x-auto pr-3 pl-9 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-      {spots.map((x) => {
-        const shown = shownPath(x.place.machine ? `${x.place.machine}:${x.place.path}` : x.place.path, ms);
-        const m = shown.m;
-        const where = m ? `${m.name} · ${shown.real}` : tilde(shown.real);
-        const n = x.sessions.length;
-        const lamp = n ? lampFor(x.sessions, asked) : "idle";
-        const label = x.kind === "named" ? `${where} · ${t("chat.whereNamed")}` : n ? `${where} · ${t("nav.hungCount", { n })}` : where;
-        return (
-          <Tip key={`${x.kind}:${x.key}`} label={label} side="bottom">
-            <button
-              type="button"
-              role="listitem"
-              onClick={() => (x.kind === "sent" ? openChat(x.sessions[0]!.id) : openPlace(x.place))}
-              className={cn("g-press flex h-6 shrink-0 items-center gap-1.5 rounded-full px-2 text-xs transition-colors duration-(--dur-2)", x.kind === "named" ? "border border-dashed border-edge text-ink-3 hover:text-ink-2" : "bg-fill text-ink-2 hover:bg-fill-2 hover:text-ink")}
-            >
-              {m && x.kind !== "named" ? <MachineFace m={m} size={14} className={cn(!m.online && "opacity-50 grayscale")} /> : <PlaceIcon remote={!!x.place.machine} label={m?.name} size={13} />}
-              <span className="max-w-48 truncate">{m ? `${m.name} · ${x.name}` : x.name}</span>
-              {n > 0 && <span className="text-ink-3 tabular-nums">{n}</span>}
+  const rows = spots.map((x) => {
+    const shown = shownPath(x.place.machine ? `${x.place.machine}:${x.place.path}` : x.place.path, ms);
+    const m = shown.m;
+    const where = m ? `${m.name} ${shown.real}` : tilde(shown.real);
+    const n = x.sessions.length;
+    const alone = !!m && spots.filter((y) => y.place.machine === x.place.machine).length === 1;
+    return {
+      x,
+      m,
+      n,
+      where,
+      name: m && alone ? m.name : x.name,
+      lamp: n ? lampFor(x.sessions, asked) : ("idle" as Status),
+      run: () => (x.kind === "sent" ? openChat(x.sessions[0]!.id) : openPlace(x.place)),
+      mark: (size: number) => (m && x.kind !== "named" ? <MachineFace m={m} size={size} className={cn(!m.online && "opacity-50 grayscale")} /> : <PlaceIcon remote={!!x.place.machine} label={m?.name} size={size - 1} />),
+    };
+  });
+  if (phone) {
+    const lamp: Status = rows.some((r) => r.lamp === "waiting") ? "waiting" : rows.some((r) => r.lamp === "running") ? "running" : "idle";
+    return (
+      <Menu.Root>
+        <Menu.Trigger
+          render={
+            <button type="button" aria-label={t("chat.where")} className="g-press g-fade -my-2 flex h-10 shrink-0 items-center gap-1.5 rounded-md px-1 data-popup-open:bg-fill">
+              <span className="flex items-center">
+                {rows.slice(0, 4).map((r, i) => (
+                  <span key={`${r.x.kind}:${r.x.key}`} className={cn("grid size-6 place-items-center rounded-full bg-fill shadow-[0_0_0_1.5px_var(--paper)]", i > 0 && "-ml-2")} style={{ zIndex: 4 - i }}>
+                    {r.mark(13)}
+                  </span>
+                ))}
+              </span>
               {lamp !== "idle" && <Lamp status={lamp} />}
             </button>
-          </Tip>
-        );
-      })}
+          }
+        />
+        <Menu.Portal>
+          <Menu.Positioner side="bottom" align="start" sideOffset={6} collisionPadding={8} className="z-50">
+            <Menu.Popup finalFocus={false} className="g-unfold glass thick float max-w-[calc(100vw-16px)] min-w-48 rounded-lg p-1.5 text-ink outline-none">
+              <div className="g-stagger flex flex-col">
+                {rows.map((r, i) => (
+                  <Menu.Item key={`${r.x.kind}:${r.x.key}`} onClick={r.run} style={{ "--i": i } as CSSProperties} className="flex h-11 cursor-default items-center gap-2.5 rounded-md px-2.5 text-base outline-none select-none data-highlighted:bg-fill">
+                    {r.mark(16)}
+                    <span className={cn("min-w-0 flex-1 truncate", r.x.kind === "named" && "text-ink-3")}>{r.where}</span>
+                    {r.n > 0 && <span className="text-sm text-ink-3 tabular-nums">{r.n}</span>}
+                    {r.lamp !== "idle" && <Lamp status={r.lamp} />}
+                  </Menu.Item>
+                ))}
+              </div>
+            </Menu.Popup>
+          </Menu.Positioner>
+        </Menu.Portal>
+      </Menu.Root>
+    );
+  }
+  return (
+    <div role="list" aria-label={t("chat.where")} className="g-fade flex min-w-0 shrink-[99] items-center gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      {rows.map((r) => (
+        <Tip key={`${r.x.kind}:${r.x.key}`} label={r.x.kind === "named" ? `${r.where}，${t("chat.whereNamed")}` : r.n ? `${r.where}，${t("nav.hungCount", { n: r.n })}` : r.where} side="bottom">
+          <button
+            type="button"
+            role="listitem"
+            onClick={r.run}
+            className={cn("g-press flex h-6 shrink-0 items-center gap-1.5 rounded-full px-2 text-xs transition-colors duration-(--dur-2)", r.x.kind === "named" ? "border border-dashed border-edge text-ink-3 hover:text-ink-2" : "bg-fill text-ink-2 hover:bg-fill-2 hover:text-ink")}
+          >
+            {r.mark(14)}
+            <span className="max-w-40 truncate">{r.name}</span>
+            {r.n > 0 && <span className="text-ink-3 tabular-nums">{r.n}</span>}
+            {r.lamp !== "idle" && <Lamp status={r.lamp} />}
+          </button>
+        </Tip>
+      ))}
     </div>
   );
 }
