@@ -289,6 +289,17 @@ func DropLinks(text string, ids map[string]bool) string {
 	return strings.TrimSpace(blankRun.ReplaceAllString(b.String(), "\n\n"))
 }
 
+// LinkFiles is the files text links (ir:<id>) that are still given, as a block's Files have them.
+func (s *Service) LinkFiles(text string) []api.FileRef {
+	var out []api.FileRef
+	for _, id := range Links(text) {
+		if f, err := s.LinkInfo(id); err == nil {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
 // LinkInfo is file link id as a block's Files have it, if it is still given.
 func (s *Service) LinkInfo(id string) (api.FileRef, error) {
 	l, err := s.linkOf(id)

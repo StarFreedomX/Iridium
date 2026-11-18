@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"image"
 	pngpkg "image/png"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -1020,4 +1022,39 @@ func TestChannelLast(t *testing.T) {
 	l.want(200, "web", "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+ch, map[string]any{"recv": "at"}, nil)
 	l.send("web", ch, api.Send{Text: "just saying"})
 	listed("a person's words", func(last *api.LastSaid) bool { return last.Role == "user" && last.Text == "just saying" })
+}
+
+// A channel's log shows the files its agents' words give, as a page of their records does: a
+// file line in what the agent said in its turn, kept as it is taken in; a file link (ir:<id>) in
+// what it sent with ir, found as it is read.
+func TestChannelSaidFiles(t *testing.T) {
+	t.Parallel()
+	l := start(t)
+	ch := l.create(200, "web", api.NewSession{Agent: api.AgentClaude, Cwd: l.work, Text: "first"})
+	l.waitReply("web", ch, "ok: first")
+	var ms api.ChannelMembers
+	l.want(200, "web", "POST", "/v1/internal/channels/"+ch+"/members", api.NewMember{Agent: api.AgentClaude, Nick: "guest"}, &ms)
+	guest := ms.Members[len(ms.Members)-1].Session
+	png := func(name string) string {
+		var b bytes.Buffer
+		pngpkg.Encode(&b, image.NewRGBA(image.Rect(0, 0, 2, 2)))
+		p := filepath.Join(l.work, name)
+		if err := os.WriteFile(p, b.Bytes(), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+
+	// Said in its turn: "ok: #<n>: look\n[文件] `<path>`".
+	p := png("said.png")
+	l.send("web", ch, api.Send{Text: "look\n[文件] `" + p + "`"})
+	l.waitSaid("web", ch, "@claude ", "ok: #", `<img src="internal:`, `title="said.png"`)
+
+	// Sent with ir: its link.
+	lk, err := l.s.files.Link(guest, png("sent.png"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	l.wantSat(200, "agent-in:"+guest, "message.create", map[string]any{"channel_id": ch, "content": "here " + lk.Markdown}, nil)
+	l.waitSaid("web", ch, "@guest here", `<img src="internal:`, "/"+lk.File.Ref+`"`, `title="sent.png"`)
 }

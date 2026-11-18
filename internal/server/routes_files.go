@@ -43,7 +43,7 @@ func (a sessionsOf) Cwd(id string) (string, error) {
 }
 
 func (a sessionsOf) After(id string, at int64) (api.MessagePage, error) {
-	return a.m.Messages(id, -1, at)
+	return a.m.Raw(id, -1, at)
 }
 
 // fileRoutes are the files a session names, uploads, and (local: the unix socket only)

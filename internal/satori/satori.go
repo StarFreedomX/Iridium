@@ -146,6 +146,8 @@ type Backend interface {
 	ServeFile(w http.ResponseWriter, r *http.Request, path string)
 	// Mask masks the credentials' values in text.
 	Mask(text string) string
+	// LinkFiles is the files text links (ir:<id>) that are still given.
+	LinkFiles(text string) []api.FileRef
 	// Fault is how an error from the above goes out: its status and code.
 	Fault(err error) (status int, code string)
 }

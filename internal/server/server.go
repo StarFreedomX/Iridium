@@ -141,7 +141,7 @@ func New(cfg config.Config, m *session.Manager, h *hub.Hub, logf func(string, ..
 	s.publishPairing()
 	s.vault = newVault()
 	s.reloadSecrets()
-	m.SetAnnotate(s.files.AnnotateBlocks) // a state's tail names files as a page of messages does
+	m.SetAnnotate(s.files.AnnotateBlocks) // a page of messages and a state's tail name files
 	s.ch = channel.New(s.st, m, logf)
 	s.sat = satori.New(satoriBackend{s}, logf)
 	s.sat.Channels(s.ch)

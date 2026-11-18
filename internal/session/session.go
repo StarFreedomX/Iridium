@@ -572,8 +572,18 @@ func (m *Manager) State(id string) (*api.SessionState, error) {
 }
 
 // Messages is a page of the session's transcript: the latest (before and after < 0), the one
-// before an offset, or what came after one.
+// before an offset, or what came after one; its blocks carry the files they name (SetAnnotate),
+// for every reader of it: a page, a channel taking in what the agent said.
 func (m *Manager) Messages(id string, before, after int64) (api.MessagePage, error) {
+	p, err := m.Raw(id, before, after)
+	if a := m.annotate.Load(); err == nil && a != nil {
+		(*a)(id, "", p.Blocks)
+	}
+	return p, err
+}
+
+// Raw is Messages without the files the blocks name: what the files service reads to find them.
+func (m *Manager) Raw(id string, before, after int64) (api.MessagePage, error) {
 	f, err := m.readable(id)
 	if err != nil {
 		return api.MessagePage{}, err

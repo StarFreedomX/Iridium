@@ -281,6 +281,8 @@ func (f *fake) ServeFile(w http.ResponseWriter, r *http.Request, path string) {}
 
 func (f *fake) Mask(t string) string { return strings.ReplaceAll(t, "SECRET", "******") }
 
+func (f *fake) LinkFiles(string) []api.FileRef { return nil }
+
 func (f *fake) Fault(err error) (int, string) {
 	if errors.Is(err, session.ErrNotFound) {
 		return 422, "no_such_session"

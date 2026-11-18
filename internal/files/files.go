@@ -249,13 +249,7 @@ func (s *Service) files(session string, b api.Block) []api.FileRef {
 		out = append(out, info)
 	}
 	if b.Kind == api.BlockKindAssistant {
-		for _, id := range Links(b.Text) {
-			if l, err := s.linkOf(id); err == nil {
-				if f, err := s.linkFile(l); err == nil {
-					out = append(out, f)
-				}
-			}
-		}
+		out = append(out, s.LinkFiles(b.Text)...)
 	}
 	return out
 }

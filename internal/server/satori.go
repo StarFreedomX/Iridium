@@ -302,11 +302,7 @@ func (b satoriBackend) Sees(c satori.Caller, id string) bool {
 }
 
 func (b satoriBackend) Messages(id string, before, after int64) (api.MessagePage, error) {
-	p, err := b.s.m.Messages(id, before, after)
-	if err == nil {
-		b.s.files.Annotate(id, &p)
-	}
-	return p, err
+	return b.s.m.Messages(id, before, after)
 }
 
 func (b satoriBackend) Full(id, at string) (string, error) { return b.s.m.Full(id, at) }
@@ -443,6 +439,8 @@ func (b satoriBackend) AgentAvatar(id string) string { return b.s.AgentAvatar(id
 func (b satoriBackend) SessionNow(id string) string { return b.s.st.Now(id) }
 
 func (b satoriBackend) Mask(text string) string { return b.s.MaskText(text) }
+
+func (b satoriBackend) LinkFiles(text string) []api.FileRef { return b.s.files.LinkFiles(text) }
 
 func (b satoriBackend) Relay(session string, blk api.Block) (satori.Relay, bool) {
 	return b.s.relayOf(session, blk)

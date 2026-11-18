@@ -123,8 +123,8 @@ func (m *Manager) markChannels(list []api.Session) {
 	}
 }
 
-// SetAnnotate makes the tails of the sessions' states carry the files their blocks name, as a
-// page of messages does. The server sets it; it comes after the manager.
+// SetAnnotate makes the pages of messages and the tails of the sessions' states carry the files
+// their blocks name. The server sets it; it comes after the manager.
 func (m *Manager) SetAnnotate(a Annotate) { m.annotate.Store(&a) }
 
 // small: no block cut short, and little to carry.
