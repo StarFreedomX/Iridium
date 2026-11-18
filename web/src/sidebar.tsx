@@ -672,10 +672,7 @@ function WsRow({ flip, id, name, root, sessions, hung, machine, remote, folders,
   const real = id !== 0 && manages(me);
   const [at, setAt] = useMenuAt();
   const [renaming, setRenaming] = useState(false);
-  const lp = useLongPress(() => {
-    const r = document.activeElement?.closest?.("[role=treeitem]")?.getBoundingClientRect();
-    setAt(r ? { x: r.left + 40, y: r.bottom } : { x: 40, y: 40 });
-  });
+  const lp = useLongPress((p) => setAt({ x: p.x, y: p.y }));
   const anchor = usePointAnchor(at);
   const failed = (e: unknown) => toast(t("err.action"), { error: true, description: errText(e) });
   // The group's voice, its way in (kumo, 2026-11-16).
@@ -685,7 +682,7 @@ function WsRow({ flip, id, name, root, sessions, hung, machine, remote, folders,
     // Those hung under its sessions go with them (the server's cascade): counted, not sent. The way
     // a group at another machine is no longer listed (the user, 2026-11-10).
     ...(sessions.length
-      ? [{ icon: <Archive size={15} />, label: t("menu.archiveHere", { n: sessions.length + hung.length }), run: () => void Promise.all(sessions.map((s) => api.patch(s.id, { archived: true }))).then(() => toast(t("toast.archived")), failed) }]
+      ? [{ icon: <Archive size={15} />, label: t("menu.archiveHere", { n: sessions.length + hung.length }), sure: t("menu.archiveSure"), run: () => void Promise.all(sessions.map((s) => api.patch(s.id, { archived: true }))).then(() => toast(t("toast.archived")), failed) }]
       : []),
     ...(real
       ? [
@@ -903,10 +900,7 @@ const SessionRow = memo(function SessionRow({ s, where, depth, flip, selected, o
   const [menuAt, setMenuAt] = useMenuAt();
   const [renaming, setRenaming] = useState(false);
   const rest = useRef<number | undefined>(undefined);
-  const lp = useLongPress(() => {
-    const r = document.activeElement?.closest?.("[role=treeitem]")?.getBoundingClientRect();
-    setMenuAt(r ? { x: r.left + 40, y: r.bottom } : { x: 40, y: 40 });
-  });
+  const lp = useLongPress((p) => setMenuAt({ x: p.x, y: p.y }));
   const hover = {
     onPointerMove: (e: React.PointerEvent) => {
       lp.onPointerMove(e);
@@ -1111,10 +1105,7 @@ function FolderRow({ f, ws, depth, label, hung, open, onToggle, newHere, plus, l
       }
     : {};
   const [at, setAt] = useMenuAt();
-  const lp = useLongPress(() => {
-    const r = document.activeElement?.closest?.("[role=treeitem]")?.getBoundingClientRect();
-    setAt(r ? { x: r.left + 40, y: r.bottom } : { x: 40, y: 40 });
-  });
+  const lp = useLongPress((p) => setAt({ x: p.x, y: p.y }));
   const done = (what: string) => () => toast(what);
   const failed = (e: unknown) => toast(t("err.action"), { error: true, description: errText(e) });
   const color = useFolderColors()[f.path];
@@ -1124,7 +1115,7 @@ function FolderRow({ f, ws, depth, label, hung, open, onToggle, newHere, plus, l
   const all = folderSessions(f);
   const items = [
     ...(all.length
-      ? [{ icon: <Archive size={15} />, label: t("menu.archiveHere", { n: all.length + hung.length }), run: () => void Promise.all(all.map((s) => api.patch(s.id, { archived: true }))).then(done(t("toast.archived")), failed) }]
+      ? [{ icon: <Archive size={15} />, label: t("menu.archiveHere", { n: all.length + hung.length }), sure: t("menu.archiveSure"), run: () => void Promise.all(all.map((s) => api.patch(s.id, { archived: true }))).then(done(t("toast.archived")), failed) }]
       : []),
     ...(newHere ? [{ icon: <Plus size={15} />, label: t("menu.newHere"), run: newHere }] : []),
     { icon: <Copy size={15} />, label: t("menu.copyPath"), run: () => void navigator.clipboard.writeText(shownPath(f.path, machines).real).then(done(t("toast.copied")), failed) },

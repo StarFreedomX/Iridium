@@ -241,8 +241,8 @@ export function Sheet({ open, setOpen, size: want, raised, name, head = 0, from:
         setLive(null);
         setArmed(false);
         noSelect(false);
-        // No tap where it was held.
-        swallowClick(500);
+        // No tap where it was held and moved; held on a key and let go where it was, the key's.
+        if (mine) swallowClick(500);
       } else if (from && mine) {
         // A flick decides by its way; a slow drag by where it was let go: put away once a quarter of
         // it went down.

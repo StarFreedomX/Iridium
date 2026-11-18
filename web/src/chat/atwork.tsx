@@ -27,9 +27,13 @@ export function Activity({ calls, running, cwd, quiet, grew, under, stop }: { ca
   const run = running.at(-1);
   return (
     <div className={cn("flex h-7 min-w-0 items-center pointer-coarse:h-9", under ? "-mt-1" : "-mt-3 pl-[38px]")}>
+      {/* One box for a call, written then running, under its id: it fades in once, not again
+          as the call written begins to run. */}
       {writing?.tool ? (
-        <div key={writing.tool.id} className="min-w-0 flex-1">
-          <ToolDraft name={writing.tool.name} input={writing.text} whole={writing.whole} />
+        <div key={writing.tool.id} className="g-fade flex min-w-0 flex-1 items-center gap-2">
+          <div className="min-w-0 flex-1">
+            <ToolDraft name={writing.tool.name} input={writing.text} whole={writing.whole} plain />
+          </div>
         </div>
       ) : run ? (
         <div key={run.id ?? run.at} className="g-fade flex min-w-0 flex-1 items-center gap-2">
@@ -102,14 +106,13 @@ export function OtherTurn({ a, channel, st, said, alone, bars, call, record, may
   const cwd = st?.cwd ?? "";
   const node = (b: (typeof rows)[number]) => <Said key={b.at} b={b} session={a.session} cwd={cwd} source={noSource} onJump={openChat} />;
   const e = earlierOf(rows, (b) => b.kind === "assistant");
-  const body = e
-    ? [
-        <Earlier key="earlier" done={false} words={e.words} steps={e.before.reduce((n, b) => n + (b.kind === "fold" ? b.steps.length : 0), 0)}>
-          {e.before.map(node)}
-        </Earlier>,
-        ...e.after.map(node),
-      ]
-    : rows.map(node);
+  // All its rows in the one place from the first (Earlier's after): none is put in again as it
+  // comes to be among the earlier ones.
+  const body = rows.length ? (
+    <Earlier key="earlier" done={false} bare={!e} words={e?.words ?? 0} steps={(e?.before ?? []).reduce((n, b) => n + (b.kind === "fold" ? b.steps.length : 0), 0)} after={(e?.after ?? rows).map(node)}>
+      {(e?.before ?? []).map(node)}
+    </Earlier>
+  ) : null;
   const stop = may ? <StopKey session={a.session} /> : null;
   const time = rows.map((b) => (b.kind === "fold" ? b.steps[0]?.time : "time" in b ? b.time : undefined)).find(Boolean);
   const activity = (under: boolean) => <Activity calls={[]} running={running} cwd={cwd} quiet grew={`${a.session} ${log.end} ${running.length}`} under={under} stop={stop} />;

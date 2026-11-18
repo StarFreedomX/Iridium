@@ -1048,7 +1048,12 @@ export function Running({ tool, cwd }: { tool: Tool; cwd: string }) {
  *  2026-11-16: so its face is by its answer): how many words and steps; pressed, all of it, its
  *  height gliding, pressed again, the line. A turn that ends in front of you folds as it ends; one
  *  still at work is open. */
-export function Earlier({ done, fresh, words, steps, children }: { done: boolean; fresh?: boolean; words: number; steps: number; children: ReactNode }) {
+/** after: the rows after those it holds. While its turn goes on and it is open they are drawn in
+ *  it, under the others: one place for all the turn's rows, so that a row which comes to be among
+ *  the earlier ones (each time the agent says more) is not taken out of the page and put in again
+ *  (kumo, 2026-11-19: its pictures came in anew, a fold opened in it shut). bare: nothing to hold
+ *  yet, no line of its own; the place is there from the turn's first row. */
+export function Earlier({ done, fresh, words, steps, children, after, bare }: { done: boolean; fresh?: boolean; words: number; steps: number; children: ReactNode; after?: ReactNode; bare?: boolean }) {
   // fresh: its turn ended in front of you as it came to have something to fold: drawn open, then
   // folding, not gone at once.
   const [open, setOpen] = useState(!done || !!fresh);
@@ -1066,21 +1071,28 @@ export function Earlier({ done, fresh, words, steps, children }: { done: boolean
   // icon, its name and how many, the chevron. Open, what it holds as it stood in the turn: no
   // rule beside it, not set in (kumo, 2026-11-16: the rule is the steps' fold's alone; with one
   // here too, a fold of steps in it stood behind two, and the turn's rows moved aside as it ended).
+  const within = !done && open;
   return (
+    <>
     <div className="flex min-w-0 flex-col">
-      <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className={cn(ROW, "-my-0.5 w-full text-left")}>
+      {!bare && <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className={cn(ROW, "-my-0.5 w-full text-left")}>
         <span className="min-w-0 truncate">
           <MessagesSquare size={14} className="mr-2 inline-block align-[-2.5px]" />
           <span className="text-ink-2">{t("msg.earlier")}</span>
           <span className="tabular-nums"> ×{words + steps}</span>
         </span>
         <ChevronRight size={13} className={cn("shrink-0 text-ink-4 transition-transform duration-(--dur-2)", open && "rotate-90")} />
-      </button>
+      </button>}
       <div inert={!open || undefined} aria-hidden={!open || undefined} className={cn("grid transition-[grid-template-rows] duration-(--dur-2) ease-(--ease-out)", open ? "grid-rows-[1fr]" : "grid-rows-[0fr]")}>
-        <div className="min-h-0 min-w-0 overflow-hidden">
-          <div className="mt-0.5 flex min-w-0 flex-col gap-5 pt-4">{children}</div>
+        <div className={cn("min-h-0 min-w-0", !within && "overflow-hidden")}>
+          <div className={cn("flex min-w-0 flex-col gap-5", !bare && "mt-0.5 pt-4")}>
+            {children}
+            {within && after}
+          </div>
         </div>
       </div>
     </div>
+    {!within && after}
+    </>
   );
 }

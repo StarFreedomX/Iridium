@@ -87,6 +87,7 @@ export const zh = {
   "menu.unquiet": "取消免打扰",
   "menu.pinned": "已置顶",
   "menu.archive": "归档",
+  "menu.archiveSure": "确认归档",
   "menu.unarchive": "恢复",
   "menu.copyId": "复制会话 ID",
   "menu.stop": "停掉 agent",

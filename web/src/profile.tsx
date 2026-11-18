@@ -91,7 +91,7 @@ export function Profile({ onPicture }: { onPicture: (url: string) => void }) {
           onChange={(e) => setDraft(e.target.value)}
           onBlur={() => setEditing(false)}
           onKeyDown={(e) => {
-            if (e.nativeEvent.isComposing) return;
+            if (e.nativeEvent.isComposing || e.keyCode === 229) return;
             if (e.key === "Enter" && draft.trim()) void save({ name: draft.trim() }).then((ok) => ok && setEditing(false));
             if (e.key === "Escape") {
               e.stopPropagation();

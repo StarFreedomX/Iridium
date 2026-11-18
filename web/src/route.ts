@@ -86,6 +86,12 @@ function leave() {
   const from = current;
   steps = [];
   current = parse(location.hash);
+  // The address itself names the dialog (the page was loaded at it): out of it is home, not the
+  // dialog again, shut only by a second press.
+  if (over(current)) {
+    history.replaceState({ ir: true, depth: 0 }, "", "#/");
+    current = { name: "home" };
+  }
   moved(from);
 }
 

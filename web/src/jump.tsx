@@ -53,6 +53,10 @@ export function Jump({ close, tree, open }: { close: () => void; tree: Tree; ope
     document.addEventListener("pointerdown", down, true);
     return () => document.removeEventListener("pointerdown", down, true);
   }, []);
+  // The row picked is kept in sight as the pick changes, not at each draw: the list drawn again
+  // (any session's news) pulled a list scrolled by hand back to it.
+  const picked = list[sel]?.id;
+  useEffect(() => void (picked && document.getElementById(`jump-${picked}`)?.scrollIntoView({ block: "nearest" })), [picked]);
   return (
     <div ref={root} role="search" onMouseDown={(e) => e.target instanceof HTMLInputElement || e.preventDefault()} className="g-stagger flex min-h-0 flex-1 flex-col text-ink">
       <label className="mx-2 flex h-8 shrink-0 items-center gap-2 rounded-md bg-fill px-2.5 pointer-coarse:h-10" style={{ "--i": 0 } as CSSProperties}>
@@ -88,7 +92,6 @@ export function Jump({ close, tree, open }: { close: () => void; tree: Tree; ope
             role="option"
             aria-selected={i === sel}
             tabIndex={-1}
-            ref={(el) => void (i === sel && el?.scrollIntoView({ block: "nearest" }))}
             onPointerMove={() => i === sel || setPick(i)}
             onClick={() => go(s.id)}
             className={cn("flex h-[30px] w-full cursor-default items-center gap-2 rounded-md px-2 text-left pointer-coarse:h-10", i === sel && "bg-fill", s.archived && "opacity-55")}

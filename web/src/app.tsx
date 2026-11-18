@@ -191,6 +191,8 @@ export function App() {
   // A swipe up from the left shows the 终端 page from its first px, not the sessions' turning to it
   // as it is let go (the user, 2026-11-08).
   const [pulled, setPulled] = useState<"me" | "sessions" | null>(null);
+  // Drawn as it is first pulled too: dragged up before it had ever been out, it came up empty.
+  if (phone && pulled && !seen) setSeen(true);
   // Out, its page is the route's; going down, it stays as it was; coming up, the swipe's.
   const lastPage = useRef(2);
   const sheetPage = sheetIsOut ? (setsOut ? (r.name === "usage" ? 1 : 0) : 2) : pulled ? (pulled === "me" ? 0 : 2) : lastPage.current;

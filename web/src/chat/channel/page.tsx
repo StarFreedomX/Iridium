@@ -22,7 +22,7 @@ import { PULL } from "../../sheet";
 import { getCarried, onCarried, setCarried, useCarried, useConfirms, useList, useSession } from "../../store";
 import { also, carries, events, opened, type SatoriEvent } from "../../stream";
 import { errText } from "../../toast";
-import { agentName, cn, lampOf, Leaving, Logo, PopSurface } from "../../ui";
+import { Arrive, agentName, cn, lampOf, Leaving, Logo, PopSurface } from "../../ui";
 import { Asks } from "../asks";
 import { placeDropped } from "../at";
 import { Composer, type ComposerHandle } from "../composer";
@@ -299,9 +299,9 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
                     const last = groups.at(-1)?.author;
                     const alone = !sent.length && last?.kind === "agent" && last.session === a.session;
                     return (
-                      <div className={cn(!alone && !leaving && "g-fade")}>
+                      <Arrive on={!alone} off={leaving} as="g-fade">
                         <OtherTurn a={a} channel={id} st={stateAt(a.session)} said={log.msgs.findLast((m) => m.author.kind === "agent" && m.author.session === a.session && !!m.src)?.src} alone={alone} bars={bars(a.session)} call={may ? call : undefined} record={record} may={may} />
-                      </div>
+                      </Arrive>
                     );
                   }}
                 />

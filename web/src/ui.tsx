@@ -3,7 +3,7 @@
 import { Popover } from "@base-ui/react/popover";
 import { Tooltip } from "@base-ui/react/tooltip";
 import { Bot, Camera, Check, Copy, Monitor, Puzzle, ScrollText, UsersRound, type LucideIcon } from "lucide-react";
-import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type ComponentProps, type CSSProperties, type ReactElement, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type ComponentProps, type CSSProperties, type ReactElement, type ReactNode } from "react";
 import { useLeaving } from "./motion";
 import type { Agent, Status } from "./api/types.gen";
 import { t } from "./i18n";
@@ -101,7 +101,7 @@ export function holdMenu(close: () => void) {
  *  a press in a portal of its children (a row's "+" popover): React may hand one pointerdown to a
  *  row twice from there, from the portal's container and from <body>, and the first timer would be
  *  lost, never cleared, opening the row's menu after a plain tap (the user, 2026-11-06). */
-export function useLongPress(onLong: () => void) {
+export function useLongPress(onLong: (at: { x: number; y: number }) => void) {
   const timer = useRef<number | undefined>(undefined);
   const fired = useRef(false);
   const start = useRef({ x: 0, y: 0 });
@@ -115,7 +115,7 @@ export function useLongPress(onLong: () => void) {
       timer.current = window.setTimeout(() => {
         fired.current = true;
         buzzHeld();
-        onLong();
+        onLong(start.current);
       }, 450);
     },
     onPointerMove: (e: React.PointerEvent) => {
@@ -555,6 +555,14 @@ export function tilde(p: string, home = knownHome ?? homeOf(p)) {
   return home && (p === home || p.startsWith(home + "/")) ? "~" + p.slice(home.length) : p;
 }
 
+/** A row that rises in as it comes (.g-arrive), decided once, as it is first drawn: a class that
+ *  came and went with what else is on the page (the row alone or not) played its coming again on
+ *  a row long there. on: whether it rises in at all; off: no longer (it is leaving). */
+export function Arrive({ on, off, as = "g-arrive", className, children }: { on: boolean; off?: boolean; as?: "g-arrive" | "g-fade"; className?: string; children: ReactNode }) {
+  const first = useRef(on);
+  return <div className={cn(first.current && !off && as, className)}>{children}</div>;
+}
+
 /** A list whose items, once gone, fade where they were, then go (motion.ts useLeaving, .g-depart)
  *  rather than vanish. draw: an item, and whether it is leaving. */
 export function Leaving<T>({ items, keyOf, draw }: { items: T[]; keyOf: (x: T) => string; draw: (x: T, leaving: boolean) => ReactNode }) {
@@ -562,13 +570,11 @@ export function Leaving<T>({ items, keyOf, draw }: { items: T[]; keyOf: (x: T) =
   return (
     <>
       {all.map(({ item, leaving }) =>
-        leaving ? (
-          <div key={keyOf(item)} aria-hidden className="g-depart">
-            <div>{draw(item, true)}</div>
-          </div>
-        ) : (
-          <Fragment key={keyOf(item)}>{draw(item, false)}</Fragment>
-        ),
+        // The same two boxes either way (unseen by the layout till it leaves): drawn in another
+        // kind of box to leave, the item was taken out and put in again for its own fading out.
+        <div key={keyOf(item)} aria-hidden={leaving || undefined} className={leaving ? "g-depart" : "contents"}>
+          <div className={leaving ? undefined : "contents"}>{draw(item, leaving)}</div>
+        </div>,
       )}
     </>
   );

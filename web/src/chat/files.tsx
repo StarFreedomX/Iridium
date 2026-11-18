@@ -43,7 +43,7 @@ function Bare({ session, f }: { session: string; f: FileRef }) {
   const url = api.fileURL(session, f.ref, false, f.mtime);
   const name = f.name;
   if (f.kind === "image") return <Picture src={f.thumb ? api.thumbURL(session, f.ref, 1024, f.mtime) : url} full={url} name={name} w={f.w} h={f.h} />;
-  if (f.kind === "video") return <video controls preload="metadata" src={url} className="block w-full max-w-[480px] rounded-lg bg-fill shadow-[0_0_0_0.5px_var(--edge)]" aria-label={name} />;
+  if (f.kind === "video") return <video controls preload="metadata" src={url} style={{ aspectRatio: f.w && f.h ? `${f.w} / ${f.h}` : "16 / 9" }} className="block w-full max-w-[480px] rounded-lg bg-fill shadow-[0_0_0_0.5px_var(--edge)]" aria-label={name} />;
   if (f.kind === "audio") return <audio controls preload="metadata" src={url} className="w-full max-w-[340px]" aria-label={name} />;
   return <FileCard name={name} detail={size(f.size)} href={api.fileURL(session, f.ref, true, f.mtime)} view={url} mime={f.mime} code={CODE.test(f.name)} />;
 }

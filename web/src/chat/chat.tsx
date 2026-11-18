@@ -29,7 +29,7 @@ import { useConfirms, useList, useSession } from "../store";
 import { also, carries, drafts, opened } from "../stream";
 import { errText, toast } from "../toast";
 import { groupPath, working } from "../tree";
-import { agentName, cn, IrMark, Lamp, lampOf, Leaving, LogoLamp, PopSurface, sessionStatusText, tilde, Tip, titleOf, untitled } from "../ui";
+import { Arrive, agentName, cn, IrMark, Lamp, lampOf, Leaving, LogoLamp, PopSurface, sessionStatusText, tilde, Tip, titleOf, untitled } from "../ui";
 import { givenTurn, groupMessages, isMulti, type AgentRow, type GivenTurn, type Msg } from "./channel/lib";
 import { recvOf } from "./channel/scripts";
 import { useScripts } from "./channel/script";
@@ -668,13 +668,14 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
   if (liveNow) liveLast.current = lastKey;
   const rowsOf = (rs: Row<ReactNode, Works>[], done: boolean, key: string) => {
     const e = earlierOf(rs, (r) => wordsOf.has(r.key));
-    if (!e) return rs.map((r) => r.node);
-    return [
-      <Earlier key={`earlier:${rs[0]!.key}`} done={done} fresh={key === liveTurn.current} words={e.words} steps={e.before.reduce((n, r) => n + (stepsAt.get(r.key) ?? 0), 0)}>
-        {e.before.map((r) => r.node)}
-      </Earlier>,
-      ...e.after.map((r) => r.node),
-    ];
+    // A turn going on: all its rows in the one place from its first row (Earlier's after).
+    if (!e && (done || !rs.length)) return rs.map((r) => r.node);
+    const before = e?.before ?? [];
+    return (
+      <Earlier key={`earlier:${rs[0]!.key}`} done={done} bare={!e} fresh={key === liveTurn.current} words={e?.words ?? 0} steps={before.reduce((n, r) => n + (stepsAt.get(r.key) ?? 0), 0)} after={(e?.after ?? rs).map((r) => r.node)}>
+        {before.map((r) => r.node)}
+      </Earlier>
+    );
   };
   const turnNode = (x: (typeof turns)[number], i: number) =>
             x.kind === "one" ? (
@@ -771,11 +772,11 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
               draw={(a, leaving) => {
                 const alone = !pending.length && lastGroup?.session === a.session;
                 return (
-                  <div className={cn(!alone && !leaving && "g-arrive", "-mt-2")}>
+                  <Arrive on={!alone} off={leaving} className="-mt-2">
                     <div>
                       <OtherTurn a={a} channel={id} st={stateOf(a.session)} said={msgs.findLast((m) => m.author.kind === "agent" && m.author.session === a.session && !!m.src)?.src} alone={alone} bars={barsOf(a.session)} call={may ? callAt : undefined} record={openChat} may={may} />
                     </div>
-                  </div>
+                  </Arrive>
                 );
               }}
             />
@@ -836,7 +837,7 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
             </Suspense>
           ) : (
             // Put away under the cards, kept as it was: it slides down out of the window and back.
-            <div aria-hidden={asking || undefined} inert={asking || undefined} className={cn("grid transition-[grid-template-rows,opacity] duration-(--dur-3) ease-(--ease-out)", asking ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr]")}>
+            <div aria-hidden={asking || undefined} inert={asking || undefined} className={cn("grid transition-opacity duration-(--dur-3) ease-(--ease-out)", asking ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr]")}>
               <div className="min-h-0">
   <Under s={s} ghost={ghost} composer={composer} onSent={under.onSent} onSentDone={under.onSentDone} modelOpen={modelOpen} setModelOpen={setModelOpen} modeOpen={modeOpen} setModeOpen={setModeOpen} openContext={under.openContext} people={atRows} quote={quoteOf} unquote={under.unquote} />
               </div>
@@ -1240,14 +1241,9 @@ function SubTurn({ s }: { s: Session }) {
         {rows.length ? (
           <>
             <TurnFrame face={face} head={head}>
-              {e
-                ? [
-                    <Earlier key="earlier" done={false} words={e.words} steps={e.before.reduce((n, b) => n + (b.kind === "fold" ? b.steps.length : 0), 0)}>
-                      {e.before.map(node)}
-                    </Earlier>,
-                    ...e.after.map(node),
-                  ]
-                : rows.map(node)}
+              <Earlier key="earlier" done={false} bare={!e} words={e?.words ?? 0} steps={(e?.before ?? []).reduce((n, b) => n + (b.kind === "fold" ? b.steps.length : 0), 0)} after={(e?.after ?? rows).map(node)}>
+                {(e?.before ?? []).map(node)}
+              </Earlier>
             </TurnFrame>
             {activity(false)}
           </>

@@ -6,7 +6,7 @@
 import { Menu } from "@base-ui/react/menu";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { api, ApiError } from "./api/client";
 import type { Role, RolePatch } from "./api/types.gen";
 import { CardFrame, CardHead, MainKey, SecondKey } from "./card";
@@ -30,9 +30,12 @@ export function RolesPage({ onBack }: { onBack: () => void }) {
   const roles = useRoles();
   const [open, setOpen] = useState<string | null>(null);
   const role = roles.find((r) => r.id === open);
+  // Back from a role's page the list slides in from the other side; first shown, it does not.
+  const moved = useRef(false);
+  if (role) moved.current = true;
   if (role) return <RolePage key={role.id} role={role} onBack={() => setOpen(null)} />;
   return (
-    <div className={cn("flex h-full flex-col", open !== null && "g-slide")} data-dir="back">
+    <div className={cn("flex h-full flex-col", moved.current && "g-slide")} data-dir="back">
       <header className="flex h-10.5 shrink-0 items-center gap-1 px-1.5 pt-1.5">
         <IconKey label={t("nav.me")} onClick={onBack} tipSide="bottom" className="size-7">
           <ChevronLeft size={16} />
@@ -183,5 +186,5 @@ function Field({ value, save, label, lines, maxLength, className }: { value: str
   };
   const p = { "aria-label": label, value: v, maxLength, onBlur: commit, className: cn(BOX, className) };
   if (lines) return <textarea {...p} rows={3} onChange={(e) => setV(e.target.value)} className={cn(p.className, "resize-none")} />;
-  return <input {...p} onChange={(e) => setV(e.target.value)} onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()} />;
+  return <input {...p} onChange={(e) => setV(e.target.value)} onKeyDown={(e) => !e.nativeEvent.isComposing && e.keyCode !== 229 && e.key === "Enter" && e.currentTarget.blur()} />;
 }

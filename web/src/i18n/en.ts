@@ -87,6 +87,7 @@ export const en: Dict = {
   "menu.unquiet": "Unmute",
   "menu.pinned": "Pinned",
   "menu.archive": "Archive",
+  "menu.archiveSure": "Confirm archive",
   "menu.unarchive": "Restore",
   "menu.copyId": "Copy session ID",
   "menu.stop": "Stop the agent",

@@ -195,9 +195,10 @@ export function Field({ label, value, max, multi, count, bad, save, explain = er
     }
   };
   const keys = (e: React.KeyboardEvent<HTMLElement>) => {
-    if (e.nativeEvent.isComposing) return;
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
     if (e.key === "Enter") (e.preventDefault(), (e.currentTarget as HTMLElement).blur());
-    if (e.key === "Escape") (e.preventDefault(), setDraft(value), setError(""), requestAnimationFrame(() => (e.target as HTMLElement).blur()));
+    // Its own Esc: the card or the settings it is in stays open.
+    if (e.key === "Escape") (e.preventDefault(), e.stopPropagation(), setDraft(value), setError(""), requestAnimationFrame(() => (e.target as HTMLElement).blur()));
   };
   const common = {
     "aria-label": label,

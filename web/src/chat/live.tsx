@@ -17,13 +17,13 @@ import { KindIcon } from "./said";
 
 /** A tool call being written: its icon and name at once, a light sweeping across them, then what
  *  it is about typed out as it comes (no caret: the user, 2026-11-06); written whole, it waits for its block. */
-export function ToolDraft({ name, input }: { name: string; input: string; whole?: boolean }) {
+export function ToolDraft({ name, input, plain }: { name: string; input: string; whole?: boolean; plain?: boolean }) {
   const call = { name, input: JSON.stringify(partialInput(input)) };
   const a = argOf(call);
   // Words to a subagent: as they are drawn once written (dispatched.tsx).
   if (toldOf(call)) return <Sent call={call} live />;
   return (
-    <div className="g-fade flex h-7 min-w-0 items-center gap-2 text-sm" aria-live="off">
+    <div className={cn(!plain && "g-fade", "flex h-7 min-w-0 items-center gap-2 text-sm")} aria-live="off">
       <KindIcon kind={kindOf(name)} cmd={cmdOfCall(call)} shell={isShell(name)} />
       {/* A shell's name only till its command comes. */}
       {!(isShell(name) && a.arg) && <span className="shine shrink-0">{name}</span>}
@@ -71,10 +71,15 @@ export const stopTurn = (session: string): Promise<void> =>
 /** The stop key of an agent at work, at the right of its row (chat.tsx Activity, the compaction's
  *  line; channel/page.tsx AtWork): the session's own agent or another of the channel alike. esc:
  *  Esc in the composer does the same (the session's own agent). */
+const stopGone = new Map<string, number>();
 export function StopKey({ session, esc }: { session: string; esc?: boolean }) {
   const [stopping, setStopping] = useState(false);
+  // Put in again at once (the turn's row moved under its first words): there already, no fading
+  // in a second time.
+  const [again] = useState(() => performance.now() - (stopGone.get(session) ?? -1e9) < 300);
+  useEffect(() => () => void stopGone.set(session, performance.now()), [session]);
   return (
-    <IconKey label={t(esc ? "chat.stopEsc" : "channel.stop")} tipSide="left" disabled={stopping} onClick={() => (setStopping(true), void stopTurn(session).finally(() => setStopping(false)))} className="g-fade ml-auto size-6 text-ink-3 pointer-coarse:size-8">
+    <IconKey label={t(esc ? "chat.stopEsc" : "channel.stop")} tipSide="left" disabled={stopping} onClick={() => (setStopping(true), void stopTurn(session).finally(() => setStopping(false)))} className={cn(!again && "g-fade", "ml-auto size-6 text-ink-3 pointer-coarse:size-8")}>
       {stopping ? <LoaderCircle size={12} className="animate-spin" /> : <Square size={10} fill="currentColor" />}
     </IconKey>
   );

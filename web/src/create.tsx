@@ -153,6 +153,7 @@ export function FolderPicker({ initial, onChoose, startNew = false, busy, machin
             // Leaving it goes there, as Enter does: on a phone, 选择 pressed is what ends it.
             onBlur={enterTyped}
             onKeyDown={(e) => {
+              if (e.nativeEvent.isComposing || e.keyCode === 229) return;
               if (e.key === "Enter") enterTyped();
               if (e.key === "Escape") {
                 e.stopPropagation();
@@ -201,6 +202,7 @@ export function FolderPicker({ initial, onChoose, startNew = false, busy, machin
               onChange={(e) => setNewName(e.target.value)}
               onBlur={commitNew}
               onKeyDown={(e) => {
+                if (e.nativeEvent.isComposing || e.keyCode === 229) return;
                 if (e.key === "Enter") commitNew();
                 if (e.key === "Escape") {
                   e.stopPropagation();
@@ -388,6 +390,7 @@ export function NewSession({ ws, folder, onFolder, onPick, busy, onMake }: { ws:
             onChange={(e) => setNaming(e.target.value)}
             onBlur={commitNaming}
             onKeyDown={(e) => {
+              if (e.nativeEvent.isComposing || e.keyCode === 229) return;
               if (e.key === "Enter") commitNaming();
               if (e.key === "Escape") {
                 e.stopPropagation();
@@ -943,6 +946,11 @@ export function CreatePopover({ trigger }: { trigger: ReactElement }) {
       }),
     [],
   );
+  // Its page slides only once it was turned to another: as it opens, the popover unfolds and
+  // what is in it stays still in it, not sliding in under the unfolding.
+  const shownAs = useRef({ open, page, stepped: false });
+  if (shownAs.current.open !== open) shownAs.current = { open, page, stepped: false };
+  else if (shownAs.current.page !== page) shownAs.current = { open, page, stepped: true };
   return (
     <Popover.Root
       open={open}
@@ -958,7 +966,7 @@ export function CreatePopover({ trigger }: { trigger: ReactElement }) {
       <Popover.Trigger render={trigger} />
       <PopSurface align="start" finalFocus={false}>
         {/* Page to page, sliding the way you went: on to the agents, back to the folder. */}
-        <div key={page} data-dir={page === "folder" ? "back" : undefined} className="g-slide">
+        <div key={page} data-dir={page === "folder" ? "back" : undefined} className={shownAs.current.stepped ? "g-slide" : undefined}>
           {page === "folder" ? (
             <>
               {machines.length > 0 && <MachineSwitch machines={machines} at={at} onAt={(m) => (setAt(m), setFolder("~"))} />}

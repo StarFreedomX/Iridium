@@ -38,7 +38,9 @@ export function useFlip(ref: RefObject<HTMLElement | null>, dep: unknown) {
   const first = useRef(true);
   useLayoutEffect(() => {
     const root = ref.current;
-    if (!root) return;
+    // Not shown (the jump box over it): every row reads as at the top, and the next move after
+    // had each fly down from there.
+    if (!root || root.offsetParent === null) return;
     const now = new Map<string, number>();
     const rows = root.querySelectorAll<HTMLElement>("[data-flip]");
     const dur = motion.dur(3);
@@ -122,6 +124,7 @@ const WAIT_FOR_PAGE = 160;
  *  is drawn at once. */
 export function pageTurn(order: () => string[], on: () => boolean): Turn {
   let seq = 0;
+  let turning: unknown = null;
   return (from, to, draw) => {
     const doc = document as Document & { startViewTransition?: (f: () => Promise<void> | void) => { finished: Promise<void> } };
     const root = document.documentElement;
@@ -148,7 +151,10 @@ export function pageTurn(order: () => string[], on: () => boolean): Turn {
       if (!turns) return draw();
       root.dataset.turn = dir;
       const vt = doc.startViewTransition!(() => flushSync(draw));
-      void vt.finished.finally(() => mine === seq && delete root.dataset.turn).catch(() => {});
+      turning = vt;
+      // By the turn itself, not by whether anything moved since: the settings opened in the
+      // middle of one left the mark on, the bar and the composer drawn as for a turn.
+      void vt.finished.finally(() => turning === vt && (delete root.dataset.turn, (turning = null))).catch(() => {});
     };
     if (still || !wait.some(Boolean)) return start();
     void Promise.race([Promise.all(wait), new Promise((r) => setTimeout(r, WAIT_FOR_PAGE))]).then(start);
