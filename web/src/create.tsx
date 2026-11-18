@@ -270,7 +270,7 @@ export const subName = (v: string) => {
  *  点名); its menu (right button, a finger held) to take it out. One row: a session as before;
  *  more: the first its own agent, the rest invited with it (NewSession members); no agent: a
  *  channel, every row invited. The last role added shows its card, as others will see it. */
-export function NewSession({ ws, folder, onFolder, onPick, busy, onMake, onMachine }: { ws: string; folder: string; onFolder: () => void; onPick: (a: Agent, to?: Target, people?: string[], as?: As) => void; busy: string | null; onMake?: (name: string) => Promise<boolean>; onMachine?: (m: Machine) => void }) {
+export function NewSession({ ws, folder, onFolder, onPick, busy, onMake }: { ws: string; folder: string; onFolder: () => void; onPick: (a: Agent, to?: Target, people?: string[], as?: As) => void; busy: string | null; onMake?: (name: string) => Promise<boolean> }) {
   // Its people (the user, 2026-11-13): the panel's logins and the host's unless changed here.
   const [people, setPeople] = useState<string[] | null>(null);
   // The agents the daemon can host (GET /v1/internal/agents); all four before it says. One not installed
@@ -292,8 +292,8 @@ export function NewSession({ ws, folder, onFolder, onPick, busy, onMake, onMachi
   // The other computers (kumo, 2026-11-18): their agents are offered under the folder's own. One
   // pressed joins the lineup at its computer's home, invited: it works there, away from the
   // channel's folder. Pressed first, it would be the session's own agent, which runs in the
-  // session's folder: the folder moves to that computer's home (onMachine), or where it cannot
-  // (a group's "+": the group is this folder's), an agent of the folder's is asked for first.
+  // session's folder: the channel with no agent of its own is taken with it instead (kumo,
+  // 2026-11-18: not a message asking for another first), and it receives all, the only one there.
   const others = machines.filter((m) => m.id !== there?.m.id && m.agents.length > 0);
   const add = (agent: Agent, role?: Role, m?: Machine) => {
     const where = m ?? there?.m;
@@ -301,11 +301,7 @@ export function NewSession({ ws, folder, onFolder, onPick, busy, onMake, onMachi
     if (!where && missing(agent)) return void toast(t("new.notInstalled", { name: agentName(agent) }), { error: true });
     // The session's own agent receives all, as a session's always has; one invited, what names it.
     const own = bare === "off" && !shown.length;
-    if (m && own) {
-      if (!onMachine) return void toast(t("new.ownFirst"), { error: true });
-      onMachine(m);
-      m = undefined;
-    }
+    if (m && own) setBare("on");
     const key = next.current++;
     setSeats((ss) => [...ss, { key, agent, role, pick: {}, nick: "", recv: own ? ["*"] : [], ...(m ? { m } : {}) }]);
     setLast(role ? key : null);
@@ -979,7 +975,7 @@ export function CreatePopover({ trigger }: { trigger: ReactElement }) {
               />
             </>
           ) : (
-            <NewSession ws="" folder={here} busy={busy} onFolder={() => setPage("folder")} onMake={sub.make} onMachine={(m) => (setAt(m), setFolder(homeAt(m)))} onPick={(a, to, people, as) => void sub.settled(to).then((p) => p && start(a, p.to?.cwd ?? p.folder, undefined, p.to?.m.id, people, as))} />
+            <NewSession ws="" folder={here} busy={busy} onFolder={() => setPage("folder")} onMake={sub.make} onPick={(a, to, people, as) => void sub.settled(to).then((p) => p && start(a, p.to?.cwd ?? p.folder, undefined, p.to?.m.id, people, as))} />
           )}
         </div>
       </PopSurface>
