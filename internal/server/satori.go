@@ -346,22 +346,12 @@ func (b satoriBackend) Send(ctx context.Context, c satori.Caller, id, text strin
 		refs = append(refs, f.Ref)
 	}
 	req := api.Send{Text: text, Attachments: refs, Caller: o.Caller, ID: o.ID, Quote: o.Quote}
-	// ir: it steers unless told to queue; an
-	// agent's always steers (queued, it would wait for a person).
 	if _, ok := c.Self.(caller); ok {
-		req.Steer = o.Steer == nil || *o.Steer || cl.agent || cl.socket && cl.session != "" || !cl.socket
 		return s.sendAs(ctx, cl, s.fromOf(cl, o.Caller), id, req)
 	}
-	// An app's message joins a running turn, as the chat layer's did; ir_web's and the host's
-	// steer or queue as the person chose.
 	from := session.FromLogin(c.App, c.Login, sourceTag(c))
 	if cl.Host() || cl.Web() {
 		from = s.fromOf(cl, o.Caller)
-	} else {
-		req.Steer = true
-	}
-	if o.Steer != nil && (cl.Host() || cl.Web()) {
-		req.Steer = *o.Steer
 	}
 	return s.sendAs(ctx, cl, from, id, req)
 }

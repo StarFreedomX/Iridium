@@ -17,8 +17,10 @@ export const fresh = (at: number) => Date.now() - at < 3_000;
 /** A message of yours sent from this page, till the transcript has it: input, the id the server gave
  *  it (Claude's uuid, which the user block carries); text, as typed; files, upload refs with their
  *  names; from, where the transcript ended as it was sent. failed: why it did not go. mid: sent into a turn already on. seq: its
- *  number in its channel, once the server said it. */
-export type Sent = { key: string; text: string; files: { ref: string; name: string; type: string; size?: number; url?: string }[]; from: number; input?: string; failed?: string; queued?: boolean; steer?: boolean; mid?: boolean; seq?: number; quote?: number };
+ *  number in its channel, once the server said it. queued: the server keeps it for the turn's end (a command) or the quota (a clock by
+ *  its bubble); waited: seen in the session's queue; gone: answered, and nothing of it will come
+ *  in the transcript (a command the agent ran itself); at: when it was answered. */
+export type Sent = { key: string; text: string; files: { ref: string; name: string; type: string; size?: number; url?: string }[]; from: number; input?: string; failed?: string; queued?: boolean; waited?: boolean; gone?: boolean; at?: number; mid?: boolean; seq?: number; quote?: number };
 
 /** Where a block's transcript line begins: its at up to the dot. */
 export const lineOf = (b: { at: string }) => parseInt(b.at);
@@ -51,6 +53,32 @@ export function unsent(sent: Sent[], blocks: Block[]): Sent[] {
     past = lineOf(b) + 1;
     return false;
   });
+}
+
+/** How long one answered as queued may be missing from the session's queue before it counts as
+ *  gone from it: its state comes on another stream than the answer. */
+const QUEUE_LAG = 3000;
+
+/** sent, set against the session's queue (what the server keeps for the turn's end or the quota):
+ *  one in it waits (queued); one that left it goes on as any sent, a command dropped, for its
+ *  words never come in the transcript; one of the queue not sent from this page (another device,
+ *  a page loaded since) is added, so that it shows here too. Those gone are left out. */
+export function waiting(sent: Sent[], queue: { id: string; text: string }[], end: number, now = Date.now()): Sent[] {
+  const ids = new Set(queue.map((q) => q.id));
+  const out: Sent[] = [];
+  for (const x of sent) {
+    if (x.gone && x.failed === undefined) continue;
+    if (x.input && ids.has(x.input)) {
+      x.queued = x.waited = true;
+      ids.delete(x.input);
+    } else if (x.queued && (x.waited || (x.at !== undefined && now - x.at > QUEUE_LAG))) {
+      x.queued = false;
+      if (x.text.trim().startsWith("/")) continue;
+    }
+    out.push(x);
+  }
+  for (const q of queue) if (ids.has(q.id)) out.push({ key: q.id, text: q.text, files: [], from: end, input: q.id, queued: true, waited: true, mid: true });
+  return out.length === sent.length && out.every((x, i) => x === sent[i]) ? sent : out;
 }
 
 type Get = (id: string, q: { before?: number; after?: number }) => Promise<MessagePage>;

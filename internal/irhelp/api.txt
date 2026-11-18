@@ -49,7 +49,7 @@ POST internal/block.get {channel_id, message_id} -> Message  one block, untrunca
 POST internal/block.outline {channel_id, from?, to?, limit?} -> Outline  a session's record by turn: who asked and their first words, what the agent did (counts, files), its last words; at, end: the turn's blocks, to read whole with block.list (next=<the number before the dot>); from, to: lines of the record  view=turns.at,turns.from,turns.asked,turns.said
 message.update {channel_id, message_id, content?, _data.text?} -> {}  change a message you sent while it waits in the queue (message_id: message.create's id)
 message.delete {channel_id, message_id} -> {}  take back a message waiting in the queue
-message.create {channel_id, content?, _data.text?, _data.paths?, _data.attachments?, _data.steer?} -> Message[]  send; joins a running turn (a person may queue: _data.steer=false)  view=id,_data.queued
+message.create {channel_id, content?, _data.text?, _data.paths?, _data.attachments?} -> Message[]  send; joins a running turn (only a command, or words while the quota is out, wait: _data.queued)  view=id,_data.queued
   _data.text: plain words (the server escapes them); content: Satori elements as they are. The session reads [ir:<your session>] before it.
   _data.paths: files here to attach (relative: from your folder; socket only); _data.attachments: refs upload.create gave.
   Returns once the agent took it; --wait: holds your turn till that turn ended, then prints its reply (exit 2: it waits for a person). For a session apart from your channel. Not for an agent in your channel (one you invited or started there): its words are said in the channel and its answer to you calls you, so waiting only holds your turn and gets you words everyone has already seen. In a channel of several, message.create is said there and never waits.
@@ -57,7 +57,7 @@ POST internal/links {path} -> FileLink  a file's ir: link and the Markdown to pu
 PUT internal/secrets/{name} {note?, value?, scope?, workspaces?, always?} -> SecretInfo  set; an agent gets 202 {need}: --wait for the user to type it in
 GET internal/sessions/{id} - -> SessionState  live state; --wait: wait for the turn to end, print its reply  view=id,status,model,mode,error,asks,queue,end
   --wait: holds your turn until its turn ends, then prints its last reply; exit 2 when it waits for a person (asks: its questions; POST internal/button answers one). For a session doing a job apart from your channel. Not for an agent in your channel (one you invited or started there): its words are said in the channel and its answer to you calls you, so waiting only holds your turn and gets you words everyone has already seen.
-POST internal/sessions/{id}/interrupt - -> {ok}  end the current turn (Esc); the queue pauses
+POST internal/sessions/{id}/interrupt - -> {ok}  end the current turn (Esc); what waits in the queue pauses, and goes ahead of the next message
 POST internal/sessions/{id}/stop - -> {ok}  stop the agent process; the next message restarts it
 POST internal/button {id, option?, choices?, words?, message?} -> {}  answer an ask: id its card (asks[].card.id); or press a button (<card>#<option>; one attached: att:<session>:<from>:<id>, SessionState.attached)
 POST internal/files/copy {from, to} -> ndjson  copy a file: from, to are paths here or app:path at an app's computer; prints path, size, sha256; run again to resume; socket only
@@ -183,7 +183,7 @@ GET internal/exec - -> ws  an executor's connection; its app TOKEN only
 
 # settings (admin)
 GET internal/settings - -> Settings  idle reaping, resumes, default modes, push, language; host or web
-PUT internal/settings {idleReap?, crashResume?, quotaResume?, quotaHidden?, modes?, push?, enterInTurn?, lang?, autoUpdate?} -> Settings  person only
+PUT internal/settings {idleReap?, crashResume?, quotaResume?, quotaHidden?, modes?, push?, lang?, autoUpdate?} -> Settings  person only
 GET internal/public - -> {origin?, passkeys}  public address; host or web
 PUT internal/public {origin} -> {origin?, passkeys}  set the public origin ("" off); the host's own ir, person only
 GET internal/update - -> UpdateState  versions and update progress  view=current,latest,available,ready,phase,error

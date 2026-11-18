@@ -159,18 +159,18 @@ Iridium 自己的接口都在 `/v1/internal/` 下：Satori 规范的 internal �
 - 会话 ID（服务端认，2026-11-11）：`/v1/internal/sessions/{id}/…` 和 Satori 的 `channel_id` 可写 ID 的开头（唯一即可，不足 32 位才查），`self` 是调用者所在的会话（`X-Iridium-Session` 或会话 TOKEN；没有就 400）；`guild_id=self` 是它的组。几个会话同一个开头 400。改名在会话里跑算 agent 起的（`byAgent`），见 `plan.md`“会话标题”。
 - 输出给 agent 看：只打最后一段回复（`new --wait` 先一行 ID）；`cp` 一行 `路径 大小 sha256`；需要你时每个提问一行 `需要你：…`。进度只在 stderr 是终端时画。
 - `message.create`、`new` 不带 `--wait` 时等到 agent 接了这条消息（最多 15 秒）再返回，所以紧接着的 `ir wait` 等的是这一回合。
-- 回合在跑时发的话默认插进这一回合（和网页回车一样，2026-11-06 定）；`--wait` 等到这一回合结束，打印最后一段回复（可能还在说别的事）。`_data.steer:=false` 进待发队列（只对人在终端里跑的 ir 有效；agent 的总是插进，免得要人去点；2026-11-06）：不带 `--wait` 马上返回，带 `--wait` 等它发出去、再等它那一回合（队列暂停了就退出码 2）。agent 在等额度时插话也进队列。
+- 回合在跑时发的话插进这一回合（和网页回车一样；2026-11-19 起没有“排到回合结束”的选项，`_data.steer` 已去掉）；`--wait` 等到这一回合结束，打印最后一段回复（可能还在说别的事）。只有命令（`/compact` 等）和等额度时发的话进待发队列：不带 `--wait` 马上返回，带 `--wait` 等它发出去、再等它那一回合（队列暂停了就退出码 2）。
 - 退出码：0 结束，2 需要你，1 出错（agent 出错退出、回合中被停、`ir` 自己出错）。
 
 - `NewSession.caller`、`Send.caller`：调用者会话，记成新会话的 `launcher`（谁开的；新会话进它所在的频道，`docs/channels.md`“拉起”；归档时一起归档）。不给时取请求所在的会话：socket 上 `X-Iridium-Session`（`ir` 从 `IRIDIUM_SESSION`、`CLAUDE_CODE_SESSION_ID`、`CODEX_THREAD_ID`… 取），远端是会话自己的 TOKEN；网页来的没有。不想挂：之后 `PATCH … detach:=true`（2026-11-11）。没给 `workspace` 时，调用者的组包含新会话的目录才进那个组，否则按自己的目录归组（2026-11-10）。
 
 ## 待发队列
 
-照 Rhodium 网页的待发队列（architecture §6.1）。
+回合在跑时发的话直接插进这一回合，不进队列（kumo，2026-11-19：去掉“排队”发送方式）。队列只留给必须等的：
 
-- 回合在跑时 `send` 的话进队列，不插话；回合正常结束，排着的一起作为下一个回合发出（第一条开回合，其余并进去）。
-- 等额度期间发的也排队，额度回来时发。
-- 打断、停止、进程退出或崩溃：队列暂停（`queue[].paused`）。只有“继续”或那一条的“插话”才放；别的回合结束都不放。暂停时新发的话：没有回合在跑就直接发。
+- 回合在跑时发的命令（`/compact`、`/clear` 等，写进回合会被当成普通的话）：等回合正常结束，排着的一起作为下一个回合发出（第一条开回合，其余并进去）。
+- 等额度期间发的话和命令：额度回来时发。
+- 打断、停止、进程退出或崩溃：队列暂停（`queue[].paused`）。放开：下一条消息（没有回合在跑时，暂停的先按原顺序发出，再发这一条）、“继续”，或那一条的“插话”；别的回合结束都不放。
 - 队列存在库里（`inputs` 表），重启后还在。`SessionState.queue` 带着整份。
 
 | 请求 | 正文 → 回答 | 说明 |
@@ -178,7 +178,7 @@ Iridium 自己的接口都在 `/v1/internal/` 下：Satori 规范的 internal �
 | `POST /v1/internal/sessions/{id}/queue/{input}/steer` | → `{ok}` | 这一条马上发，并进正在跑的回合（没有就开新回合） |
 | `POST /v1/internal/sessions/{id}/continue` | → `{ok}` | 放开暂停的队列：没有回合在跑就马上发，否则等这个回合结束 |
 
-改这一条、删这一条：Satori 的 `message.update {channel_id, message_id, content | _data.text}`、`message.delete {channel_id, message_id}`，`message_id` 是 `message.create` 回的 ID；不在队列里（已发、已删）422 `no_such_message`。插话、继续仍是上面两条。
+改这一条、删这一条：Satori 的 `message.update {channel_id, message_id, content | _data.text}`、`message.delete {channel_id, message_id}`，`message_id` 是 `message.create` 回的 ID；不在队列里（已发、已删）422 `no_such_message`。插话、继续仍是上面两条（网页不再用）。
 
 ## 命令
 
@@ -228,7 +228,7 @@ agent 用 `ir sh <机器>[:目录] [--cwd 目录] [--timeout 2m] -- 命令`（`P
 
 ## 设置
 
-`GET /v1/internal/settings` 给 `Settings`：`idleReap`（`"1h"`、`"15m"`，`"0"` 是不回收）、`crashResume`、`quotaResume`、`quotaHidden`（隐藏的额度条，`<agent>:<账号>:<窗口>:<模型>`）、`modes`（agent → 新会话的审批模式，没列的用 agent 自己的）、`push`（推送总开关，和 `PUT /v1/internal/push` 是同一个）、`enterInTurn`（回合在跑时网页回车做什么：`steer` 插话，默认；`queue` 排队）、`lang`（用户的语言 `zh`/`en`，网页设置里选的；`""` 是还没告诉过，网页发现是空的就报自己的；托管 agent 下次启动时写进系统提示）、`autoUpdate`（自动更新，默认开，见“更新”）。
+`GET /v1/internal/settings` 给 `Settings`：`idleReap`（`"1h"`、`"15m"`，`"0"` 是不回收）、`crashResume`、`quotaResume`、`quotaHidden`（隐藏的额度条，`<agent>:<账号>:<窗口>:<模型>`）、`modes`（agent → 新会话的审批模式，没列的用 agent 自己的）、`push`（推送总开关，和 `PUT /v1/internal/push` 是同一个）、`lang`（用户的语言 `zh`/`en`，网页设置里选的；`""` 是还没告诉过，网页发现是空的就报自己的；托管 agent 下次启动时写进系统提示）、`autoUpdate`（自动更新，默认开，见“更新”）。
 
 - `PUT /v1/internal/settings` 带 `SettingsPatch`，只改给了的项；`modes` 里给 `""` 是去掉那个 agent 的。时长不对、agent 没有这个模式回 400。
 - 先读配置文件，只改这几项再写回（文件里别的照旧），同时改内存：空闲回收、续跑开关下次判断时就用新的，审批模式从下一次拉起起。
@@ -242,7 +242,7 @@ agent 用 `ir sh <机器>[:目录] [--cwd 目录] [--timeout 2m] -- 命令`（`P
   - 用 `--resume` 拉起，Claude 另设 `CLAUDE_CODE_RESUME_INTERRUPTED_TURN=1`，它自己重跑被打断的回合。握手应答时还没有回合开始，就发恢复提示（Iridium 行）：`The last turn was interrupted. Check where things stand, then carry on.`
   - 同一会话 10 分钟内第 3 次崩溃就不再续跑（熔断），状态停在 `error`。
   - 挂着的提问作废；队列暂停。
-- 额度续跑（product §4.6）：agent 报额度用完（Claude `rate_limit_event` rejected），`SessionState.quotaUntil` 记恢复时间（错开 0–60 秒）。期间发的话排队。到点：有排队的就发排队的，没有就发 Iridium 行 `Continue.`。期间 `interrupt` 或 `stop`：到点不发“继续”。agent 期间自己开了回合，等待结束。等额度只在内存里，重启就没了。
+- 额度续跑（product §4.6）：agent 报额度用完（Claude `rate_limit_event` rejected），`SessionState.quotaUntil` 记恢复时间（错开 0–60 秒）。期间发的话排队（回合在跑时发的不排，直接插进去）。到点：有排队的就发排队的，没有就发 Iridium 行 `Continue.`。期间 `interrupt` 或 `stop`：到点不发“继续”。agent 期间自己开了回合，等待结束。等额度只在内存里，重启就没了。
 
 ## 卡片（`Card`）
 

@@ -474,11 +474,11 @@ type NewSession struct {
 	Name string `json:"-"`
 }
 
-// Send gives the session a message: a new turn when idle; while a turn runs it waits in the
-// queue for the turn to end, unless Steer, which joins the running turn.
+// Send gives the session a message: a new turn when idle; while a turn runs it joins that turn
+// (kumo, 2026-11-19: no choice of waiting for its end). Only a command, or words while the quota
+// is out, wait.
 type Send struct {
-	Text  string `json:"text"`
-	Steer bool   `json:"steer,omitempty"`
+	Text string `json:"text"`
 	// Attachments are file refs of the session (uploads, attached paths): their paths are written
 	// into the message, and images go to the agent as images too.
 	Attachments []string `json:"attachments,omitempty"`

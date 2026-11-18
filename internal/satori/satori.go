@@ -58,12 +58,10 @@ type LoginInfo struct {
 // id, whether it waits in the queue, and the session it went to (another one after /clear).
 type SendResult = api.SendReply
 
-// SendOpts are what Iridium's own extension of message.create (its "_data") may add: whether it
-// joins a running turn (apps' always do), attachments by ref, the words as plain text (Text, in
-// place of content, escaped here), and files by their path at the host (Paths, the backend's to
-// take or refuse: ir on the socket).
+// SendOpts are what Iridium's own extension of message.create (its "_data") may add: attachments
+// by ref, the words as plain text (Text, in place of content, escaped here), and files by their
+// path at the host (Paths, the backend's to take or refuse: ir on the socket).
 type SendOpts struct {
-	Steer       *bool    `json:"steer,omitempty"`
 	Attachments []string `json:"attachments,omitempty"`
 	Caller      string   `json:"caller,omitempty"`
 	Text        *string  `json:"text,omitempty"`

@@ -707,7 +707,7 @@ func (s *Server) scriptSay(x store.Script, text string, lk link, quote int64) (i
 		go func(t string) {
 			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 			defer cancel()
-			if _, err := s.deliverTo(ctx, ch, t, seq, text, "", from, false, nil, reach(who, lk)); err != nil {
+			if _, err := s.deliverTo(ctx, ch, t, seq, text, "", from, nil, reach(who, lk)); err != nil {
 				s.logf("server: script %s of %s: message %d to %s: %v", x.Name, ch, seq, t, err)
 			}
 		}(t)

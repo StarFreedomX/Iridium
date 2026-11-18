@@ -5,7 +5,8 @@ import { describe, expect, test } from "vitest";
 import { windowFor } from "../src/quota";
 import type { Block, Model, Session, Workspace } from "../src/api/types.gen";
 import { argOf, folded, foldLine, inputOf } from "../src/chat/fold";
-import { commandsOf, keyMode, matching } from "../src/chat/composer";
+import { commandsOf, matching } from "../src/chat/composer";
+import { waiting, type Sent } from "../src/chats";
 import { shellLine } from "../src/chat/shell";
 import { crashParts } from "../src/chat/crash";
 import { levelName, restAt } from "../src/chat/effort";
@@ -455,22 +456,24 @@ describe("jumpList", () => {
 });
 
 describe("composer", () => {
-  test("the key: send idle; in a turn it is never a stop key (nothing typed: send, waiting); words steer by default, Ctrl+Enter queues; the setting turns it round; ! or no queue steers", () => {
-    expect(keyMode(false, "hi", 0, true)).toBe("send");
-    // The composer is the person's: stopping is on the agent's row at work (kumo, 2026-11-16).
-    expect(keyMode(true, " ", 0, true)).toBe("send");
-    expect(keyMode(true, "", 0, false)).toBe("send");
-    expect(keyMode(true, "hi", 0, true)).toBe("steer");
-    expect(keyMode(true, "", 1, true)).toBe("steer");
-    expect(keyMode(true, "$ ls", 0, true)).toBe("send"); // a command line, not for the turn
-    expect(keyMode(true, "hi", 0, true, true, true)).toBe("queue");
-    expect(keyMode(true, "hi", 0, true, false)).toBe("queue");
-    expect(keyMode(true, "hi", 0, true, false, true)).toBe("steer");
-    expect(keyMode(true, "!hi", 0, true, false)).toBe("steer");
-    expect(keyMode(true, "!hi", 0, true, true, true)).toBe("steer");
-    expect(keyMode(true, "hi", 0, false, false)).toBe("steer");
-    expect(keyMode(true, "/compact", 0, true)).toBe("queue"); // a command waits for the turn's end
-    expect(keyMode(true, "/compact", 0, true, true, true)).toBe("queue");
+  test("what the server keeps (a command in a turn, words while the quota is out) waits as your bubble; left the queue, it goes on, a command dropped", () => {
+    const mk = (text: string, more: Partial<Sent> = {}): Sent => ({ key: text, text, files: [], from: 0, input: text, ...more });
+    const hi = mk("hi");
+    const cmd = mk("/context", { queued: true, at: 1000 });
+    // Not in the queue: as sent; one answered as queued waits for the state to bring it.
+    let sent = waiting([hi, cmd], [], 5, 1500);
+    expect(sent.map((x) => [x.text, !!x.queued])).toEqual([["hi", false], ["/context", true]]);
+    // In the queue: it waits; one from elsewhere is added, under its id.
+    sent = waiting(sent, [{ id: "/context", text: "/context" }, { id: "q2", text: "later" }], 5, 1600);
+    expect(sent.map((x) => [x.key, !!x.queued, !!x.waited])).toEqual([["hi", false, false], ["/context", true, true], ["q2", true, true]]);
+    expect(waiting(sent, [{ id: "/context", text: "/context" }, { id: "q2", text: "later" }], 5, 1700)).toBe(sent);
+    // Left the queue: the command is gone, the words go on as any sent.
+    sent = waiting(sent, [], 5, 1800);
+    expect(sent.map((x) => [x.key, !!x.queued])).toEqual([["hi", false], ["q2", false]]);
+    // Answered as queued, never seen in the queue: gone from it after a while.
+    expect(waiting([mk("/compact", { queued: true, at: 0 })], [], 5, 10_000)).toEqual([]);
+    // One the agent ran itself: nothing of it comes.
+    expect(waiting([mk("/x", { gone: true })], [], 5)).toEqual([]);
   });
   test("commands: name start, name, description", () => {
     const cs = [

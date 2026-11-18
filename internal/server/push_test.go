@@ -205,20 +205,20 @@ func TestPushPanelsOnly(t *testing.T) {
 func TestQueueAndPushRoutes(t *testing.T) {
 	t.Parallel()
 	p := newPushRig(t)
-	created, _ := createAt(p.t, http.DefaultClient, p.base, api.NewSession{Agent: api.AgentClaude, Cwd: p.work, Text: "one WAIT"})
+	created, _ := createAt(p.t, http.DefaultClient, p.base, api.NewSession{Agent: api.AgentClaude, Cwd: p.work, Text: "one QUOTA LONG"})
 	id, sentInput := created, ""
 	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
 		var s api.SessionState
 		p.do("GET", "/v1/internal/sessions/"+id, nil, &s)
-		if s.Status == api.StatusRunning {
+		if s.QuotaUntil != 0 && s.Status != api.StatusRunning {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatal("no turn")
+			t.Fatal("not waiting for the quota")
 		}
 	}
-	// A message waiting in the queue: changed (message.update), not one that is not there
-	// (message.delete).
+	// A message waiting in the queue (the quota is out; in a running turn it would join it):
+	// changed (message.update), not one that is not there (message.delete).
 	if _, sent := sendAt(p.t, http.DefaultClient, p.base, id, api.Send{Text: "two"}); !sent.Queued {
 		t.Fatalf("not queued: %+v", sent)
 	} else {

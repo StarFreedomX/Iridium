@@ -588,12 +588,12 @@ export interface NewSession {
   background?: string;
 }
 /**
- * Send gives the session a message: a new turn when idle; while a turn runs it waits in the
- * queue for the turn to end, unless Steer, which joins the running turn.
+ * Send gives the session a message: a new turn when idle; while a turn runs it joins that turn
+ * (kumo, 2026-11-19: no choice of waiting for its end). Only a command, or words while the quota
+ * is out, wait.
  */
 export interface Send {
   text: string;
-  steer?: boolean;
   /**
    * Attachments are file refs of the session (uploads, attached paths): their paths are written
    * into the message, and images go to the agent as images too.
@@ -2449,11 +2449,6 @@ export interface Settings {
    */
   push: boolean;
   /**
-   * EnterInTurn: what Enter does with words while a turn runs: "steer" (the default) puts them
-   * into the turn, Ctrl or ⌘+Enter queues them; "queue" the other way round.
-   */
-  enterInTurn: string;
-  /**
    * Lang: the user's language, as a web page's settings last set it ("zh", "en"; "" not yet):
    * hosted agents are told it from their next start.
    */
@@ -2474,7 +2469,6 @@ export interface SettingsPatch {
   quotaHidden?: string[];
   modes?: { [key: string]: string};
   push?: boolean;
-  enterInTurn?: string;
   lang?: string;
   autoUpdate?: boolean;
 }

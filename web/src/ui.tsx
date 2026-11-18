@@ -61,10 +61,6 @@ let tick: number | undefined;
 
 export const fine = () => !matchMedia("(pointer: coarse)").matches;
 
-const mac = () => /Mac|iPhone|iPad/.test(navigator.platform);
-/** The other key for words in a turn, as Claude Code's ctrl+enter (send now); Enter itself. */
-export const steerKey = () => (mac() ? "⌘↩" : "Ctrl+Enter");
-export const enterKey = () => (mac() ? "↩" : "Enter");
 export const MAC = /Mac|iPhone|iPad/.test(navigator.platform);
 
 /** Whether an event's target is in the element's own DOM, not in a portal of its children (a

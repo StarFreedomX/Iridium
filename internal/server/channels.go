@@ -813,7 +813,7 @@ func (s *Server) launch(c caller, by, id, first string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	from := session.From(gate.HostID, "@"+s.ch.Nick(by))
-	if _, err := s.deliverTo(ctx, ch, id, seq, first, "", from, false, nil, reach(deliver.From{Session: by}, s.chain.of(ch, by))); err != nil {
+	if _, err := s.deliverTo(ctx, ch, id, seq, first, "", from, nil, reach(deliver.From{Session: by}, s.chain.of(ch, by))); err != nil {
 		s.logf("server: channel %s: %s's first words to %s: %v", ch, by, id, err)
 		return s.firstWords(c, by, id, first)
 	}
@@ -1327,7 +1327,7 @@ func (s *Server) greet(c caller, ch, id string, seq int64) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
-		if _, err := s.deliverTo(ctx, ch, id, seq, words, "", session.From(gate.HostID, ""), false, nil, lk); err != nil {
+		if _, err := s.deliverTo(ctx, ch, id, seq, words, "", session.From(gate.HostID, ""), nil, lk); err != nil {
 			s.logf("server: channel %s: greeting from %s: %v", ch, id, err)
 		}
 	}()
@@ -2009,7 +2009,7 @@ func (s *Server) sendChannelAs(ctx context.Context, c caller, from, ch string, r
 	var failed []string
 	sent := 0
 	for _, t := range wake {
-		queued, err := s.deliverTo(ctx, ch, t, seq, text, req.ID, from, req.Steer, images, reach(who, lk))
+		queued, err := s.deliverTo(ctx, ch, t, seq, text, req.ID, from, images, reach(who, lk))
 		if err != nil {
 			s.logf("server: channel %s: message %d to %s: %v", ch, seq, t, err)
 			firstErr = cmp.Or(firstErr, err)
@@ -2170,7 +2170,7 @@ func whoOf(m channel.Message, by map[string]channel.Member) string {
 // agent of session to: under its number, with what the channel said since the agent last read
 // it. from: who it is from, as Send takes it; lk: where the turn it begins stands in the
 // channel's run.
-func (s *Server) deliverTo(ctx context.Context, ch, to string, seq int64, said, input, from string, steer bool, images []agent.Image, lk link) (bool, error) {
+func (s *Server) deliverTo(ctx context.Context, ch, to string, seq int64, said, input, from string, images []agent.Image, lk link) (bool, error) {
 	// One at a time for an agent: each is given what it has not seen, once.
 	defer s.chain.lock(to)()
 	list, by := s.agentsOf(ch)
@@ -2281,7 +2281,7 @@ func (s *Server) deliverTo(ctx context.Context, ch, to string, seq int64, said, 
 			s.logf("server: channel %s: keeping what %s was given: %v", ch, to, err)
 		}
 	}
-	_, queued, err := s.m.SendAs(ctx, to, id, in.String(), from, steer, images...)
+	_, queued, err := s.m.SendAs(ctx, to, id, in.String(), from, true, images...)
 	if err != nil {
 		// Not given: not kept as given, or the next time would take the standing words as had.
 		if err := s.st.RemoveInjection(to, id); err != nil {
@@ -2394,7 +2394,7 @@ func (s *Server) routeSaid(m channel.Message) {
 	go func() {
 		for _, t := range wake {
 			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-			_, err := s.deliverTo(ctx, m.Channel, t, m.Seq, m.Text, "", from, true, nil, reach(who, lk))
+			_, err := s.deliverTo(ctx, m.Channel, t, m.Seq, m.Text, "", from, nil, reach(who, lk))
 			cancel()
 			if err != nil {
 				s.logf("server: channel %s: message %d to %s: %v", m.Channel, m.Seq, t, err)

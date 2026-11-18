@@ -84,8 +84,26 @@ func (l *live) noCalls(id string) {
 	}
 }
 
-// A call waits for the turn that takes its message: a turn of the agent's own that ends while
-// the message waits in the queue is not its answer, and is not said in the channel.
+// quotaOut waits until session id's agent is out of quota, Iridium waiting for it to come back:
+// what is sent to it meanwhile waits in its queue.
+func (l *live) quotaOut(id string) {
+	l.t.Helper()
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		var st api.SessionState
+		if l.do("web", "GET", "/v1/internal/sessions/"+id, nil, &st); st.QuotaUntil != 0 && st.Status != api.StatusRunning {
+			return
+		}
+		if time.Now().After(deadline) {
+			l.t.Fatalf("%s is not waiting for its quota", id)
+		}
+	}
+}
+
+// A call waits for the turn that takes its message. Sent while the agent is in a turn of its
+// own, the message joins that turn (kumo, 2026-11-19: nothing waits for a turn's end): the call
+// is answered by it, what the agent writes from then on said in the channel as it writes it.
+// Sent while the quota is out it waits in the queue: the turn that ended is not its answer, and
+// the call stays open until it is taken.
 func TestChannelCallWaitsForItsTurn(t *testing.T) {
 	t.Parallel()
 	l, ch, second := two(t)
@@ -94,15 +112,39 @@ func TestChannelCallWaitsForItsTurn(t *testing.T) {
 	}
 	l.running(second)
 	code, r := l.send("web", ch, api.Send{Text: "@claude2 when you can"})
-	if code != 200 || !r.Queued {
+	if code != 200 || r.Queued {
 		t.Fatalf("a message for a busy agent: %d %+v", code, r)
 	}
-	all := l.waitSaid("web", ch, " @claude2 ", fmt.Sprintf("ok: #%d: @claude2 when you can", r.Seq))
-	for _, m := range all {
-		if strings.Contains(m, "its own work") {
+	l.waitSaid("web", ch, " @claude2 ", fmt.Sprintf("ok: #%d: @claude2 when you can", r.Seq))
+	l.noCalls(second)
+	l.idle(second)
+
+	if code, _ := l.send("web", second, api.Send{Text: "more of its own QUOTA LONG"}); code != 200 {
+		t.Fatalf("send to the second: %d", code)
+	}
+	l.quotaOut(second)
+	code, r = l.send("web", ch, api.Send{Text: "@claude2 once it is back"})
+	if code != 200 || !r.Queued {
+		t.Fatalf("a message for an agent out of quota: %d %+v", code, r)
+	}
+	var st api.SessionState
+	if l.want(200, "web", "GET", "/v1/internal/sessions/"+second, nil, &st); len(st.Queue) != 1 {
+		t.Fatalf("the queue: %+v", st.Queue)
+	}
+	l.s.calls.mu.Lock()
+	open := len(l.s.calls.load(second))
+	l.s.calls.mu.Unlock()
+	if open != 1 {
+		t.Errorf("%d calls open while the message waits", open)
+	}
+	for _, m := range l.said("web", ch) {
+		if strings.Contains(m, "hit your limit") || strings.Contains(m, "more of its own") {
 			t.Errorf("another turn's reply said in the channel: %s", m)
 		}
 	}
+	// Taken (sent now, as the quota's return would): its turn's reply is the answer.
+	l.want(200, "web", "POST", "/v1/internal/sessions/"+second+"/queue/"+st.Queue[0].ID+"/steer", nil, nil)
+	l.waitSaid("web", ch, " @claude2 ", fmt.Sprintf("ok: #%d: @claude2 once it is back", r.Seq))
 	l.noCalls(second)
 }
 
@@ -220,7 +262,7 @@ func TestChannelRelayStopped(t *testing.T) {
 		t.Fatalf("send to the second: %d", code)
 	}
 	l.running(second)
-	code, r := l.send("web", ch, api.Send{Text: "@claude2 ask @helper back", Steer: true})
+	code, r := l.send("web", ch, api.Send{Text: "@claude2 ask @helper back"})
 	if code != 200 || r.Queued {
 		t.Fatalf("send: %d %+v", code, r)
 	}
@@ -307,7 +349,7 @@ func TestChannelSeenOnlyWhatWasGiven(t *testing.T) {
 		t.Fatalf("send to the second: %d", code)
 	}
 	l.running(second)
-	code, call := l.send("web", ch, api.Send{Text: "@claude2 join in", Steer: true})
+	code, call := l.send("web", ch, api.Send{Text: "@claude2 join in"})
 	if code != 200 || call.Queued {
 		t.Fatalf("a message joining its turn: %d %+v", code, call)
 	}
@@ -540,13 +582,15 @@ func TestChannelQueuedEdited(t *testing.T) {
 		l.do("web", "GET", "/v1/internal/sessions/"+second, nil, &st)
 		return st.Queue
 	}
-	if code, _ := l.send("web", second, api.Send{Text: "its own work HOLD"}); code != 200 {
+	// Only what is sent while the quota is out waits (a command aside): words for an agent in a
+	// turn join it.
+	if code, _ := l.send("web", second, api.Send{Text: "its own work QUOTA LONG"}); code != 200 {
 		t.Fatalf("send to the second: %d", code)
 	}
-	l.running(second)
+	l.quotaOut(second)
 	code, r := l.send("web", ch, api.Send{Text: "@claude2 the first words"})
 	if code != 200 || !r.Queued {
-		t.Fatalf("a message for a busy agent: %d %+v", code, r)
+		t.Fatalf("a message for an agent out of quota: %d %+v", code, r)
 	}
 	before := l.seenOf(ch, second)
 	l.wantSat(200, "web", "message.update", map[string]any{"channel_id": ch, "message_id": fmt.Sprint(r.Seq), "content": "@claude2 other words"}, nil)

@@ -20,6 +20,7 @@ import { Popover } from "@base-ui/react/popover";
 import { api } from "../api/client";
 import type { Block, Device, FileRef, Result } from "../api/types.gen";
 import type { Sent } from "../chats";
+import { errText, toast } from "../toast";
 import { t } from "../i18n";
 import { agentName, Avatar, Badge, cn, IconKey, IrMark, Logo, own, PopSurface, tilde, Tip, titleOf, useLongPress, useMenuAt } from "../ui";
 import { useHome, useMachines } from "../data";
@@ -230,8 +231,8 @@ const Sender = forwardRef<HTMLDivElement, { who: You | From; time?: number; jump
 /** Where a message of yours is, as a small mark outside its bubble's lower left corner, no words (the
  *  user, 2026-11-06; its tip says): going, a ring breathing; waiting in the queue, a clock. Taken,
  *  nothing: no green check (the user, 2026-11-08). The bubble itself is drawn as it will stay. */
-type Going = "sending" | "steering" | "queued";
-const GOING: Record<Going, string> = { sending: "msg.sending", steering: "msg.steering", queued: "msg.queued" };
+type Going = "sending" | "queued";
+const GOING: Record<Going, string> = { sending: "msg.sending", queued: "msg.queued" };
 function SendState({ state }: { state: Going }) {
   const label = t(GOING[state] as "msg.sending");
   return (
@@ -286,15 +287,21 @@ export function Attached({ session, f }: { session: string; f: FileRef }) {
 
 /** A message sent from here the transcript has yet to bring: its mark says where it is; not taken,
  *  red with a retry. */
-export function Pending({ s, who, retry, drop, bubbleRef, words }: { s: Sent; who: You; retry: () => Promise<void>; drop: () => void; bubbleRef?: (el: HTMLDivElement | null) => void; words?: ReactNode }) {
+export function Pending({ s, who, retry, drop, takeBack, bubbleRef, words }: { s: Sent; who: You; retry: () => Promise<void>; drop: () => void; takeBack?: () => Promise<unknown>; bubbleRef?: (el: HTMLDivElement | null) => void; words?: ReactNode }) {
   const [busy, setBusy] = useState(false);
   return (
     <div className="flex flex-col items-end gap-0.5">
-      <YouBubble ref={bubbleRef} text={s.text} who={who} words={words} failed={s.failed !== undefined} going={s.failed !== undefined ? undefined : s.queued ? "queued" : s.steer ? "steering" : "sending"}>
+      <YouBubble ref={bubbleRef} text={s.text} who={who} words={words} failed={s.failed !== undefined} going={s.failed !== undefined ? undefined : s.queued ? "queued" : "sending"}>
         {s.files.map((f) =>
           f.url ? <Picture key={f.ref} src={f.url} full={f.url} name={f.name} /> : <SentFile key={f.ref} name={f.name} bytes={f.size} />,
         )}
       </YouBubble>
+      {/* One kept for the turn's end or the quota may be taken back while it waits. */}
+      {s.failed === undefined && takeBack && (
+        <button type="button" disabled={busy} className="g-fade mr-[34px] cursor-pointer text-xs text-ink-3 hover:text-ink-2" onClick={() => (setBusy(true), void takeBack().catch((e) => toast(t("err.action"), { error: true, description: errText(e) })).finally(() => setBusy(false)))}>
+          {t("msg.takeBack")}
+        </button>
+      )}
       {s.failed !== undefined && (
         <div className="mr-[34px] flex items-center gap-0.5">
           <span className="max-w-[280px] truncate text-xs text-err">{s.failed || t("err.send")}</span>

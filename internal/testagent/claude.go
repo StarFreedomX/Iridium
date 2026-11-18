@@ -63,7 +63,8 @@ func Main() (code int, ok bool) {
 //     runs that turn again by itself, saying "ok: continued". crash! exits the same way but is
 //     never run again by itself; crashloop crashes again each time it is run again.
 //   - STREAM writes a turn as a real one comes: words, two calls and a long answer, piece by piece.
-//   - QUOTA is refused for the quota, which comes back in half a second to one and a half.
+//   - QUOTA is refused for the quota, which comes back in half a second to one and a half;
+//     QUOTA LONG for one that comes back in an hour (what is sent meanwhile stays in the queue).
 //
 // /compact compacts for three seconds (a compacting status, then the boundary with its figures).
 // /clear (as the whole message, its source prefix aside) clears it as Claude's own does: a
@@ -474,8 +475,11 @@ func Claude() int {
 				pending, asked = f, 1
 				ask("again", "npx -y some-tool")
 				continue
-			case strings.HasSuffix(text, "QUOTA"):
+			case strings.HasSuffix(text, "QUOTA"), strings.HasSuffix(text, "QUOTA LONG"):
 				back := time.Now().Add(1500 * time.Millisecond).Unix() // whole seconds: back in 0.5 to 1.5
+				if strings.HasSuffix(text, "QUOTA LONG") {
+					back = time.Now().Add(time.Hour).Unix()
+				}
 				say(map[string]any{"type": "rate_limit_event", "rate_limit_info": map[string]any{"status": "rejected", "resetsAt": back, "rateLimitType": "five_hour"}})
 				assistant("You've hit your limit")
 				end(f, "error_during_execution")

@@ -5,7 +5,7 @@
 // face; an agent's as Markdown under its face, nick and what it runs as, its usage (the
 // context's ring, the quota's bars) after that, over them its thinking and tool calls from its
 // own record; Iridium's lines small and centred. The newest at the bottom, paged back as you
-// scroll up. Under it: each agent's queue and asks, under its nick; a composer whose @ names a
+// scroll up. Under it: each agent's asks, under its nick; a composer whose @ names a
 // member (agents, people, apps).
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
 import { Popover } from "@base-ui/react/popover";
@@ -27,7 +27,6 @@ import { placeDropped } from "../at";
 import { Composer, type ComposerHandle } from "../composer";
 import { Copyable } from "../copyable";
 import { ContextRing, modelView, QuotaBars } from "../meters";
-import { Queue } from "../queue";
 import { fromSatori, PLACE_DRAG, SESSION_DRAG, sourceOf, withDevice, yours } from "../refs";
 import { Assistant, Attached, Line, MsgRow, Pending, Said, When, YouBubble } from "../said";
 import { folded } from "../fold";
@@ -166,7 +165,7 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
     x.failed = undefined;
     changed();
     try {
-      const r = await api.send(id, x.text, x.files.map((f) => f.ref), false, x.input, x.quote);
+      const r = await api.send(id, x.text, x.files.map((f) => f.ref), x.input, x.quote);
       x.seq = r.seq;
     } catch (e) {
       x.failed = errText(e);
@@ -310,14 +309,6 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
         <div ref={stack} {...{ [PULL]: "" }} data-covered={sheet > 0 || undefined} data-sunk={(sheet > 0 && stackH > sheet - 16) || undefined} inert={sheet > 0} className="g-turn-stay g-sink vt-stack absolute inset-x-0 bottom-0 z-10 px-2.5 pb-[max(10px,calc(env(safe-area-inset-bottom)+6px))] sm:px-5">
           <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-[calc(64px+max(10px,calc(env(safe-area-inset-bottom)+6px)))] bg-[linear-gradient(to_bottom,transparent,var(--paper)_14px)]" />
           <div className="relative mx-auto max-w-(--chat-w)">
-            {agents.map((a, i) => {
-              const st = states[i];
-              return st?.queue?.length ? (
-                <Of key={a.session} a={a} off={!may}>
-                  <Queue session={a.session} queue={st.queue} steered={() => {}} />
-                </Of>
-              ) : null;
-            })}
             {agents.map((a) => {
               const needs = confirms.filter((c) => c.session === a.session && c.kind !== "ask");
               return needs.length ? (

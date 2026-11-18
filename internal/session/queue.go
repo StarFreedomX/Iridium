@@ -105,6 +105,14 @@ func (m *Manager) SendAs(ctx context.Context, id, want, text, from string, steer
 		h.publish()
 		return in.ID, true, nil
 	}
+	// You went on: what an interrupt or a stop left paused goes first, in its order (no key
+	// continues a queue any more: kumo, 2026-11-19).
+	h.mu.Lock()
+	idle := !(h.live && h.turn != agent.Idle)
+	h.mu.Unlock()
+	if idle {
+		h.releaseLocked(ctx, true)
+	}
 	if err := m.o.Store.AddInput(in); err != nil {
 		return "", false, err
 	}

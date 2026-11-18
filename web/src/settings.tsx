@@ -22,8 +22,7 @@ import { PUSH_EVENTS, subscribe } from "./pushmenu";
 import { go } from "./route";
 import { useConfirms } from "./store";
 import { errText, toast } from "./toast";
-import { Choose } from "./choose";
-import { cn, IconKey, steerKey, Switch, Tip } from "./ui";
+import { cn, IconKey, Switch, Tip } from "./ui";
 import { expectUpgrade } from "./upgrade";
 
 /** The panel's own pages: the avatar's crop. */
@@ -156,19 +155,6 @@ export function SettingsPage({ theme, setTheme, initial = "main" }: { theme: The
                 ))}
             </div>
           </div>
-          {/* One line (the user, 2026-11-06): the key's short word; the other key in the list's hint. */}
-          <Item label={t("settings.enter")}>
-            <Choose
-              disabled={off}
-              value={s?.enterInTurn || "steer"}
-              onChange={(v) => void put({ enterInTurn: v })}
-              label={t("settings.enter")}
-              options={[
-                { value: "steer", label: t("settings.enterSteer"), hint: t("settings.enterSteerHint", { key: steerKey() }) },
-                { value: "queue", label: t("settings.enterQueue"), hint: t("settings.enterQueueHint", { key: steerKey() }) },
-              ]}
-            />
-          </Item>
           {/* 自动更新: off, nothing is looked for or downloaded unasked; 检查更新 still does it all. */}
           {manages && upd?.source && (
             <Item label={t("settings.autoUpdate")}>

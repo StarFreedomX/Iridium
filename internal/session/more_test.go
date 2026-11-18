@@ -84,7 +84,8 @@ func TestQueue(t *testing.T) {
 	}
 }
 
-// An interrupt pauses the queue: it goes only on continue.
+// An interrupt pauses the queue: it goes on continue (or ahead of the next message,
+// TestPausedGoFirst), not by itself.
 func TestQueuePaused(t *testing.T) {
 	t.Parallel()
 	r := newRig(t, nil)
@@ -110,6 +111,47 @@ func TestQueuePaused(t *testing.T) {
 	s = r.waitState(id, "the queue sent", func(s *api.SessionState) bool { return said(s, "ok: two") })
 	if len(s.Queue) != 0 {
 		t.Errorf("queue: %+v", s.Queue)
+	}
+}
+
+// Idle with paused messages, the next message releases them first, in their order: nothing
+// continues a paused queue but going on (kumo, 2026-11-19).
+func TestPausedGoFirst(t *testing.T) {
+	t.Parallel()
+	r := newRig(t, nil)
+	id, _ := r.m.Create(bg, api.NewSession{Cwd: r.cwd, Text: "one WAIT"}, "网页")
+	r.waitState(id, "the turn", func(s *api.SessionState) bool { return s.Status == api.StatusRunning })
+	r.m.SendWith(bg, id, "two", "网页", false)
+	r.m.SendWith(bg, id, "three", "网页", false)
+	if err := r.m.Interrupt(bg, id); err != nil {
+		t.Fatal(err)
+	}
+	r.waitState(id, "the queue paused", func(s *api.SessionState) bool {
+		return s.Status == api.StatusIdle && len(s.Queue) == 2 && s.Queue[0].Paused && s.Queue[1].Paused
+	})
+	// As the server sends: it would join a running turn; there is none.
+	if _, queued, err := r.m.SendWith(bg, id, "four", "网页", true); err != nil || queued {
+		t.Fatalf("the next message: queued %v, %v", queued, err)
+	}
+	if s, _ := r.m.State(id); len(s.Queue) != 0 {
+		t.Errorf("queue after the next message: %+v", s.Queue)
+	}
+	if q, _ := r.store.Queued(id); len(q) != 0 {
+		t.Errorf("stored: %+v", q)
+	}
+	r.waitState(id, "the last reply", func(s *api.SessionState) bool { return said(s, "ok: four") && s.Status == api.StatusIdle })
+	var got []string
+	for _, b := range r.messages(id) {
+		if b.Text == "two" || b.Text == "three" || b.Text == "four" {
+			got = append(got, b.Text)
+		}
+	}
+	if strings.Join(got, "|") != "two|three|four" {
+		t.Errorf("order: %q", got)
+	}
+	in := r.inLog(id)
+	if two, three, four := strings.Index(in, "two"), strings.Index(in, "three"), strings.Index(in, "four"); two < 0 || two > three || three > four {
+		t.Errorf("written to the agent out of order: %d %d %d", two, three, four)
 	}
 }
 

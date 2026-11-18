@@ -321,17 +321,17 @@ export const api = {
     const ch = await sat<{ id: string }>("channel.create", { ...(workspace ? { guild_id: String(workspace) } : {}), ...(caller ? { data: { parent_id: caller } } : {}), _data: start });
     return { id: ch.id };
   },
-  /** A message: queued while a turn runs (queued in the reply), or joining it with steer.
+  /** A message: it joins a running turn (queued in the reply: a command, or the quota is out).
    *  attachments: upload refs. input: its id, chosen here (a UUID): the transcript's block has it
    *  as it comes, before the answer; lost on the way, the send goes again under it, never twice. */
-  send: async (id: string, text: string, attachments?: string[], steer = false, input?: string, quote?: number): Promise<SendReply> => {
-    // Satori's message.create (docs/satori.md), as every app sends; Iridium's _data says whether it
-    // joins the turn and which uploads go with it, and answers what the send did.
+  send: async (id: string, text: string, attachments?: string[], input?: string, quote?: number): Promise<SendReply> => {
+    // Satori's message.create (docs/satori.md), as every app sends; Iridium's _data says which uploads go
+    // with it, and answers what the send did.
     await whoKnown();
     const body = {
       channel_id: id,
       content: (quote ? `<quote id="${quote}"/>` : "") + escapeSatori(text),
-      _data: { ...(steer ? { steer } : {}), ...(attachments?.length ? { attachments } : {}), ...(input ? { id: input } : {}) },
+      _data: { ...(attachments?.length ? { attachments } : {}), ...(input ? { id: input } : {}) },
     };
     for (let tries = 1; ; tries++) {
       try {
@@ -412,11 +412,8 @@ export const api = {
   uploadCancel: (up: string) => write<{ ok: boolean }>("DELETE", `/v1/internal/uploads/${enc(up)}`),
 
   // --- the queue, the session's settings ---
-  steer: (id: string, input: string) => write<{ ok: boolean }>("POST", `${S(id)}/queue/${enc(input)}/steer`),
   /** A message waiting in the queue changed or taken back: Satori's message.update, message.delete. */
-  editQueued: (id: string, input: string, text: string) => sat<object>("message.update", { channel_id: id, message_id: input, _data: { text } }),
   unqueue: (id: string, input: string) => sat<object>("message.delete", { channel_id: id, message_id: input }),
-  continueQueue: (id: string) => write<{ ok: boolean }>("POST", `${S(id)}/continue`),
   mode: (id: string, mode: string) => writeAgain<{ ok: boolean }>("PUT", `${S(id)}/mode`, { mode } satisfies SetMode),
   model: (id: string, model: string) => writeAgain<{ ok: boolean }>("PUT", `${S(id)}/model`, { model } satisfies SetModel),
   effort: (id: string, effort: string) => writeAgain<{ ok: boolean }>("PUT", `${S(id)}/effort`, { effort }),

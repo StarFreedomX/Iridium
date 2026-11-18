@@ -29,13 +29,12 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("api", () => {
-  test("send is Satori's message.create, files and steer in its _data; answers go to the card", async () => {
+  test("send is Satori's message.create, files in its _data; answers go to the card", async () => {
     speakAs("ir_web", "u1");
     await api.send("s1", "hi <b>&");
-    await api.send("s1", "hi", ["r1"], true);
+    await api.send("s1", "hi", ["r1"]);
     await api.answer("s1", { card: "ask:s1:q", option: "always" });
     await api.answer("s1", { card: "ask:s1:r", choices: ["0.1"], words: ["", "mine"] });
-    await api.editQueued("s1", "in 1", "again");
     await api.unqueue("s1", "in 1");
     await api.patch("s1", { name: "n", pinned: true, detach: true });
     await api.markFolder("/w/a", { color: "red" });
@@ -44,10 +43,9 @@ describe("api", () => {
     await api.answerConfirm("c1", true);
     expect(calls.map((c) => [c.method, c.url, c.body])).toEqual([
       ["POST", "/v1/message.create", { channel_id: "s1", content: "hi &lt;b&gt;&amp;", _data: {} }],
-      ["POST", "/v1/message.create", { channel_id: "s1", content: "hi", _data: { attachments: ["r1"], steer: true } }],
+      ["POST", "/v1/message.create", { channel_id: "s1", content: "hi", _data: { attachments: ["r1"] } }],
       ["POST", "/v1/internal/button", { id: "ask:s1:q", option: "always" }],
       ["POST", "/v1/internal/button", { id: "ask:s1:r", choices: ["0.1"], words: ["", "mine"] }],
-      ["POST", "/v1/message.update", { channel_id: "s1", message_id: "in 1", _data: { text: "again" } }],
       ["POST", "/v1/message.delete", { channel_id: "s1", message_id: "in 1" }],
       ["POST", "/v1/channel.update", { channel_id: "s1", data: { name: "n", parent_id: null }, _data: { pinned: true } }],
       ["POST", "/v1/channel.update", { channel_id: "folder:/w/a", _data: { color: "red" } }],
@@ -92,7 +90,7 @@ describe("a send lost on the way", () => {
       speakAs("ir_web", "u1");
       let n = 0;
       answer = () => (++n === 1 ? Promise.reject(new TypeError("dropped")) : json([{ _data: { input: "i-1" } }]));
-      const p = api.send("s1", "hi", undefined, false, "i-1");
+      const p = api.send("s1", "hi", undefined, "i-1");
       await vi.advanceTimersByTimeAsync(1000);
       expect(await p).toEqual({ input: "i-1" });
       expect(calls.map((c) => (c.body as { _data: unknown })._data)).toEqual([{ id: "i-1" }, { id: "i-1" }]);

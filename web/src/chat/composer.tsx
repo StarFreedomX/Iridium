@@ -2,8 +2,8 @@
 // one round key whose icon says what it does now; the meters are under it, not in it (chat.tsx). The
 // composer is the person's, not the agent's (kumo, 2026-11-16): its key sends, and is never the
 // stop key (that is on the agent's row at work, live.tsx StopKey); empty, it waits; with words in
-// the agent's turn it queues them (or steers them into the turn, with a
-// leading !, Ctrl or ⌘+Enter as Claude Code's send now, or where the server has no queue). / at
+// the agent's turn they join it at once (kumo, 2026-11-19: no queue to choose, nothing above the
+// composer for one). / at
 // the start lists the session's commands; @ lists what to name (docs/plan.md "@", 2026-11-10):
 // sessions, this machine's groups, each machine's workspaces, a folder by its path; a session's or
 // a group's row dropped here names one too, on a phone the list alone: a link where the caret is,
@@ -24,8 +24,8 @@ import { t } from "../i18n";
 import { errText, toast } from "../toast";
 import { stopTurn } from "./live";
 import { useList } from "../store";
-import { useHome, useMachines, useSettings, useWorkspaces } from "../data";
-import { ago, agentName, cn, fine, IconKey, keep, kept, steerKey, tilde, Tip, titleOf, useMinute } from "../ui";
+import { useHome, useMachines, useWorkspaces } from "../data";
+import { ago, agentName, cn, fine, IconKey, keep, kept, tilde, Tip, titleOf, useMinute } from "../ui";
 import { hasMention, MentionMarks, mentionOf, PlaceIcon, placeMention, SessionFace } from "./mention";
 import { atWord, boxAt, boxed, edited, outOf, wordsAt } from "./refs";
 import { arrowInto, atPath, atSections, pathSection, typedPath, type AtHead, type AtRow, type AtSection, type NamedPlace } from "./at";
@@ -44,21 +44,6 @@ const hasDsh = (m: Machine) => m.online && m.agents.some((a) => a.agent === "dsh
 const BOX = "px-0.5 py-1 text-md leading-[21px]";
 export const draftKey = (id: string) => `draft:${id}`;
 
-/** What the key does with what is typed: sends it; in the agent's turn (turn), queues it or
- *  steers it in. Nothing typed, it sends (the key waits): stopping the turn is not the composer's.
- *  steers: Enter puts words into a running turn (the setting enterInTurn, the default); other: as
- *  Ctrl or ⌘+Enter, which does the other. */
-export type KeyMode = "send" | "queue" | "steer";
-export function keyMode(turn: boolean, text: string, files: number, queues: boolean, steers = true, other = false): KeyMode {
-  if (!turn) return "send";
-  const words = text.trim();
-  if (words.startsWith("$")) return "send"; // a command line (shell.tsx), not for the turn
-  if (!words && !files) return "send";
-  // A command waits for the turn's end: the server never steers one in.
-  if (words.startsWith("/") && queues) return "queue";
-  if (/^[!！]/.test(words) || !queues) return "steer";
-  return steers !== other ? "steer" : "queue";
-}
 
 /** The commands for what was typed after the /: names that start with it first, then names that
  *  have it, then descriptions that do. */
@@ -257,7 +242,6 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
   // The commands of the channel's scripts (docs/channels.md "脚本"): "/name" goes to the script,
   // in a channel of several too.
   const scriptCmds = scriptCommands(useScripts(s.id));
-  const isScriptCmd = (words: string) => scriptCmds.some((c) => c.name === /^\/(\S+)/.exec(words.trim())?.[1]);
   // Nothing typed after the /: the common ones first, then the agent's own, then the scripts',
   // under their heads.
   const cmds: Cmd[] = multi ? scriptCmds : [...commands.filter(isCommon), ...commands.filter((c) => !isCommon(c)), ...scriptCmds];
@@ -327,10 +311,6 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
   const secretish = shown || atOpen ? null : findSecretish(text, notSecret);
   const uploading = atts.some((a) => !a.ref && !a.error);
   const empty = !text.trim() && !atts.length;
-  const queues = s.queue !== undefined;
-  const steers = (useSettings().data?.enterInTurn ?? "steer") !== "queue";
-  // A script's command is said in the channel at once, never queued for the agent.
-  const mode = isScriptCmd(text) ? "send" : keyMode(turn, text, atts.length, queues, steers);
   const shellable = useShellable(s);
 
   /** Page-handled commands: true when done here. */
@@ -359,8 +339,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
       setBusy(false);
     }
   };
-  const go = async (other = false) => {
-    const mode = isScriptCmd(text) ? "send" : keyMode(turn, text, atts.length, queues, steers, other);
+  const go = async () => {
     if (busy || uploading || empty) return;
     if (atts.some((a) => a.error)) return toast(t("err.upload"), { error: true });
     // $ and a command line: run at the session's machine, not sent to the agent (shell.tsx).
@@ -370,7 +349,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
       setBusy(true);
       return void runShell(s, line).finally(() => setBusy(false));
     }
-    const typed = text.trim().replace(/^[!！]\s*/, "");
+    const typed = text.trim();
     if (!multi && !atts.length && own(typed)) return;
     // The words as they are, the links in them what the agent reads.
     const words = typed;
@@ -379,28 +358,20 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
     for (const a of atts) if (a.url && a.path) previews.set(a.path, a.url);
     const files = atts.map((a) => ({ ref: a.ref!, name: a.file.name, type: a.file.type, size: a.file.size, url: a.url }));
     // Its id chosen here: the transcript's block is found by it as it comes, whenever the answer does.
-    const sent: Sent = { key: crypto.randomUUID(), text: words, files, from: 0, input: crypto.randomUUID(), steer: mode === "steer", ...(quote ? { quote: quote.n } : {}) };
+    const sent: Sent = { key: crypto.randomUUID(), text: words, files, from: 0, input: crypto.randomUUID(), ...(quote ? { quote: quote.n } : {}) };
     type("");
     setAtts(() => []);
     unquote?.();
-    // While a turn runs the server queues what is sent; steering joins the turn. Queued, the queue
-    // shows it, not a bubble; turned away, the words go back where they were typed.
-    if (mode === "queue" && queues) {
-      try {
-        await api.send(s.id, words, files.map((f) => f.ref), false, sent.input, sent.quote);
-      } catch (e) {
-        type([words, textNow.current].filter(Boolean).join("\n"));
-        toast(t("err.queue"), { error: true, description: errText(e) });
-      }
-      return;
-    }
+    // In a turn it joins the turn. What the server keeps for the turn's end (a command) or for the
+    // quota stays your bubble, a clock by it (chats.ts waiting).
     onSent(sent);
     try {
-      const r = await api.send(s.id, words, files.map((f) => f.ref), mode === "steer", sent.input, sent.quote);
+      const r = await api.send(s.id, words, files.map((f) => f.ref), sent.input, sent.quote);
       sent.input = r.input || sent.input;
-      // A turn began meanwhile: it waits in the queue, which shows it. A command the agent runs
-      // itself (Codex's /compact) never comes in the transcript: the turn's lamp says it.
-      sent.queued = r.queued || r.command;
+      sent.queued = r.queued;
+      // A command the agent runs itself (Codex's /compact) never comes in the transcript: the
+      // turn's lamp says it.
+      sent.gone = r.command && !r.queued;
       sent.seq = r.seq;
     } catch (e) {
       sent.failed = errText(e);
@@ -408,12 +379,8 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
     onSentDone(sent);
   };
 
-  const KEYS: Record<KeyMode, [string, React.ReactNode]> = {
-    send: [t("composer.send"), <ArrowUp size={16} strokeWidth={2.25} />],
-    queue: [t("composer.queue", { key: steerKey() }), <ArrowUp size={16} strokeWidth={2.25} />], // one send key for all: what it does in its tip (the user, 2026-11-06)
-    steer: [steers && queues && !/^[!！]/.test(text.trim()) ? t("composer.steerOr", { key: steerKey() }) : t("composer.steer"), <ArrowUp size={16} strokeWidth={2.25} />],
-  };
-  const [label, icon] = KEYS[mode];
+  const label = t("composer.send");
+  const icon = <ArrowUp size={16} strokeWidth={2.25} />;
 
   // The palette beside the composer, not in it: a frosted layer inside another sees only that one.
   return (
@@ -575,8 +542,6 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
             else if ((shown || atOpen) && e.key === "Escape") setShut(text);
             else if (quote && (e.key === "Escape" || (e.key === "Backspace" && !text && e.currentTarget.selectionStart === 0))) unquote?.();
             else if (e.key === "Tab" && e.shiftKey) cycleMode();
-            // In a turn, Ctrl or ⌘+Enter does what Enter does not: steer in (Claude Code's send now) or queue.
-            else if (e.key === "Enter" && !e.shiftKey && (e.ctrlKey || e.metaKey) && turn) void (empty || go(true));
             // Enter sends on a computer (Ctrl or ⌘ with it on a phone); in an empty box it does nothing.
             // Esc stops the session's own agent's turn, as its stop key does.
             else if (e.key === "Enter" && !e.shiftKey && (fine() || e.ctrlKey || e.metaKey)) void (empty || go());
@@ -603,7 +568,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
             {/* A rounded square the size of the attach key's glyph area, not a large disc; the
                 whole key still takes the press (the user, 2026-11-08). */}
             <span className="grid size-7 place-items-center rounded-[9px] bg-ink text-on-ink transition-opacity duration-(--dur-1) group-disabled/send:opacity-25 pointer-coarse:size-8 pointer-coarse:rounded-[10px]">
-              {busy || uploading ? <LoaderCircle size={14} className="animate-spin" /> : <span key={mode} className="g-fade grid">{icon}</span>}
+              {busy || uploading ? <LoaderCircle size={14} className="animate-spin" /> : <span className="grid">{icon}</span>}
             </span>
           </button>
         </Tip>

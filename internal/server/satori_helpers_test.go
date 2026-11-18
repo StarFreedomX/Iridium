@@ -146,11 +146,6 @@ func (l *live) patch(as, id string, p api.SessionPatch) int {
 func (l *live) send(as, id string, req api.Send) (int, api.SendReply) {
 	l.t.Helper()
 	d := map[string]any{"text": req.Text}
-	if req.Steer {
-		d["steer"] = true
-	} else {
-		d["steer"] = false
-	}
 	if len(req.Attachments) > 0 {
 		d["attachments"] = req.Attachments
 	}
@@ -240,7 +235,7 @@ func sendAt(t *testing.T, c *http.Client, base, id string, req api.Send) (int, a
 	var ms []struct {
 		Data api.SendReply `json:"_data"`
 	}
-	code := satAt(t, c, base, "message.create", map[string]any{"channel_id": id, "_data": map[string]any{"text": req.Text, "steer": req.Steer, "attachments": req.Attachments}}, &ms)
+	code := satAt(t, c, base, "message.create", map[string]any{"channel_id": id, "_data": map[string]any{"text": req.Text, "attachments": req.Attachments}}, &ms)
 	if len(ms) == 0 {
 		return code, api.SendReply{}
 	}

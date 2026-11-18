@@ -25,11 +25,8 @@ func (s *Server) settingsRoutes(mux *http.ServeMux) {
 func (s *Server) settings() api.Settings {
 	t := s.m.Tuned()
 	s.cmu.Lock()
-	hidden, push, enter, manual := slices.Clone(s.cfg.QuotaHidden), s.cfg.Push, s.cfg.EnterInTurn, s.cfg.Update.Manual
+	hidden, push, manual := slices.Clone(s.cfg.QuotaHidden), s.cfg.Push, s.cfg.Update.Manual
 	s.cmu.Unlock()
-	if enter == "" {
-		enter = "steer"
-	}
 	if s.Push != nil {
 		push = s.Push.Enabled()
 	}
@@ -40,7 +37,7 @@ func (s *Server) settings() api.Settings {
 	if modes == nil {
 		modes = map[string]string{}
 	}
-	return api.Settings{IdleReap: shortDuration(t.IdleReap), CrashResume: t.CrashResume, QuotaResume: t.QuotaResume, QuotaHidden: hidden, Modes: modes, Push: push, EnterInTurn: enter, Lang: t.Lang, AutoUpdate: !manual}
+	return api.Settings{IdleReap: shortDuration(t.IdleReap), CrashResume: t.CrashResume, QuotaResume: t.QuotaResume, QuotaHidden: hidden, Modes: modes, Push: push, Lang: t.Lang, AutoUpdate: !manual}
 }
 
 func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
@@ -59,10 +56,6 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	if p.Lang != nil && *p.Lang != "zh" && *p.Lang != "en" {
 		fail(w, http.StatusBadRequest, `lang: "zh" or "en"`)
-		return
-	}
-	if p.EnterInTurn != nil && *p.EnterInTurn != "steer" && *p.EnterInTurn != "queue" {
-		fail(w, http.StatusBadRequest, `enterInTurn: "steer" or "queue"`)
 		return
 	}
 	for a, mode := range p.Modes {
@@ -102,9 +95,6 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			c.Modes = modes
-		}
-		if p.EnterInTurn != nil {
-			c.EnterInTurn = *p.EnterInTurn
 		}
 		if p.Lang != nil {
 			c.Lang = *p.Lang

@@ -17,7 +17,7 @@ import { api } from "../api/client";
 import { LinkDot } from "../link";
 import type { Session } from "../api/types.gen";
 import { WsPlus } from "../create";
-import { chatOf, compactSent, firstScreen, fresh, isWhole, lineOf, stateAhead, type Draft as Drafted, type Sent } from "../chats";
+import { chatOf, compactSent, firstScreen, fresh, isWhole, lineOf, stateAhead, waiting, type Draft as Drafted, type Sent } from "../chats";
 import { LOCAL_ME, useMachines, useMe, useWhoList, useWorkspaces } from "../data";
 import { t, useLang } from "../i18n";
 import { pushIn } from "../motion";
@@ -66,10 +66,9 @@ import { StopKey, ToolDraft } from "./live";
 import { Draft } from "./markdown";
 import { ContextRing, ModeKey, ModelKey, modelView, QuotaBars, useMode } from "./meters";
 import { PublicLink } from "./publiclink";
-import { Queue } from "./queue";
 import { ShellRuns } from "./shell";
 import { Crash } from "./crash";
-import { placesIn, PLACE_DRAG, SESSION_DRAG, sourceOf, withDevice, yours } from "./refs";
+import { attachedOf, placesIn, PLACE_DRAG, SESSION_DRAG, sourceOf, withDevice, yours } from "./refs";
 import { placeDropped, type NamedPlace } from "./at";
 import { PlaceIcon, placeOf } from "./mention";
 import { spotsOf, type Spot } from "./where";
@@ -337,17 +336,18 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
     sent.failed = undefined;
     changed();
     try {
-      const r = await api.send(id, sent.text, sent.files.map((f) => f.ref), false, sent.input);
+      const r = await api.send(id, sent.text, sent.files.map((f) => f.ref), sent.input);
       sent.input = r.input || sent.input;
-      sent.queued = r.queued || r.command;
+      sent.queued = r.queued;
+      sent.gone = r.command && !r.queued;
     } catch (e) {
       sent.failed = errText(e);
     }
     sentDone(sent);
   };
-  // Answered: queued, it is the queue's; else its block may have come before the answer did.
+  // Answered: its block may have come before the answer did.
   const sentDone = (x: Sent) => {
-    log.sent = log.sent.filter((y) => y !== x || !x.queued);
+    x.at = Date.now();
     log.recheck();
     changed();
   };
@@ -586,6 +586,8 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
   // What of yours the log has said already (sent to the channel, not given to its own agent):
   // drawn from the log, no bubble of its own.
   const inLog = (x: Sent) => !!ready && x.failed === undefined && msgs.some((m) => (!!x.seq && m.n === x.seq) || (!!x.input && m.input === x.input));
+  // What the server keeps for the turn's end or the quota waits as a bubble of yours (chats.ts).
+  log.sent = waiting(log.sent, (s.queue ?? []).map((q) => ({ id: q.id, text: attachedOf(q.text).words || q.text })), log.end);
   const pending = log.sent.filter((x) => (x.failed !== undefined || !compactSent(x)) && !inLog(x));
   // The others at work, each once what called it is on the page (the hand-over, merge.ts held).
   const ownWriting = busy && log.drafts.some((d) => !d.tool && !d.whole);
@@ -707,6 +709,7 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
       bubbleRef={(el) => void (el ? bubbles.current.set(x.key, el) : bubbles.current.delete(x.key))}
       retry={() => retry(x)}
       drop={() => ((log.sent = log.sent.filter((y) => y !== x)), changed())}
+      takeBack={x.queued && x.waited && x.input ? () => api.unqueue(id, x.input!).then(() => ((x.gone = true), changed())) : undefined}
     />
   );
   return (
@@ -782,19 +785,9 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
         {!elsewhere && !s.subagent && <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-[calc(44px+max(14px,calc(env(safe-area-inset-bottom)+6px)))] bg-[linear-gradient(to_bottom,transparent,var(--paper)_14px)]" />}
         <div className="relative mx-auto max-w-(--chat-w)">
           {!s.subagent && !elsewhere && <ShellRuns s={s} />}
-          <Queue session={id} queue={s.queue ?? []} steered={(q) => onSent({ key: crypto.randomUUID(), text: q.text, files: [], from: 0, input: q.id, steer: true })} />
           {P ? (
-            // Several agents: the others' queues under their nicks, and all the asks as one queue,
-            // the oldest open (docs/channels.md "提问").
+            // Several agents: all the asks as one queue, the oldest open (docs/channels.md "提问").
             <>
-              {agents.map((a) => {
-                const st = stateOf(a.session);
-                return a.session !== id && st?.queue?.length ? (
-                  <P.Of key={a.session} a={a} off={!may}>
-                    <Queue session={a.session} queue={st.queue} steered={() => {}} />
-                  </P.Of>
-                ) : null;
-              })}
               {agents.map((a) => {
                 const needs = confirms.filter((c) => c.session === a.session && c.kind !== "ask");
                 return needs.length ? (
