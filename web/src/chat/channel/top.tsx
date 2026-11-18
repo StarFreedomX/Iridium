@@ -21,7 +21,7 @@ import { openEdit } from "./editing";
 import { Face, MemberFace } from "./face";
 import { ContextMark } from "../meters";
 import { mayAct, useMembers } from "./gate";
-import { AgentKinds, ITEM, POPUP } from "./invite";
+import { AgentKinds, ITEM, MachineKinds, POPUP } from "./invite";
 import { prefetchChoices } from "./pick";
 import { memberError } from "./key";
 import type { AgentRow } from "./lib";
@@ -242,6 +242,8 @@ function Invite({ id }: { id: string }) {
             </Sub>
           );
         })}
+        {/* The other computers' agents, last (kumo, 2026-11-18). */}
+        <MachineKinds id={id} />
       </Sub>
   );
 }

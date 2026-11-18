@@ -7,8 +7,9 @@
 // The agent joins the channel as a session of its own, ready. The same kind may be added again.
 // The roles come first (docs/channels.md "角色"; kumo, 2026-11-16): each by its face, name and
 // line, a press adds one as that role; its menu changes the model and effort for this once.
-// After the host's kinds, each other computer's (kumo, 2026-11-18), under its face and name: one
-// added runs there, in that computer's home folder (docs/channels.md "别的电脑的 agent").
+// The other computers' (kumo, 2026-11-18) are 邀请's last rows (MachineKinds), a computer a row
+// that opens its kinds, as tall cut off as linked: one added runs there, in that computer's home
+// folder (docs/channels.md "别的电脑的 agent").
 import { Menu } from "@base-ui/react/menu";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronRight, LoaderCircle } from "lucide-react";
@@ -63,9 +64,6 @@ export function AgentKinds({ id, from = 0 }: { id: string; from?: number }) {
   const full = (row?.agents?.length ?? 1) >= MAX_AGENTS;
   // The roles of the kinds it can add, first.
   const roles = useRoles().filter((r) => kinds.includes(r.agent));
-  // The other computers with agents (not the one the channel is at: its kinds are the rows above).
-  const others = useMachines().filter((m) => m.id !== row?.machine && m.agents.length > 0);
-  let n = from + roles.length + kinds.length;
   return (
     <>
       {roles.map((r, i) => (
@@ -75,17 +73,41 @@ export function AgentKinds({ id, from = 0 }: { id: string; from?: number }) {
       {kinds.map((k, i) => (
         <Kind key={k} id={id} k={k} i={from + roles.length + i} off={full || busy !== null} busy={busy === k} add={add} />
       ))}
-      {others.map((m) => (
-        <div key={m.id} role="group" aria-label={m.name} className="flex flex-col">
-          <div style={{ "--i": n++ } as CSSProperties} className={cn("flex h-7 items-center gap-1.5 px-2.5 pt-1 text-xs select-none", m.online ? "text-ink-3" : "text-ink-4")}>
-            <MachineFace m={m} size={13} className={cn(!m.online && "opacity-50 grayscale")} />
-            <span className="min-w-0 truncate">{m.name}</span>
-            {!m.online && <span className="shrink-0">{t("status.offline")}</span>}
-          </div>
-          {m.agents.map(({ agent }) => (
-            <Kind key={agent} id={id} k={agent as Agent} m={m} i={n++} off={full || busy !== null || !m.online} busy={busy === `${m.id}/${agent}`} add={add} />
-          ))}
-        </div>
+    </>
+  );
+}
+
+/** The other computers with agents (not the one the channel is at: its kinds are AgentKinds'),
+ *  each a row of the menu: its face and name, opening its kinds (Kind). One cut off: the same
+ *  row, 已断开 at its end, not opened. */
+export function MachineKinds({ id, from = 0 }: { id: string; from?: number }) {
+  useLang();
+  const row = useList()?.find((x) => x.id === id);
+  const others = useMachines().filter((m) => m.id !== row?.machine && m.agents.length > 0);
+  const { busy, add } = useAdd(id);
+  const full = (row?.agents?.length ?? 1) >= MAX_AGENTS;
+  return (
+    <>
+      {others.map((m, i) => (
+        <Menu.SubmenuRoot key={m.id}>
+          <Menu.SubmenuTrigger disabled={!m.online} style={{ "--i": from + i } as CSSProperties} className={cn(ITEM, "data-disabled:text-ink-3")}>
+            <MachineFace m={m} size={16} className={cn(!m.online && "opacity-50 grayscale")} />
+            <span className="min-w-0 flex-1 truncate">{m.name}</span>
+            {!m.online && <span className="shrink-0 text-xs text-ink-3">{t("status.offline")}</span>}
+            <ChevronRight size={14} className={cn("shrink-0 text-ink-4", !m.online && "invisible")} />
+          </Menu.SubmenuTrigger>
+          <Menu.Portal>
+            <Menu.Positioner className="z-50" sideOffset={4} collisionPadding={8}>
+              <Menu.Popup className={cn(POPUP, "no-bar max-h-[min(480px,var(--available-height))] max-w-[calc(100vw-16px)] min-w-48 overflow-y-auto p-1.5")}>
+                <div className="g-stagger flex flex-col">
+                  {m.agents.map(({ agent }, j) => (
+                    <Kind key={agent} id={id} k={agent as Agent} m={m} i={j} off={full || busy !== null} busy={busy === `${m.id}/${agent}`} add={add} />
+                  ))}
+                </div>
+              </Menu.Popup>
+            </Menu.Positioner>
+          </Menu.Portal>
+        </Menu.SubmenuRoot>
       ))}
     </>
   );
