@@ -1,6 +1,9 @@
 package assemble
 
-import "strings"
+import (
+	"cmp"
+	"strings"
+)
 
 // Policy: which pieces go when. Pure functions of what is known, apart from the text they
 // choose (internal/prompts) and from how it is delivered.
@@ -17,6 +20,25 @@ type Where struct {
 	Lang string
 	// Self: what the agent is told of itself (self.go); nil: nothing.
 	Self *Self
+	// Folder: the folder it runs in, as written there; "": not said. OS: that computer's system
+	// ("linux", "darwin", "windows"). Computer: its name, at another machine (Remote).
+	Folder, OS, Computer string
+}
+
+// systems are the systems' names as an agent is told them.
+var systems = map[string]string{"linux": "Linux", "darwin": "macOS", "windows": "Windows"}
+
+// wherePieces say where the agent runs (the user, 2026-11-18): the computer, its system, the
+// folder; at another machine, how a path is written from there.
+func wherePieces(w Where) []piece {
+	if w.Folder == "" {
+		return nil
+	}
+	os := cmp.Or(systems[w.OS], w.OS, "unknown system")
+	if w.Remote {
+		return []piece{text(idWhereRemote, "computer", cmp.Or(w.Computer, "another computer"), "os", os, "folder", w.Folder)}
+	}
+	return []piece{text(idWhereHost, "os", os, "folder", w.Folder)}
 }
 
 // langs are the languages that have a name to tell the agent.
@@ -24,7 +46,7 @@ var langs = map[string]string{"zh": idLangZh, "en": idLangEn}
 
 // systemPieces is the system prompt of a session at w. Here: ir's agent commands, how to ask
 // for a secret, hand over a file, name and title. At another machine: with ir the commands it
-// has there, without none; no file links (its files are that machine's, which ir attach there
+// has there, without none; where it runs (wherePieces); no file links (its files are that machine's, which ir attach there
 // does not reach). Then the user's language, if known.
 func systemPieces(w Where) []piece {
 	var ps []piece
@@ -36,6 +58,7 @@ func systemPieces(w Where) []piece {
 	default:
 		ps = append(ps, text(idRemoteIntroBare))
 	}
+	ps = append(ps, wherePieces(w)...)
 	ps = append(ps, text(idNames))
 	if w.Channel {
 		ps = append(ps, text(idChannelSystem))

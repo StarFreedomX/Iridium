@@ -10,6 +10,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -188,7 +189,7 @@ type Hosted struct {
 
 	ctxSum   *api.ContextSummary
 	tokens   api.InputTokens // the input its recorded turns read (store.SessionInput)
-	ctxAsked time.Time // when the context was last asked for: within a turn, at most every ctxEvery
+	ctxAsked time.Time       // when the context was last asked for: within a turn, at most every ctxEvery
 	tail     *api.BlockTail
 	tailFrom int64
 	tailAt   time.Time
@@ -298,10 +299,18 @@ func (h *Hosted) launch(ctx context.Context, proc int) error {
 		return err
 	}
 	prompt := filepath.Join(h.dir, filePrompt)
-	where := assemble.Where{Lang: m.tuned().Lang, Channel: m.inChannel(h.id), Self: m.self(h.id)}
+	where := assemble.Where{Lang: m.tuned().Lang, Channel: m.inChannel(h.id), Self: m.self(h.id), Folder: h.meta.Cwd, OS: runtime.GOOS}
 	if mc := h.machine(); mc != nil {
 		hi, _ := mc.Hello()
-		where.Remote, where.IR = true, hi != nil && hi.IRClient
+		where.Remote, where.IR, where.OS = true, hi != nil && hi.IRClient, ""
+		if hi != nil {
+			where.OS = hi.OS
+		}
+		// The computer by the name its app goes by now, as places are written.
+		where.Computer = h.meta.Machine
+		if nameOf := m.o.Remote.NameOf; nameOf != nil {
+			where.Computer = cmp.Or(nameOf(h.meta.Machine), where.Computer)
+		}
 	}
 	if where.Self != nil && where.Remote && !where.IR {
 		where.Self.IR = false // no ir there to look things up with

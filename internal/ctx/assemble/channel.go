@@ -18,7 +18,8 @@ import (
 
 // ChannelAgent is an agent of the channel: the nick it is called by, the name it goes by, its
 // intro (the head of it), whom its receive set names (Recv, in words; "": only what names it).
-type ChannelAgent struct{ Nick, Name, Intro, Recv string }
+// At: where it works, when not in the channel's folder (a place as written: mac:/Users/k/x).
+type ChannelAgent struct{ Nick, Name, Intro, Recv, At string }
 
 // ChannelScript is a script the channel's IR runs: its name, its intro, its triggers in words.
 type ChannelScript struct{ Name, Intro, On string }
@@ -66,6 +67,10 @@ type Channel struct {
 	Changes []ProfileChange
 	// Scripts: the scripts the channel's IR runs (docs/channels.md "脚本").
 	Scripts []ChannelScript
+	// Place: the channel's folder, as a place is written (host:/home/k/ir). At: where the agent
+	// called works, when that is not the channel's folder (the user, 2026-11-18). Both are said
+	// only when some agent works elsewhere.
+	Place, At string
 }
 
 // ChannelStaticKey names the standing words as they are for c, apart from the names and intros
@@ -103,6 +108,9 @@ func staticPieces(c Channel) []piece {
 		if a.Recv != "" {
 			about = append(about, "woken by "+a.Recv)
 		}
+		if a.At != "" {
+			about = append(about, "at "+a.At)
+		}
 		if len(about) > 0 {
 			s += " (" + strings.Join(about, "; ") + ")"
 		}
@@ -123,6 +131,13 @@ func staticPieces(c Channel) []piece {
 			people = append(people, p.Name+" ("+p.Intro+")")
 		}
 		ps[0] = piece{parts: mustParts(ps[0], text(idChannelPeople, "people", strings.Join(people, ", ")))}
+	}
+	// Where the channel is and who works elsewhere, the agent called among them or not.
+	if c.Place != "" && (c.At != "" || slices.ContainsFunc(c.Agents, func(a ChannelAgent) bool { return a.At != "" })) {
+		ps[0] = piece{parts: mustParts(ps[0], text(idChannelPlace, "place", c.Place))}
+		if c.At != "" {
+			ps[0] = piece{parts: mustParts(ps[0], text(idChannelAway, "at", c.At, "example", awayExample(c.At)))}
+		}
 	}
 	// The scripts IR runs there, and how receive sets go where an agent has one: with the words
 	// about the agents (static[0]), the way to read more after the rest (static[1]).
@@ -150,6 +165,16 @@ func staticPieces(c Channel) []piece {
 		ps = append(ps, text(idChannelPull, "channel", self))
 	}
 	return ps
+}
+
+// awayExample is how an agent at place at writes a file of its own for the channel: its place
+// with a file under it, in that computer's separator.
+func awayExample(at string) string {
+	sep := "/"
+	if strings.Contains(at, `\`) {
+		sep = `\`
+	}
+	return strings.TrimRight(at, `/\`) + sep + "notes.md"
 }
 
 // mustParts are pieces resolved into one piece's parts (a fragment missing: none).

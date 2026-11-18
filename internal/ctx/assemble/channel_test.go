@@ -1,6 +1,7 @@
 package assemble
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/kumoSleeping/iridium/internal/activity"
@@ -55,5 +56,54 @@ More of the channel: ir api message.list channel_id=self [next=<number> limit=<n
 	in, _ = ChannelTurn(Channel{You: "a", Agents: []ChannelAgent{{Nick: "a"}}}, 1, "hi", "")
 	if got := in.String(); got != "#1: hi\n\n<channel-context>\nYou are a in a channel shared with people and other agents. Its agents: a. Only what you say reaches the channel: your thinking and tool calls stay yours, and you do not see theirs. To call another agent, write @ and its name in what you say; without that no agent is called. Between agents, @ another only when you need its answer; when the exchange has said what it needs to, reply without @ and it ends there (agents passing it on without a person stop after a few turns anyway). After you @ an agent, end your turn: its answer comes in the channel, and one that answers you calls you. Do not restate what the channel already shows, nor ids, folders or states. To name one without calling it, write its name without @. Called with nothing to say (thanks, an acknowledgement): end your turn with ir api POST internal/sessions/self/interrupt; nothing is said for you.\n</channel-context>" {
 		t.Errorf("bare: %q", got)
+	}
+}
+
+// Where agents work (the user, 2026-11-18): said only when one is not in the channel's folder.
+func TestChannelPlace(t *testing.T) {
+	has := func(c Channel, want string, in bool) {
+		t.Helper()
+		if got := ChannelStatic(c); strings.Contains(got, want) != in {
+			t.Errorf("%q in it: %v, want %v:\n%s", want, !in, in, got)
+		}
+	}
+	home := Channel{You: "a", Place: "host:/w/ir", Agents: []ChannelAgent{{Nick: "a"}, {Nick: "b"}}}
+	has(home, "The channel's folder", false)
+	// Another works elsewhere: the one at home is told where the channel is and where that one is.
+	other := home
+	other.Agents = []ChannelAgent{{Nick: "a"}, {Nick: "b", At: `win:C:\Code\x`}}
+	has(other, `Its agents: a, b (at win:C:\Code\x).`, true)
+	has(other, "The channel's folder is host:/w/ir;", true)
+	has(other, "You are one of those", false)
+	// The one called works elsewhere itself: how it writes a file of its own.
+	away := other
+	away.You, away.At = "b", `win:C:\Code\x`
+	has(away, `you work at win:C:\Code\x.`, true)
+	has(away, `(win:C:\Code\x\notes.md)`, true)
+	away.At = "host:/w/other/"
+	has(away, "(host:/w/other/notes.md)", true)
+	// Where an agent works is part of what the standing words are of.
+	if ChannelStaticKey(home) == ChannelStaticKey(away) {
+		t.Error("the key does not see the place")
+	}
+}
+
+func TestWhere(t *testing.T) {
+	sys := func(w Where) string {
+		in, err := System(w)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return in.String()
+	}
+	if got := sys(Where{Folder: "/w/ir", OS: "linux"}); !strings.Contains(got, "Where: you run at the host (Linux), in /w/ir.\n") {
+		t.Error(got)
+	}
+	got := sys(Where{Remote: true, IR: true, Folder: `C:\Code\x`, OS: "windows", Computer: "otae-win"})
+	if !strings.Contains(got, `Where: you run at otae-win (Windows), in C:\Code\x: another computer than the host.`) {
+		t.Error(got)
+	}
+	if got := sys(Where{}); strings.Contains(got, "Where:") {
+		t.Error("said without a folder")
 	}
 }

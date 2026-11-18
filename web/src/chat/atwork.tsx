@@ -11,6 +11,7 @@ import { carries, opened } from "../stream";
 import { cn } from "../ui";
 import { liveOf, type AgentRow, type Src } from "./channel/lib";
 import { AgentFace } from "./channel/members";
+import { AwayBox, useAway } from "./away";
 import { folded, type Tool } from "./fold";
 import { StopKey, ToolDraft, Waiting } from "./live";
 import { Earlier, Running, Said, When, useWhenRow } from "./said";
@@ -94,6 +95,7 @@ export function OtherTurn({ a, channel, st, said, alone, bars, call, record, may
     void log.newer().then(() => live && changed(), () => {});
     return () => void (live = false);
   }, [end, log.loaded]);
+  const away = useAway(channel, a.session);
   const shown = folded(liveOf(log.blocks, said));
   const running = shown.flatMap((b) => (b.kind === "running" ? [b.tool] : []));
   const rows = shown.filter((b) => b.kind !== "running" && b.kind !== "user");
@@ -111,7 +113,30 @@ export function OtherTurn({ a, channel, st, said, alone, bars, call, record, may
   const stop = may ? <StopKey session={a.session} /> : null;
   const time = rows.map((b) => (b.kind === "fold" ? b.steps[0]?.time : "time" in b ? b.time : undefined)).find(Boolean);
   const activity = (under: boolean) => <Activity calls={[]} running={running} cwd={cwd} quiet grew={`${a.session} ${log.end} ${running.length}`} under={under} stop={stop} />;
+  const headOf = () => (
+    <>
+      <span className="shrink-0 text-xs font-medium text-ink-2">{a.nick}</span>
+      <span className="min-w-0 truncate text-xs text-ink-4">{a.name}</span>
+      {bars}
+      <When time={time} />
+    </>
+  );
   const label = `${a.nick} · ${t("chat.working")}`;
+  // At work away from the channel's folder: all of the turn in the box that says where
+  // (away.tsx), the row of what runs now at its end; its words come out of it as it says them.
+  if (away) {
+    const box = (
+      <AwayBox place={away}>
+        {body}
+        {activity(true)}
+      </AwayBox>
+    );
+    return (
+      <div role="group" aria-label={label} className="flex min-w-0 flex-col gap-5">
+        {alone ? <div className="pl-[38px]">{box}</div> : <TurnFrame face={<AgentFace channel={channel} a={a} call={call} record={record} may={may} />} head={headOf()}>{box}</TurnFrame>}
+      </div>
+    );
+  }
   if (alone)
     return (
       <div role="group" aria-label={label} className="flex min-w-0 flex-col gap-5">
@@ -120,14 +145,7 @@ export function OtherTurn({ a, channel, st, said, alone, bars, call, record, may
       </div>
     );
   const face = <AgentFace channel={channel} a={a} call={call} record={record} may={may} />;
-  const head = (
-    <>
-      <span className="shrink-0 text-xs font-medium text-ink-2">{a.nick}</span>
-      <span className="min-w-0 truncate text-xs text-ink-4">{a.name}</span>
-      {bars}
-      <When time={time} />
-    </>
-  );
+  const head = headOf();
   return (
     <div role="group" aria-label={label} className="flex min-w-0 flex-col gap-5">
       {rows.length ? (

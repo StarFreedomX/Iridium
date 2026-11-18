@@ -44,6 +44,7 @@ import { NotJoined } from "./key";
 import { MemberFace } from "./face";
 import { AgentFace } from "./members";
 import { OtherTurn } from "../atwork";
+import { AwayBox, useAway } from "../away";
 import { PersonCard, PersonMenu, useNamed } from "./person";
 import { NickLink, Nicks, NickWords } from "./nick";
 
@@ -512,7 +513,7 @@ export function GroupView({ g, channel, agents, who, record, call, may, quote, q
         </div>
         {g.msgs.map((m) => (
           <div key={m.n} className={cn(m.kind === "error" && "text-err")}>
-            {m.src ? <Work src={m.src} did={m.did} said={m.text} /> : m.did && <DidLine did={m.did} />}
+            {m.src ? <Work src={m.src} did={m.did} said={m.text} channel={channel} /> : m.did && <DidLine did={m.did} />}
             <Copyable copy={m.text} quote={quote && (() => quote(m))}>
               <LongWords fold={fold?.(m) ?? false} lines={linesOf(m.text)}>
                 <Assistant b={blockFor(m, agents)} session={a.session} />
@@ -588,8 +589,11 @@ function EventLine({ m, channel }: { m: Msg; channel: string }) {
  *  its thinking and tool calls from its own record, folded as its own chat folds them. The
  *  count's line until they come, or when the record cannot be read. did: none for a stretch
  *  with no tool call (thinking alone), which has no count to show meanwhile. */
-function Work({ src, did, said }: { src: Src; did?: Did; said?: string }) {
+function Work({ src, did, said, channel }: { src: Src; did?: Did; said?: string; channel: string }) {
   const row = useList()?.find((x) => x.id === src.session);
+  // Done away from the channel's folder: in the box that says where (away.tsx), one line until
+  // pressed; the words under it are the channel's and stay outside.
+  const away = useAway(channel, src.session);
   const q = useQuery({
     queryKey: workKey(src),
     queryFn: async () => {
@@ -601,13 +605,15 @@ function Work({ src, did, said }: { src: Src; did?: Did; said?: string }) {
   });
   const work = q.data;
   if (!work?.length) return did ? <DidLine did={did} /> : null;
-  return (
-    <div className="mb-1.5 flex min-w-0 flex-col gap-3">
-      {folded(work).map((b) => (
-        <Said key={b.at} b={b} session={src.session} cwd={row?.cwd ?? ""} source={() => ({ kind: "you" }) as ReturnType<Parameters<typeof Said>[0]["source"]>} onJump={openChat} />
-      ))}
-    </div>
-  );
+  const shown = folded(work);
+  const rows = shown.map((b) => <Said key={b.at} b={b} session={src.session} cwd={row?.cwd ?? ""} source={() => ({ kind: "you" }) as ReturnType<Parameters<typeof Said>[0]["source"]>} onJump={openChat} />);
+  if (away)
+    return (
+      <AwayBox place={away} count={shown.reduce((n, b) => n + (b.kind === "fold" ? b.steps.length : 1), 0)}>
+        {rows}
+      </AwayBox>
+    );
+  return <div className="mb-1.5 flex min-w-0 flex-col gap-3">{rows}</div>;
 }
 
 /** What the agent did before the words under it, in one quiet line. */

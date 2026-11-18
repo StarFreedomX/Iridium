@@ -17,6 +17,8 @@ const (
 	idRecoverCrash     = "recover.crash"      // Iridium's own line after a crash mid-turn
 	idRecoverQuota     = "recover.quota"      // and when the quota is back with nothing waiting
 	idAskDenied        = "ask.denied"         // a no without words
+	idWhereHost        = "where.host"         // where it runs: the host, {{os}}, {{folder}}
+	idWhereRemote      = "where.remote"       // at {{computer}}: how paths are written from there
 
 	// A channel of several agents (channel.go).
 	idChannelSystem     = "channel.system"  // in place of title: one agent of several
@@ -79,6 +81,8 @@ const (
 	// The cards of a channel (channel.go).
 	idChannelPeople         = "channel.context.people"          // the people that have an intro
 	idChannelScripts        = "channel.context.scripts"         // the scripts IR runs there
+	idChannelPlace          = "channel.context.place"           // the channel's folder, when an agent works elsewhere
+	idChannelAway           = "channel.context.away"            // the agent called is one that does
 	idChannelRecv           = "channel.context.recv"            // receive sets, and how to change one
 	idChannelProfiles       = "channel.context.profiles"        // heads the cards changed
 	idChannelProfileName    = "channel.context.profile-name"    // one renamed

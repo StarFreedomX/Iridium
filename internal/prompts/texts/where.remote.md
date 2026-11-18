@@ -1,0 +1,1 @@
+Where: you run at {{computer}} ({{os}}), in {{folder}}: another computer than the host. A path alone is this computer's; a folder at another is written <computer>:<path>, the host's host:<path>. Files at other computers cannot be read from here: ask an agent there, or a session at the host, for them.

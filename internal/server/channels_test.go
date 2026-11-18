@@ -1058,3 +1058,37 @@ func TestChannelSaidFiles(t *testing.T) {
 	l.wantSat(200, "agent-in:"+guest, "message.create", map[string]any{"channel_id": ch, "content": "here " + lk.Markdown}, nil)
 	l.waitSaid("web", ch, "@guest here", `<img src="internal:`, "/"+lk.File.Ref+`"`, `title="sent.png"`)
 }
+
+// An agent that works in another folder than the channel's (the user, 2026-11-18): it is told
+// where the channel is and where it works; one at home is told nothing of places until then.
+func TestChannelAgentElsewhere(t *testing.T) {
+	t.Parallel()
+	l := start(t)
+	ch := l.create(200, "web", api.NewSession{Agent: api.AgentClaude, Cwd: l.work, Text: "first"})
+	l.waitReply("web", ch, "ok: first")
+	other := filepath.Join(l.work, "elsewhere")
+	if err := os.Mkdir(other, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var ms api.ChannelMembers
+	l.want(200, "web", "POST", "/v1/internal/channels/"+ch+"/members", api.NewMember{Agent: api.AgentClaude, Nick: "away", Cwd: other}, &ms)
+	ms.Members = slices.DeleteFunc(ms.Members, func(m api.ChannelMember) bool { return m.Session == "" })
+	if len(ms.Members) != 2 || ms.Members[1].Cwd != other {
+		t.Fatalf("members: %+v", ms)
+	}
+	away := ms.Members[1].Session
+	code, r := l.send("web", ch, api.Send{Text: "@away look"})
+	if code != 200 {
+		t.Fatalf("send: %d %+v", code, r)
+	}
+	l.waitSaid("web", away, "@away ", fmt.Sprintf("ok: #%d: @away look", r.Seq))
+	p := l.page("web", away)
+	if len(p.Blocks) == 0 {
+		t.Fatal("nothing given")
+	}
+	for _, want := range []string{"The channel's folder is host:" + l.work + ";", "away (", "at host:" + other, "you work at host:" + other + ".", "(host:" + other + "/notes.md)"} {
+		if !strings.Contains(p.Blocks[0].Text, want) {
+			t.Errorf("given without %q:\n%s", want, p.Blocks[0].Text)
+		}
+	}
+}

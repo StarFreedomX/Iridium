@@ -29,6 +29,7 @@ import (
 	"github.com/kumoSleeping/iridium/internal/ctx/strategy"
 	"github.com/kumoSleeping/iridium/internal/deliver"
 	"github.com/kumoSleeping/iridium/internal/gate"
+	"github.com/kumoSleeping/iridium/internal/place"
 	"github.com/kumoSleeping/iridium/internal/satori"
 	"github.com/kumoSleeping/iridium/internal/session"
 	"github.com/kumoSleeping/iridium/internal/store"
@@ -2046,6 +2047,34 @@ func (s *Server) channelName(ch string) string {
 	return s.MaskText(cmp.Or(st.Name, st.Title))
 }
 
+// channelPlace is the folder of channel ch: its session's, or its own where it is no session's.
+func (s *Server) channelPlace(ch string) (place.Place, bool) {
+	if st, err := s.m.State(ch); err == nil && st.Cwd != "" {
+		return place.Place{App: st.Machine, Path: st.Cwd}, true
+	}
+	for _, c := range s.ch.Owns() {
+		if c.ID == ch && c.Cwd != "" {
+			return place.Place{App: c.Machine, Path: c.Cwd}, true
+		}
+	}
+	return place.Place{}, false
+}
+
+// placeWords is p as an agent is told it: its computer by the name its app goes by now.
+func (s *Server) placeWords(p place.Place) string {
+	return place.Format(p, func(id string) string {
+		info, _ := s.gate().Endpoint(id)
+		return info.Name
+	})
+}
+
+// samePlace: a and b are one folder of one computer, however its end and its separators are
+// written.
+func samePlace(a, b place.Place) bool {
+	norm := func(p place.Place) string { return strings.TrimRight(place.Key(p), "/") }
+	return a.App == b.App && norm(a) == norm(b)
+}
+
 // quoted is text as Markdown quoted lines (the first 400 characters), then a blank line.
 func quoted(text string) string {
 	if r := []rune(strings.TrimSpace(text)); len(r) > 400 {
@@ -2179,16 +2208,27 @@ func (s *Server) deliverTo(ctx context.Context, ch, to string, seq int64, said, 
 	// Still under the name Iridium gave it: it names itself first, where it has ir to. A role's
 	// session has its role's name.
 	cc.Rename = channel.IsDefaultNick(me.Nick) && s.m.HasIR(to) && s.st.RoleOf(to) == ""
+	// Where the channel is, and each agent that works elsewhere (the user, 2026-11-18).
+	home, homeOK := s.channelPlace(ch)
+	if homeOK {
+		cc.Place = s.placeWords(home)
+	}
 	var keys []string
 	for _, a := range list {
 		ca := assemble.ChannelAgent{Nick: a.Nick}
 		if st, err := s.m.State(a.Session); err == nil {
 			ca.Name = s.sessionName(st)
+			if at := (place.Place{App: st.Machine, Path: st.Cwd}); homeOK && st.Cwd != "" && !samePlace(at, home) {
+				ca.At = s.placeWords(at)
+				if a.Session == to {
+					cc.At = ca.At
+				}
+			}
 		}
 		ca.Intro = head(s.st.Profile(store.ChannelProfileKey(a.Session)).Intro, 80)
 		ca.Recv = s.recvForAgents(a.Recv)
 		cc.Agents = append(cc.Agents, ca)
-		keys = append(keys, a.Session+"="+strings.Join(a.Recv, "+"))
+		keys = append(keys, a.Session+"="+strings.Join(a.Recv, "+")+"@"+ca.At)
 	}
 	// The scripts IR runs there: their names and triggers are part of the standing words.
 	if xs, err := s.st.Scripts(ch); err == nil {
