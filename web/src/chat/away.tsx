@@ -31,7 +31,8 @@ function Link({ m }: { m: Machine }) {
   );
 }
 
-/** The line that says where: the mark, the name (never wrapped: cut short), the path after it. */
+/** The line that says where: the mark, the name (never wrapped: cut short), the path after it,
+ *  a gap between them and no dot (docs/前端设计规范.md: 不用“·”分隔). */
 function Where({ place }: { place: Place }) {
   const ms = useMachines();
   const m = place.machine ? ms.find((x) => x.id === place.machine) : undefined;
@@ -42,7 +43,7 @@ function Where({ place }: { place: Place }) {
       {m ? <MachineFace m={m} size={16} className={cn(!m.online && "opacity-50 grayscale")} /> : <Folder size={14} className="shrink-0" aria-hidden />}
       <span className="max-w-[55%] shrink-0 truncate font-medium text-ink-2">{name}</span>
       {m && <Link m={m} />}
-      <span className="min-w-0 truncate">· {m && place.machine && m.sep === "\\" ? path.replaceAll("/", "\\") : path}</span>
+      <span className="min-w-0 truncate">{m && place.machine && m.sep === "\\" ? path.replaceAll("/", "\\") : path}</span>
     </span>
   );
 }
