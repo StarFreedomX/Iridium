@@ -7,14 +7,17 @@
 // The agent joins the channel as a session of its own, ready. The same kind may be added again.
 // The roles come first (docs/channels.md "角色"; kumo, 2026-11-16): each by its face, name and
 // line, a press adds one as that role; its menu changes the model and effort for this once.
+// After the host's kinds, each other computer's (kumo, 2026-11-18), under its face and name: one
+// added runs there, in that computer's home folder (docs/channels.md "别的电脑的 agent").
 import { Menu } from "@base-ui/react/menu";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronRight, LoaderCircle } from "lucide-react";
 import { useState, type CSSProperties } from "react";
 import { api } from "../../api/client";
 import type { Agent, ChannelMembers, Role } from "../../api/types.gen";
-import { agentsQ } from "../../data";
-import { useLang } from "../../i18n";
+import { agentsQ, useMachines } from "../../data";
+import { t, useLang } from "../../i18n";
+import { MachineFace, type Machine } from "../../machines";
 import { picked, RoleFace, RoleLine, RoleModels, roleStart, useRoles, type RolePick } from "../../roles";
 import { useList } from "../../store";
 import { toast } from "../../toast";
@@ -31,14 +34,15 @@ export const MAX_AGENTS = 8;
 
 /** Adds an agent to channel id and keeps the members it answers with; it says hello as it
  *  joins (greet; kumo, 2026-11-16). as: as a role (what
- *  roleStart gives; busy is then "role:<id>"). */
+ *  roleStart gives; busy is then "role:<id>"). m: at that computer, in its home folder (busy:
+ *  "<machine>/<agent>"). */
 export function useAdd(id: string) {
   const qc = useQueryClient();
   const [busy, setBusy] = useState<string | null>(null);
-  const add = async (agent: Agent, model: string, effort: string, preset = "", as?: ReturnType<typeof roleStart>) => {
-    setBusy(as ? `role:${as.role}` : agent);
+  const add = async (agent: Agent, model: string, effort: string, preset = "", as?: ReturnType<typeof roleStart>, m?: Machine) => {
+    setBusy(as ? `role:${as.role}` : m ? `${m.id}/${agent}` : agent);
     try {
-      qc.setQueryData<ChannelMembers>(["members", id], await api.addMember(id, { ...(as ?? { agent, ...(model ? { model } : {}), ...(effort ? { effort } : {}), ...(preset ? { preset } : {}) }), greet: true }));
+      qc.setQueryData<ChannelMembers>(["members", id], await api.addMember(id, { ...(as ?? { agent, ...(model ? { model } : {}), ...(effort ? { effort } : {}), ...(preset ? { preset } : {}) }), ...(m ? { machine: m.id, cwd: m.home } : {}), greet: true }));
     } catch (e) {
       toast(memberError(e), { error: true });
     } finally {
@@ -59,6 +63,9 @@ export function AgentKinds({ id, from = 0 }: { id: string; from?: number }) {
   const full = (row?.agents?.length ?? 1) >= MAX_AGENTS;
   // The roles of the kinds it can add, first.
   const roles = useRoles().filter((r) => kinds.includes(r.agent));
+  // The other computers with agents (not the one the channel is at: its kinds are the rows above).
+  const others = useMachines().filter((m) => m.id !== row?.machine && m.agents.length > 0);
+  let n = from + roles.length + kinds.length;
   return (
     <>
       {roles.map((r, i) => (
@@ -67,6 +74,18 @@ export function AgentKinds({ id, from = 0 }: { id: string; from?: number }) {
       {roles.length > 0 && <div role="separator" className="mx-2.5 my-1 border-t border-(--edge)" />}
       {kinds.map((k, i) => (
         <Kind key={k} id={id} k={k} i={from + roles.length + i} off={full || busy !== null} busy={busy === k} add={add} />
+      ))}
+      {others.map((m) => (
+        <div key={m.id} role="group" aria-label={m.name} className="flex flex-col">
+          <div style={{ "--i": n++ } as CSSProperties} className={cn("flex h-7 items-center gap-1.5 px-2.5 pt-1 text-xs select-none", m.online ? "text-ink-3" : "text-ink-4")}>
+            <MachineFace m={m} size={13} className={cn(!m.online && "opacity-50 grayscale")} />
+            <span className="min-w-0 truncate">{m.name}</span>
+            {!m.online && <span className="shrink-0">{t("status.offline")}</span>}
+          </div>
+          {m.agents.map(({ agent }) => (
+            <Kind key={agent} id={id} k={agent as Agent} m={m} i={n++} off={full || busy !== null || !m.online} busy={busy === `${m.id}/${agent}`} add={add} />
+          ))}
+        </div>
       ))}
     </>
   );
@@ -98,12 +117,14 @@ function RoleRow({ id, role, i, off, busy, add }: { id: string; role: Role; i: n
 }
 
 /** One kind's row: its name and the model a press of it uses (not known yet: the name alone). */
-function Kind({ id, k, i, off, busy, add }: { id: string; k: Agent; i: number; off: boolean; busy: boolean; add: ReturnType<typeof useAdd>["add"] }) {
+function Kind({ id, k, m, i, off, busy, add }: { id: string; k: Agent; m?: Machine; i: number; off: boolean; busy: boolean; add: ReturnType<typeof useAdd>["add"] }) {
+  // Where its models are asked: the channel's own place, or the computer it would run at.
+  const at = m ? { machine: m.id } : { channel: id };
   const [p, setP] = useState<{ model: string; effort: string; preset?: string }>({ model: "", effort: "" });
-  const asked = useQuery(choicesQ(k, { channel: id })).data;
+  const asked = useQuery(choicesQ(k, at)).data;
   const { send } = draftDefault(asked);
   // A mouse's press adds it as it is; a finger's opens its menu (no hover to open it by).
-  const press = () => !matchMedia("(pointer: coarse)").matches && void add(k, p.model || send, p.effort, p.preset);
+  const press = () => !matchMedia("(pointer: coarse)").matches && void add(k, p.model || send, p.effort, p.preset, undefined, m);
   return (
     <Menu.SubmenuRoot>
       <Menu.SubmenuTrigger disabled={off} onClick={press} style={{ "--i": i } as CSSProperties} className={cn(ITEM, "data-disabled:opacity-40")}>
@@ -114,7 +135,7 @@ function Kind({ id, k, i, off, busy, add }: { id: string; k: Agent; i: number; o
       <Menu.Portal>
         <Menu.Positioner className="z-50" sideOffset={4} collisionPadding={8}>
           <Menu.Popup className={cn(POPUP, "flex max-h-[min(560px,var(--available-height))] w-[min(300px,calc(100vw-16px))] flex-col p-1.5")}>
-            <DraftModels agent={k} at={{ channel: id }} model={p.model} effort={p.effort} preset={p.preset} set={(x) => (x.model !== undefined ? void add(k, x.model, p.effort, p.preset) : setP({ ...p, ...x }))} />
+            <DraftModels agent={k} at={at} model={p.model} effort={p.effort} preset={p.preset} set={(x) => (x.model !== undefined ? void add(k, x.model, p.effort, p.preset, undefined, m) : setP({ ...p, ...x }))} />
           </Menu.Popup>
         </Menu.Positioner>
       </Menu.Portal>

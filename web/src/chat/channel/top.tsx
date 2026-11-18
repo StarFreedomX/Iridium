@@ -9,8 +9,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronRight, PencilLine, Plus, UserPlus, Users } from "lucide-react";
 import { useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { api } from "../../api/client";
-import type { ChannelMembers, Viewer } from "../../api/types.gen";
-import { agentsQ, isComputer, useApps } from "../../data";
+import type { Agent, ChannelMembers, Viewer } from "../../api/types.gen";
+import { agentsQ, isComputer, useApps, useMachines } from "../../data";
 import { t, useLang } from "../../i18n";
 import { openChat } from "../../route";
 import { useCarried, useList } from "../../store";
@@ -65,6 +65,12 @@ export function TopRight({ id }: { id: string }) {
   useLang();
   const qc = useQueryClient();
   const kinds = (useQuery(agentsQ).data ?? []).filter((a) => !a.missing).map((a) => a.agent);
+  const machines = useMachines();
+  // The other computers' kinds too, where they would run (invite.tsx).
+  const ahead = () => {
+    prefetchChoices(qc, kinds, { channel: id });
+    for (const m of machines) if (m.online) prefetchChoices(qc, m.agents.map((a) => a.agent as Agent), { machine: m.id });
+  };
   const members = useMembers(id);
   const viewers = useCarried<Viewer[]>(`viewers:${id}`) ?? [];
   const agents = (members?.members ?? []).filter((m) => m.session);
@@ -108,7 +114,7 @@ export function TopRight({ id }: { id: string }) {
         </Popover.Root>
       )}
       {/* Opened, each kind's models are asked for, for 邀请's menus to pop at once (pick.tsx). */}
-      <Menu.Root onOpenChange={(open) => open && prefetchChoices(qc, kinds, { channel: id })}>
+      <Menu.Root onOpenChange={(open) => open && ahead()}>
         <Tip label={t("channel.members")} side="bottom">
           <Menu.Trigger
             render={
