@@ -186,7 +186,15 @@ let whoAsked: Promise<void> | undefined;
 /** Satori's standard methods need the login: from /me, once. */
 function whoKnown(): Promise<void> {
   if (who.platform) return Promise.resolve();
-  return (whoAsked ??= get<Me>("/v1/internal/me").then((m) => speakAs(m.app, m.login || m.app)));
+  // One that failed is asked again by the next call: kept, a page loaded as the daemon restarted
+  // could send and read nothing till it was loaded again.
+  return (whoAsked ??= get<Me>("/v1/internal/me").then(
+    (m) => speakAs(m.app, m.login || m.app),
+    (e) => {
+      whoAsked = undefined;
+      throw e;
+    },
+  ));
 }
 const S = (id: string) => `/v1/internal/sessions/${enc(id)}`;
 

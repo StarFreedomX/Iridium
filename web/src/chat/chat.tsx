@@ -210,7 +210,17 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
   // The newest page, or what was kept; then what came since.
   useEffect(() => {
     let live = true;
-    const more = () => void (chat.coming ?? log.newer()).then(() => live && changed(), () => {});
+    // A first page that did not come (the network a moment away) is asked for again, a little
+    // later each time: nothing else would, and the chat stayed empty.
+    let tries = 0;
+    let again = 0;
+    const more = () =>
+      void (chat.coming ?? log.newer()).then(
+        () => live && changed(),
+        () => {
+          if (live && !log.loaded && tries < 6) again = window.setTimeout(more, Math.min(8000, 500 * 2 ** tries++));
+        },
+      );
     // Read just now (its first screen, or ahead of the turn to it): not again.
     if (chat.coming || !fresh(log.came)) more();
     const hear = (d: { session: string }) => d.session === id && (log.wrote(d as never), changed());
@@ -219,6 +229,7 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
     opened.add(back);
     return () => {
       live = false;
+      clearTimeout(again);
       drafts.delete(hear);
       opened.delete(back);
     };
@@ -340,8 +351,9 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
     sent.failed = undefined;
     changed();
     try {
-      const r = await api.send(id, sent.text, sent.files.map((f) => f.ref), sent.input);
+      const r = await api.send(id, sent.text, sent.files.map((f) => f.ref), sent.input, sent.quote);
       sent.input = r.input || sent.input;
+      sent.seq = r.seq;
       sent.queued = r.queued;
       sent.gone = r.command && !r.queued;
     } catch (e) {
@@ -591,7 +603,7 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
   // drawn from the log, no bubble of its own.
   const inLog = (x: Sent) => !!ready && x.failed === undefined && msgs.some((m) => (!!x.seq && m.n === x.seq) || (!!x.input && m.input === x.input));
   // What the server keeps for the turn's end or the quota waits as a bubble of yours (chats.ts).
-  log.sent = waiting(log.sent, (s.queue ?? []).map((q) => ({ id: q.id, text: attachedOf(q.text).words || q.text })), log.end);
+  log.sent = waiting(log.sent, (s.queue ?? []).map((q) => ({ id: q.id, text: attachedOf(q.text).words || q.text })), log.end, Date.now(), (input) => log.blocks.some((b) => b.kind === "user" && b.id === input));
   const pending = log.sent.filter((x) => (x.failed !== undefined || !compactSent(x)) && !inLog(x));
   // The others at work, each once what called it is on the page (the hand-over, merge.ts held).
   const ownWriting = busy && log.drafts.some((d) => !d.tool && !d.whole);

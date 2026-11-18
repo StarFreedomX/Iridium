@@ -4,7 +4,7 @@
 // asked for once at first.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo } from "react";
-import { api, missing, speakAs } from "./api/client";
+import { api, ApiError, missing, speakAs } from "./api/client";
 import type { AgentInfo, App, Apps, LastSaid, Me, Session, Settings, UpdateState, Workspace } from "./api/types.gen";
 import type { Machine } from "./machines";
 import { sourceOf, type Who } from "./chat/refs";
@@ -55,12 +55,20 @@ export const useMe = () =>
     queryKey: ["me"],
     staleTime: 300_000,
     queryFn: async (): Promise<Me> => {
-      const me = await orNone(api.me)().catch(() => null);
+      // Refused or not there: what the gate says, else the host's page. The network or the daemon
+      // a moment away (no answer, a 5xx) is neither: asked again, not taken for five minutes as
+      // "this is the host" (one's own words drawn as another's, the host's keys shown).
+      const away = (e: unknown) => !(e instanceof ApiError) || e.status >= 500;
+      const soft = <T,>(e: unknown): T | null => {
+        if (away(e)) throw e;
+        return null;
+      };
+      const me = await orNone(api.me)().catch((e) => soft<Me>(e));
       if (me) {
         speakAs(me.app, me.login || me.app);
         return me;
       }
-      const s = await orNone(api.gateSession)().catch(() => null);
+      const s = await orNone(api.gateSession)().catch((e) => soft<Awaited<ReturnType<typeof api.gateSession>>>(e));
       if (s && !s.local) return { ...LOCAL_ME, id: "", name: s.name ?? "", app: "ir_web", host: false, web: true, public: true };
       return LOCAL_ME;
     },

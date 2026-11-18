@@ -20,7 +20,7 @@ export const fresh = (at: number) => Date.now() - at < 3_000;
  *  number in its channel, once the server said it. queued: the server keeps it for the turn's end (a command) or the quota (a clock by
  *  its bubble); waited: seen in the session's queue; gone: answered, and nothing of it will come
  *  in the transcript (a command the agent ran itself); at: when it was answered. */
-export type Sent = { key: string; text: string; files: { ref: string; name: string; type: string; size?: number; url?: string }[]; from: number; input?: string; failed?: string; queued?: boolean; waited?: boolean; gone?: boolean; at?: number; mid?: boolean; seq?: number; quote?: number };
+export type Sent = { key: string; text: string; files: { ref: string; name: string; type: string; size?: number; url?: string }[]; from: number; input?: string; failed?: string; queued?: boolean; waited?: boolean; left?: number; gone?: boolean; at?: number; mid?: boolean; seq?: number; quote?: number };
 
 /** Where a block's transcript line begins: its at up to the dot. */
 export const lineOf = (b: { at: string }) => parseInt(b.at);
@@ -58,12 +58,15 @@ export function unsent(sent: Sent[], blocks: Block[]): Sent[] {
 /** How long one answered as queued may be missing from the session's queue before it counts as
  *  gone from it: its state comes on another stream than the answer. */
 const QUEUE_LAG = 3000;
+/** How long one that left the queue is shown as going with nothing of it in the transcript,
+ *  before it counts as taken back (on another page). */
+const QUEUE_GONE = 20_000;
 
 /** sent, set against the session's queue (what the server keeps for the turn's end or the quota):
  *  one in it waits (queued); one that left it goes on as any sent, a command dropped, for its
  *  words never come in the transcript; one of the queue not sent from this page (another device,
  *  a page loaded since) is added, so that it shows here too. Those gone are left out. */
-export function waiting(sent: Sent[], queue: { id: string; text: string }[], end: number, now = Date.now()): Sent[] {
+export function waiting(sent: Sent[], queue: { id: string; text: string }[], end: number, now = Date.now(), has?: (input: string) => boolean): Sent[] {
   const ids = new Set(queue.map((q) => q.id));
   const out: Sent[] = [];
   for (const x of sent) {
@@ -73,11 +76,14 @@ export function waiting(sent: Sent[], queue: { id: string; text: string }[], end
       ids.delete(x.input);
     } else if (x.queued && (x.waited || (x.at !== undefined && now - x.at > QUEUE_LAG))) {
       x.queued = false;
+      x.left = now;
       if (x.text.trim().startsWith("/")) continue;
-    }
+    } else if (x.waited && x.left !== undefined && now - x.left > QUEUE_GONE) continue; // taken back elsewhere: nothing of it comes
     out.push(x);
   }
-  for (const q of queue) if (ids.has(q.id)) out.push({ key: q.id, text: q.text, files: [], from: end, input: q.id, queued: true, waited: true, mid: true });
+  // Not one the transcript has already: a state kept from before (the chat left and come back to)
+  // may still name what went since.
+  for (const q of queue) if (ids.has(q.id) && !has?.(q.id)) out.push({ key: q.id, text: q.text, files: [], from: end, input: q.id, queued: true, waited: true, mid: true });
   return out.length === sent.length && out.every((x, i) => x === sent[i]) ? sent : out;
 }
 
@@ -366,6 +372,8 @@ export function chatOf(id: string): Chat {
   for (const c of kept.values()) all += c.log.blocks.length;
   for (const [k, c] of kept) {
     if (all <= KEPT_BLOCKS || c === it) break;
+    // One with words that did not go is kept: they are nowhere else.
+    if (c.log.sent.some((s) => s.failed !== undefined)) continue;
     all -= c.log.blocks.length;
     kept.delete(k);
     whole.delete(k);

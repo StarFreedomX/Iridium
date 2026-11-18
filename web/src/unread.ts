@@ -144,6 +144,20 @@ export function watchUnread(here: () => Here = page, read: (id: string, seq: num
     keep(KEPT_KEY, JSON.stringify({ n: Object.fromEntries(unread), at: Object.fromEntries(ats) } satisfies Kept));
   };
   const later = () => void (timer ??= setTimeout(save, 1500));
+  // Another tab of this browser read a chat: read here too. Each kept its own count and wrote
+  // it over the other's, so one read in a tab was unread again after the other saved.
+  addEventListener("storage", (e) => {
+    if (e.key !== KEPT_KEY || !e.newValue) return;
+    let theirs: Kept;
+    try {
+      theirs = JSON.parse(e.newValue) as Kept;
+    } catch {
+      return;
+    }
+    let any = false;
+    for (const id of [...unread.keys()]) if (!(theirs.n?.[id] > 0)) any = unread.delete(id) || any;
+    if (any) changed();
+  });
   const front = (h: Here, id: string) => h.visible && !!h.chat && (h.chat === id || !!inOf.get(id)?.includes(h.chat));
   // The chat in front of me has read what names me in it: said once for each.
   const saw = new Set<string>();

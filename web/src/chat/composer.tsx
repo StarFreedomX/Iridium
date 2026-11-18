@@ -14,7 +14,7 @@
 // own shape under a veil drawn back as it goes; nothing is sent till all are up.
 import { ArrowUp, Box, Brain, ChartPie, Eraser, FileCode2, FileText, FoldVertical, Gauge, LoaderCircle, Paperclip, Reply, ShieldCheck, X, type LucideIcon } from "lucide-react";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { forwardRef, Fragment, useEffect, useImperativeHandle, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
+import { forwardRef, Fragment, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import type { Agent, Command, Script, SessionState as LiveSession } from "../api/types.gen";
 import { ScriptFace, useScripts } from "./channel/script";
 import { runShell, shellLine, useShellable } from "./shell";
@@ -32,7 +32,7 @@ import { arrowInto, atPath, atSections, pathSection, typedPath, type AtHead, typ
 import { MachineFace, MachineLink, type Machine } from "../machines";
 import { foldersQ } from "../create";
 import { CODE, previews, size, Zoom } from "./files";
-import { upload } from "./upload";
+import { giveUp, upload } from "./upload";
 import { findSecretish } from "./secretish";
 import { ALL_AGENTS, ALL_MEMBERS, insertNick, matchAgents, type AgentRow } from "./channel/lib";
 import { NickList } from "./channel/nicklist";
@@ -170,7 +170,9 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, 220)}px`;
   };
-  useEffect(grow, [text]);
+  // Before it is painted: a frame after, the composer was still as tall as the words just sent
+  // while their bubble was already above it.
+  useLayoutEffect(grow, [text]);
   // On a computer the caret is here as a chat opens; a phone would bring up its keyboard.
   useEffect(() => void (fine() && box.current?.focus({ preventScroll: true })), [s.id]);
 
@@ -194,6 +196,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
       all.filter((a) => {
         if (a.key !== key) return true;
         a.stop.abort();
+        if (!a.ref) giveUp(s.id, a.file);
         // After the row has shut: the last one is drawn as it does.
         if (a.url) setTimeout(() => URL.revokeObjectURL(a.url!), 1000);
         return false;

@@ -27,6 +27,16 @@ const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** What the server has, from a 409's body (an offset that was not its own). */
 const received = (e: unknown) => (e instanceof ApiError && e.status === 409 ? (e.body as Partial<Upload> | undefined)?.received : undefined);
 
+/** An upload of f for session given up before it was whole (its file taken off the composer): the
+ *  task kept for it is forgotten here and cancelled at the server; it was left at both. */
+export function giveUp(session: string, f: File) {
+  const key = taskKey(session, f);
+  const id = kept(key);
+  if (!id) return;
+  keep(key, null);
+  void api.uploadCancel(id).catch(() => {});
+}
+
 /** Uploads f for session; progress(sent, size) as chunks land. Resumes a task kept for the same
  *  file. Throws on a refusal, or after three failures in a row. */
 export async function upload(session: string, f: File, progress: (sent: number, size: number) => void, signal?: AbortSignal, again = true): Promise<FileRef> {

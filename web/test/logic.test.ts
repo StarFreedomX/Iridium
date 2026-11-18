@@ -7,6 +7,7 @@ import type { Block, Model, Session, Workspace } from "../src/api/types.gen";
 import { argOf, folded, foldLine, inputOf } from "../src/chat/fold";
 import { commandsOf, matching } from "../src/chat/composer";
 import { waiting, type Sent } from "../src/chats";
+import { parse as parseRoute } from "../src/route";
 import { shellLine } from "../src/chat/shell";
 import { crashParts } from "../src/chat/crash";
 import { levelName, restAt } from "../src/chat/effort";
@@ -474,6 +475,19 @@ describe("composer", () => {
     expect(waiting([mk("/compact", { queued: true, at: 0 })], [], 5, 10_000)).toEqual([]);
     // One the agent ran itself: nothing of it comes.
     expect(waiting([mk("/x", { gone: true })], [], 5)).toEqual([]);
+    // A queue kept from before names what the transcript has since: not added again.
+    expect(waiting([], [{ id: "q9", text: "went" }], 5, 0, (id) => id === "q9")).toEqual([]);
+    // Left the queue and nothing of it came (taken back on another page): gone after a while.
+    const back = mk("later", { queued: true, waited: true });
+    let left = waiting([back], [], 5, 1000);
+    expect(left).toHaveLength(1);
+    left = waiting(left, [], 5, 5000);
+    expect(left).toHaveLength(1);
+    expect(waiting(left, [], 5, 30_000)).toEqual([]);
+  });
+  test("a link cut short is home, not a page that draws nothing", () => {
+    expect(parseRoute("#/s/%E4")).toEqual({ name: "home" });
+    expect(parseRoute("#/s/a%20b")).toEqual({ name: "chat", id: "a b" });
   });
   test("commands: name start, name, description", () => {
     const cs = [

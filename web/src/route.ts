@@ -8,7 +8,14 @@ export type Route = { name: "home" } | { name: "chat"; id: string } | { name: "s
 export function parse(hash: string): Route {
   const h = hash.replace(/^#/, "");
   const chat = /^\/s\/([^/?]+)/.exec(h);
-  if (chat) return { name: "chat", id: decodeURIComponent(chat[1]!) };
+  if (chat) {
+    // A link cut short ("%E4") is no address of a chat: home, not a page that draws nothing.
+    try {
+      return { name: "chat", id: decodeURIComponent(chat[1]!) };
+    } catch {
+      return { name: "home" };
+    }
+  }
   if (h.startsWith("/settings/apps") || h.startsWith("/settings/terminals")) return { name: "apps" };
   if (h.startsWith("/settings/secrets")) return { name: "secrets" };
   if (h.startsWith("/settings/roles")) return { name: "roles" };
