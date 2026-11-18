@@ -319,6 +319,15 @@ export function App() {
   const dialogPage: SetsPage = over(r) ? setsPageOf(r) : (setsPage ?? "settings");
   const usageLook = !phone && dialogPage === "usage";
   const settingsAt = useSettingsAt(over(r) && !phone, usageLook);
+  // The usage asked for with the settings open (or back): another panel at another place, drawn
+  // anew fading in, not the same one gone there in one frame, wider.
+  const lookWas = useRef<{ open: boolean; usage: boolean }>({ open: false, usage: false });
+  const swapped = useRef(false);
+  const openNow = over(r) && !phone;
+  if (lookWas.current.open !== openNow || lookWas.current.usage !== usageLook) {
+    swapped.current = lookWas.current.open && openNow;
+    lookWas.current = { open: openNow, usage: usageLook };
+  }
   // As tall as its page, up to that room (the user, 2026-11-08: no empty foot); the usage keeps its own.
   const [setsBox, setSetsBox] = useState<HTMLDivElement | null>(null);
   const fit = useFit(setsBox, over(r) && !phone && !usageLook);
@@ -381,12 +390,13 @@ export function App() {
     >
       <Dialog.Portal>
         <Dialog.Popup
+          key={usageLook ? "usage" : "settings"}
           ref={setSetsBox}
           data-settings-dialog
           aria-label={t("nav.me")}
           style={settingsStyle}
           data-glide-h={fit.glide || undefined}
-          className={cn("g-dialog glass thick float fixed z-50 overflow-hidden rounded-lg text-ink outline-none", usageLook ? "w-[min(360px,calc(100vw-16px))]" : "w-[min(288px,calc(100vw-16px))]")}
+          className={cn("g-dialog glass thick float fixed z-50 overflow-hidden rounded-lg text-ink outline-none", swapped.current && "g-fade", usageLook ? "w-[min(360px,calc(100vw-16px))]" : "w-[min(288px,calc(100vw-16px))]")}
         >
           {setsBody(dialogPage)}
         </Dialog.Popup>

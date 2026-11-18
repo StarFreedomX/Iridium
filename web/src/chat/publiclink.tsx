@@ -11,10 +11,14 @@ import { t } from "../i18n";
 import { errText, toast } from "../toast";
 import { ago } from "../ui";
 
+/** A session's public link, as its popover asks for it; asked ahead of opening it (chat.tsx), so
+ *  that it opens whole: its keys came a moment after, and it grew. */
+export const publicLinkQ = (session: string) => ({ queryKey: ["publicLink", session], queryFn: () => api.publicLink(session) });
+
 export function PublicLink({ session, anchor, open, onOpenChange }: { session: string; anchor: RefObject<HTMLElement | null>; open: boolean; onOpenChange: (o: boolean) => void }) {
   const qc = useQueryClient();
-  const key = ["publicLink", session];
-  const q = useQuery({ queryKey: key, queryFn: () => api.publicLink(session), enabled: open, staleTime: 0 });
+  const key = publicLinkQ(session).queryKey;
+  const q = useQuery({ ...publicLinkQ(session), enabled: open, staleTime: 0 });
   const [url, setUrl] = useState("");
   const [busy, setBusy] = useState(false);
   const run = async (f: () => Promise<unknown>) => {

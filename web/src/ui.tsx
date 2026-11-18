@@ -139,6 +139,23 @@ export function useLongPress(onLong: () => void) {
   };
 }
 
+/** A key that takes something away for good: pressed once it turns red and its name becomes
+ *  sure, only a second press does it (docs/前端设计规范.md "确认在原处"); left alone a moment, or the
+ *  focus gone, it is as it was. No × anywhere: its sign is the caller's (a bin). */
+export function SureKey({ label, sure, run, className, children }: { label: string; sure: string; run: () => void; className?: string; children: ReactNode }) {
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    if (!armed) return;
+    const t = setTimeout(() => setArmed(false), 4000);
+    return () => clearTimeout(t);
+  }, [armed]);
+  return (
+    <IconKey label={armed ? sure : label} onClick={() => (armed ? (setArmed(false), run()) : setArmed(true))} onBlur={() => setArmed(false)} className={cn(className, armed && "bg-fill text-err hover:text-err")}>
+      {children}
+    </IconKey>
+  );
+}
+
 /** A block opened under a row (its permissions, a folder to open, a confirmation) is brought into
  *  view: under the last row of a list it opened below the fold, as if nothing had (kumo, 2026-11-19). */
 export const intoView = (el: HTMLElement | null) => void el?.scrollIntoView({ block: "nearest", behavior: "smooth" });

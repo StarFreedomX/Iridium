@@ -19,6 +19,15 @@ export function useMembers(id: string, sig = "") {
     if (first.current) return void (first.current = false);
     void qc.invalidateQueries({ queryKey: ["members", id] });
   }, [seq, sig, id, qc]);
+  // Its agents' cards asked ahead: a card pressed open at a face is drawn whole, its intro and
+  // background not come a moment after, the card grown (docs/前端设计规范.md "后到的不撑开").
+  const agents = (q.data as ChannelMembers | undefined)?.members
+    .filter((m) => m.session)
+    .map((m) => m.member)
+    .join(" ");
+  useEffect(() => {
+    for (const who of agents ? agents.split(" ") : []) void qc.prefetchQuery({ queryKey: ["card", who], queryFn: () => api.memberCard(who), staleTime: 30_000, retry: false });
+  }, [agents, qc]);
   return q.data as ChannelMembers | undefined;
 }
 

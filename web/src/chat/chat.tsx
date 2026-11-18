@@ -13,7 +13,7 @@ import { BarChart3, Ellipsis, FolderOpen, Globe, ListTree, Plus, Settings } from
 import type { Block, Device, Status } from "../api/types.gen";
 import { lazy, memo, Suspense, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties, type DragEvent, type ReactNode } from "react";
 import type { SessionState as LiveSession } from "../api/types.gen";
-import { api } from "../api/client";
+import { api, queryClient } from "../api/client";
 import { LinkDot } from "../link";
 import type { Session } from "../api/types.gen";
 import { WsPlus } from "../create";
@@ -65,7 +65,7 @@ import { folded } from "./fold";
 import { StopKey, ToolDraft } from "./live";
 import { Draft } from "./markdown";
 import { ContextRing, ModeKey, ModelKey, modelView, QuotaBars, useMode } from "./meters";
-import { PublicLink } from "./publiclink";
+import { PublicLink, publicLinkQ } from "./publiclink";
 import { ShellRuns } from "./shell";
 import { Crash } from "./crash";
 import { attachedOf, placesIn, PLACE_DRAG, SESSION_DRAG, sourceOf, withDevice, yours } from "./refs";
@@ -920,7 +920,7 @@ const Bar = memo(function Bar({ s, onSheet, onMe, spots, asked }: { s?: Session;
   const where = folder ? [{ icon: <FolderOpen size={15} />, label: folder, run: () => void navigator.clipboard.writeText(folder).then(() => toast(t("toast.copied")), () => {}) }] : [];
   // ⋯'s items: its folder; making, the sheet and 我 on a phone, usage; then the session's own.
   const lead = [...where, { icon: <Plus size={15} />, label: t("menu.new"), run: () => requestAnimationFrame(() => setMaking(true)) }, ...(onSheet ? [{ icon: <ListTree size={15} />, label: t("nav.sidebar"), run: onSheet }] : []), ...(onMe ? [{ icon: <Settings size={15} />, label: t("nav.me"), run: onMe }] : []), { icon: <BarChart3 size={15} />, label: t("usage.title"), run: usageHere }];
-  const acts = s ? [...sessionActions(s, () => setRenaming(true)), { icon: <Globe size={15} />, label: t("public.menu"), run: () => requestAnimationFrame(() => setPublicOpen(true)) }] : [];
+  const acts = s ? [...sessionActions(s, () => setRenaming(true)), { icon: <Globe size={15} />, label: t("public.menu"), run: () => void Promise.race([queryClient.prefetchQuery(publicLinkQ(s.id)), new Promise((r) => setTimeout(r, 300))]).then(() => setPublicOpen(true)) }] : [];
   return (
     <header className="g-turn-stay vt-bar glass absolute inset-x-0 top-0 z-20 shadow-[0_0.5px_0_var(--edge)]">
       <div className="flex h-12 items-center gap-1 pr-2 pl-2 pointer-coarse:h-13">

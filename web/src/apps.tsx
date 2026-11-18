@@ -23,7 +23,7 @@ import { showSecret, useSecret } from "./secrets";
 import { Group } from "./settings";
 import { useConfirms, usePairing } from "./store";
 import { errText, toast, toasts } from "./toast";
-import { agentName, AGENTS as AGENT_MARKS, ago, Avatar, AvatarKey, cn, CopyKey, IconKey, IrMark, Logo, own, Switch, Tip, useLongPress, useMenuAt, usePointAnchor, intoView } from "./ui";
+import { agentName, AGENTS as AGENT_MARKS, ago, Avatar, AvatarKey, cn, CopyKey, IconKey, IrMark, Logo, own, Switch, Tip, useLongPress, useMenuAt, usePointAnchor, intoView, SureKey } from "./ui";
 import { MenuItems, type MenuItem } from "./sidebar";
 
 const systems: Record<string, string> = {
@@ -65,6 +65,9 @@ export function AppsPage({ onBack }: { onBack: () => void }) {
   const pairing = !!usePairing()?.open;
   const apps = q.data?.apps ?? [];
   const open = view.kind === "app" ? apps.find((a) => a.id === view.id) : undefined;
+  // Back from a page of its own, the list slides in from the other side; first shown, it does not.
+  const moved = useRef(false);
+  if (view.kind !== "list") moved.current = true;
   const list = () => setView({ kind: "list" });
   // 网页 opens its logins and invites; an app or a computer has no page.
   const row = (a: App) =>
@@ -92,6 +95,7 @@ export function AppsPage({ onBack }: { onBack: () => void }) {
       </div>
     );
   return (
+    <div key="list" className={cn("h-full", moved.current && "g-slide")} data-dir="back">
     <Page title={t("settings.terminals")} onBack={onBack} backLabel={t("nav.me")} busy={q.isFetching} right={<PairingKey open={pairing} />}>
       <Needs />
       {q.isError && <p className="m-0 text-sm text-ink-3">{errText(q.error)}</p>}
@@ -111,6 +115,7 @@ export function AppsPage({ onBack }: { onBack: () => void }) {
         </>
       )}
     </Page>
+    </div>
   );
 }
 
@@ -573,9 +578,9 @@ function WebLogins({ logins, invites, onPasskeys }: { logins: Login[]; invites: 
           <span className="min-w-0 flex-1 truncate text-base">{i.setup ? t("term.setup") : i.name || <span className="text-ink-3">{t("term.unnamed")}</span>}</span>
           {i.claude && <span className="shrink-0 text-xs text-ink-3">{t("term.withClaude")}</span>}
           {i.expiresAt ? <span className="text-xs text-ink-3 tabular-nums">{t("term.until", { time: clock(i.expiresAt) })}</span> : null}
-          <IconKey label={t("term.revoke")} onClick={() => void revoke(qc, i.id, i.name || t("term.unnamed"))} className="size-7">
-            <X size={15} />
-          </IconKey>
+          <SureKey label={t("term.revoke")} sure={t("term.revokeSure")} run={() => void revoke(qc, i.id, i.name || t("term.unnamed"))} className="size-7">
+            <Trash2 size={14} />
+          </SureKey>
         </div>
       ))}
       <SecretHere at="terminals" />
@@ -710,9 +715,9 @@ function PasskeyRow({ login, k, last, changed }: { login: string; k: Passkey; la
         </span>
       </span>
       {!last && (
-        <IconKey label={t("passkey.remove")} onClick={() => void remove()} className="size-7">
-          <X size={15} />
-        </IconKey>
+        <SureKey label={t("passkey.remove")} sure={t("term.revokeSure")} run={() => void remove()} className="size-7">
+          <Trash2 size={14} />
+        </SureKey>
       )}
     </div>
   );
@@ -733,9 +738,9 @@ function PasskeyLinkRow({ login, l, changed }: { login: string; l: PasskeyLink; 
       <Link2 size={15} className="mx-2 shrink-0 text-ink-3" />
       <span className="min-w-0 flex-1 truncate text-base text-ink-2">{t("passkey.waiting")}</span>
       <span className="text-xs text-ink-3 tabular-nums">{t("term.until", { time: clock(l.expiresAt) })}</span>
-      <IconKey label={t("term.revoke")} onClick={() => void drop()} className="size-7">
-        <X size={15} />
-      </IconKey>
+      <SureKey label={t("term.revoke")} sure={t("term.revokeSure")} run={() => void drop()} className="size-7">
+        <Trash2 size={14} />
+      </SureKey>
     </div>
   );
 }

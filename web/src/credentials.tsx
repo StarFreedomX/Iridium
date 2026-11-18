@@ -4,7 +4,7 @@
 // on top.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Menu } from "@base-ui/react/menu";
-import { ChevronLeft, LoaderCircle, LockKeyhole, Plus, Trash2, X } from "lucide-react";
+import { ChevronLeft, ChevronUp, LoaderCircle, LockKeyhole, Plus, Trash2 } from "lucide-react";
 import { useRef, useState } from "react";
 import { api } from "./api/client";
 import type { SecretInfo, SecretScope } from "./api/types.gen";
@@ -34,7 +34,7 @@ export function SecretsPage({ onBack }: { onBack: () => void }) {
         <h1 className="m-0 min-w-0 flex-1 truncate text-base font-semibold">{t("secrets.title")}</h1>
         {q.isFetching && <LoaderCircle size={14} className="animate-spin text-ink-4" />}
         <IconKey label={adding ? t("nav.close") : t("secrets.new")} onClick={() => setAdding(!adding)} tipSide="bottom" className="size-7">
-          {adding ? <X size={16} /> : <Plus size={16} />}
+          {adding ? <ChevronUp size={16} /> : <Plus size={16} />}
         </IconKey>
       </header>
       <div className="no-bar min-h-0 flex-1 overflow-y-auto pt-2 pb-4">
