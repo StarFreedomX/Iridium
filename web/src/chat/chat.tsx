@@ -10,13 +10,8 @@
 import { Menu } from "@base-ui/react/menu";
 import { Popover } from "@base-ui/react/popover";
 import { BarChart3, Ellipsis, FolderOpen, Globe, ListTree, Plus, Settings } from "lucide-react";
-<<<<<<< HEAD
 import type { Block, Device, Status } from "../api/types.gen";
 import { lazy, memo, Suspense, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties, type DragEvent, type ReactNode } from "react";
-=======
-import type { Block, Status } from "../api/types.gen";
-import { lazy, memo, Suspense, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type DragEvent, type ReactNode } from "react";
->>>>>>> chat-motion
 import type { SessionState as LiveSession } from "../api/types.gen";
 import { api } from "../api/client";
 import { LinkDot } from "../link";
@@ -610,14 +605,10 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
   // before the turn began are what it answers: its face comes under them.
   const pendingBefore = pending.filter((x) => !x.mid);
   const pendingAfter = pending.filter((x) => x.mid);
-<<<<<<< HEAD
   // A turn another channel called (works) is the agent's too once it has rows: its row at work
   // goes on under them, not under a face and name again (kumo, 2026-11-18).
   const atEnd = turns.at(-1);
   const headless = busy && !compacting && (!(atEnd?.kind === "agent" || (atEnd?.kind === "works" && atEnd.rows.length > 0)) || pendingBefore.length > 0);
-=======
-  const headless = busy && !compacting && (turns.at(-1)?.kind !== "agent" || pendingBefore.length > 0);
->>>>>>> chat-motion
   // Its usage after its model's name, a strip of its own as small as a phone's (the user,
   // 2026-11-13): the context's ring, the quota's bars; each pressed, its popover.
   // The agent's latest turn: the ring /context opens. None yet: the command is the agent's.
@@ -1154,11 +1145,7 @@ function Where({ spots, asked, phone }: { spots: Spot[]; asked: { session?: stri
 type Works = { given: GivenTurn; relay?: Relay; time?: number };
 
 /** Who said a message of the channel's log, by name. */
-<<<<<<< HEAD
 const nameOfMsg = (m: Msg) => (m.author.kind === "agent" ? m.author.nick || m.author.name : m.author.kind === "person" || m.author.kind === "script" ? m.author.name : "Iridium");
-=======
-const nameOfMsg = (m: Msg) => (m.author.kind === "agent" ? m.author.nick || m.author.name : m.author.kind === "person" ? m.author.name : "Iridium");
->>>>>>> chat-motion
 
 /** No log (a channel of one agent): the same one each time. */
 const NO_MSGS: Msg[] = [];
