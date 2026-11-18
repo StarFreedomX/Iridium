@@ -11,7 +11,7 @@ import { t } from "../../i18n";
 import { openChat } from "../../route";
 import { isComputer, useApps } from "../../data";
 import { errText, toast } from "../../toast";
-import { Avatar, cn, isHost } from "../../ui";
+import { Avatar, cn, isHost, usePointAnchor } from "../../ui";
 import { ITEM, POPUP } from "./invite";
 import { mayDM, userOf, type AgentRow } from "./lib";
 import { SelfEdit } from "./edit";
@@ -50,7 +50,7 @@ export function PersonCard({ user, name, avatar, app, call, dm: other = true }: 
  *  face has one, a person's had none): 提及, 私聊, as their card has them. */
 export function PersonMenu({ user, name, call, dm: other = true, at, close }: { user: string; name: string; call?: (name: string) => void; dm?: boolean; at: { x: number; y: number } | null; close: () => void }) {
   const dm = mayDM(user, useApps().data?.logins ?? []) && other;
-  const anchor = at && { getBoundingClientRect: () => DOMRect.fromRect({ x: at.x, y: at.y, width: 0, height: 0 }) };
+  const anchor = usePointAnchor(at);
   // After a frame: the menu shuts first, and what opens is not shut with it.
   const later = (f: () => void) => () => requestAnimationFrame(f);
   const talk = () => void api.dm(user).then((r) => openChat(r.channel), (e) => toast(t("err.action"), { error: true, description: errText(e) }));

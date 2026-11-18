@@ -741,6 +741,15 @@ func (s *Server) addAgent(ctx context.Context, c caller, ch string, st *api.Sess
 			Effort: req.Effort, Preset: req.Preset, Role: req.Role, Intro: req.Intro, Avatar: req.Avatar, Background: req.Background}
 		if req.Cwd != "" {
 			ns.Machine = req.Machine
+		} else if req.Machine != "" && req.Machine != st.Machine {
+			// At another computer than the channel's, no folder said: its home there. The
+			// channel's folder is a path of the channel's computer, and the computer asked for was
+			// let go with it: the agent started here, with this computer's agent and model.
+			m := s.computerOf(req.Machine)
+			if m == nil || m.Home == "" {
+				return "", fmt.Errorf("%w: cwd: a folder at %s", session.ErrBadRequest, req.Machine)
+			}
+			ns.Machine, ns.Cwd = req.Machine, m.Home
 		}
 		var err error
 		if id, err = s.create(ctx, c, ns); err != nil {

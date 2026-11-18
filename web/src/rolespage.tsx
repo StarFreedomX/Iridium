@@ -20,7 +20,7 @@ import { t, useLang } from "./i18n";
 import { RoleBanner, RoleFace, RoleLine, roleModel, useRoles } from "./roles";
 import { Item } from "./settings";
 import { errText, toast } from "./toast";
-import { cn, IconKey } from "./ui";
+import { cn, IconKey, intoView } from "./ui";
 
 const BOX = "no-ring min-w-0 rounded-md bg-fill px-2.5 text-sm outline-none placeholder:text-ink-3 focus:bg-fill-2";
 const POPUP = "g-unfold glass thick float rounded-lg p-1.5 text-ink outline-none";
@@ -143,7 +143,7 @@ function RolePage({ role, onBack }: { role: Role; onBack: () => void }) {
             <span className="text-xs text-ink-3 tabular-nums">{role.memories ?? 0}</span>
           </Item>
           {sure ? (
-            <div className="g-fade pt-2">
+            <div ref={intoView} className="g-fade pt-2">
               <CardFrame label={t("role.deleteTitle", { name: role.name })}>
                 <CardHead
                   icon={<Trash2 size={16} />}

@@ -221,6 +221,28 @@ func TestRoleKeepsModelFace(t *testing.T) {
 	}
 	l.want(200, "web", "GET", "/v1/internal/roles/"+given.ID+"/avatar", nil, nil)
 	_ = ch
+	// One started now: its face is its model's once its agent has said the model, and the pages
+	// are told to ask for the faces again then (faceFollows), no turn of it needed.
+	_, v, _ := l.s.avatarOf(second, func() *api.SessionState { st, _ := l.s.m.State(second); return st }())
+	if v == "" {
+		t.Fatal("no face for the second session")
+	}
+	seq := l.s.avatarsSeq.Load()
+	l.want(200, "web", "POST", "/v1/internal/channels/"+ch+"/members", map[string]any{"agent": "claude"}, nil)
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		followed := false
+		l.s.faceMu.Lock()
+		for id, seen := range l.s.faceSeen {
+			followed = followed || (id != second && id != ch && seen == v)
+		}
+		l.s.faceMu.Unlock()
+		if followed && l.s.avatarsSeq.Load() > seq {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("a session started was not followed to its model's face: %v", l.s.faceSeen)
+		}
+	}
 }
 
 // given waits until session id's agent was given n things by channels and is idle again; the

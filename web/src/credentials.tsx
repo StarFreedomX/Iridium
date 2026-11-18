@@ -8,13 +8,12 @@ import { ChevronLeft, LoaderCircle, LockKeyhole, Plus, Trash2, X } from "lucide-
 import { useRef, useState } from "react";
 import { api } from "./api/client";
 import type { SecretInfo, SecretScope } from "./api/types.gen";
-import { CardFrame, CardHead, MainKey, SecondKey } from "./card";
 import { ConfirmCard } from "./confirms";
 import { t, useLang } from "./i18n";
 import { MenuItems } from "./sidebar";
 import { useConfirms } from "./store";
 import { errText, toast } from "./toast";
-import { ago, cn, IconKey, own, useLongPress, useMenuAt } from "./ui";
+import { ago, cn, IconKey, own, useLongPress, useMenuAt, usePointAnchor } from "./ui";
 
 export const secretsQ = { queryKey: ["secrets"], queryFn: api.secrets, staleTime: 30_000 };
 const NAME = /^[A-Z][A-Z0-9_]{0,63}$/;
@@ -110,34 +109,33 @@ const scopeLabel = (s: SecretScope) => (s === "workspaces" ? t("secrets.scopeWor
 function SecretRow({ s }: { s: SecretInfo }) {
   const qc = useQueryClient();
   const [menuAt, setMenuAt] = useMenuAt();
-  const [sure, setSure] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const busy = useRef(false);
   const row = useRef<HTMLDivElement>(null);
   const lp = useLongPress(() => {
     const r = row.current?.getBoundingClientRect();
     setMenuAt(r ? { x: r.left + 40, y: r.bottom } : { x: 40, y: 40 });
   });
   const remove = async () => {
-    setBusy(true);
+    if (busy.current) return;
+    busy.current = true;
     try {
       await api.deleteSecret(s.name);
       toast(t("secrets.deleted", { name: s.name }));
     } catch (e) {
       toast(t("err.secret"), { error: true, description: errText(e) });
     }
-    setBusy(false);
     await qc.invalidateQueries({ queryKey: ["secrets"] });
+    busy.current = false;
   };
   const scope = s.scope || "all";
-  const anchor = menuAt && { getBoundingClientRect: () => DOMRect.fromRect({ x: menuAt.x, y: menuAt.y, width: 0, height: 0 }) };
+  const anchor = usePointAnchor(menuAt);
   return (
     <div className="flex flex-col">
       <div
         ref={row}
         {...lp}
         onContextMenu={(e) => {
-          lp.onContextMenu(e);
-          if (!own(e)) return;
+          if (lp.onContextMenu(e) || !own(e)) return;
           e.preventDefault();
           setMenuAt({ x: e.clientX, y: e.clientY });
         }}
@@ -150,29 +148,10 @@ function SecretRow({ s }: { s: SecretInfo }) {
         </span>
         <span className="shrink-0 text-xs text-ink-3 tabular-nums">{s.lastUse ? ago(s.lastUse.at) : t("secrets.unused")}</span>
       </div>
-      {sure && (
-        <div className="g-fade pt-1 pb-2">
-          <CardFrame label={t("secrets.deleteTitle", { name: s.name })}>
-            <CardHead
-              icon={<Trash2 size={16} />}
-              title={t("secrets.deleteTitle", { name: s.name })}
-              summary={t("secrets.deleteHint")}
-              keys={
-                <>
-                  <SecondKey onClick={() => setSure(false)}>{t("me.cancel")}</SecondKey>
-                  <MainKey busy={busy} onClick={() => void remove()}>
-                    {t("secrets.delete")}
-                  </MainKey>
-                </>
-              }
-            />
-          </CardFrame>
-        </div>
-      )}
       <Menu.Root open={menuAt !== null} onOpenChange={(o) => !o && setMenuAt(null)}>
         <Menu.Portal>
           <Menu.Positioner anchor={anchor} side="bottom" align="start" sideOffset={4} collisionPadding={8} className="z-50">
-            <MenuItems items={[{ icon: <Trash2 size={15} />, label: t("secrets.delete"), run: () => setSure(true) }]} />
+            <MenuItems items={[{ icon: <Trash2 size={15} />, label: t("secrets.delete"), sure: t("secrets.deleteSure"), run: () => void remove() }]} />
           </Menu.Positioner>
         </Menu.Portal>
       </Menu.Root>

@@ -23,7 +23,7 @@ import { showSecret, useSecret } from "./secrets";
 import { Group } from "./settings";
 import { useConfirms, usePairing } from "./store";
 import { errText, toast, toasts } from "./toast";
-import { agentName, AGENTS as AGENT_MARKS, ago, Avatar, AvatarKey, cn, CopyKey, IconKey, IrMark, Logo, own, Switch, Tip, useLongPress, useMenuAt } from "./ui";
+import { agentName, AGENTS as AGENT_MARKS, ago, Avatar, AvatarKey, cn, CopyKey, IconKey, IrMark, Logo, own, Switch, Tip, useLongPress, useMenuAt, usePointAnchor, intoView } from "./ui";
 import { MenuItems, type MenuItem } from "./sidebar";
 
 const systems: Record<string, string> = {
@@ -279,8 +279,6 @@ function ItemRow({ a }: { a: App }) {
   const qc = useQueryClient();
   const me = useMe().data;
   const [renaming, setRenaming] = useState(false);
-  const [sure, setSure] = useState(false);
-  const [busy, setBusy] = useState(false);
   const [folders, setFolders] = useState(false);
   const face = useFacePick(a.id);
   const menu = useRowMenu();
@@ -318,28 +316,9 @@ function ItemRow({ a }: { a: App }) {
         )}
       </div>
       {face.crop}
-      {sure && (
-        <div className="g-fade py-2">
-          <CardFrame label={t("term.revokeTitle", { name: a.name })}>
-            <CardHead
-              icon={<Trash2 size={16} />}
-              title={t("term.revokeTitle", { name: a.name })}
-              summary={t("term.revokeHint")}
-              keys={
-                <>
-                  <SecondKey onClick={() => setSure(false)}>{t("me.cancel")}</SecondKey>
-                  <MainKey busy={busy} onClick={() => (setBusy(true), void revoke(qc, a.id, a.name).then(() => (setBusy(false), setSure(false))))}>
-                    {t("term.revoke")}
-                  </MainKey>
-                </>
-              }
-            />
-          </CardFrame>
-        </div>
-      )}
       {folders && m && <OpenFolder a={a} m={m} grant={grant} done={() => setFolders(false)} />}
       {face.input}
-      {!a.host && menu.menu([...grants, { icon: <Trash2 size={15} />, label: remove, run: () => setSure(true) }])}
+      {!a.host && menu.menu([...grants, { icon: <Trash2 size={15} />, label: remove, sure: t("term.revokeSure"), run: () => void revoke(qc, a.id, a.name) }])}
     </div>
   );
 }
@@ -380,7 +359,7 @@ function OpenFolder({ a, m, grant, done }: { a: App; m: Computer; grant: (g: Mac
     if (ok) done();
   };
   return (
-    <div className="g-fade py-2">
+    <div ref={intoView} className="g-fade py-2">
       <CardFrame label={t("grant.addFolder")}>
         <CardHead
           icon={<FolderOpen size={16} />}
@@ -426,15 +405,13 @@ function useRowMenu() {
     const r = box.current?.getBoundingClientRect();
     if (r) setAt({ x: r.left + 16, y: r.bottom });
   });
-  const anchor = at && {
-    getBoundingClientRect: () => DOMRect.fromRect({ x: at.x, y: at.y, width: 0, height: 0 }),
-  };
+  const anchor = usePointAnchor(at);
   return {
     at,
     on: {
       ref: box,
       ...lp,
-      onContextMenu: (e: React.MouseEvent) => own(e) && (e.preventDefault(), setAt({ x: e.clientX, y: e.clientY })),
+      onContextMenu: (e: React.MouseEvent) => !lp.onContextMenu(e) && own(e) && (e.preventDefault(), setAt({ x: e.clientX, y: e.clientY })),
     },
     menu: (items: MenuItem[]) => (
       <Menu.Root open={at !== null} onOpenChange={(o) => !o && setAt(null)}>
@@ -568,15 +545,15 @@ function LoginRow({ l, app, remove, onPasskeys }: { l: Login; app: string; remov
       </div>
       {face.crop}
       {perms && (
-        <div className="g-fade mb-2 ml-11 rounded-lg bg-fill/60 py-2">
+        <div ref={intoView} className="g-fade mb-2 ml-11 rounded-lg bg-fill/60 py-2">
           <PermsEditor title={t("apps.loginPerms")} perms={l.perms} save={(p) => api.loginPerms(app, l.id, p)} />
         </div>
       )}
       {face.input}
       {menu.menu([
-        { icon: <SlidersHorizontal size={15} />, label: t("apps.perms"), run: () => setPerms(!perms) },
+        { icon: <SlidersHorizontal size={15} />, label: t("apps.perms"), run: () => setPerms((on) => !on) },
         ...(onPasskeys ? [{ icon: <KeyRound size={15} />, label: t("passkey.menu"), run: onPasskeys }] : []),
-        { icon: <Trash2 size={15} />, label: t("apps.removeLogin"), run: remove },
+        { icon: <Trash2 size={15} />, label: t("apps.removeLogin"), sure: t("term.revokeSure"), run: remove },
       ])}
     </div>
   );
@@ -836,7 +813,10 @@ function PermsEditor({ perms, save: put, title }: { perms?: Perms; save: (p: Per
   const [p, setP] = useState<Perms>(was);
   const [place, setPlace] = useState("");
   const [busy, setBusy] = useState(false);
-  useEffect(() => setP(permsOf(perms)), [perms]);
+  // By what it says, not which object: each fetch of the apps brings a new one, and what was being
+  // changed here was thrown away by any of them (a rename, a face, the window focused again).
+  const said = JSON.stringify(was);
+  useEffect(() => setP(permsOf(perms)), [said]); // eslint-disable-line react-hooks/exhaustive-deps
   const dirty = !same(p.agents, was.agents) || !same(p.scope, was.scope);
   const allAgents = p.agents.includes(ALL);
   const allScope = p.scope.includes(ALL);

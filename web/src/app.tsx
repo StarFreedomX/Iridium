@@ -10,7 +10,7 @@ import { Dialog } from "@base-ui/react/dialog";
 import { Toast } from "@base-ui/react/toast";
 import { Tooltip } from "@base-ui/react/tooltip";
 import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType, type CSSProperties, type ReactNode } from "react";
-import { queryClient } from "./api/client";
+import { api, queryClient } from "./api/client";
 import { firstScreen, watchTurns } from "./chats";
 import { CreatePopover, WsPlus } from "./create";
 import { agentsQ, LOCAL_ME, pushQ, useApps, useHome, useMe, useSettings, useUpdate, useWorkspaces } from "./data";
@@ -74,6 +74,8 @@ const loadPanels = () => {
   for (const p of [SettingsPage, AppsPage, SecretsPage, UsagePage, Jump]) void p.load().catch(() => {});
   void queryClient.prefetchQuery(agentsQ);
   void queryClient.prefetchQuery(pushQ);
+  // The credentials' rows too: their page slid in empty and filled after.
+  void queryClient.prefetchQuery({ queryKey: ["secrets"], queryFn: api.secrets, staleTime: 30_000 });
 };
 
 // Once idle, the later parts' files into the cache (vite.config.ts LATER); then their code runs from
@@ -514,6 +516,14 @@ function useFit(el: HTMLElement | null, open: boolean) {
  *  window's bottom left. */
 function useSettingsAt(open: boolean, usage: boolean): CSSProperties | undefined {
   const [at, setAt] = useState<CSSProperties>();
+  // The window made another size: placed again, not left where the key was.
+  const [size, setSize] = useState(0);
+  useEffect(() => {
+    if (!open) return;
+    const again = () => setSize((n) => n + 1);
+    addEventListener("resize", again);
+    return () => removeEventListener("resize", again);
+  }, [open]);
   useLayoutEffect(() => {
     if (!open) return;
     // The usage: at the point it was asked from, as a menu is (the user, 2026-11-08), below it if
@@ -536,6 +546,6 @@ function useSettingsAt(open: boolean, usage: boolean): CSSProperties | undefined
       return;
     }
     setAt({ left: Math.max(8, Math.min(innerWidth - w - 8, b.left)), bottom: innerHeight - b.top + 8, height: Math.min(600, room) });
-  }, [open, usage]);
+  }, [open, usage, size]);
   return at;
 }

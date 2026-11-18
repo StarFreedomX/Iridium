@@ -104,6 +104,9 @@ type Server struct {
 	scriptsSeq atomic.Int64
 	// avatarsSeq: the state "avatars", up by one at each change of a face.
 	avatarsSeq atomic.Int64
+	// faceSeen: the version of each session's face as last looked at (faceFollows); faceMu guards it.
+	faceMu   sync.Mutex
+	faceSeen map[string]string
 	// cardsSeq: the state "cards", up by one at each change of a card (its name, intro, face).
 	cardsSeq atomic.Int64
 	// listDue: the list of sessions is to be made again shortly (listSoon).
@@ -169,6 +172,7 @@ func New(cfg config.Config, m *session.Manager, h *hub.Hub, logf func(string, ..
 	m.SetSpeaks(func(id, ch string) bool { return s.ch.Speaks(ch, id) })
 	s.sat.Keep(satoriKeeper{s.st})
 	m.Watch(s.sat.Notice)
+	m.Watch(s.faceFollows)
 	lctx, lstop := context.WithCancel(context.Background())
 	s.stopList = lstop
 	go s.watchList(lctx)

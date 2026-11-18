@@ -19,7 +19,7 @@ import { ModeMark, modeName } from "../../modes";
 import { useList, useSession } from "../../store";
 import { errText, toast } from "../../toast";
 import { openChat } from "../../route";
-import { agentName, cn, Lamp, Logo, own, PopSurface, sessionStatusText, useLongPress, useMenuAt } from "../../ui";
+import { agentName, cn, Lamp, Logo, own, PopSurface, sessionStatusText, useLongPress, useMenuAt, usePointAnchor } from "../../ui";
 import { levelName } from "../effort";
 import { LongWords } from "../longwords";
 import { MODEL_POPUP, SessionModels, useModelMenu, useMode } from "../meters";
@@ -74,7 +74,7 @@ export function AgentFace({ channel, a, call, record, may, talk, size = 28 }: { 
         onClick={() => setDetail(!detail)}
         {...lp}
         onContextMenu={(e) => {
-          if (!own(e)) return;
+          if (lp.onContextMenu(e) || !own(e)) return;
           e.preventDefault();
           setDetail(false);
           setMenuAt({ x: e.clientX, y: e.clientY });
@@ -249,7 +249,7 @@ export function MemberAsks({ channel, anchor, asked, done }: { channel: string; 
 
 /** A member's menu, at a point: its items (MemberItems) in a menu of their own. */
 function MemberMenu({ at, close, ...items }: { at: { x: number; y: number } | null; close: () => void } & Parameters<typeof MemberItems>[0]) {
-  const anchor = at && { getBoundingClientRect: () => DOMRect.fromRect({ x: at.x, y: at.y, width: 0, height: 0 }) };
+  const anchor = usePointAnchor(at);
   return (
     <Menu.Root open={at !== null} onOpenChange={(o) => !o && close()}>
       <Menu.Portal>

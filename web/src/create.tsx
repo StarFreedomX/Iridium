@@ -21,7 +21,7 @@ import { effortName, picked, prefetchRoles, RoleFace, RoleLine, RoleModels, role
 import { validNick } from "./chat/channel/lib";
 import { ProfileCard } from "./chat/channel/profilecard";
 import { errText, toast } from "./toast";
-import { AGENTS, agentName, Avatar, cn, homeOf, IconKey, Logo, own, PHONE, PopSurface, tilde, Tip, useLongPress, useMedia, useMenuAt } from "./ui";
+import { AGENTS, agentName, Avatar, cn, homeOf, IconKey, Logo, own, PHONE, PopSurface, tilde, Tip, useLongPress, useMedia, useMenuAt, usePointAnchor } from "./ui";
 
 const join = (dir: string, name: string) => (dir.endsWith("/") ? dir + name : `${dir}/${name}`);
 /** One folder's listing; prefetched before it is shown (the popover opening, a row hovered), so the
@@ -557,7 +557,7 @@ function RolesRow({ roles, at, add }: { roles: Role[]; at: object; add: (r: Role
 
 /** A row's menu, at the right button or a finger held: what it receives, and 移出. */
 function RowMenu({ at, close, recv, setRecv, remove }: { at: { x: number; y: number } | null; close: () => void; recv?: Recv; setRecv?: (r: Recv) => void; remove: () => void }) {
-  const anchor = at && { getBoundingClientRect: () => DOMRect.fromRect({ x: at.x, y: at.y, width: 0, height: 0 }) };
+  const anchor = usePointAnchor(at);
   return (
     <Menu.Root open={at !== null} onOpenChange={(o) => !o && close()}>
       <Menu.Portal>
@@ -600,10 +600,8 @@ function useRowMenu() {
       lp.onPointerDown(e);
     },
     onContextMenu: (e: React.MouseEvent) => {
-      const was = e.defaultPrevented;
-      lp.onContextMenu(e);
       // Opened by the finger held already.
-      if (e.defaultPrevented && !was) return;
+      if (lp.onContextMenu(e)) return;
       if (!own(e) || (e.target as HTMLElement).closest("input")) return;
       e.preventDefault();
       setMenuAt({ x: e.clientX, y: e.clientY });

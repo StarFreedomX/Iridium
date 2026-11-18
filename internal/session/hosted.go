@@ -194,6 +194,7 @@ type Hosted struct {
 	tailFrom int64
 	tailAt   time.Time
 	lamp     api.Status // the status last told to the watchers
+	modelWas string     // the model (else the one picked) last told to the watchers
 }
 
 // cached is what was read of the transcript at a size.
@@ -1139,9 +1140,15 @@ func (h *Hosted) publish() {
 	h.mu.Lock()
 	changed := s.Status != h.lamp
 	h.lamp = s.Status
+	model := cmp.Or(s.Model, s.Pick)
+	runsAs := model != h.modelWas
+	h.modelWas = model
 	h.mu.Unlock()
 	if changed && !h.replaying.Load() {
 		h.m.notify(Notice{Session: h.id, Kind: NoticeStatus, Status: s.Status})
+	}
+	if runsAs {
+		h.m.notify(Notice{Session: h.id, Kind: NoticeModel})
 	}
 }
 

@@ -11,7 +11,7 @@ import { Archive, ArchiveRestore, ArrowUpRight, BookOpen, Bot, BotMessageSquare,
 import { Copyable } from "./copyable";
 import { Dispatch, Sent as SentTo, TaskBack } from "./dispatched";
 import { handBack, toldOf } from "./dispatch";
-import { Children, forwardRef, memo, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { Children, forwardRef, memo, useContext, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { givenTurn, linkNicks, type GivenTurn } from "./channel/lib";
 import { Nicks, NickWords } from "./channel/nick";
 import { CARD_POP } from "./channel/profilecard";
@@ -22,7 +22,7 @@ import type { Block, Device, FileRef, Result } from "../api/types.gen";
 import type { Sent } from "../chats";
 import { errText, toast } from "../toast";
 import { t } from "../i18n";
-import { agentName, Avatar, Badge, cn, IconKey, IrMark, Logo, own, PopSurface, tilde, Tip, titleOf, useLongPress, useMenuAt } from "../ui";
+import { agentName, Avatar, Badge, cn, IconKey, IrMark, Logo, own, PopSurface, tilde, Tip, titleOf, useLongPress, useMenuAt, usePointAnchor } from "../ui";
 import { useHome, useMachines } from "../data";
 import { LocalMark } from "../me";
 import { go } from "../route";
@@ -161,7 +161,7 @@ const Sender = forwardRef<HTMLDivElement, { who: You | From; time?: number; jump
     ? {
         ...lp,
         onContextMenu: (e: React.MouseEvent) => {
-          if (!own(e)) return;
+          if (lp.onContextMenu(e) || !own(e)) return;
           e.preventDefault();
           setMenuAt({ x: e.clientX, y: e.clientY });
         },
@@ -813,7 +813,7 @@ function StepCall({ s, session, cwd, bare }: { s: Step; session: string; cwd: st
     const pointed = e && "clientX" in e && e.detail > 0;
     setAt({ x: pointed ? e.clientX : (r?.left ?? 0) + 22, y: r?.bottom ?? (pointed ? e.clientY : 0) });
   };
-  const anchor = useMemo(() => at && { getBoundingClientRect: () => DOMRect.fromRect({ x: at.x, y: at.y, width: 0, height: 0 }) }, [at]);
+  const anchor = usePointAnchor(at);
   return (
     <Popover.Root open={open} onOpenChange={toggle}>
       <Popover.Trigger ref={row} className={cn(ROW, "w-full text-left outline-none focus-visible:text-ink-2", open && "text-ink-2")}>

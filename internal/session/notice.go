@@ -21,6 +21,9 @@ const (
 	// NoticeEnded: the agent process ended while a turn ran and the turn is not run again (a stop,
 	// a crash not continued): no turn_end follows. Waiting as at a turn's end.
 	NoticeEnded NoticeKind = "ended"
+	// NoticeModel: the model the session runs as became known or changed (its agent said it, or
+	// one was picked): what follows its model (its face) is looked at again.
+	NoticeModel NoticeKind = "model"
 )
 
 // Notice is one thing that happened in a session, live (never from a replay).

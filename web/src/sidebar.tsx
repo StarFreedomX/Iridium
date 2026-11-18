@@ -25,7 +25,7 @@ import { createAt, onOpenPlace, type Place } from "./places";
 import { LinkDot } from "./link";
 import { errText, toast } from "./toast";
 import { manages, useMachines, useMe, useSaidLine, useUpdate } from "./data";
-import { agentName, ago, cn, fine, IconKey, IrMark, keep, kept, Lamp, lampOf, Logo, own, sessionStatusText, statusText, tilde, Tip, titleOf, untitled, useLongPress, useMenuAt, useMinute } from "./ui";
+import { agentName, ago, cn, fine, IconKey, IrMark, keep, kept, Lamp, lampOf, Logo, own, sessionStatusText, statusText, tilde, Tip, titleOf, untitled, useLongPress, useMenuAt, useMinute, usePointAnchor } from "./ui";
 import { PLACE_DRAG, SESSION_DRAG } from "./chat/refs";
 import { badge, isQuiet, setQuiet, useAt, useQuiet, useUnread } from "./unread";
 import { Face, FaceStack } from "./chat/channel/face";
@@ -676,7 +676,7 @@ function WsRow({ flip, id, name, root, sessions, hung, machine, remote, folders,
     const r = document.activeElement?.closest?.("[role=treeitem]")?.getBoundingClientRect();
     setAt(r ? { x: r.left + 40, y: r.bottom } : { x: 40, y: 40 });
   });
-  const anchor = at && { getBoundingClientRect: () => DOMRect.fromRect({ x: at.x, y: at.y, width: 0, height: 0 }) };
+  const anchor = usePointAnchor(at);
   const failed = (e: unknown) => toast(t("err.action"), { error: true, description: errText(e) });
   // The group's voice, its way in (kumo, 2026-11-16).
   const voice = useVoiceItem(id);
@@ -757,7 +757,7 @@ function WsRow({ flip, id, name, root, sessions, hung, machine, remote, folders,
         }
         end={end && !renaming && <span className="flex items-center" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>{end}</span>}
         dim={dim}
-        extra={{ ...(menu ? { ...lp, onContextMenu: (e: React.MouseEvent) => own(e) && (e.preventDefault(), setAt({ x: e.clientX, y: e.clientY })), onClickCapture: lp.onClickCapture } : {}), ...dragging }}
+        extra={{ ...(menu ? { ...lp, onContextMenu: (e: React.MouseEvent) => !lp.onContextMenu(e) && own(e) && (e.preventDefault(), setAt({ x: e.clientX, y: e.clientY })), onClickCapture: lp.onClickCapture } : {}), ...dragging }}
       />
       {menu && (
         <Menu.Root open={at !== null} onOpenChange={(o) => !o && setAt(null)}>
@@ -922,7 +922,7 @@ const SessionRow = memo(function SessionRow({ s, where, depth, flip, selected, o
       if (e.pointerType === "mouse") ahead(s.id, true);
     },
     onContextMenu: (e: React.MouseEvent) => {
-      if (!own(e)) return;
+      if (lp.onContextMenu(e) || !own(e)) return;
       e.preventDefault();
       setMenuAt({ x: e.clientX, y: e.clientY });
     },
@@ -1132,7 +1132,7 @@ function FolderRow({ f, ws, depth, label, hung, open, onToggle, newHere, plus, l
     // Pinned: above the sessions at its group's root (reorder.ts).
     ...(real ? [f.pinned ? { icon: <PinOff size={15} />, label: t("menu.unpin"), run: () => pin(f.path, false) } : { icon: <Pin size={15} />, label: t("menu.pin"), run: () => pin(f.path, true) }] : []),
   ];
-  const anchor = at && { getBoundingClientRect: () => DOMRect.fromRect({ x: at.x, y: at.y, width: 0, height: 0 }) };
+  const anchor = usePointAnchor(at);
   return (
     <>
       <Row
@@ -1153,7 +1153,7 @@ function FolderRow({ f, ws, depth, label, hung, open, onToggle, newHere, plus, l
           )
         }
         dim={dim}
-        extra={{ ...lp, onContextMenu: (e: React.MouseEvent) => own(e) && (e.preventDefault(), setAt({ x: e.clientX, y: e.clientY })), onClickCapture: lp.onClickCapture, ...dragging }}
+        extra={{ ...lp, onContextMenu: (e: React.MouseEvent) => !lp.onContextMenu(e) && own(e) && (e.preventDefault(), setAt({ x: e.clientX, y: e.clientY })), onClickCapture: lp.onClickCapture, ...dragging }}
       />
       <Menu.Root open={at !== null} onOpenChange={(o) => !o && setAt(null)}>
         <Menu.Portal>
@@ -1168,7 +1168,7 @@ function FolderRow({ f, ws, depth, label, hung, open, onToggle, newHere, plus, l
 
 function SessionMenu({ s, at, close, rename }: { s: Session; at: { x: number; y: number } | null; close: () => void; rename: () => void }) {
   const items = sessionActions(s, rename);
-  const anchor = at && { getBoundingClientRect: () => DOMRect.fromRect({ x: at.x, y: at.y, width: 0, height: 0 }) };
+  const anchor = usePointAnchor(at);
   return (
     <Menu.Root open={at !== null} onOpenChange={(o) => !o && close()}>
       <Menu.Portal>
@@ -1193,18 +1193,27 @@ function PushFoot({ levels, i }: { levels: PushLevel[]; i: number }) {
 /** A colour tag and how to set it ("" takes it off). */
 export type Tags = { value?: Color; set: (c: Color | "") => void };
 
-export type MenuItem = { icon: ReactNode; label: string; run: () => void };
+/** sure: what its words become once pressed, in red, the menu staying open: only a second press
+ *  runs it (docs/前端设计规范.md "确认在原处"). No card is opened for it elsewhere: one under its row
+ *  was out of sight below the fold for the last row of a list (kumo, 2026-11-19). */
+export type MenuItem = { icon: ReactNode; label: string; run: () => void; sure?: string };
 
 /** A menu's items; lead: before the children, at its top; foot: after the items, over the tags. */
 export function MenuItems({ lead = [], items, tags, children, foot }: { lead?: MenuItem[]; items: MenuItem[]; tags?: Tags; children?: ReactNode; foot?: ReactNode }) {
-  const item = (it: MenuItem, i: number) => (
-    <Menu.Item key={it.label} onClick={it.run} style={{ "--i": i } as CSSProperties} className="flex h-8 cursor-default items-center gap-2.5 rounded-md px-2.5 text-base outline-none select-none data-highlighted:bg-fill pointer-coarse:h-11">
-      <span className="text-ink-2">{it.icon}</span>
-      <span className="min-w-0 truncate">{it.label}</span>
-    </Menu.Item>
-  );
+  // The item pressed once that asks to be pressed again; the popup gone, so is this.
+  const [armed, setArmed] = useState<string>();
+  const item = (it: MenuItem, i: number) => {
+    const asks = !!it.sure && armed !== it.label;
+    const red = !!it.sure && armed === it.label;
+    return (
+      <Menu.Item key={it.label} closeOnClick={!asks} onClick={asks ? () => setArmed(it.label) : it.run} style={{ "--i": i } as CSSProperties} className={cn("flex h-8 cursor-default items-center gap-2.5 rounded-md px-2.5 text-base outline-none select-none data-highlighted:bg-fill pointer-coarse:h-11", red && "text-err")}>
+        <span className={red ? "text-err" : "text-ink-2"}>{it.icon}</span>
+        <span className="min-w-0 truncate">{red ? it.sure : it.label}</span>
+      </Menu.Item>
+    );
+  };
   return (
-    <Menu.Popup finalFocus={false} className="g-unfold glass thick float max-w-[calc(100vw-16px)] min-w-48 rounded-lg p-1.5 text-ink outline-none">
+    <Menu.Popup finalFocus={false} className="g-unfold glass thick float no-bar max-h-(--available-height) max-w-[calc(100vw-16px)] min-w-48 overflow-y-auto rounded-lg p-1.5 text-ink outline-none">
       <div className="g-stagger flex flex-col">
         {lead.map(item)}
         {children}

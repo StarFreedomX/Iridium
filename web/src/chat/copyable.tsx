@@ -6,7 +6,7 @@ import { Copy, Reply } from "lucide-react";
 import { useRef, useState, type ReactNode } from "react";
 import { t } from "../i18n";
 import { toast } from "../toast";
-import { own, useLongPress } from "../ui";
+import { own, useLongPress, usePointAnchor } from "../ui";
 
 const ITEM =
   "flex h-8 cursor-default items-center gap-2.5 rounded-md px-2.5 text-base outline-none select-none data-highlighted:bg-fill pointer-coarse:h-11";
@@ -18,7 +18,7 @@ export function Copyable({ copy, children, className, quote }: { copy?: string; 
   const down = useRef({ x: 0, y: 0 });
   const lp = useLongPress(() => setAt(down.current));
   if (copy === undefined) return <div className={className}>{children}</div>;
-  const anchor = at && { getBoundingClientRect: () => DOMRect.fromRect({ x: at.x, y: at.y, width: 0, height: 0 }) };
+  const anchor = usePointAnchor(at);
   return (
     <div
       className={className}

@@ -125,7 +125,7 @@ export function PushSubmenu({ st, levels, i }: { st: PushState; levels: PushLeve
       </Menu.SubmenuTrigger>
       <Menu.Portal>
         <Menu.Positioner className="z-50" sideOffset={4} collisionPadding={8}>
-          <Menu.Popup className="g-unfold glass thick float min-w-52 rounded-lg p-1.5 text-ink outline-none">
+          <Menu.Popup className="g-unfold glass thick float no-bar max-h-(--available-height) min-w-52 overflow-y-auto rounded-lg p-1.5 text-ink outline-none">
             <div className="g-stagger flex flex-col">
               <PushItems st={st} levels={levels} />
             </div>

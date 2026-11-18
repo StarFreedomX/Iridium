@@ -108,9 +108,9 @@ export function useLongPress(onLong: () => void) {
   const clear = () => window.clearTimeout(timer.current);
   return {
     onPointerDown: (e: React.PointerEvent) => {
+      fired.current = false;
       if (e.pointerType !== "touch" || !own(e)) return;
       clear();
-      fired.current = false;
       start.current = { x: e.clientX, y: e.clientY };
       timer.current = window.setTimeout(() => {
         fired.current = true;
@@ -123,8 +123,11 @@ export function useLongPress(onLong: () => void) {
     },
     onPointerUp: clear,
     onPointerCancel: clear,
-    onContextMenu: (e: React.MouseEvent) => {
+    /** true: the finger held has opened the menu already (Android says contextmenu after it):
+     *  the caller opens nothing again, at another place. */
+    onContextMenu: (e: React.MouseEvent): boolean => {
       if (fired.current) e.preventDefault();
+      return fired.current;
     },
     onClickCapture: (e: React.MouseEvent) => {
       if (fired.current) {
@@ -134,6 +137,18 @@ export function useLongPress(onLong: () => void) {
       }
     },
   };
+}
+
+/** A block opened under a row (its permissions, a folder to open, a confirmation) is brought into
+ *  view: under the last row of a list it opened below the fold, as if nothing had (kumo, 2026-11-19). */
+export const intoView = (el: HTMLElement | null) => void el?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+
+/** A menu's anchor at a point of the window. The same one while the point is: a new one each
+ *  draw had the menu placed again each time its row was drawn (a stream's tick). */
+export function usePointAnchor(at: { x: number; y: number } | null) {
+  const x = at?.x;
+  const y = at?.y;
+  return useMemo(() => (x === undefined || y === undefined ? null : { getBoundingClientRect: () => DOMRect.fromRect({ x, y, width: 0, height: 0 }) }), [x, y]);
 }
 
 /** The last pointer pressed was a finger: a phone, or a tablet or an unfolded phone in the
