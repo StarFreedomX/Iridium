@@ -189,6 +189,8 @@ agent 的 `ir sh`：每条命令一个新进程，不经托管进程，不写文
 - 连上后跟上版本（用户，2026-11-17）：握手的回答带这边的版本（`HelloReply.version`）。ir-computer 是发布版、这边是另一个发布版时，从这边下载那个版本（终端里显示 `下载中 37%`），确认它说的版本对，替换缓存里的自己（Windows 先把正在运行的改名为 `.old`），再在终端里问“现在重启？”，说明会结束几个正在运行的进程；y 就结束执行端、原样参数重新运行（Unix exec，Windows 在同一窗口起新进程等它结束），否则下次运行时生效。每个版本只做一次。`ir join` 不自己更新（跟着它的 Iridium 更新）。
 - 以前装的（`--install`，2026-11-16 前）：运行时去掉这个 Iridium 的登录时运行项（`iridium-join-<主机-端口>`）、停掉它起的那份，删掉旧命令下载的 `~/.local/bin/ir-computer`（Windows `%LOCALAPPDATA%\iridium\ir-computer.exe`）。登录项带 `--resident` 起来的（`ir update` 过的 `ir join`）去掉自己的登录项，正常退出。
 - 那边 agent 用的 `ir` 是它自己（按名字 `ir` 进命令行模式，Mac、Linux）。
+- 那边 agent 的 `ir` 和主机上 agent 的 `ir` 权限一样（kumo，2026-11-18；此前按那台电脑的应用权限算，看不到主机、别的电脑和同频道的会话）：主机的，或这一回合所属登录的。只有两样不同：Claude 仍只给“本人的”电脑（Claude 的条款）；只在套接字上有的（凭据 `ir run`、读主机本地路径的 `files`）仍没有。
+- 主机上的命令行：`POST /v1/internal/machines/host/shell`，给不在主机上的 agent 用（它自己的工具只够得到它那台电脑）。别的电脑上的会话，提示词的 `Where:` 一行写了这条命令。
 - 发布包里是裸二进制 `ir-computer-<系统>-<架构>`（Windows 带 `.exe`）；`ir update` 不管它。Mac 用 curl 下载的不带隔离标记，arm64 由 Go 链接器做了临时签名，可直接运行；从终端起，文件夹的访问授权算在终端名下。
 
 ## 开发测试用的连接

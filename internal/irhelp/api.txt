@@ -61,7 +61,7 @@ POST internal/sessions/{id}/interrupt - -> {ok}  end the current turn (Esc); the
 POST internal/sessions/{id}/stop - -> {ok}  stop the agent process; the next message restarts it
 POST internal/button {id, option?, choices?, words?, message?} -> {}  answer an ask: id its card (asks[].card.id); or press a button (<card>#<option>; one attached: att:<session>:<from>:<id>, SessionState.attached)
 POST internal/files/copy {from, to} -> ndjson  copy a file: from, to are paths here or app:path at an app's computer; prints path, size, sha256; run again to resume; socket only
-POST internal/machines/{id}/shell {line, cwd?} -> output  a command line at an app's computer (id or name); --wait for its output and exit code; host or agents  [more]
+POST internal/machines/{id}/shell {line, cwd?} -> output  a command line at an app's computer (id or name), or at the host itself (host); --wait for its output and exit code; host or agents  [more]
   Command lines off there (403 no_shell), or a path outside the folders it serves (403 denied, "not under the folders"): a card in your session asks the user to allow it, and the person at that computer confirms it there. Tell the user so, wait, try again; do not work around it. A computer not connected: someone starts it there with the line in 应用管理 → 电脑 → +: curl -fsSL '<iridium url>/join?shell' | sh (Windows: powershell -c "irm '<iridium url>/join.ps1?shell' | iex"); you cannot start it from here.
 PATCH internal/guilds/{id} {name?, position?, split?} -> {ok}  rename a folder group, move it (0 first), split it by subfolder; host or web
 GET internal/guilds/{id}/voice - -> ws  the folder group's voice: a member's connection (docs/voice.md); a login only

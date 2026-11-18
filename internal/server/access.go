@@ -36,6 +36,9 @@ type caller struct {
 	session string
 	// script: the script of a channel the local ir runs in ("<channel>/<name>", HeaderScript).
 	script string
+	// far: the computer's app whose session TOKEN it came by (withAgent): Claude is its only if
+	// that app is the owner's own (rulesFor).
+	far string
 	// web: the browser's session of ir_web (webapp.SessionOf) the request came in.
 	web string
 }
@@ -86,6 +89,27 @@ func callerOf(r *http.Request) caller {
 
 var localIdentity = gate.HostIdentity
 
+// withAgent makes a session's own TOKEN (its agent's ir at another computer, docs/exec.md "远端的
+// ir") the caller an agent's ir on the host's socket is: the host, or the login its session's
+// turn is for (kumo, 2026-11-18: not its computer's app, whose rights kept it from the host, the
+// other computers and the sessions it works with), but for Claude (far). Not the socket's: what only reads the host's
+// own paths, and the credentials, stay the socket's.
+func (s *Server) withAgent(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id, ok := gate.FromContext(r.Context())
+		if !ok || id.Session == "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		c := caller{Identity: localIdentity, agent: true, session: id.Session, far: id.App}
+		if o, ok := s.originOf(c.session); ok && !o.Host() {
+			c.Identity = o
+		}
+		c.Identity.Session = id.Session
+		next.ServeHTTP(w, r.WithContext(context.WithValue(gate.NewContext(r.Context(), c.Identity), callerKey{}, c)))
+	})
+}
+
 // socketHandler serves the local ir, past the gate: the host, or, when an agent's ir names the
 // session it runs in and an app or login opened that session, that one. What an agent does
 // through ir is its session's opener's doing: its permissions, its usage.
@@ -119,7 +143,7 @@ func (s *Server) webHandler(mux http.Handler) http.Handler {
 	if app == nil {
 		app = webui.Handler()
 	}
-	core := s.gate().Wrap(s.withLogin(s.withSatori(webui.Gzip(mux))))
+	core := s.gate().Wrap(s.withLogin(s.withAgent(s.withSatori(webui.Gzip(mux)))))
 	return legacy(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.web().Handler(core, app).ServeHTTP(w, r)
 	}))
@@ -239,7 +263,14 @@ func (s *Server) Tag(terminal string) string {
 }
 
 // rulesFor is what the caller may do: Claude or not.
-func (s *Server) rulesFor(c caller) api.Rules { return s.rulesOf(c.ID(), c.Host()) }
+func (s *Server) rulesFor(c caller) api.Rules {
+	r := s.rulesOf(c.ID(), c.Host())
+	// An agent at a computer that is not the owner's own: all but Claude (Claude's terms).
+	if c.far != "" && !access.HasClaude(s.rulesOf(c.far, false)) {
+		r.ClaudeOwner = nil
+	}
+	return r
+}
 
 func (s *Server) rulesOf(id string, local bool) api.Rules {
 	if local || id == gate.HostID {
@@ -281,7 +312,7 @@ func (s *Server) using(c caller, id string) (*api.SessionState, error) {
 	if !s.seenBy(c, st.Session) {
 		return nil, errNoSession
 	}
-	if !c.Host() {
+	if !c.Host() || c.far != "" {
 		if st.Bare {
 			return st, nil // no agent of its own to have the right to: whoever sees it uses it
 		}
@@ -326,7 +357,7 @@ func (s *Server) checkCreate(c caller, req *api.NewSession) error {
 	if err := s.checkMachine(req); err != nil {
 		return err
 	}
-	if c.Host() {
+	if c.Host() && c.far == "" {
 		return nil
 	}
 	if err := access.Agent(s.rulesFor(c), req.Agent); err != nil {

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/kumoSleeping/iridium/internal/api"
+	"github.com/kumoSleeping/iridium/internal/gate"
 	"github.com/kumoSleeping/iridium/internal/remote"
 	"github.com/kumoSleeping/iridium/internal/remote/wire"
 	"github.com/kumoSleeping/iridium/internal/session"
@@ -66,6 +67,9 @@ func (s *Server) machineShell(w http.ResponseWriter, r *http.Request) {
 	}
 	if c := callerOf(r); !c.Host() {
 		p := s.permsFor(c)
+		if id == "host" || id == gate.HostID {
+			id = ""
+		}
 		if !slices.Contains(p.Scope, api.PermsAll) && (req.Cwd == "" || strings.HasPrefix(req.Cwd, "~") || !s.scopeHas(p.Scope, id, req.Cwd)) {
 			s.error(w, &access.Denied{Reason: name + ":" + req.Cwd + " is out of this one's scope"})
 			return
@@ -74,6 +78,17 @@ func (s *Server) machineShell(w http.ResponseWriter, r *http.Request) {
 	stream := strings.Contains(r.Header.Get("Accept"), ndjson)
 	ctx, cancel := agentCtx(r)
 	defer cancel()
+	// The host itself (kumo, 2026-11-18): for an agent at another computer, which has no other
+	// way to the host's files and programs.
+	if name == "host" || name == gate.HostID {
+		st, err := s.m.HostShell(ctx, req.Line, req.Cwd)
+		if err != nil {
+			s.shellError(w, err)
+			return
+		}
+		reply(w, http.StatusOK, st)
+		return
+	}
 	st, run, err := s.m.MachineShell(ctx, id, req.Line, req.Cwd, stream)
 	if errors.Is(err, session.ErrOffline) {
 		// Said so an agent tells the user, not tries again and again.

@@ -126,6 +126,20 @@ func (m *Manager) MachineShell(ctx context.Context, machine, line, cwd string, s
 	return st, nil, err
 }
 
+// HostShell runs line at the host, in cwd ("" its home), for an agent that is not there (ir sh at
+// "host"): a holder, read with ShellRead.
+func (m *Manager) HostShell(ctx context.Context, line, cwd string) (api.ShellStarted, error) {
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return api.ShellStarted{}, errors.New("no command")
+	}
+	launcher, env, osName, home, err := m.shellAt("")
+	if err != nil {
+		return api.ShellStarted{}, err
+	}
+	return m.startShell(ctx, launcher, env, osName, cmp.Or(cwd, home), line)
+}
+
 // startShell starts line in cwd with launcher: a holder of its own.
 func (m *Manager) startShell(ctx context.Context, launcher platform.Launcher, env []string, osName, cwd, line string) (api.ShellStarted, error) {
 	m.sweepShells()
