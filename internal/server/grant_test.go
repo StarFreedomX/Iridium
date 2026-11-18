@@ -64,17 +64,21 @@ func TestMachineGrant(t *testing.T) {
 			t.Fatal("no executor")
 		}
 	}
+	// Its hello reaches the list a moment after the hub has it: waited for.
 	computer := func() *api.Computer {
 		t.Helper()
-		var apps api.Apps
-		l.want(200, "socket", "GET", "/v1/internal/apps", nil, &apps)
-		for _, a := range apps.Apps {
-			if a.ID == box {
-				return a.Computer
+		for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+			var apps api.Apps
+			l.want(200, "socket", "GET", "/v1/internal/apps", nil, &apps)
+			for _, a := range apps.Apps {
+				if a.ID == box && a.Computer != nil {
+					return a.Computer
+				}
+			}
+			if time.Now().After(deadline) {
+				t.Fatal("no box")
 			}
 		}
-		t.Fatal("no box")
-		return nil
 	}
 	if c := computer(); c.Shell || !c.Grant || !slices.Equal(c.Roots, []string{root}) {
 		t.Fatalf("listed %+v", c)
