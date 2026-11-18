@@ -188,11 +188,14 @@ func TestRoleKeepsModelFace(t *testing.T) {
 	l, ch, second := two(t)
 	png := "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
 	l.want(200, "web", "PATCH", "/v1/internal/members/claude", map[string]any{"avatar": png}, nil)
-	var st api.SessionState
-	l.want(200, "web", "GET", "/v1/internal/sessions/"+second, nil, &st)
-	model := modelAvatarKey(&st)
-	if model == "" {
-		t.Fatal("no model for the second session")
+	// Its model is known once its agent has started.
+	var model string
+	for deadline := time.Now().Add(10 * time.Second); model == ""; time.Sleep(20 * time.Millisecond) {
+		var st api.SessionState
+		l.want(200, "web", "GET", "/v1/internal/sessions/"+second, nil, &st)
+		if model = modelAvatarKey(&st); model == "" && time.Now().After(deadline) {
+			t.Fatal("no model for the second session")
+		}
 	}
 	if _, _, ok := l.s.face(store.ChannelProfileKey(second), false, ""); ok {
 		t.Fatal("the second session has a face of its own")
