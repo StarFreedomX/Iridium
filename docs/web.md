@@ -33,7 +33,7 @@
 - 网页会话记下用哪个 Passkey 登录的和浏览器说的设备（`web_sessions.passkey`、`device`）。人发的消息记下当时的设备（`inputs.device`、频道消息 `_data.device`），头像角标照它画；登录的角标是它最近活跃的浏览器的。之前的会话不知道 Passkey，退回登录原来设的设备。
 - Cookie `__Host-ir`：HttpOnly、Secure、SameSite=Strict、Path=/。空闲 12 小时、最长 7 天。库里只存哈希（`web_sessions`）。
 - 非安全方法和 WebSocket 升级：Origin 必须是公网地址，`Sec-Fetch-Site` 有的话必须是 `same-origin`；本机模式 Origin 的主机要等于 Host，都没带（curl）就放行。
-- 失败限速（坏邀请、验证失败）：同一客户端 1 分钟 10 次，等 1 分钟。
+- 失败不限速、不锁定（kumo，2026-11-18）：邀请和 TOKEN 都是 256 位随机数，Passkey 是签名，猜不中；原先同一客户端 1 分钟失败 10 次锁 1 分钟，TOKEN 作废的执行端因此拿到 429 而不是 401，不知道该重新配对。失败照旧记日志。
 - 自己的响应 `no-store`，页面 CSP 只许本站脚本、样式，禁 iframe。
 
 ## 邀请

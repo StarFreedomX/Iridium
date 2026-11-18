@@ -94,44 +94,6 @@ func TestTokens(t *testing.T) {
 	}
 }
 
-func TestLimiter(t *testing.T) {
-	l := NewLimiter()
-	now := time.Unix(1e9, 0)
-	for i := 0; i < maxFailures-1; i++ {
-		l.Fail("a", now)
-	}
-	if l.Wait("a", now) != 0 {
-		t.Fatal("locked too early")
-	}
-	l.Fail("a", now)
-	if l.Wait("a", now) != lockout || l.Wait("b", now) != 0 {
-		t.Fatal("lockout")
-	}
-	if l.Wait("a", now.Add(lockout)) != 0 {
-		t.Fatal("lockout did not lift")
-	}
-	// Failures spread over more than the window never lock.
-	for i := 0; i < 3*maxFailures; i++ {
-		now = now.Add(failureWindow / maxFailures * 2)
-		l.Fail("c", now)
-		if l.Wait("c", now) != 0 {
-			t.Fatalf("slow failures locked at %d", i)
-		}
-	}
-	l.Fail("d", now)
-	l.Success("d")
-	if _, ok := l.buckets["d"]; ok {
-		t.Fatal("success kept the bucket")
-	}
-	// The table is bounded.
-	for i := 0; i < maxBuckets+50; i++ {
-		l.Fail(strings.Repeat("k", 1+i%7)+string(rune('a'+i%26))+time.Duration(i).String(), now)
-	}
-	if len(l.buckets) > maxBuckets {
-		t.Fatalf("%d buckets", len(l.buckets))
-	}
-}
-
 func TestClientKey(t *testing.T) {
 	for _, c := range []struct{ remote, header, value, want string }{
 		{"198.51.100.7:1", "CF-Connecting-IP", "", "198.51.100.7"},

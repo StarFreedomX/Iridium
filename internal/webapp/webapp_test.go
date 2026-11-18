@@ -834,48 +834,18 @@ func cmp(a, b string) string {
 	return b
 }
 
-func TestRateLimit(t *testing.T) {
+// No lockout for failures (kumo, 2026-11-18): each bad invite is refused as itself, however
+// many came before, and a good one from the same client is not held off.
+func TestNoLockout(t *testing.T) {
 	h := newHarness(t, testOrigin)
 	bad := joinRequest{Token: strings.Repeat("A", 43)}
-	check := func(remote, cf string) int {
-		q := req{method: "POST", path: "/_ir/api/join/check", body: bad, remote: remote}
-		if cf != "" {
-			q.header = map[string]string{"CF-Connecting-IP": cf}
-		}
-		return h.do(q).Code
-	}
-	for i := 0; i < 10; i++ {
-		if code := check("198.51.100.7:1", ""); code != http.StatusForbidden {
+	for i := 0; i < 30; i++ {
+		if code := h.do(req{method: "POST", path: "/_ir/api/join/check", body: bad, remote: "198.51.100.7:1"}).Code; code != http.StatusForbidden {
 			t.Fatalf("attempt %d: %d", i, code)
 		}
 	}
-	w := h.do(req{method: "POST", path: "/_ir/api/join/check", body: bad})
-	wantStatus(t, w, http.StatusTooManyRequests)
-	if w.Header().Get("Retry-After") != "60" {
-		t.Fatalf("Retry-After %q", w.Header().Get("Retry-After"))
-	}
-	// Even a good token waits now.
-	if code := h.do(req{method: "POST", path: "/_ir/api/join/check", body: joinRequest{Token: h.setupToken()}}).Code; code != http.StatusTooManyRequests {
-		t.Fatalf("locked client with a good token: %d", code)
-	}
-	// Another client is unaffected.
-	if code := check("203.0.113.9:1", ""); code != http.StatusForbidden {
-		t.Fatalf("other client: %d", code)
-	}
-	// CF-Connecting-IP counts only from loopback (cloudflared); otherwise the peer does.
-	if code := check("203.0.113.10:1", "198.51.100.7"); code != http.StatusForbidden {
-		t.Fatalf("spoofed header from a remote peer: %d", code)
-	}
-	if code := check("127.0.0.1:1", "198.51.100.7"); code != http.StatusTooManyRequests {
-		t.Fatalf("cloudflared-forwarded locked client: %d", code)
-	}
-	if code := check("127.0.0.1:1", "192.0.2.1"); code != http.StatusForbidden {
-		t.Fatalf("cloudflared-forwarded other client: %d", code)
-	}
-	// The lock lifts after a minute.
-	h.clock.Advance(time.Minute)
-	if code := check("198.51.100.7:1", ""); code != http.StatusForbidden {
-		t.Fatalf("after lockout: %d", code)
+	if code := h.do(req{method: "POST", path: "/_ir/api/join/check", body: joinRequest{Token: h.setupToken()}, remote: "198.51.100.7:1"}).Code; code != http.StatusOK {
+		t.Fatalf("a good invite after the bad ones: %d", code)
 	}
 	h.noSecretsLogged()
 }

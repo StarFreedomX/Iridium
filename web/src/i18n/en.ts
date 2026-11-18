@@ -588,6 +588,7 @@ export const en: Dict = {
   "pick.sessions": "Sessions: {n}",
   "new.agent": "Pick an agent",
   "new.notInstalled": "{name} is not installed",
+  "new.ownFirst": "Add an agent of this folder first, or none",
   "new.offline": "{name} is not connected",
   "new.machine": "App",
   "new.folder": "Folder",

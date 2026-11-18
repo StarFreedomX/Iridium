@@ -84,10 +84,6 @@ func (w *Web) serveAPI(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	key := gate.ClientKey(r, w.ipHeader)
-	if d := w.lim.Wait(key, w.now()); d > 0 {
-		tooMany(rw, d)
-		return
-	}
 	r.Body = http.MaxBytesReader(rw, r.Body, maxBody)
 	switch r.URL.Path {
 	case "/_ir/api/join/check":
@@ -125,7 +121,6 @@ func clearedCookie() *http.Cookie {
 
 // failed counts a failure against the client and answers.
 func (w *Web) failed(rw http.ResponseWriter, key, what string, status int, code string, err error) {
-	w.lim.Fail(key, w.now())
 	args := []any{"client", key}
 	var pe *protocol.Error
 	if errors.As(err, &pe) {
@@ -364,7 +359,6 @@ func (w *Web) apiJoinVerify(rw http.ResponseWriter, r *http.Request, key string)
 		return
 	}
 	w.removeSetupFile()
-	w.lim.Success(key)
 	w.log.Info("webapp: login joined", "endpoint", info.ID, "name", info.Name, "client", key, "setup", inv.Setup, "perms", len(inv.Perms) > 0, "first", first)
 	if w.cfg.OnJoin != nil {
 		w.cfg.OnJoin(Joined{Endpoint: info, Perms: inv.Perms, First: first})
@@ -465,7 +459,6 @@ func (w *Web) apiLoginVerify(rw http.ResponseWriter, r *http.Request, key string
 		return
 	}
 	w.core.Seen(login)
-	w.lim.Success(key)
 	w.log.Info("webapp: login logged in", "endpoint", login, "name", info.Name, "client", key)
 	http.SetCookie(rw, sessionCookie(token))
 	writeJSON(rw, http.StatusOK, map[string]any{"ok": true, "name": info.Name})
@@ -494,7 +487,6 @@ func (w *Web) addPasskeyLocked(rw http.ResponseWriter, r *http.Request, key stri
 		return
 	}
 	w.core.Seen(inv.Login)
-	w.lim.Success(key)
 	w.log.Info("webapp: passkey added", "endpoint", inv.Login, "name", info.Name, "client", key, "passkeys", len(c.Passkeys))
 	if w.cfg.OnPasskey != nil {
 		w.cfg.OnPasskey(inv.Login)

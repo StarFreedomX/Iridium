@@ -88,9 +88,10 @@ func TestCoreIsTokenOnly(t *testing.T) {
 	}
 }
 
-// Bad TOKENs from an address make it wait; a good TOKEN from the same address (a shared NAT,
-// ir_web's forwarded browsers) still passes, on a request and in a stream's IDENTIFY.
-func TestGoodTokenPassesALockedClient(t *testing.T) {
+// No lockout for failures (kumo, 2026-11-18): a client that keeps failing is told 401 each time,
+// so one whose TOKEN was revoked learns it; a good TOKEN from the same address passes, on a
+// request and in a stream's IDENTIFY.
+func TestBadTokensNeverLock(t *testing.T) {
 	st, err := OpenJSONStore(filepath.Join(t.TempDir(), "gate.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -114,21 +115,18 @@ func TestGoodTokenPassesALockedClient(t *testing.T) {
 		return w.Code
 	}
 	bad := "ir_" + NewSecret()
-	for i := 0; i < maxFailures; i++ {
+	for i := 0; i < 30; i++ {
 		if code := do(bad); code != http.StatusUnauthorized {
 			t.Fatalf("bad token %d: %d", i, code)
 		}
 	}
-	if code := do(bad); code != http.StatusTooManyRequests {
-		t.Fatalf("locked bad token: %d", code)
-	}
 	if code := do(tok); code != http.StatusOK {
-		t.Fatalf("good token from the locked client: %d", code)
+		t.Fatalf("good token after the bad ones: %d", code)
 	}
 	r := httptest.NewRequest("GET", "/v1/events", nil)
 	r.RemoteAddr = "198.51.100.7:1"
 	if _, ok := g.ByTokenFrom(r, tok); !ok {
-		t.Fatal("good token in a stream from the locked client")
+		t.Fatal("good token in a stream after the bad ones")
 	}
 	if _, ok := g.ByTokenFrom(r, bad); ok {
 		t.Fatal("bad token in a stream")

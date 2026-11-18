@@ -588,6 +588,7 @@ export const zh = {
   "pick.sessions": "{n} 个会话",
   "new.agent": "选 agent",
   "new.notInstalled": "{name} 未安装",
+  "new.ownFirst": "先加入此文件夹的 agent，或选不带 agent",
   "new.offline": "{name} 未连接",
   "new.machine": "应用",
   "new.folder": "目录",

@@ -270,7 +270,7 @@ export const subName = (v: string) => {
  *  点名); its menu (right button, a finger held) to take it out. One row: a session as before;
  *  more: the first its own agent, the rest invited with it (NewSession members); no agent: a
  *  channel, every row invited. The last role added shows its card, as others will see it. */
-export function NewSession({ ws, folder, onFolder, onPick, busy, onMake }: { ws: string; folder: string; onFolder: () => void; onPick: (a: Agent, to?: Target, people?: string[], as?: As) => void; busy: string | null; onMake?: (name: string) => Promise<boolean> }) {
+export function NewSession({ ws, folder, onFolder, onPick, busy, onMake, onMachine }: { ws: string; folder: string; onFolder: () => void; onPick: (a: Agent, to?: Target, people?: string[], as?: As) => void; busy: string | null; onMake?: (name: string) => Promise<boolean>; onMachine?: (m: Machine) => void }) {
   // Its people (the user, 2026-11-13): the panel's logins and the host's unless changed here.
   const [people, setPeople] = useState<string[] | null>(null);
   // The agents the daemon can host (GET /v1/internal/agents); all four before it says. One not installed
@@ -289,13 +289,25 @@ export function NewSession({ ws, folder, onFolder, onPick, busy, onMake }: { ws:
   const next = useRef(0);
   const [last, setLast] = useState<number | null>(null);
   const shown = seats.filter((x) => !x.going);
-  const add = (agent: Agent, role?: Role) => {
-    if (there && !there.m.online) return void toast(t("new.offline", { name: there.m.name }), { error: true });
-    if (!there && missing(agent)) return void toast(t("new.notInstalled", { name: agentName(agent) }), { error: true });
-    const key = next.current++;
+  // The other computers (kumo, 2026-11-18): their agents are offered under the folder's own. One
+  // pressed joins the lineup at its computer's home, invited: it works there, away from the
+  // channel's folder. Pressed first, it would be the session's own agent, which runs in the
+  // session's folder: the folder moves to that computer's home (onMachine), or where it cannot
+  // (a group's "+": the group is this folder's), an agent of the folder's is asked for first.
+  const others = machines.filter((m) => m.id !== there?.m.id && m.agents.length > 0);
+  const add = (agent: Agent, role?: Role, m?: Machine) => {
+    const where = m ?? there?.m;
+    if (where && !where.online) return void toast(t("new.offline", { name: where.name }), { error: true });
+    if (!where && missing(agent)) return void toast(t("new.notInstalled", { name: agentName(agent) }), { error: true });
     // The session's own agent receives all, as a session's always has; one invited, what names it.
     const own = bare === "off" && !shown.length;
-    setSeats((ss) => [...ss, { key, agent, role, pick: {}, nick: "", recv: own ? ["*"] : [] }]);
+    if (m && own) {
+      if (!onMachine) return void toast(t("new.ownFirst"), { error: true });
+      onMachine(m);
+      m = undefined;
+    }
+    const key = next.current++;
+    setSeats((ss) => [...ss, { key, agent, role, pick: {}, nick: "", recv: own ? ["*"] : [], ...(m ? { m } : {}) }]);
     setLast(role ? key : null);
   };
   const change = (key: number, p: Partial<Seat>) => setSeats((ss) => ss.map((x) => (x.key === key ? { ...x, ...p } : x)));
@@ -323,6 +335,8 @@ export function NewSession({ ws, folder, onFolder, onPick, busy, onMake }: { ws:
     if (!ready || busy !== null) return;
     if (shown.some(bad)) return void toast(t(shown.some(dup) ? "channel.nickTaken" : "channel.nickBad"), { error: true });
     if (there && !there.m.online) return void toast(t("new.offline", { name: there.m.name }), { error: true });
+    const off = shown.find((x) => x.m && !x.m.online);
+    if (off) return void toast(t("new.offline", { name: off.m!.name }), { error: true });
     const to = there ? { m: there.m, cwd: there.cwd } : undefined;
     const ps = people ?? undefined;
     if (bare === "on") return onPick("" as Agent, to, ps, shown.length ? { agents: shown.map(member) } : undefined);
@@ -432,6 +446,9 @@ export function NewSession({ ws, folder, onFolder, onPick, busy, onMake }: { ws:
       ) : (
         <MachineAgents m={there.m} onPick={(a) => add(a)} />
       )}
+      {others.map((m) => (
+        <MachineAgents key={m.id} m={m} onPick={(a) => add(a, undefined, m)} />
+      ))}
       {/* The lineup: each row glides open as it is added and shut as it is taken out. */}
       <div role="list" aria-label={t("new.lineup")} className="flex flex-col">
         <Grow open={bare === "on"}>
@@ -439,7 +456,7 @@ export function NewSession({ ws, folder, onFolder, onPick, busy, onMake }: { ws:
         </Grow>
         {seats.map((x) => (
           <Grow key={x.key} open={!x.going}>
-            <SeatRow rowRef={x.key === lastRole?.key ? setRoleRow : undefined} seat={x} at={at} recv={bare !== "off" || shown.length > 1 || !everyone(x.recv)} own={bare === "off" && shown[0]?.key === x.key} bad={bad(x)} set={(p) => change(x.key, p)} remove={() => remove(x.key)} />
+            <SeatRow rowRef={x.key === lastRole?.key ? setRoleRow : undefined} seat={x} at={x.m ? { machine: x.m.id } : at} recv={bare !== "off" || shown.length > 1 || !everyone(x.recv)} own={bare === "off" && shown[0]?.key === x.key} bad={bad(x)} set={(p) => change(x.key, p)} remove={() => remove(x.key)} />
           </Grow>
         ))}
       </div>
@@ -459,8 +476,9 @@ export function NewSession({ ws, folder, onFolder, onPick, busy, onMake }: { ws:
 }
 
 /** One of the lineup: its agent, or a role (as which it starts); its model, effort, preset for
- *  this once (pick); its 称呼 ("": the server's); what it receives; going: being taken out. */
-type Seat = { key: number; agent: Agent; role?: Role; pick: RolePick; nick: string; recv: Recv; going?: boolean };
+ *  this once (pick); its 称呼 ("": the server's); what it receives; going: being taken out. m:
+ *  the computer it works at when that is not the folder's (its home there). */
+type Seat = { key: number; agent: Agent; role?: Role; pick: RolePick; nick: string; recv: Recv; going?: boolean; m?: Machine };
 
 /** Whether a seat's receive set is 全部 (every person's words), not 点名 (only what names it):
  *  the two the lineup offers (docs/channels.md "接收"). */
@@ -473,7 +491,7 @@ const runs = (x: Seat): { role?: string; model?: string; effort?: string; preset
   x.role ? roleStart(x.role, x.pick) : { ...(x.pick.model ? { model: x.pick.model } : {}), ...(x.pick.effort ? { effort: x.pick.effort } : {}), ...(x.pick.preset ? { preset: x.pick.preset } : {}) };
 
 /** A seat invited with the session (NewSession members.agents). */
-const member = (x: Seat): NewMember => ({ agent: x.agent, ...runs(x), ...(x.nick.trim() ? { nick: x.nick.trim() } : {}), recv: x.recv });
+const member = (x: Seat): NewMember => ({ agent: x.agent, ...runs(x), ...(x.nick.trim() ? { nick: x.nick.trim() } : {}), recv: x.recv, ...(x.m ? { machine: x.m.id, cwd: x.m.home } : {}) });
 
 /** What a start adds: its 称呼 (nick); as a role, the role and what this one session changes of
  *  it (roles.tsx roleStart); its model, effort, preset; what its own agent receives (recv); the
@@ -625,7 +643,7 @@ function SeatRow({ rowRef, seat, at, recv, own: mine, bad, set, remove }: { rowR
   const role = seat.role && picked(seat.role, seat.pick);
   // A kind's line: the model it runs and its effort (its face says which agent).
   const model = seat.pick.model ? (asked?.models.find((x) => x.value === seat.pick.model)?.name ?? seat.pick.model) : draftDefault(asked).def?.name;
-  const kindLine = [model ?? agentName(seat.agent), seat.pick.effort ? effortName(seat.pick.effort) : ""].filter(Boolean).join(" · ");
+  const kindLine = [model ?? agentName(seat.agent), seat.pick.effort ? effortName(seat.pick.effort) : "", seat.m?.name ?? ""].filter(Boolean).join(" · ");
   const all = everyone(seat.recv);
   const recvLabel = t(all ? "new.recvAll" : "new.recvAt");
   return (
@@ -633,8 +651,9 @@ function SeatRow({ rowRef, seat, at, recv, own: mine, bad, set, remove }: { rowR
       {seat.role ? (
         <RoleFace role={seat.role} size={28} />
       ) : (
-        <span className="grid size-7 shrink-0 place-items-center rounded-full bg-fill">
+        <span className="relative grid size-7 shrink-0 place-items-center rounded-full bg-fill">
           <Logo agent={seat.agent} size={16} />
+          {seat.m && <MachineBadge m={seat.m} size={12} />}
         </span>
       )}
       <span className="flex min-w-0 flex-1 flex-col">
@@ -960,7 +979,7 @@ export function CreatePopover({ trigger }: { trigger: ReactElement }) {
               />
             </>
           ) : (
-            <NewSession ws="" folder={here} busy={busy} onFolder={() => setPage("folder")} onMake={sub.make} onPick={(a, to, people, as) => void sub.settled(to).then((p) => p && start(a, p.to?.cwd ?? p.folder, undefined, p.to?.m.id, people, as))} />
+            <NewSession ws="" folder={here} busy={busy} onFolder={() => setPage("folder")} onMake={sub.make} onMachine={(m) => (setAt(m), setFolder(homeAt(m)))} onPick={(a, to, people, as) => void sub.settled(to).then((p) => p && start(a, p.to?.cwd ?? p.folder, undefined, p.to?.m.id, people, as))} />
           )}
         </div>
       </PopSurface>

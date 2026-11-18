@@ -24,7 +24,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -130,7 +129,6 @@ type Web struct {
 	st *memState
 
 	flows *flows
-	lim   *gate.Limiter
 
 	reqMu sync.Mutex
 	reqs  map[*inFlight]struct{}
@@ -155,7 +153,7 @@ func New(cfg Config) (*Web, error) {
 	}
 	w := &Web{
 		cfg: cfg, core: cfg.Core, store: cfg.Store, log: cfg.Logger, now: cfg.Now, ipHeader: cfg.ClientIPHeader,
-		flows: newFlows(), lim: gate.NewLimiter(), reqs: map[*inFlight]struct{}{},
+		flows: newFlows(), reqs: map[*inFlight]struct{}{},
 		stop: make(chan struct{}), done: make(chan struct{}),
 	}
 	if w.log == nil {
@@ -660,7 +658,6 @@ func (w *Web) sweep() {
 	w.mu.Unlock()
 	w.cancel(func(f *inFlight) bool { return f.session != "" && !sessions[f.session] })
 	w.flows.prune(now)
-	w.lim.Prune(now)
 }
 
 func (w *Web) expiredLocked(now time.Time) Change {
@@ -744,10 +741,6 @@ type apiError struct {
 	Code string `json:"code"`
 }
 
-func tooMany(w http.ResponseWriter, d time.Duration) {
-	w.Header().Set("Retry-After", strconv.Itoa(int((d+time.Second-1)/time.Second)))
-	writeJSON(w, http.StatusTooManyRequests, apiError{"rate_limited"})
-}
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	h := w.Header()

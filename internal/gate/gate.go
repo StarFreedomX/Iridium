@@ -14,7 +14,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -82,7 +81,6 @@ type Gate struct {
 	mu sync.Mutex // guards st; held across store.Apply
 	st *memState
 
-	lim *Limiter
 
 	connMu sync.Mutex
 	conns  map[*conn]struct{}
@@ -164,7 +162,6 @@ func New(cfg Config) (*Gate, error) {
 		log:      cfg.Logger,
 		now:      cfg.Now,
 		ipHeader: cfg.ClientIPHeader,
-		lim:      NewLimiter(),
 		conns:    map[*conn]struct{}{},
 		stop:     make(chan struct{}),
 		done:     make(chan struct{}),
@@ -238,19 +235,13 @@ func (g *Gate) Wrap(next http.Handler) http.Handler {
 // authorize identifies r by its bearer TOKEN; when it fails it has answered.
 func (g *Gate) authorize(w http.ResponseWriter, r *http.Request) (Identity, bool) {
 	now := g.now()
-	// A good TOKEN always passes: the limit is on failures, and others' at the same address (a
-	// shared NAT, ir_web's forwarded browsers) must not shut it out.
 	id, ok := g.identify(r, now)
 	if ok {
 		return id, true
 	}
-	key := ClientKey(r, g.ipHeader)
-	if d := g.lim.Wait(key, now); d > 0 {
-		tooMany(w, d)
-		return Identity{}, false
-	}
-	g.lim.Fail(key, now)
-	g.log.Info("gate: bad bearer token", "client", key)
+	// No lockout for failures (kumo, 2026-11-18): a TOKEN is 256 random bits, and a client held
+	// off got 429 where 401 would have told it its TOKEN was gone.
+	g.log.Info("gate: bad bearer token", "client", ClientKey(r, g.ipHeader))
 	writeJSON(w, http.StatusUnauthorized, apiError{"unauthenticated"})
 	return Identity{}, false
 }
@@ -382,9 +373,8 @@ func (g *Gate) loop() {
 	}
 }
 
-// sweep closes connections left without an app or login and forgets old failures.
+// sweep closes connections left without an app or login.
 func (g *Gate) sweep() {
-	now := g.now()
 	g.mu.Lock()
 	endpoints := make(map[string]bool, len(g.st.endpoints))
 	for id := range g.st.endpoints {
@@ -392,7 +382,6 @@ func (g *Gate) sweep() {
 	}
 	g.mu.Unlock()
 	g.closeConns(func(c *conn) bool { return c.endpoint != "" && !endpoints[c.endpoint] })
-	g.lim.Prune(now)
 }
 
 // apiError is a refusal: its code (decision 8: 401 unauthenticated only for a TOKEN or login
@@ -401,10 +390,6 @@ type apiError struct {
 	Code string `json:"code"`
 }
 
-func tooMany(w http.ResponseWriter, d time.Duration) {
-	w.Header().Set("Retry-After", strconv.Itoa(int((d+time.Second-1)/time.Second)))
-	writeJSON(w, http.StatusTooManyRequests, apiError{"rate_limited"})
-}
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	h := w.Header()
