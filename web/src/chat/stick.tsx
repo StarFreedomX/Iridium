@@ -16,6 +16,20 @@ const END = 40; // px from the bottom that count as at the newest
 const SETTLE = 600; // ms after a chat opens that what grows does not glide
 const REST = 500; // ms since the user last scrolled it that a chat at its newest is at rest there
 const HOLD = 350; // ms with nothing changing before the room what shrank at the newest left is closed
+const SLACK = 32; // px of such room that is not worth moving the conversation for: it stays till filled
+const RESIZED = 400; // ms after the pane itself changed height (the keyboard) that nothing glides
+
+/** The glide's spring, critically damped: it comes to rest once, without a bounce, and one pushed
+ *  again while it moves goes on at the speed it had. W: its stiffness, per ms. */
+const springW = () => 7 / motion.dur(3);
+type Spring = { y: number; v: number; t: number };
+/** Where a spring let go at s is at time now, and how fast (px, px/ms). */
+export function springAt(s: Spring, now: number, w: number): { y: number; v: number } {
+  const dt = Math.max(0, now - s.t);
+  const c = s.v + w * s.y;
+  const e = Math.exp(-w * dt);
+  return { y: (s.y + c * dt) * e, v: (s.v - w * c * dt) * e };
+}
 
 // The pane's bottom padding: as the page set it (its style), without a style pass of the page.
 const padOf = (el: HTMLElement) => parseFloat(el.style.paddingBottom) || parseFloat(getComputedStyle(el).paddingBottom) || 0;
@@ -66,11 +80,17 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
   //     frame: the end is only kept under it, for its part of the change.
   // The end is kept each time (pin), so no scroll the browser made of its own (a column a moment
   // shorter) is read as the user's.
-  // The glide: the conversation drawn as far below its place as it was pushed, easing to it, on the
-  // compositor (not a frame drawn by script each time: the keyboard and the phone's sheet keep the
-  // page busy as they move). A push while one runs adds to where that one is, so a draft growing
-  // line by line flows on instead of stuttering.
+  // The glide: the conversation drawn as far below its place as it was pushed, coming to it as a
+  // spring does, on the compositor (not a frame drawn by script each time: the keyboard and the
+  // phone's sheet keep the page busy as they move). A push while one runs adds to where that one
+  // is and keeps its speed (kumo, 2026-11-19: two agents called at once, each row that came began
+  // the glide again from a standstill: it went a step, stood a frame, went a step), so a draft
+  // growing line by line, or several rows coming one after another, flow on as one movement.
   const anim = useRef<Animation | null>(null);
+  const spring = useRef<Spring>({ y: 0, v: 0, t: 0 });
+  /** When the pane itself last changed height, and its height then. */
+  const paneH = useRef(0);
+  const resized = useRef(-1e9);
   const colOf = (el: HTMLElement) => el.firstElementChild as HTMLElement | null;
   /** The floor: room kept under the conversation for what shrank at its end, px. */
   const spacer = useRef<HTMLDivElement>(null);
@@ -165,7 +185,13 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     height.current = col?.offsetHeight ?? 0;
     pad.current = padOf(el);
     const self = movedBy();
+    if (paneH.current && el.clientHeight !== paneH.current) resized.current = performance.now();
+    paneH.current = el.clientHeight;
     if (!atEnd.current) return;
+    // The pane itself made shorter or taller (the keyboard, the window): the conversation goes with
+    // its foot, and what changes with it (the stack's padding as the safe area comes back under a
+    // keyboard put away) glides nothing after it: one move, not there and back.
+    if (performance.now() - resized.current < RESIZED) return void pin(el);
     // Not the first page coming into an empty chat, nor the page before put in (back): those are
     // drawn in place.
     const d = was > 0 && !paging.current ? height.current - was + pad.current - padWas : 0;
@@ -182,7 +208,7 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
       setFloor(floor.current - take);
       push = Math.max(0, push - take);
     }
-    if (floor.current) settleSoon();
+    if (floor.current > SLACK) settleSoon();
     const by = pin(el);
     glide(push > 0 ? Math.min(push, Math.max(0, by)) : Math.max(push, Math.min(0, by)), settling);
   };
@@ -193,14 +219,32 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     const el = list.current;
     const col = el && colOf(el);
     if (!el || !col || !by || reduced() || document.hidden) return;
-    let at = 0;
-    if (anim.current?.playState === "running") {
-      const tr = getComputedStyle(col).transform;
-      at = tr && tr !== "none" ? new DOMMatrixReadOnly(tr).m42 : 0;
-      anim.current.cancel();
+    // By the timeline's clock: where the one running is, is where the compositor draws it.
+    const now = (document.timeline.currentTime as number | null) ?? performance.now();
+    const w = springW();
+    const cur = anim.current?.playState === "running" ? springAt(spring.current, now, w) : { y: 0, v: 0 };
+    anim.current?.cancel();
+    anim.current = null;
+    const y = Math.max(-el.clientHeight, Math.min(el.clientHeight, cur.y + by));
+    // Never past its place and back: at most as fast towards it as comes to rest there.
+    const v = (cur.v + w * y) * y < 0 ? -w * y : cur.v;
+    if (Math.abs(y) < 0.5) return;
+    spring.current = { y, v, t: now };
+    // The spring's path as linear keyframes, to rest (e^-9 of the way left).
+    const T = 9 / w;
+    const N = 24;
+    const frames: Keyframe[] = [];
+    for (let i = 0; i < N; i++) frames.push({ transform: `translateY(${springAt(spring.current, now + (T * i) / N, w).y.toFixed(2)}px)` });
+    frames.push({ transform: "none" });
+    const a = col.animate(frames, { duration: T, easing: "linear" });
+    // Begun now, not when the page next has time for it: a page busy drawing what came (several
+    // agents' rows) held each new glide at its first frame meanwhile.
+    try {
+      a.startTime = now;
+    } catch {
+      // No timeline time (a page not shown): it begins when it can.
     }
-    const from = Math.max(-el.clientHeight, Math.min(el.clientHeight, at + by));
-    anim.current = Math.abs(from) < 0.5 ? null : col.animate([{ transform: `translateY(${from}px)` }, { transform: "none" }], { duration: motion.dur(3), easing: motion.ease("out") });
+    anim.current = a;
   };
 
   /** Fold d opened or shut by a press (the user, 2026-11-08: clean, no jump at either end): its
@@ -377,6 +421,8 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
       if (d < -0.5 && gap > 1) leave();
     } else if ((gap < END && d >= 0) || gap <= 1) atEnd.current = true; // at the very end too as what shrank below pulled it there
     if (atEnd.current) setFresh(false);
+    // Gone up from the newest: the room kept under it is let go, unseen from here.
+    else if (floor.current && gap > floor.current + 1) (clearTimeout(floorTimer.current), setFloor(0));
     void back().catch(() => {});
   };
 
