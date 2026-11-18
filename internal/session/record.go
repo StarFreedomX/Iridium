@@ -14,8 +14,9 @@ import (
 // record writes a piece of the conversation to the record Iridium keeps itself of an agent that
 // keeps none it can read (agents.Info.OwnRecord: agy), with where its output ended in out.log and
 // when. What a daemon before this one recorded (one taken up after a crash, before it saved how far
-// it had read) is not written again.
-func (h *Hosted) record(e transcript.Entry) {
+// it had read) is not written again; sent (a prompt as it went out, not from the output) is always
+// new.
+func (h *Hosted) record(e transcript.Entry, sent bool) {
 	h.recMu.Lock()
 	defer h.recMu.Unlock()
 	path := filepath.Join(h.dir, transcript.OwnFile)
@@ -24,7 +25,7 @@ func (h *Hosted) record(e transcript.Entry) {
 		h.recorded = &last
 	}
 	e.Off = h.fed.Load()
-	if e.Off <= *h.recorded {
+	if e.Off <= *h.recorded && !sent {
 		return
 	}
 	e.Time = time.Now().UnixMilli()

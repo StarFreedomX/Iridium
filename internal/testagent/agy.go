@@ -11,8 +11,11 @@ import (
 // AgyVersion is the version the fake agy says it is in initialize's agentInfo.
 const AgyVersion = "1.5.9"
 
+// AgyNoEcho, set in the environment, makes the fake agy say no prompt back, as agy 1.5.10 does.
+const AgyNoEcho = "IRIDIUM_FAKE_AGY_NOECHO"
+
 // Agy is a fake `agy acp`: it opens a session and answers each prompt with its words echoed and
-// "ok", with usage, as agy 1.5.9 does. Enough for a session to be made and talked to, which is
+// "ok", with usage, as agy 1.5.9 does (not echoed with $IRIDIUM_FAKE_AGY_NOECHO). Enough for a session to be made and talked to, which is
 // what a test that starts agy needs; the real agy would talk to Google on the user's account.
 func Agy() int {
 	if len(os.Args) > 1 && os.Args[1] == "--version" {
@@ -93,7 +96,7 @@ func Agy() int {
 			result = map[string]any{"configOptions": config()}
 		case "session/prompt":
 			for _, p := range m.Params.Prompt {
-				if p.Type == "text" && !update(sid, map[string]any{"sessionUpdate": "user_message_chunk", "content": map[string]any{"type": "text", "text": p.Text}}) {
+				if p.Type == "text" && os.Getenv(AgyNoEcho) == "" && !update(sid, map[string]any{"sessionUpdate": "user_message_chunk", "content": map[string]any{"type": "text", "text": p.Text}}) {
 					return 1
 				}
 			}

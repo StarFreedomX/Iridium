@@ -299,8 +299,12 @@ func TestJoinsTheTurn(t *testing.T) {
 	send(t, r.d, "in-1", "count")
 	r.next("session/prompt")
 	r.feed(upd(`{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"count"}}`))
+	r.take()
 	send(t, r.d, "in-2", "then say second")
 	r.next("session/prompt")
+	if tk := find[agent.Taken](r.take()); len(tk) != 1 || tk[0].InputID != "in-2" {
+		t.Errorf("Taken as sent %v", tk)
+	}
 	r.feed(
 		`{"jsonrpc":"2.0","result":{"stopReason":"end_turn"},"id":"in-1"}`,
 		upd(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"1 2 3"}}`),
@@ -314,14 +318,62 @@ func TestJoinsTheTurn(t *testing.T) {
 		`{"jsonrpc":"2.0","result":{"stopReason":"end_turn","usage":{"inputTokens":5,"outputTokens":2}},"id":"in-2"}`,
 	)
 	evs := r.take()
-	if tk := find[agent.Taken](evs); len(tk) != 1 || tk[0].InputID != "in-2" {
-		t.Errorf("Taken %v", tk)
+	if tk := find[agent.Taken](evs); len(tk) != 0 {
+		t.Errorf("Taken again at the echo %v", tk)
+	}
+	if rec := records(evs); len(rec) != 2 || rec[0].Kind != "assistant" || rec[1].Kind != "assistant" {
+		t.Errorf("records %+v", rec) // the echo is not recorded again
 	}
 	if te := find[agent.TurnEnd](evs); len(te) != 1 || te[0].Reply != "second" {
 		t.Errorf("TurnEnd %v", te)
 	}
 	if md := find[agent.MessageDone](evs); len(md) != 2 || md[0].Text != "1 2 3" {
 		t.Errorf("MessageDone %v", md)
+	}
+}
+
+// agy 1.5.10 says no prompt back: each is recorded and taken as it goes out, joined ones too.
+func TestNoEcho(t *testing.T) {
+	r := newRig(t)
+	r.open("")
+	r.take()
+	send(t, r.d, "in-1", "count")
+	r.next("session/prompt")
+	evs := r.take()
+	if tk := find[agent.Taken](evs); len(tk) != 1 || tk[0].InputID != "in-1" {
+		t.Errorf("Taken %v", tk)
+	}
+	if ts := find[agent.TurnStart](evs); len(ts) != 1 || ts[0].Input != "in-1" {
+		t.Errorf("TurnStart %v", ts)
+	}
+	rs := find[agent.Record](evs)
+	if len(rs) != 1 || !rs[0].Sent || mustJSON(rs[0].Entry) != mustJSON(transcript.Entry{Kind: "user", Text: "count", ID: "in-1"}) {
+		t.Fatalf("records %+v", rs)
+	}
+	r.feed(upd(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"1 2 3"}}`))
+	send(t, r.d, "in-2", "then say second")
+	r.next("session/prompt")
+	r.feed(
+		`{"jsonrpc":"2.0","result":{"stopReason":"end_turn"},"id":"in-1"}`,
+		upd(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"second"}}`),
+		`{"jsonrpc":"2.0","result":{"stopReason":"end_turn","usage":{"inputTokens":5,"outputTokens":2}},"id":"in-2"}`,
+	)
+	evs = r.take()
+	var kinds []string
+	for _, e := range records(evs) {
+		kinds = append(kinds, e.Kind+":"+e.Text)
+	}
+	if want := []string{"assistant:1 2 3", "user:then say second", "assistant:second"}; !slices.Equal(kinds, want) {
+		t.Errorf("records %v, want %v", kinds, want)
+	}
+	if tk := find[agent.Taken](evs); len(tk) != 1 || tk[0].InputID != "in-2" {
+		t.Errorf("Taken %v", tk)
+	}
+	if te := find[agent.TurnEnd](evs); len(te) != 1 || te[0].Reply != "second" {
+		t.Errorf("TurnEnd %v", te)
+	}
+	if r.d.State() != agent.Idle {
+		t.Error("not idle")
 	}
 }
 

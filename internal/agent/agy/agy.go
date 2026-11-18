@@ -153,16 +153,19 @@ type Driver struct {
 	// sent by this daemon not yet answered.
 	waiting     []string
 	outstanding []string
-	asks        []pendingAsk
-	tools       map[string]tool
-	text        strings.Builder // the message being written
-	thought     strings.Builder // the thought being written
-	reply       string
-	title       string
-	context     int
-	window      int
-	queue       []agent.Event
-	unknown     map[string]int
+	// echoes: the texts of prompts recorded as they went out whose echo is still to come; agy
+	// before 1.5.10 says each prompt back (user_message_chunk), 1.5.10 no longer does.
+	echoes  []string
+	asks    []pendingAsk
+	tools   map[string]tool
+	text    strings.Builder // the message being written
+	thought strings.Builder // the thought being written
+	reply   string
+	title   string
+	context int
+	window  int
+	queue   []agent.Event
+	unknown map[string]int
 }
 
 func New(o Options) *Driver {
@@ -193,7 +196,7 @@ func (d *Driver) reset() {
 	d.tools = map[string]tool{}
 	d.state = agent.Idle
 	d.starting, d.loading = false, false
-	d.waiting, d.outstanding, d.asks = nil, nil, nil
+	d.waiting, d.outstanding, d.asks, d.echoes = nil, nil, nil, nil
 	d.text.Reset()
 	d.thought.Reset()
 	d.reply = ""
@@ -580,7 +583,29 @@ func (d *Driver) Send(ctx context.Context, m agent.Message) error {
 		return err
 	}
 	go func() { <-ch }() // the answer ends the turn in feed
+	d.mu.Lock()
+	if slices.Contains(d.waiting, m.ID) { // not already taken by its echo
+		d.tookLocked(m.ID, text)
+	}
+	evs := d.take()
+	d.mu.Unlock()
+	d.flush(evs)
 	return nil
+}
+
+// tookLocked: prompt id is out, so in the conversation: recorded and told taken now, not at its
+// echo (agy 1.5.10 has none). One sent during a turn joins it: what was written so far is whole.
+func (d *Driver) tookLocked(id, text string) {
+	d.sealLocked()
+	d.take1(id)
+	if d.state == agent.Idle {
+		d.reply = ""
+		d.move(agent.Running, id)
+	}
+	if text != "" {
+		d.emitLocked(agent.Record{Entry: transcript.Entry{Kind: string(api.BlockKindUser), Text: text, ID: id}, Sent: true})
+		d.echoes = append(d.echoes, text)
+	}
 }
 
 // Interrupt cancels the turn: agy answers the prompt "cancelled". What it still asks is void.
@@ -975,6 +1000,7 @@ func (d *Driver) response(f *frame, replay bool) {
 		last = s.Usage != nil || s.StopReason != "end_turn"
 	}
 	if !last {
+		d.sealLocked() // one joined the turn: it comes in here (agy 1.5.10 says no more of it)
 		return
 	}
 	d.sealLocked()
@@ -998,6 +1024,7 @@ func (d *Driver) settled() {
 	}
 	d.tools = map[string]tool{}
 	d.starting = false
+	d.echoes = nil
 	if d.state == agent.Idle {
 		return
 	}
@@ -1098,9 +1125,20 @@ func (d *Driver) update(raw json.RawMessage, replay bool) {
 	live := !replay && !d.loading
 	switch u.Kind {
 	case "user_message_chunk":
-		d.sealLocked()
 		var c piece
 		_ = json.Unmarshal(u.Content, &c)
+		if live {
+			// A prompt's echo: recorded as it went out already; a picture's is not recorded.
+			if c.Type != "text" {
+				return
+			}
+			if len(d.echoes) > 0 && d.echoes[0] == c.Text {
+				d.echoes = d.echoes[1:]
+				d.sealLocked() // a prompt joined: it comes in here
+				return
+			}
+		}
+		d.sealLocked()
 		input := ""
 		if !d.loading {
 			if len(d.waiting) > 0 && !replay {

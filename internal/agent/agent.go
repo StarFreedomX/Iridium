@@ -245,7 +245,12 @@ type (
 	// for the record Iridium keeps itself of an agent that keeps none it can read
 	// (agents.Info.OwnRecord: agy). Off and Time are the session layer's to set. Before the
 	// MessageDone of the same message, which tells the page the record has it.
-	Record struct{ Entry transcript.Entry }
+	Record struct {
+		Entry transcript.Entry
+		// Sent: what Iridium itself wrote to the agent (a prompt as it went out), not from its
+		// output: recorded even where the output read so far was recorded already.
+		Sent bool
+	}
 	// GiveUp: the process can do nothing for the session (Codex could not open its thread): the host
 	// stops it, and Why is the session's error.
 	GiveUp struct{ Why string }

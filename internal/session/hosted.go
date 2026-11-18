@@ -675,8 +675,8 @@ func (h *Hosted) onEvent(e agent.Event) {
 		return
 	case agent.Record:
 		h.mu.Unlock()
-		if !replay {
-			h.record(e.Entry)
+		if !replay || e.Sent {
+			h.record(e.Entry, e.Sent)
 		}
 		return
 	case agent.MessageDone:

@@ -10,6 +10,7 @@ import (
 
 	"github.com/kumoSleeping/iridium/internal/api"
 	"github.com/kumoSleeping/iridium/internal/hold"
+	"github.com/kumoSleeping/iridium/internal/testagent"
 	"github.com/kumoSleeping/iridium/internal/transcript"
 )
 
@@ -18,6 +19,15 @@ import (
 // taken up writes nothing twice. Not in parallel: its daemon restart beside the others' turns
 // made their timing flaky.
 func TestAgyRecord(t *testing.T) {
+	t.Run("echo", func(t *testing.T) { agyRecord(t) })
+	// agy 1.5.10 says no prompt back: the record has it as it went out, after a restart too.
+	t.Run("no echo", func(t *testing.T) {
+		t.Setenv(testagent.AgyNoEcho, "1")
+		agyRecord(t)
+	})
+}
+
+func agyRecord(t *testing.T) {
 	r := newRig(t, nil)
 	id, err := r.m.Create(context.Background(), api.NewSession{Agent: api.AgentAgy, Cwd: r.cwd, Text: "hello"}, "网页")
 	if err != nil {
