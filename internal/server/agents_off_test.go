@@ -14,7 +14,8 @@ import (
 	"github.com/kumoSleeping/iridium/internal/remote/wire"
 )
 
-// A computer with agents pairs: its home is its scope unless it asks for another (decision 17),
+// A computer with agents pairs: all is its scope unless it asks for another (kumo, 2026-11-18:
+// not its home alone, which hid from its agents the channels they were in), one it asks for
 // kept by the name it is allowed by. Its agents are on till turned off in its page; one turned off
 // is marked in the list and not started there. One on the host carries none; one without agents
 // gets all.
@@ -35,9 +36,14 @@ func TestAgentsOffAndHomeScope(t *testing.T) {
 		return p, l.pending()
 	}
 	dsh := []api.ExecAgent{{Agent: "dsh", Version: "0.2.2"}}
-	_, nd := ask(api.PairRequest{Name: "lab", OS: "linux", Home: "/home/lab", MachineID: "other", Agents: dsh})
-	if nd.Wants == nil || !slices.Equal(nd.Wants.Scope, []string{"lab:/home/lab"}) || !slices.Equal(nd.Wants.Agents, []string{"*"}) {
-		t.Fatalf("the home as the scope asked: %+v", nd.Wants)
+	_, nd := ask(api.PairRequest{Name: "open", OS: "linux", Home: "/home/open", MachineID: "other", Agents: dsh})
+	if nd.Wants == nil || !slices.Equal(nd.Wants.Scope, []string{"*"}) || !slices.Equal(nd.Wants.Agents, []string{"*"}) {
+		t.Fatalf("all as the scope asked: %+v", nd.Wants)
+	}
+	l.want(200, "socket", "POST", "/v1/internal/needs/"+nd.ID, api.NeedAnswer{Allow: false}, nil)
+	_, nd = ask(api.PairRequest{Name: "lab", OS: "linux", Home: "/home/lab", MachineID: "other", Agents: dsh, Wants: &api.Perms{Agents: []string{"*"}, Scope: []string{"lab:/home/lab"}}})
+	if nd.Wants == nil || !slices.Equal(nd.Wants.Scope, []string{"lab:/home/lab"}) {
+		t.Fatalf("the scope asked: %+v", nd.Wants)
 	}
 	// Allowed by another name, dsh off from the start.
 	l.want(200, "socket", "POST", "/v1/internal/needs/"+nd.ID, api.NeedAnswer{Allow: true, Name: "lab-pc", AgentsOff: []string{"dsh"}}, nil)

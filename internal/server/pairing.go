@@ -153,14 +153,9 @@ func (s *Server) pairAsk(w http.ResponseWriter, r *http.Request) {
 		refuse(w, http.StatusUnprocessableEntity, "bad_login", "a login's ID: 1 to 64 characters, no / and no control characters")
 		return
 	}
-	asked := m.Wants != nil
 	m = cleanPair(m)
 	if s.Remote != nil && s.Remote.Self != "" && m.MachineID == s.Remote.Self {
 		m.Agents = nil // an app on the host: its agents are the host's (decision 22)
-	}
-	if !asked && len(m.Agents) > 0 && m.Home != "" {
-		// Decision 17: a new app carrying agents gets its own home, unless it asks for another.
-		m.Wants = &api.Perms{Agents: []string{api.PermsAll}, Scope: []string{m.Name + ":" + m.Home}}
 	}
 	kind := api.NeedAppJoin
 	var old *api.App

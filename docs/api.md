@@ -368,13 +368,14 @@ Web Push，总开关在配置 `push`，默认关。VAPID 密钥存在状态目�
 | `POST /v1/internal/pair` | `PairRequest` → `Pairing` | 不用登录。配对关着 403 `pair_closed`（本机 socket 来的不看窗口，`ir pair` 不给地址时）；带 `login {id, name?}` 的，批准时一并建好这个登录、已批准（已有的不动），ID 不合法 422 `bad_login`；每来源（IP，IPv6 按 /64）最多 4 个待批、总共 20 个，多了 403 `too_many_pending`；名字不合法 422 `bad_name`。回配对码 `code` 和 `request` |
 | `GET /v1/internal/pair/{request}` | → `PairState` | `pending`、`allowed`（带 `token`，只给一次）、`denied`、`expired`；不认识的 422 `no_such_request` |
 
-申请带 `wants`（想要的权限），批准时只能少给（422 `too_wide`）。没带 `wants`、报了 agent 和 `home` 的（`ir join`）默认范围是自己的家目录 `应用名:家目录`（决定 17），批准时改名的跟着改；其余默认全部。`machineId` 和主机的一样就去掉它报的 agent。批准的答复可带 `agentsOff`：一开始就关掉的 agent。名字已有应用时是 `app_update`：允许即给那个应用换新 TOKEN，旧的作废、连接断开，用量和权限照旧；答复带 `name` 则作为新应用、用这个名字接入。
+申请带 `wants`（想要的权限），批准时只能少给（422 `too_wide`）。没带 `wants` 的默认全部（2026-11-18 起，带 agent 的也是；此前是 `应用名:家目录`）；`wants` 里写了 `应用名:路径` 的，批准时改名的跟着改。`machineId` 和主机的一样就去掉它报的 agent。批准的答复可带 `agentsOff`：一开始就关掉的 agent。名字已有应用时是 `app_update`：允许即给那个应用换新 TOKEN，旧的作废、连接断开，用量和权限照旧；答复带 `name` 则作为新应用、用这个名字接入。
 
 ## 权限（`Perms`）
 
 `{agents, scope}`，`["*"]` 为全部。`scope` 是位置 `应用名:路径`（主机写 `主机:` 或 `host:`）。
 
 - 能用的 = 登录的 ∩ 应用的；主机全部。0.2 之前配对的应用是全部。
+- agent 的 `ir`（带会话的调用）另外看得到它所在的频道，和同频道别的 agent 的会话，只读（2026-11-18）；对别人的会话能做什么仍按范围。
 - 范围外的会话不存在：列表里没有，hub 的 `list`、`session:`、`context:` 过滤掉，按 ID 访问回“没有这个会话”。
 - 范围内、agent 不在能用之列的会话只能看：开、发、答、停、改名、归档、改设置一律 403 `no_permission`。所有 `/v1/internal/sessions/{id}/…` 都在路由前统一查（GET 查范围，其余加查 agent）。
 - Claude 另外要“本人的”（`rules.claudeOwner`：`{by, at}`），只在建应用、登录时由服务端写（配对时允许为本人的、`ir invite --claude`）。

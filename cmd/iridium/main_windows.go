@@ -13,7 +13,7 @@ import (
 )
 
 const usage = `usage (on Windows Iridium only runs agents for another one):
-  iridium join <address> [--name <name>] [--roots <dir>,...] [--shell]
+  iridium join <address> [--name <name>] [--roots <dir>,...] [--no-shell]
                                    this machine as an executor of that Iridium while it runs (iridium join --help)
   iridium version
 `

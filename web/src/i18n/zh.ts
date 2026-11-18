@@ -747,7 +747,7 @@ export const zh = {
   "apps.system": "系统",
   "apps.joinPlain": "接入",
   "apps.joinRoots": "限定文件夹",
-  "apps.joinShell": "可执行命令",
+  "apps.joinNoShell": "不执行命令",
   "apps.deleteComputer": "删除电脑",
   "grant.shellTitle": "{name} 未开命令行",
   "grant.pathTitle": "{name} 未开放这个文件夹",

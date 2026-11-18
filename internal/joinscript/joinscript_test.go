@@ -21,11 +21,11 @@ func get(t *testing.T, target, origin string) (int, string) {
 // The sh line: the address and the options written in as words, the script valid sh; what a
 // query carries stays one word.
 func TestSh(t *testing.T) {
-	code, s := get(t, "/join?shell&roots=~/work,~/it's%20mine&name=$(x)", "https://ir.example.com")
+	code, s := get(t, "/join?shell=0&roots=~/work,~/it's%20mine&name=$(x)", "https://ir.example.com")
 	if code != 200 {
 		t.Fatalf("%d %s", code, s)
 	}
-	want := `exec "$exe" 'https://ir.example.com' '--shell' '--roots' '~/work,~/it'\''s mine' '--name' '$(x)'`
+	want := `exec "$exe" 'https://ir.example.com' '--no-shell' '--roots' '~/work,~/it'\''s mine' '--name' '$(x)'`
 	if !strings.Contains(s, want+"\n") {
 		t.Errorf("no %s in:\n%s", want, s)
 	}
@@ -51,7 +51,7 @@ func TestSh(t *testing.T) {
 
 // The PowerShell line: ASCII only, the arguments base64 of UTF-8.
 func TestPowerShell(t *testing.T) {
-	code, s := get(t, "/join.ps1?roots=C:\\%E5%B7%A5%E4%BD%9C&shell=0", "http://127.0.0.1:7811")
+	code, s := get(t, "/join.ps1?roots=C:\\%E5%B7%A5%E4%BD%9C&shell", "http://127.0.0.1:7811")
 	if code != 200 {
 		t.Fatalf("%d %s", code, s)
 	}

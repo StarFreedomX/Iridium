@@ -163,13 +163,28 @@ func (s *Server) sees(p api.Perms, st api.Session) bool {
 }
 
 // seenBy: c sees session (or channel) st. The host sees every one, anyone else those in its
-// scope; two people's channel (docs/channels.md "私聊") is seen by exactly those two, whatever
+// scope, an agent also its channels and those in them with it (fellow); two people's channel (docs/channels.md "私聊") is seen by exactly those two, whatever
 // folder it is listed in and whoever asks, the host too.
 func (s *Server) seenBy(c caller, st api.Session) bool {
 	if s.isDM(st.ID) {
 		return s.ch.Has(st.ID, c.App, c.Login)
 	}
-	return c.Host() || s.sees(s.permsFor(c), st)
+	return c.Host() || s.sees(s.permsFor(c), st) || s.fellow(c, st.ID)
+}
+
+// fellow: c is a session's agent, and id is a channel it is in or the session of an agent in one
+// with it (kumo, 2026-11-18: an agent at another computer, its app's scope its own folders, read
+// neither the channel it was called in nor those it works with there). Seeing only: what it may
+// do to another's session is still its scope's (using).
+func (s *Server) fellow(c caller, id string) bool {
+	me := c.session
+	if me == "" || s.ch == nil {
+		return false
+	}
+	if s.ch.Speaks(id, me) {
+		return true
+	}
+	return slices.ContainsFunc(append([]string{me}, s.ch.In(me)...), func(ch string) bool { return s.ch.Speaks(ch, id) })
 }
 
 var errNoSession = fmt.Errorf("%w", session.ErrNotFound)

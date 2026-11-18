@@ -49,7 +49,7 @@ const usage = `usage:
                                    this binary onto another account or machine, installed or restarted
   iridium node new <account> [-listen <addr>]
                                    a new account on this machine with an Iridium instance of its own (root once: sudo or su)
-  iridium join <address> [--name <name>] [--roots <dir>,...] [--shell]
+  iridium join <address> [--name <name>] [--roots <dir>,...] [--no-shell]
                                    this machine as an executor of another Iridium while it runs (ir join)
   iridium version
 `

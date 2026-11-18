@@ -747,7 +747,7 @@ export const en: Dict = {
   "apps.system": "System",
   "apps.joinPlain": "Join",
   "apps.joinRoots": "Some folders only",
-  "apps.joinShell": "With commands",
+  "apps.joinNoShell": "No commands",
   "apps.deleteComputer": "Remove computer",
   "grant.shellTitle": "Commands off at {name}",
   "grant.pathTitle": "Folder not open at {name}",

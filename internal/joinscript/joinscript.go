@@ -69,7 +69,7 @@ func Serve(w http.ResponseWriter, r *http.Request, origin string) {
 	_, _ = w.Write(b)
 }
 
-// Args is ir-computer's command line from the query: shell (present, not 0 or false), roots
+// Args is ir-computer's command line from the query: shell=0 (or false: no command lines), roots
 // (dir,…; ~ for the home directory), name.
 func Args(origin string, q map[string][]string) ([]string, error) {
 	get := func(k string) (string, bool) {
@@ -80,8 +80,8 @@ func Args(origin string, q map[string][]string) ([]string, error) {
 		return v[0], true
 	}
 	args := []string{origin}
-	if v, ok := get("shell"); ok && v != "0" && v != "false" {
-		args = append(args, "--shell")
+	if v, ok := get("shell"); ok && (v == "0" || v == "false") {
+		args = append(args, "--no-shell")
 	}
 	for _, k := range []string{"roots", "name"} {
 		v, _ := get(k)

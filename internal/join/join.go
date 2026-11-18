@@ -37,13 +37,13 @@ import (
 )
 
 // Usage is ir join's help.
-const Usage = `usage: ir join <address> [--name name] [--roots dir,…] [--shell]
+const Usage = `usage: ir join <address> [--name name] [--roots dir,…] [--no-shell]
   Run agents for another Iridium while this runs: pair once (a code to match on its page), then
   stay connected till it is stopped (Ctrl-C, the window closed), the agents it started with it.
   --name     this machine's name there (default: the host name, 12 characters at most)
-  --roots    the directories it may read and write files under (default: the home directory)
-  --shell    command lines from that Iridium run here: a person's on its page and its agents' (ir sh);
-             without it only the agents start here
+  --roots     the only directories it may read and write files under (default: all of them)
+  --no-shell  no command lines from that Iridium run here (a person's on its page, its agents'
+              ir sh): only the agents start here
 `
 
 // Options are one join.
@@ -52,7 +52,8 @@ type Options struct {
 	Name  string
 	Roots []string
 	// Shell: command lines run here, a person's on that Iridium's page and its agents' (ir sh);
-	// else only the agents start here (docs/exec.md).
+	// else only the agents start here (docs/exec.md). The command line's default (kumo,
+	// 2026-11-18): off with --no-shell.
 	Shell bool
 	// Base is where joins keep their state (BaseDir): tokens/<key>, the TOKENs; <key>/, the
 	// executor's own directory.
@@ -108,7 +109,8 @@ func (p Program) Main(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(io.Discard)
 	name := fs.String("name", "", "")
 	roots := fs.String("roots", "", "")
-	shell := fs.Bool("shell", false, "")
+	_ = fs.Bool("shell", false, "") // the default since 2026-11-18; still taken
+	noShell := fs.Bool("no-shell", false, "")
 	base := fs.String("state", "", "") // where joins keep their state (tests)
 	var pos []string
 	for {
@@ -134,7 +136,7 @@ func (p Program) Main(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "%s: %v\n", p.Name, err)
 		return 2
 	}
-	o := Options{URL: u, Name: *name, Shell: *shell, Base: *base, Out: stdout, Prog: p}
+	o := Options{URL: u, Name: *name, Shell: !*noShell, Base: *base, Out: stdout, Prog: p}
 	if o.Base == "" {
 		o.Base, err = BaseDir()
 	} else {
@@ -280,13 +282,6 @@ func (o *Options) program() string { return o.prog().Self + " " + version.Versio
 func (o *Options) Run(ctx context.Context) error {
 	if o.Agents == nil {
 		o.Agents = FindAgents(o.Logf)
-	}
-	if len(o.Roots) == 0 {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return err
-		}
-		o.Roots = []string{home}
 	}
 	if err := os.MkdirAll(o.stateDir(), 0o700); err != nil {
 		return err

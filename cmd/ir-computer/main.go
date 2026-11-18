@@ -14,13 +14,13 @@ import (
 	"github.com/kumoSleeping/iridium/internal/version"
 )
 
-const usage = `usage: ir-computer <address> [--name name] [--roots dir,…] [--shell]
+const usage = `usage: ir-computer <address> [--name name] [--roots dir,…] [--no-shell]
   Run agents for an Iridium while this runs: pair once (a code to match on its page), then stay
   connected till it is stopped (Ctrl-C, the window closed), the agents it started with it.
   --name      this computer's name there (default: the host name, 12 characters at most)
-  --roots     the directories it may read and write files under (default: the home directory)
-  --shell     command lines from that Iridium run here: a person's on its page and its agents' (ir sh);
-              without it only the agents start here
+  --roots     the only directories it may read and write files under (default: all of them)
+  --no-shell  no command lines from that Iridium run here (a person's on its page, its agents'
+              ir sh): only the agents start here
 `
 
 func main() {

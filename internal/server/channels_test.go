@@ -17,6 +17,7 @@ import (
 	"github.com/kumoSleeping/iridium/internal/api"
 	"github.com/kumoSleeping/iridium/internal/channel"
 	"github.com/kumoSleeping/iridium/internal/deliver"
+	"github.com/kumoSleeping/iridium/internal/gate"
 	"github.com/kumoSleeping/iridium/internal/satori"
 	"github.com/kumoSleeping/iridium/internal/session"
 )
@@ -1108,5 +1109,58 @@ func TestLineupMemberFails(t *testing.T) {
 	}
 	if !said {
 		t.Errorf("the channel does not say who is not in it: %+v", log.Data)
+	}
+}
+
+// An agent whose app's scope has not the channel (one at another computer, kumo, 2026-11-18):
+// it sees the channel it is in and the agents in it with it, and no more; what it may do to
+// their sessions is still its scope's.
+func TestMemberSeesItsChannel(t *testing.T) {
+	t.Parallel()
+	l := start(t)
+	a, b := filepath.Join(l.work, "a"), filepath.Join(l.work, "b")
+	for _, d := range []string{a, b} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ch := l.create(200, "web", api.NewSession{Agent: api.AgentClaude, Cwd: b, Text: "first"})
+	l.waitReply("web", ch, "ok: first")
+	apart := l.create(200, "web", api.NewSession{Agent: api.AgentClaude, Cwd: b, Text: "apart"})
+	var ms api.ChannelMembers
+	l.want(200, "web", "POST", "/v1/internal/channels/"+ch+"/members", api.NewMember{Agent: api.AgentClaude, Nick: "away", Cwd: a}, &ms)
+	l.want(200, "web", "POST", "/v1/internal/channels/"+ch+"/members", api.NewMember{Agent: api.AgentClaude, Nick: "near"}, &ms)
+	by := map[string]string{}
+	for _, m := range ms.Members {
+		by[m.Nick] = m.Session
+	}
+	away, near := by["away"], by["near"]
+	if away == "" || near == "" {
+		t.Fatalf("members: %+v", ms)
+	}
+	app := l.newApp("far", true)
+	l.want(200, "socket", "PUT", "/v1/internal/apps/far/perms", api.Perms{Agents: []string{"*"}, Scope: []string{"主机:" + a}}, nil)
+	state := func(id string) api.Session {
+		st, err := l.s.m.State(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return st.Session
+	}
+	in := caller{Identity: gate.Identity{App: app.App.ID}, agent: true, session: away}
+	for _, id := range []string{ch, near, away} {
+		if !l.s.seenBy(in, state(id)) {
+			t.Errorf("%s of its channel not seen", id)
+		}
+	}
+	if l.s.seenBy(in, state(apart)) {
+		t.Error("a session of no channel of its seen")
+	}
+	// The app itself, no agent's session with it: its scope alone.
+	if l.s.seenBy(caller{Identity: gate.Identity{App: app.App.ID}}, state(ch)) {
+		t.Error("the app sees the channel out of its scope")
+	}
+	if _, err := l.s.using(in, near); err == nil {
+		t.Error("it may use a session out of its scope")
 	}
 }

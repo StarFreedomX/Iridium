@@ -128,7 +128,7 @@ export function joinScript(os: JoinOS, at: string, query = ""): string {
 }
 
 /** The 电脑 group's +, a page: the line to run on a computer, for its system; as it is, with only
- *  some folders, with commands. Each its copy key in its title's row; the line one line high,
+ *  some folders, without commands. Each its copy key in its title's row; the line one line high,
  *  scrolled sideways (to its end at first), no room kept beside it (docs/前端设计规范.md "命令"). */
 function AddComputer({ onBack }: { onBack: () => void }) {
   const [os, setOs] = useState<JoinOS>(/Win/.test(navigator.platform) ? "win" : "unix");
@@ -141,7 +141,7 @@ function AddComputer({ onBack }: { onBack: () => void }) {
         [
           ["apps.joinPlain", ""],
           ["apps.joinRoots", "roots=~/work,~/notes"],
-          ["apps.joinShell", "shell"],
+          ["apps.joinNoShell", "shell=0"],
         ] as const
       ).map(([label, query]) => {
         const line = joinScript(os, at, query);
