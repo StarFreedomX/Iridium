@@ -112,3 +112,26 @@ func TestGrantNoOne(t *testing.T) {
 		t.Fatalf("no answer: %v", err)
 	}
 }
+
+// The folder an agent is installed in is read though no root holds it (kumo, 2026-11-18: dsh
+// under /opt/homebrew would not start, the home alone served); never written.
+func TestAgentScopeIsRead(t *testing.T) {
+	root, scope := t.TempDir(), t.TempDir()
+	if err := os.WriteFile(filepath.Join(scope, "package.json"), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	e, err := New(Options{State: t.TempDir(), Roots: []string{root}, Agents: []wire.AgentInfo{{Agent: "dsh", Scope: scope}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := filepath.Join(scope, "package.json")
+	if _, err := e.read(f, 0, 10); err != nil {
+		t.Fatalf("read in an agent's scope: %v", err)
+	}
+	if _, err := e.list(scope); err != nil {
+		t.Fatalf("list an agent's scope: %v", err)
+	}
+	if err := e.write(filepath.Join(scope, "x"), []byte("x"), "", false); !wire.IsCode(err, wire.CodeDenied) {
+		t.Fatalf("write in an agent's scope: %v", err)
+	}
+}

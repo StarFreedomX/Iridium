@@ -28,7 +28,7 @@
 - 移出只是退订，会话照旧。频道自己的 agent 移不出。
 - 清空会话（`/clear`）：新会话接替旧的。旧会话订阅的频道、称呼、头像、资料、角色、记忆、`spawned`，和它自己频道的成员，都转给新会话，并记下新会话是从哪个会话接下来的；旧会话归档，不再在任何频道里。
 - 订阅来的 agent 的会话归档了：不叫起，不占名额；恢复后照旧（选的是路由时跳过，不退订）。
-- 建会话时可以一次配好：`channel.create` 的 `_data.members {agents, people, nick, recv}`；第一句话在成员都到齐后才说，点到谁就给谁。
+- 建会话时可以一次配好：`channel.create` 的 `_data.members {agents, people, nick, recv}`；第一句话在成员都到齐后才说，点到谁就给谁。其中一个 agent 起不来（kumo，2026-11-18）：频道照常建好、照常回答，频道里 Iridium 写一行“称呼（电脑） 未加入：原因”；不再回错误（那样页面留在原处，每点一次“开始”多建一个频道）。
 - 会话列表里：`Session.agents` 是它的频道里的全部 agent（两个以上时；无 agent 的频道一个也列），`Session.in` 是它订阅的频道。
 - 接口见 `docs/api.md`“频道”。agent 自己也能加：`ir api POST internal/channels/self/members agent=codex`。
 

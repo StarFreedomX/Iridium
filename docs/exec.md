@@ -119,7 +119,7 @@ agent 的 `ir sh`：每条命令一个新进程，不经托管进程，不写文
 | `fs.write` | `{path, data, sha256, replace}` → `{}`；先写临时文件，核对后原子改名；`replace` 为假且已有就 `exists` |
 | `fs.mkdir` | `{path}` → `{}`，连父目录一起建 |
 
-- 允许的目录由执行端自己配，先解析符号链接再比。一律 `denied`（读写都是）：TOKEN、`~/.ssh`；dsh 家目录的 `.credentials.yaml`、`.env`、`profiles/`（含插件配置）；Claude 的 `.credentials.json`、Codex 的 `auth.json`、pi 的 `~/.pi/agent/auth.json`；`~/.aws`、`~/.config/gh`、`~/.gnupg`、`~/.netrc`、`~/.npmrc`、`~/.git-credentials`、`~/.docker/config.json`。对话记录等其余文件照常。
+- 允许的目录由执行端自己配，先解析符号链接再比。握手里 agent 的 `scope`（dsh 的包目录）另外可读、不可写（2026-11-18）：这边要从里面读预设才能起 dsh，它常在允许的目录之外（`/opt/homebrew/…`）。一律 `denied`（读写都是）：TOKEN、`~/.ssh`；dsh 家目录的 `.credentials.yaml`、`.env`、`profiles/`（含插件配置）；Claude 的 `.credentials.json`、Codex 的 `auth.json`、pi 的 `~/.pi/agent/auth.json`；`~/.aws`、`~/.config/gh`、`~/.gnupg`、`~/.netrc`、`~/.npmrc`、`~/.git-credentials`、`~/.docker/config.json`。对话记录等其余文件照常。
 - 大文件分块，同 `plan.md`“文件传输”。
 
 ## 可选

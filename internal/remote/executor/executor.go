@@ -731,7 +731,25 @@ func errTail(dir string) string {
 // ---- files ----
 
 // allowed is path cleaned, its links resolved, if under a root and not denied.
-func (e *Executor) allowed(path string) (string, error) {
+func (e *Executor) allowed(path string) (string, error) { return e.allowedIn(path, nil) }
+
+// readable is allowed for reading: also under the folders its agents are installed in (an
+// agent's Scope: dsh's packages, which the Iridium reads its presets from to start it). They
+// are the programs this computer offered to run, not a person's files, and often outside the
+// folders it serves (kumo, 2026-11-18: dsh under /opt/homebrew would not start, home alone
+// served).
+func (e *Executor) readable(path string) (string, error) {
+	var more []string
+	for _, a := range e.o.Agents {
+		if a.Scope != "" {
+			more = append(more, a.Scope)
+		}
+	}
+	return e.allowedIn(path, more)
+}
+
+// allowedIn is allowed, the folders in more served beside the roots.
+func (e *Executor) allowedIn(path string, more []string) (string, error) {
 	if !filepath.IsAbs(path) {
 		return "", bad("not absolute: %s", path)
 	}
@@ -764,7 +782,7 @@ func (e *Executor) allowed(path string) (string, error) {
 	if len(roots) == 0 {
 		return real, nil
 	}
-	for _, r := range roots {
+	for _, r := range append(roots, more...) {
 		if rr, err := filepath.EvalSymlinks(r); err == nil && under(rr) {
 			return real, nil
 		}
@@ -793,7 +811,7 @@ func notFound(err error) error {
 }
 
 func (e *Executor) stat(path string, head int) (any, error) {
-	p, err := e.allowed(path)
+	p, err := e.readable(path)
 	if err != nil {
 		return nil, err
 	}
@@ -816,7 +834,7 @@ func (e *Executor) stat(path string, head int) (any, error) {
 }
 
 func (e *Executor) list(path string) (any, error) {
-	p, err := e.allowed(path)
+	p, err := e.readable(path)
 	if err != nil {
 		return nil, err
 	}
@@ -836,7 +854,7 @@ func (e *Executor) list(path string) (any, error) {
 }
 
 func (e *Executor) read(path string, off, n int64) (any, error) {
-	p, err := e.allowed(path)
+	p, err := e.readable(path)
 	if err != nil {
 		return nil, err
 	}

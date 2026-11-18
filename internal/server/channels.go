@@ -1089,7 +1089,7 @@ func (s *Server) peoplePut(w http.ResponseWriter, r *http.Request) {
 
 // setUp makes new session id the channel setup says: its people, its own agent's nick and what
 // it receives, the other agents; then first, its first words, said in it. An agent that cannot
-// be started leaves the channel without it, and the error says so.
+// be started leaves the channel without it, and a line of Iridium's in the channel says so.
 func (s *Server) setUp(ctx context.Context, c caller, id string, setup api.ChannelSetup, first string) error {
 	st, err := s.m.State(id)
 	if err != nil {
@@ -1115,8 +1115,15 @@ func (s *Server) setUp(ctx context.Context, c caller, id string, setup api.Chann
 	}
 	for _, a := range setup.Agents {
 		if _, err := s.addAgent(ctx, c, id, st, a); err != nil {
+			// The channel is made and stays; it says who is not in it and why (kumo, 2026-11-18:
+			// answered with an error, the page stayed where it was and each press made another).
 			s.logf("server: channel %s: adding %s: %v", id, a.Agent, err)
-			failed = cmp.Or(failed, fmt.Errorf("%s: %w", a.Agent, err))
+			who := cmp.Or(a.Nick, string(a.Agent), a.Role, a.Session)
+			if a.Machine != "" {
+				info, _ := s.gate().Endpoint(a.Machine)
+				who += "（" + cmp.Or(info.Name, a.Machine) + "）"
+			}
+			s.sat.Note(id, fmt.Sprintf("%s 未加入：%s", who, s.MaskText(err.Error())), c.ID(), nil)
 		}
 	}
 	s.membersChanged()

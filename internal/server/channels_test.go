@@ -1092,3 +1092,21 @@ func TestChannelAgentElsewhere(t *testing.T) {
 		}
 	}
 }
+
+// An agent of the lineup that cannot be started (kumo, 2026-11-18): the channel is made all the
+// same and says who is not in it; the start is not answered with an error, which left the page
+// where it was to make another at each press.
+func TestLineupMemberFails(t *testing.T) {
+	t.Parallel()
+	l := start(t)
+	ch := l.create(200, "web", api.NewSession{Agent: api.AgentClaude, Cwd: l.work, Members: &api.ChannelSetup{Agents: []api.NewMember{{Agent: api.AgentClaude, Nick: "far", Machine: "no-such-computer", Cwd: "/"}}}})
+	var log satori.BidiList[satori.Message]
+	l.wantSat(200, "web", "message.list", map[string]any{"channel_id": ch, "limit": 5}, &log)
+	said := false
+	for _, m := range log.Data {
+		said = said || strings.HasPrefix(m.Content, "far（no-such-computer） 未加入：")
+	}
+	if !said {
+		t.Errorf("the channel does not say who is not in it: %+v", log.Data)
+	}
+}
