@@ -603,7 +603,9 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
   // drawn from the log, no bubble of its own.
   const inLog = (x: Sent) => !!ready && x.failed === undefined && msgs.some((m) => (!!x.seq && m.n === x.seq) || (!!x.input && m.input === x.input));
   // What the server keeps for the turn's end or the quota waits as a bubble of yours (chats.ts).
-  log.sent = waiting(log.sent, (s.queue ?? []).map((q) => ({ id: q.id, text: attachedOf(q.text).words || q.text })), log.end, Date.now(), (input) => log.blocks.some((b) => b.kind === "user" && b.id === input));
+  // Not what a channel gave its agent ("#n: … <channel-context>"): that is said in the channel
+  // already, and is no words of yours to draw again, raw.
+  log.sent = waiting(log.sent, (s.queue ?? []).filter((q) => !/^#\d+: [\s\S]*<channel-context>/.test(q.text)).map((q) => ({ id: q.id, text: attachedOf(q.text).words || q.text })), log.end, Date.now(), (input) => log.blocks.some((b) => b.kind === "user" && b.id === input));
   const pending = log.sent.filter((x) => (x.failed !== undefined || !compactSent(x)) && !inLog(x));
   // The others at work, each once what called it is on the page (the hand-over, merge.ts held).
   const ownWriting = busy && log.drafts.some((d) => !d.tool && !d.whole);
