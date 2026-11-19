@@ -51,13 +51,15 @@ export function Activity({ calls, running, cwd, quiet, grew, under, stop }: { ca
 }
 
 /** A turn's frame: the face at the left, the head's line over the rest. */
-export function TurnFrame({ face, head, children }: { face: ReactNode; head: ReactNode; children: ReactNode }) {
+/** bare: no face nor head (under its own last words), their room kept: the same boxes either
+ *  way, so that what is in it is not taken out and put in again as the face comes or goes. */
+export function TurnFrame({ face, head, bare, children }: { face: ReactNode; head: ReactNode; bare?: boolean; children: ReactNode }) {
   const row = useWhenRow();
   return (
     <div {...row} className={cn(row.className, "flex min-w-0 items-start gap-2.5")}>
-      {face}
+      {bare ? <span aria-hidden className="w-7 shrink-0" /> : face}
       <div className="flex min-w-0 flex-1 flex-col gap-5">
-        <div className="-mb-3.5 flex h-4 min-w-0 items-center gap-1.5">{head}</div>
+        {!bare && <div className="-mb-3.5 flex h-4 min-w-0 items-center gap-1.5">{head}</div>}
         {children}
       </div>
     </div>
@@ -74,7 +76,7 @@ const noSource = () => ({ kind: "you" }) as ReturnType<Parameters<typeof Said>[0
  *  runs, or the dots, and its stop key at the end. alone: under its own last words, no face
  *  again. said: where its last words in the channel are from in its record (their work is
  *  under them). */
-export function OtherTurn({ a, channel, st, said, alone, bars, call, record, may }: { a: AgentRow; channel: string; st?: LiveSession; said?: Src; alone: boolean; bars: ReactNode; call?: (nick: string) => void; record: (session: string) => void; may: boolean }) {
+export function OtherTurn({ a, channel, st, said, spoken, alone, bars, call, record, may }: { spoken?: ReadonlySet<string>; a: AgentRow; channel: string; st?: LiveSession; said?: Src; alone: boolean; bars: ReactNode; call?: (nick: string) => void; record: (session: string) => void; may: boolean }) {
   useLang();
   const [chat] = useState(() => chatOf(a.session));
   const log = chat.log;
@@ -93,14 +95,28 @@ export function OtherTurn({ a, channel, st, said, alone, bars, call, record, may
   // Its record grew: what came since.
   const carried = carries(`session:${a.session}`);
   const end = st?.end ?? 0;
+  // Not come (a weak link to its computer): asked again, a little later each time; left at that,
+  // its steps stood still till its record next grew.
   useEffect(() => {
     if (!log.loaded || (carried && end <= log.end)) return;
     let live = true;
-    void log.newer().then(() => live && changed(), () => {});
-    return () => void (live = false);
+    let tries = 0;
+    let again = 0;
+    const ask = () =>
+      void log.newer().then(
+        () => live && changed(),
+        () => {
+          if (live && tries < 5) again = window.setTimeout(ask, Math.min(8000, 600 * 2 ** tries++));
+        },
+      );
+    ask();
+    return () => {
+      live = false;
+      clearTimeout(again);
+    };
   }, [end, log.loaded]);
   const away = useAway(channel, a.session);
-  const shown = folded(liveOf(log.blocks, said));
+  const shown = folded(liveOf(log.blocks, said, spoken ? (x) => spoken.has(x) : undefined));
   const running = shown.flatMap((b) => (b.kind === "running" ? [b.tool] : []));
   const rows = shown.filter((b) => b.kind !== "running" && b.kind !== "user");
   const cwd = st?.cwd ?? "";
@@ -139,39 +155,37 @@ export function OtherTurn({ a, channel, st, said, alone, bars, call, record, may
         steps.push(node(b));
         continue;
       }
-      if (steps.length) parts.push(<AwayBox key={`box:${after}`} place={away}>{steps}</AwayBox>);
+      if (steps.length) parts.push(<AwayBox key={`box:${after}`} place={away} session={a.session}>{steps}</AwayBox>);
       parts.push(node(b));
       steps = [];
       after = b.at;
     }
     parts.push(
-      <AwayBox key={`box:${after}`} place={away}>
+      <AwayBox key={`box:${after}`} place={away} session={a.session}>
         {steps}
         {activity(true)}
       </AwayBox>,
     );
     return (
       <div role="group" aria-label={label} className="flex min-w-0 flex-col gap-5">
-        {alone ? <div className="flex min-w-0 flex-col gap-5 pl-[38px]">{parts}</div> : <TurnFrame face={<AgentFace channel={channel} a={a} call={call} record={record} may={may} />} head={headOf()}>{parts}</TurnFrame>}
+        <TurnFrame bare={alone} face={<AgentFace channel={channel} a={a} call={call} record={record} may={may} />} head={headOf()}>
+          {parts}
+        </TurnFrame>
       </div>
     );
   }
-  if (alone)
-    return (
-      <div role="group" aria-label={label} className="flex min-w-0 flex-col gap-5">
-        {rows.length > 0 && <div className="flex min-w-0 flex-col gap-5 pl-[38px]">{body}</div>}
-        {activity(false)}
-      </div>
-    );
   const face = <AgentFace channel={channel} a={a} call={call} record={record} may={may} />;
   const head = headOf();
+  // One frame, with its face or bare: its rows are not put in again as the face comes or goes.
   return (
     <div role="group" aria-label={label} className="flex min-w-0 flex-col gap-5">
-      {rows.length ? (
+      {rows.length || alone ? (
         <>
-          <TurnFrame face={face} head={head}>
-            {body}
-          </TurnFrame>
+          {rows.length > 0 && (
+            <TurnFrame bare={alone} face={face} head={head}>
+              {body}
+            </TurnFrame>
+          )}
           {activity(false)}
         </>
       ) : (

@@ -328,6 +328,19 @@ describe("workOf", () => {
   });
 });
 
+describe("liveOf spoken", () => {
+  test("words heard said without where they are from are not drawn again as at work", () => {
+    const bs = [
+      { at: "1.0", kind: "user", text: "go" },
+      { at: "2.0", kind: "tool" },
+      { at: "3.0", kind: "assistant", text: "first words" },
+      { at: "4.0", kind: "tool" },
+    ];
+    expect(liveOf(bs, undefined, (x) => x === "first words").map((b) => b.at)).toEqual(["4.0"]);
+    expect(liveOf(bs, undefined, () => false).map((b) => b.at)).toEqual(["2.0", "3.0", "4.0"]);
+  });
+});
+
 describe("liveOf", () => {
   const bs = [
     { at: "8.0", kind: "tool", name: "Old" },

@@ -776,7 +776,7 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
                 return (
                   <Arrive on={!alone} off={leaving} className="-mt-2">
                     <div>
-                      <OtherTurn a={a} channel={id} st={stateOf(a.session)} said={msgs.findLast((m) => m.author.kind === "agent" && m.author.session === a.session && !!m.src)?.src} alone={alone} bars={barsOf(a.session)} call={may ? callAt : undefined} record={openChat} may={may} />
+                      <OtherTurn spoken={new Set(msgs.slice(-12).flatMap((m) => (m.author.kind === "agent" && m.author.session === a.session && m.text.trim() ? [m.text.trim()] : [])))} a={a} channel={id} st={stateOf(a.session)} said={msgs.findLast((m) => m.author.kind === "agent" && m.author.session === a.session && !!m.src)?.src} alone={alone} bars={barsOf(a.session)} call={may ? callAt : undefined} record={openChat} may={may} />
                     </div>
                   </Arrive>
                 );

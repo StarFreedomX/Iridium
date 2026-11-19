@@ -55,10 +55,14 @@ const atAfter = (a: string, b: string) => {
 /** What an agent at work has done in its turn so far (kumo, 2026-11-18: as its own page shows it,
  *  not dots alone): its record's blocks since it was last given something, and since its last
  *  words in the channel (said: where they are from in its record), whose work is under them. */
-export function liveOf<B extends { at: string; kind: string }>(blocks: B[], said?: Src): B[] {
+/** spoken: whether words are among what it has said in the channel of late. Its words heard as
+ *  they were said come without where they are from (said) till the log is read again: what it
+ *  wrote up to them is theirs all the same, not drawn a second time under them as at work. */
+export function liveOf<B extends { at: string; kind: string; text?: string }>(blocks: B[], said?: Src, spoken?: (text: string) => boolean): B[] {
   let out = blocks.slice(blocks.findLastIndex((b) => b.kind === "user") + 1).filter((b) => b.kind !== "system");
   if (said?.to !== undefined) out = out.filter((b) => lineOf(b.at) >= said.to!);
   else if (said?.block) out = out.filter((b) => atAfter(b.at, said.block!));
+  if (spoken) out = out.slice(out.findLastIndex((b) => b.kind === "assistant" && !!b.text?.trim() && spoken(b.text.trim())) + 1);
   return out;
 }
 

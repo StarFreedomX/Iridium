@@ -4,7 +4,7 @@
 // face, its name and its link's lamp; a folder here its mark and its name. Nothing scrolls inside
 // it: a finished turn's is one line until pressed, its height gliding.
 import { ChevronRight, Folder } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useMachines } from "../data";
 import { t, useLang } from "../i18n";
 import { LINK_COLOR, MachineFace, shownPath, useLink, type Machine } from "../machines";
@@ -17,8 +17,24 @@ import { awayOf, folderName } from "./awayof";
 export function useAway(channel: string, session: string): Place | undefined {
   const list = useList();
   if (channel === session) return undefined;
-  return awayOf(list?.find((x) => x.id === channel), list?.find((x) => x.id === session));
+  const home = list?.find((x) => x.id === channel);
+  const at = list?.find((x) => x.id === session);
+  // Known only while both rows are listed. As last known meanwhile (the list not come yet, a row
+  // gone from it while its computer's link is down): what was in the box stays in it, not out of
+  // it and in again each time the link comes and goes (kumo, 2026-11-19).
+  const key = `${channel} ${session}`;
+  if (home?.cwd && at?.cwd) lastAway.set(key, awayOf(home, at));
+  return lastAway.get(key);
 }
+const lastAway = new Map<string, Place | undefined>();
+
+/** The computers as last listed, by id: one not listed for a moment keeps its name and face. */
+const lastMachine = new Map<string, Machine>();
+
+/** When an agent's work at a place was last drawn open, at work (by its session): its box of a
+ *  turn's part just said is then drawn open and folds, not gone to one line at once. */
+const lastLive = new Map<string, number>();
+const JUST = 1500;
 
 /** A computer's link: its lamp, and 已断开 once it has stayed away. */
 function Link({ m }: { m: Machine }) {
@@ -35,7 +51,8 @@ function Link({ m }: { m: Machine }) {
  *  a gap between them and no dot (docs/前端设计规范.md: 不用“·”分隔). */
 function Where({ place }: { place: Place }) {
   const ms = useMachines();
-  const m = place.machine ? ms.find((x) => x.id === place.machine) : undefined;
+  for (const x of ms) lastMachine.set(x.id, x);
+  const m = place.machine ? (ms.find((x) => x.id === place.machine) ?? lastMachine.get(place.machine)) : undefined;
   const path = m ? shownPath(`${m.id}:${place.path.replaceAll("\\", "/")}`, ms).label : tilde(place.path);
   const name = m?.name ?? place.machine ?? folderName(place.path);
   return (
@@ -53,10 +70,22 @@ const HEAD = "flex h-8 w-full min-w-0 items-center gap-2 text-left text-xs text-
 
 /** Work at place, in its box. count: a finished turn's, how many steps it holds: one line, pressed
  *  open and shut; undefined: a turn at work, open while it lasts. */
-export function AwayBox({ place, count, children }: { place: Place; count?: number; children: ReactNode }) {
+export function AwayBox({ place, count, session, children }: { place: Place; count?: number; session?: string; children: ReactNode }) {
   useLang();
   const folds = count !== undefined;
-  const [open, setOpen] = useState(!folds);
+  // Just now open at work: open still, then folding (its height gliding), as a turn's earlier
+  // rows fold when it ends.
+  const [fresh] = useState(() => folds && !!session && performance.now() - (lastLive.get(session) ?? -1e9) < JUST);
+  const [open, setOpen] = useState(!folds || fresh);
+  useEffect(() => {
+    if (!folds && session) lastLive.set(session, performance.now());
+  });
+  useEffect(() => {
+    if (!folds && session) return () => void lastLive.set(session, performance.now());
+    if (!fresh) return;
+    const f = requestAnimationFrame(() => requestAnimationFrame(() => setOpen(false)));
+    return () => cancelAnimationFrame(f);
+  }, []);
   if (!folds)
     return (
       <div className={BOX}>

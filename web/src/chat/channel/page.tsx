@@ -13,7 +13,7 @@ import { Popover } from "@base-ui/react/popover";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../../api/client";
 import type { Block, ChannelReads, Reader, SessionState as LiveSession, Session } from "../../api/types.gen";
-import { stateAhead, type Sent } from "../../chats";
+import { peekChat, stateAhead, type Sent } from "../../chats";
 import { LOCAL_ME, useApps, useMe, useWhoList, useWorkspaces } from "../../data";
 import { t, useLang } from "../../i18n";
 import { pushIn } from "../../motion";
@@ -300,7 +300,7 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
                     const alone = !sent.length && last?.kind === "agent" && last.session === a.session;
                     return (
                       <Arrive on={!alone} off={leaving} as="g-fade">
-                        <OtherTurn a={a} channel={id} st={stateAt(a.session)} said={log.msgs.findLast((m) => m.author.kind === "agent" && m.author.session === a.session && !!m.src)?.src} alone={alone} bars={bars(a.session)} call={may ? call : undefined} record={record} may={may} />
+                        <OtherTurn spoken={new Set(log.msgs.slice(-12).flatMap((m) => (m.author.kind === "agent" && m.author.session === a.session && m.text.trim() ? [m.text.trim()] : [])))} a={a} channel={id} st={stateAt(a.session)} said={log.msgs.findLast((m) => m.author.kind === "agent" && m.author.session === a.session && !!m.src)?.src} alone={alone} bars={bars(a.session)} call={may ? call : undefined} record={record} may={may} />
                       </Arrive>
                     );
                   }}
@@ -595,8 +595,18 @@ function Work({ src, did, said, channel }: { src: Src; did?: Did; said?: string;
       const page = src.from !== undefined ? await api.messages(src.session, { after: Math.max(0, src.from - 1) }) : await api.messages(src.session, { before: lineOf(src.block!) + 1 });
       return workOf(page.blocks, src, said);
     },
+    // What its record kept here already has (it was just drawn at work from it): no asking, no
+    // line of counts in between while the answer comes over a slow link.
+    initialData: () => {
+      const log = peekChat(src.session)?.log;
+      if (!log?.loaded || src.from === undefined || src.to === undefined || log.start > src.from || log.end < src.to) return undefined;
+      const have = workOf<Block>(log.blocks, src, said);
+      return have.length ? have : undefined;
+    },
     staleTime: Infinity,
-    retry: false,
+    // A weak link: tried again, not left at the counts for good.
+    retry: 3,
+    retryDelay: (n) => Math.min(8000, 600 * 2 ** n),
   });
   const work = q.data;
   if (!work?.length) return did ? <DidLine did={did} /> : null;
@@ -604,7 +614,7 @@ function Work({ src, did, said, channel }: { src: Src; did?: Did; said?: string;
   const rows = shown.map((b) => <Said key={b.at} b={b} session={src.session} cwd={row?.cwd ?? ""} source={() => ({ kind: "you" }) as ReturnType<Parameters<typeof Said>[0]["source"]>} onJump={openChat} />);
   if (away)
     return (
-      <AwayBox place={away} count={shown.reduce((n, b) => n + (b.kind === "fold" ? b.steps.length : 1), 0)}>
+      <AwayBox place={away} session={src.session} count={shown.reduce((n, b) => n + (b.kind === "fold" ? b.steps.length : 1), 0)}>
         {rows}
       </AwayBox>
     );
