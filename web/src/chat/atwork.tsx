@@ -125,18 +125,34 @@ export function OtherTurn({ a, channel, st, said, alone, bars, call, record, may
     </>
   );
   const label = `${a.nick} · ${t("chat.working")}`;
-  // At work away from the channel's folder: all of the turn in the box that says where
-  // (away.tsx), the row of what runs now at its end; its words come out of it as it says them.
+  // At work away from the channel's folder: its steps in the box that says where (away.tsx),
+  // the row of what runs now at the end of the last.
   if (away) {
-    const box = (
-      <AwayBox place={away}>
-        {body}
+    // Only its steps are in the box: its words stand outside it, between the boxes, as they will
+    // once said to the channel (kumo, 2026-11-19: an answer whole sat in the box of the computer's
+    // tools). Each box under the words before it, so none is put in again as more comes.
+    const parts: ReactNode[] = [];
+    let steps: ReactNode[] = [];
+    let after = "start";
+    for (const b of rows) {
+      if (b.kind !== "assistant") {
+        steps.push(node(b));
+        continue;
+      }
+      if (steps.length) parts.push(<AwayBox key={`box:${after}`} place={away}>{steps}</AwayBox>);
+      parts.push(node(b));
+      steps = [];
+      after = b.at;
+    }
+    parts.push(
+      <AwayBox key={`box:${after}`} place={away}>
+        {steps}
         {activity(true)}
-      </AwayBox>
+      </AwayBox>,
     );
     return (
       <div role="group" aria-label={label} className="flex min-w-0 flex-col gap-5">
-        {alone ? <div className="pl-[38px]">{box}</div> : <TurnFrame face={<AgentFace channel={channel} a={a} call={call} record={record} may={may} />} head={headOf()}>{box}</TurnFrame>}
+        {alone ? <div className="flex min-w-0 flex-col gap-5 pl-[38px]">{parts}</div> : <TurnFrame face={<AgentFace channel={channel} a={a} call={call} record={record} may={may} />} head={headOf()}>{parts}</TurnFrame>}
       </div>
     );
   }
