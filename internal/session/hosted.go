@@ -104,6 +104,11 @@ type Hosted struct {
 
 	startMu   sync.Mutex // one start at a time
 	replaying atomic.Bool
+	// shownMu: one at a time for what looks at the shown marker and then sets it (ended's note
+	// of the size against a bringing back); hidSeq: up by one each time it is archived, so that
+	// a showing asked before that (shownLater) is not done after it.
+	shownMu sync.Mutex
+	hidSeq  atomic.Int64
 	// fed: where in out.log the line the driver is fed ends, for the record Iridium keeps itself
 	// (agents.Info.OwnRecord); recorded: where its last line's output ended when this daemon
 	// first wrote to it (-1: none yet; unknown until then): nothing up to there is written again.

@@ -67,8 +67,14 @@ func (h *Hosted) show() bool {
 // shownLater: activity of h's. The marker is set, and if that brought it back from the archive,
 // its state and the list say so.
 func (h *Hosted) shownLater() {
+	seq := h.hidSeq.Load()
 	go func() {
-		if h.show() {
+		h.shownMu.Lock()
+		// Archived since this was asked: that is the later word (a session archived right as its
+		// first message went came back out of the archive).
+		changed := h.hidSeq.Load() == seq && h.show()
+		h.shownMu.Unlock()
+		if changed {
 			h.publish()
 			h.m.publishList()
 		}
@@ -103,11 +109,14 @@ func (m *Manager) SetArchived(ctx context.Context, id string, on bool) error {
 		return nil
 	}
 	if !on {
+		h.shownMu.Lock()
 		h.show()
+		h.shownMu.Unlock()
 		h.publish()
 		m.publishList()
 		return nil
 	}
+	h.hidSeq.Add(1)
 	live := h.isLive()
 	quiet := int64(0)
 	if live {
@@ -142,6 +151,9 @@ func (h *Hosted) hide(quietUntil int64) error {
 
 // endedHidden: h's agent ended while h is archived: what it wrote ending is noted as seen.
 func (h *Hosted) endedHidden() {
+	// With a bringing back kept out meanwhile: seen hidden, then brought back, it was hidden again.
+	h.shownMu.Lock()
+	defer h.shownMu.Unlock()
 	if h.shown() {
 		return
 	}
