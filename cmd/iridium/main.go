@@ -186,6 +186,7 @@ func serve(args []string) int {
 		return 1
 	}
 	log.Printf("iridium %s: serving http://%s and %s", version.Version, tcp.Addr(), cfg.SocketPath())
+	dumpStacksOn(state)
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	go srv.Updater.Run(ctx)

@@ -168,7 +168,7 @@ func stopped(content json.RawMessage) bool {
 // Said is a LastSaid of text: on one line, Markdown's marks for headings, bold, code and links
 // taken off, cut to LastLen.
 func Said(user bool, text, from string, at int64) *api.LastSaid {
-	text = heading.ReplaceAllString(WithoutNameLines(text), "")
+	text = heading.ReplaceAllString(FilesAsWords(WithoutNameLines(text)), "")
 	text = strings.NewReplacer("**", "", "`", "").Replace(text)
 	text = link.ReplaceAllString(text, "$1")
 	role := "assistant"

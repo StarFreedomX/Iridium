@@ -286,14 +286,32 @@ func (r *relay) send(c *wire.Conn) error {
 			r.mu.Lock()
 			r.tailed = nil
 			r.mu.Unlock()
+			if wire.IsCode(err, wire.CodeNotFound) {
+				r.gone()
+				return nil
+			}
 			return err
 		}
 	}
 	if err := r.sendLines(ctx, c); err != nil {
-		return err
+		if wire.IsCode(err, wire.CodeNotFound) {
+			r.gone()
+			return nil
+		}
+		// Its lines not taken (the process there no longer runs) do not keep a stop from it.
+		if rm.Stop == "" {
+			return err
+		}
 	}
 	if rm.Stop != "" {
-		if err := c.Call(ctx, "hold."+rm.Stop, wire.HoldParams{Hold: rm.Hold}, nil); err != nil && !wire.IsCode(err, wire.CodeNotFound) {
+		err := c.Call(ctx, "hold."+rm.Stop, wire.HoldParams{Hold: rm.Hold}, nil)
+		if wire.IsCode(err, wire.CodeNotFound) {
+			// Nothing there to stop: it has ended, and nothing else will say so. Left at that,
+			// the session stayed at work and was asked to stop again, for good.
+			r.gone()
+			return nil
+		}
+		if err != nil {
 			return err
 		}
 		r.mu.Lock()
@@ -303,6 +321,19 @@ func (r *relay) send(c *wire.Conn) error {
 		return writeJSON(filepath.Join(r.dir, FileRemote), rm)
 	}
 	return nil
+}
+
+// gone: the executor says it has no such holder: the process ended with nothing to tell of it.
+func (r *relay) gone() {
+	r.end(hold.Exit{From: "holder"}, "the executor no longer has the agent process")
+}
+
+// End ends unit's relay here, whatever the executor says (it did not answer a stop, then a kill):
+// the session is not left at work for good. why: for the error log.
+func (l Launcher) End(name, why string) {
+	if r := l.relay(name); r != nil {
+		r.end(hold.Exit{From: "holder"}, why)
+	}
 }
 
 // sendLines sends in.log's records from r.sent: each line with its seq, the record's offset + 1.

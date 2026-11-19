@@ -118,6 +118,8 @@ type Hosted struct {
 	live       bool
 	starting   bool
 	stopAsked  bool
+	stopAt     time.Time // when a stop was first asked of this process; stopStep: how far it was pressed (reap)
+	stopStep   int
 	turn       agent.State // where the agent's turn is
 	turnSince  time.Time   // when turn became what it is
 	asks       []api.Ask
@@ -385,6 +387,7 @@ func (h *Hosted) launch(ctx context.Context, proc int) error {
 	ready := make(chan struct{})
 	h.mu.Lock()
 	h.in, h.live, h.lastActive, h.stopAsked, h.ready = in, true, time.Now(), false, ready
+	h.stopAt, h.stopStep = time.Time{}, 0
 	h.shownAt = h.lastActive
 	h.mu.Unlock()
 	h.drv.Attach(in.WriteLine, proc)
@@ -614,6 +617,9 @@ func (h *Hosted) stop(ctx context.Context) error {
 	h.mu.Lock()
 	live := h.live
 	h.stopAsked = live
+	if live && h.stopAt.IsZero() {
+		h.stopAt = time.Now()
+	}
 	h.mu.Unlock()
 	if !live {
 		return nil
@@ -622,6 +628,61 @@ func (h *Hosted) stop(ctx context.Context) error {
 		return err
 	}
 	return h.launcher().Stop(ctx, h.unit)
+}
+
+// How long a process asked to stop may go on before it is killed, and then before it is taken as
+// ended: vars for the tests.
+var (
+	stopKillAfter = 2 * time.Minute
+	stopEndAfter  = 4 * time.Minute
+)
+
+// pressStop sees to a stop that was asked and not followed: killed after a while, then taken as
+// ended, each once and said in the log. Before, a process that would not end (one at another
+// computer that no longer had it) was asked to stop every time the idle ones were looked for,
+// for good. Not while its computer is away: the stop reaches it when it is back.
+func (h *Hosted) pressStop(ctx context.Context) {
+	h.mu.Lock()
+	at, step, live := h.stopAt, h.stopStep, h.live
+	h.mu.Unlock()
+	if !live || at.IsZero() || h.offline() {
+		return
+	}
+	switch since := time.Since(at); {
+	case step == 0 && since > stopKillAfter:
+		h.setStopStep(1)
+		h.logf("asked to stop %s ago and still there: killing it", since.Round(time.Second))
+		if err := h.launcher().Kill(ctx, h.unit, "KILL", false); err != nil {
+			h.logf("killing it: %v", err)
+		}
+	case step == 1 && since > stopEndAfter:
+		h.setStopStep(2)
+		why := "the agent process did not end when stopped, then killed: taken as ended"
+		h.logf("%s", why)
+		if l, ok := h.launcher().(interface{ End(name, why string) }); ok {
+			l.End(h.unit, why)
+			return
+		}
+		if e, _ := hold.ReadExit(h.dir); e == nil {
+			b, _ := json.Marshal(hold.Exit{From: "holder"})
+			if err := os.WriteFile(filepath.Join(h.dir, hold.FileExit), append(b, '\n'), 0o600); err != nil {
+				h.logf("writing the exit file: %v", err)
+			}
+		}
+	}
+}
+
+func (h *Hosted) setStopStep(n int) {
+	h.mu.Lock()
+	h.stopStep = n
+	h.mu.Unlock()
+}
+
+// stopPending: a stop was asked of the process that runs now.
+func (h *Hosted) stopPending() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.live && !h.stopAt.IsZero()
 }
 
 // waitingLocked are the inputs that wait in the queue; with h.mu held.
@@ -798,6 +859,10 @@ func (h *Hosted) onEvent(e agent.Event) {
 		}
 		list = true
 	case agent.TurnEnd:
+		if !replay {
+			// In the log: a session shown at work after this is one stuck here, not in its agent.
+			h.logf("turn ended (process %d)", proc)
+		}
 		h.lastActive = time.Now()
 		if !replay {
 			h.shownAt = h.lastActive

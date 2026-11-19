@@ -382,7 +382,7 @@ func (f *File) LastSaid() (*api.LastSaid, error) {
 	if b == nil || err != nil {
 		return nil, err
 	}
-	text := heading.ReplaceAllString(WithoutNameLines(withoutChannelContext(b.Text)), "")
+	text := heading.ReplaceAllString(FilesAsWords(WithoutNameLines(withoutChannelContext(b.Text))), "")
 	text = strings.NewReplacer("**", "", "`", "").Replace(text)
 	text = link.ReplaceAllString(text, "$1")
 	return &api.LastSaid{Role: string(b.Kind), Text: cut(oneLine(text), LastLen), From: b.From, FromTerminal: b.FromTerminal, At: b.Time}, nil

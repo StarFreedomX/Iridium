@@ -557,3 +557,23 @@ func TestSpeaksOnly(t *testing.T) {
 		t.Error("a question")
 	}
 }
+
+// A stop the process does not follow is pressed: killed, then taken as ended, not asked again
+// for good.
+func TestStopPressed(t *testing.T) {
+	kill, end := stopKillAfter, stopEndAfter
+	stopKillAfter, stopEndAfter = 0, 0
+	t.Cleanup(func() { stopKillAfter, stopEndAfter = kill, end })
+	h := &Hosted{}
+	if h.stopPending() {
+		t.Fatal("pending with nothing asked")
+	}
+	h.live, h.stopAt = true, time.Now().Add(-time.Hour)
+	if !h.stopPending() {
+		t.Fatal("not pending")
+	}
+	h.live = false
+	if h.stopPending() {
+		t.Fatal("pending once ended")
+	}
+}

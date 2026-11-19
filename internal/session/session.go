@@ -467,8 +467,38 @@ func (m *Manager) Interrupt(ctx context.Context, id string) error {
 		return ErrNotLive
 	}
 	h.pause()
-	return h.drv.Interrupt(ctx)
+	if err := h.drv.Interrupt(ctx); err != nil {
+		return err
+	}
+	// An interrupt its agent does not answer (the turn over there already, its end never told
+	// here) leaves the session at work with nothing more to press: its process is stopped
+	// instead, after a while. The session stays; the next message starts it again.
+	h.mu.Lock()
+	proc := h.proc
+	h.mu.Unlock()
+	go func() {
+		select {
+		case <-m.ctx.Done():
+			return
+		case <-time.After(interruptWait):
+		}
+		h.mu.Lock()
+		stuck := h.live && h.proc == proc && h.turn != agent.Idle && len(h.asks) == 0
+		h.mu.Unlock()
+		if !stuck {
+			return
+		}
+		h.logf("interrupted %s ago and still in its turn: stopping its agent", interruptWait)
+		if err := h.stop(m.ctx); err != nil {
+			h.logf("%v", err)
+		}
+	}()
+	return nil
 }
+
+// interruptWait: how long an interrupted turn may go on before its process is stopped; a var for
+// the tests.
+var interruptWait = 30 * time.Second
 
 // Stop ends the session's agent: its stdin closes, and it exits once it has written its
 // transcript. The session stays; the next message starts the agent again.
@@ -676,6 +706,12 @@ func (m *Manager) reap() {
 			after := m.tuned().IdleReap
 			if st, err := m.o.Store.Settings(h.id); err == nil && st.IdleReap != nil {
 				after = *st.IdleReap
+			}
+			// One asked to stop already (here, or by a person) is not asked again each time: it is
+			// pressed (killed, then taken as ended), each said once.
+			if h.stopPending() {
+				h.pressStop(m.ctx)
+				continue
 			}
 			if idle, since := h.idleSince(); after > 0 && idle && time.Since(since) > after {
 				m.o.Logf("session %s: idle since %s, stopping its agent", h.id, since.Format(time.TimeOnly))

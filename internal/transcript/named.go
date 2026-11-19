@@ -1,6 +1,7 @@
 package transcript
 
 import (
+	"path/filepath"
 	"regexp"
 	"strings"
 	"unicode"
@@ -97,4 +98,27 @@ func cells(r rune) int {
 		return 2
 	}
 	return 1
+}
+
+// fileLine is a line that names a file by its path ("[附件] `path`" of what was sent, an agent's
+// "[文件] `path`").
+var fileLine = regexp.MustCompile("(?m)^[ \\t]*\\[(?:附件|文件|file|attachment)\\] `([^`\\n]+)`[ \\t]*$")
+
+// pictureExt are the endings of the files a line of last words calls a picture.
+var pictureExt = map[string]bool{".png": true, ".jpg": true, ".jpeg": true, ".gif": true, ".webp": true, ".avif": true, ".bmp": true, ".heic": true, ".svg": true}
+
+// FilesAsWords is text with each line that names a file by its path as the word for what it is,
+// [图片] or [文件]: for one line of last words (the list, a notice), where a path says nothing and
+// a message of a picture alone said nothing at all (kumo, 2026-11-19).
+func FilesAsWords(text string) string {
+	if !strings.Contains(text, "] `") {
+		return text
+	}
+	return fileLine.ReplaceAllStringFunc(text, func(l string) string {
+		m := fileLine.FindStringSubmatch(l)
+		if pictureExt[strings.ToLower(filepath.Ext(m[1]))] {
+			return "[图片]"
+		}
+		return "[文件]"
+	})
 }

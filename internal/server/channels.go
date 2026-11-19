@@ -33,6 +33,7 @@ import (
 	"github.com/kumoSleeping/iridium/internal/satori"
 	"github.com/kumoSleeping/iridium/internal/session"
 	"github.com/kumoSleeping/iridium/internal/store"
+	"github.com/kumoSleeping/iridium/internal/transcript"
 )
 
 // Channels of several agents (docs/channels.md): who is in one, and where a message said there
@@ -898,7 +899,18 @@ func (s *Server) bareChannels() []api.Session {
 
 // lastSaid is message m as a row of the list shows it under its name: who said it, what.
 func (s *Server) lastSaid(m channel.Message) *api.LastSaid {
-	last := &api.LastSaid{Role: "user", Text: head(m.Text, 200), From: m.Name, At: m.At}
+	// Its files by what they are ([图片], [文件]), not their paths; a message of files alone too.
+	text := transcript.FilesAsWords(m.Text)
+	for _, f := range m.D.Files {
+		word := "[文件]"
+		if f.Kind == api.FileKindImage {
+			word = "[图片]"
+		}
+		if !strings.Contains(text, word) {
+			text = strings.TrimSpace(text + " " + word)
+		}
+	}
+	last := &api.LastSaid{Role: "user", Text: head(text, 200), From: m.Name, At: m.At}
 	if id, agent := store.SessionOfMember(m.Author); agent {
 		last.Role, last.From, last.Nick = "assistant", "", cmp.Or(s.ch.Nick(id), m.Name)
 	} else if _, login, ok := strings.Cut(m.Author, "/"); ok {

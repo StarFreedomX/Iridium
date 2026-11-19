@@ -335,3 +335,22 @@ func mustRead(t *testing.T, p string) string {
 	}
 	return string(b)
 }
+
+// A relay ended here whatever its executor says (a stop, then a kill, not answered): its exit is
+// written and it is there no more.
+func TestRelayEnd(t *testing.T) {
+	r := newRig(t, "go")
+	dir, _ := r.start("u9")
+	l, ok := r.machine().Launcher().(interface{ End(name, why string) })
+	if !ok {
+		t.Fatal("the launcher cannot end a relay")
+	}
+	l.End("u9", "did not end when stopped")
+	e, _ := hold.ReadExit(dir)
+	if e == nil || e.From != "holder" {
+		t.Fatalf("exit %+v", e)
+	}
+	if st, _ := r.machine().Launcher().State(context.Background(), "u9"); st.Exists {
+		t.Fatal("still there after it was ended")
+	}
+}
