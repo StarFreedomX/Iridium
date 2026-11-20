@@ -65,7 +65,8 @@ func loginFlow(ctx context.Context, server, name string, open func(string) error
 	var st loginStart
 	if err := post(ctx, server+"/_ir/api/app/start", map[string]string{"name": name, "verifier": base64.RawURLEncoding.EncodeToString(sum[:])}, &st); err != nil {
 		var se statusError
-		if errors.As(err, &se) && (se == http.StatusNotFound || se == http.StatusMethodNotAllowed) {
+		if errors.As(err, &se) && (se == http.StatusNotFound || se == http.StatusMethodNotAllowed || se == http.StatusForbidden) {
+			// An Iridium from before: no such route (a page's POST there, 403 for its Origin).
 			return "", fmt.Errorf("%s 的版本不支持应用登录，请先更新", hostOf(server))
 		}
 		return "", fmt.Errorf("无法登录：%v", err)
