@@ -1,10 +1,11 @@
 // The app's own page (docs/app.md "登录"): Iridium's mark and name at the top left; in the middle
-// the Iridiums in the app's list, one under another: one logged in to with who the window is
-// there (its face, its name), pressed to go in; another with 使用浏览器登录 (the passkey is used
-// in the system's browser); a row to add one.
+// the Iridiums in the app's list, one under another, all alike: one logged in to with who the
+// window is there (its face, its name), pressed to go in; another pressed to log in from the
+// system's browser, where the passkey is; its menu (right click, or held) to remove; a row to add one.
 import { ChevronRight, LoaderCircle, Plus, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { cn, IrMark, SureKey } from "../ui";
+import { useRowMenu } from "../apps";
+import { cn, IrMark } from "../ui";
 import { ask, clipboardKeys, onAnswer, whenReady } from "./bridge";
 
 type Server = {
@@ -69,66 +70,18 @@ export function Login() {
         )}
       >
         <div className="flex w-[min(360px,calc(100vw-32px))] flex-col gap-1">
-          {servers?.map((s) => {
-            const mine = busy === s.url;
-            const said = note && note.server === s.url ? note : null;
-            return (
-              <div key={s.url} className="group flex flex-col">
-                <div className="flex items-center gap-3 rounded-lg px-2 py-2 has-[button[data-go]:hover]:bg-fill">
-                  <Face s={s} />
-                  <button
-                    type="button"
-                    data-go={s.loggedIn || undefined}
-                    disabled={!s.loggedIn}
-                    onClick={() => ask("ir:open:" + s.url)}
-                    className="flex min-w-0 flex-1 flex-col items-start text-left disabled:cursor-default"
-                  >
-                    <span className="max-w-full truncate text-sm font-medium">
-                      {s.loggedIn && s.name ? s.name : s.host}
-                    </span>
-                    {s.loggedIn && s.name && (
-                      <span className="max-w-full truncate text-xs text-ink-3">
-                        {s.host}
-                      </span>
-                    )}
-                  </button>
-                  {s.loggedIn ? (
-                    <ChevronRight size={16} className="shrink-0 text-ink-3" />
-                  ) : (
-                    <button
-                      type="button"
-                      disabled={!!busy && !mine}
-                      onClick={() => login(s.url, s.url)}
-                      className="g-press flex h-8 shrink-0 items-center gap-1.5 rounded-md bg-ink px-3 text-xs font-medium text-paper disabled:opacity-40"
-                    >
-                      {mine && (
-                        <LoaderCircle size={13} className="animate-spin" />
-                      )}
-                      使用浏览器登录
-                    </button>
-                  )}
-                  <SureKey
-                    label="移除"
-                    sure="确认移除"
-                    run={() => ask("ir:remove:" + s.url)}
-                    className="size-7"
-                  >
-                    <Trash2 size={14} />
-                  </SureKey>
-                </div>
-                {said && (
-                  <p
-                    className={cn(
-                      "m-0 px-2 pb-1 pl-[3.25rem] text-xs",
-                      said.error ? "text-err" : "text-ink-3",
-                    )}
-                  >
-                    {said.text}
-                  </p>
-                )}
-              </div>
-            );
-          })}
+          {servers?.map((s) => (
+            <ServerRow
+              key={s.url}
+              s={s}
+              busy={busy === s.url}
+              note={note && note.server === s.url ? note : null}
+              press={() =>
+                s.loggedIn ? ask("ir:open:" + s.url) : login(s.url, s.url)
+              }
+              remove={() => ask("ir:remove:" + s.url)}
+            />
+          ))}
 
           {typing ? (
             <form
@@ -206,5 +159,72 @@ function Face({ s }: { s: Server }) {
     <span className="grid size-9 shrink-0 place-items-center rounded-full bg-fill text-sm font-medium text-ink-2 uppercase">
       {(s.loggedIn && s.name ? s.name : s.host).slice(0, 1)}
     </span>
+  );
+}
+
+/** One Iridium. Pressed: in, or logged in to from the browser (a turning ring the while). Its
+ *  menu (a right click, or held on a touch screen; the web app's row menu) removes it, asking to be
+ *  pressed again (docs/前端设计规范.md "确认在原处"). */
+function ServerRow({
+  s,
+  busy,
+  note,
+  press,
+  remove,
+}: {
+  s: Server;
+  busy: boolean;
+  note: Note | null;
+  press: () => void;
+  remove: () => void;
+}) {
+  const row = useRowMenu();
+  return (
+    <div className="flex flex-col" {...row.on}>
+      <button
+        type="button"
+        onClick={press}
+        className={cn(
+          "g-press flex items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-fill",
+          row.at && "bg-fill",
+        )}
+      >
+        <Face s={s} />
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="truncate text-sm font-medium">
+            {s.loggedIn && s.name ? s.name : s.host}
+          </span>
+          <span className="truncate text-xs text-ink-3">
+            {s.loggedIn && s.name ? s.host : s.loggedIn ? "" : "未登录"}
+          </span>
+        </span>
+        {busy ? (
+          <LoaderCircle
+            size={16}
+            className="shrink-0 animate-spin text-ink-3"
+          />
+        ) : (
+          <ChevronRight size={16} className="shrink-0 text-ink-3" />
+        )}
+      </button>
+      {note && (
+        <p
+          className={cn(
+            "m-0 px-2 pb-1 pl-[3.75rem] text-xs",
+            note.error ? "text-err" : "text-ink-3",
+          )}
+        >
+          {note.text}
+        </p>
+      )}
+      {row.menu([
+        {
+          icon: <Trash2 size={15} />,
+          label: "移除",
+          sure: "确认移除",
+          run: remove,
+        },
+      ])}
+    </div>
   );
 }

@@ -6,11 +6,47 @@
 // logins and invites (docs/前端设计规范.md). 配对 is a switch, on till turned off; requests wait as
 // cards on top, the code checked against the one the app shows. No TOKEN is handed out here.
 import { Menu } from "@base-ui/react/menu";
-import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { Check, ChevronLeft, ChevronRight, EyeOff, FolderOpen, KeyRound, Laptop, Link2, LoaderCircle, Monitor, MonitorSmartphone, PencilLine, Plus, SlidersHorizontal, Smartphone, SquareTerminal, Trash2, X, type LucideIcon } from "lucide-react";
+import {
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+} from "@tanstack/react-query";
+import {
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  EyeOff,
+  FolderOpen,
+  KeyRound,
+  Laptop,
+  Link2,
+  LoaderCircle,
+  Monitor,
+  MonitorSmartphone,
+  PencilLine,
+  Plus,
+  SlidersHorizontal,
+  Smartphone,
+  SquareTerminal,
+  Trash2,
+  X,
+  type LucideIcon,
+} from "lucide-react";
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { ApiError, api } from "./api/client";
-import type { Agent, App, Apps, Computer, Device, Login, MachineGrant, Passkey, PasskeyLink, Perms, PendingInvite } from "./api/types.gen";
+import type {
+  Agent,
+  App,
+  Apps,
+  Computer,
+  Device,
+  Login,
+  MachineGrant,
+  Passkey,
+  PasskeyLink,
+  Perms,
+  PendingInvite,
+} from "./api/types.gen";
 import { CardFrame, CardHead, MainKey, SecondKey } from "./card";
 import { ConfirmCard, saysOwner } from "./confirms";
 import { isComputer, useApps, useMe } from "./data";
@@ -23,7 +59,26 @@ import { showSecret, useSecret } from "./secrets";
 import { Group } from "./settings";
 import { useConfirms, usePairing } from "./store";
 import { errText, toast, toasts } from "./toast";
-import { agentName, AGENTS as AGENT_MARKS, ago, Avatar, AvatarKey, cn, CopyKey, IconKey, IrMark, Logo, own, Switch, Tip, useLongPress, useMenuAt, usePointAnchor, intoView, SureKey } from "./ui";
+import {
+  agentName,
+  AGENTS as AGENT_MARKS,
+  ago,
+  Avatar,
+  AvatarKey,
+  cn,
+  CopyKey,
+  IconKey,
+  IrMark,
+  Logo,
+  own,
+  Switch,
+  Tip,
+  useLongPress,
+  useMenuAt,
+  usePointAnchor,
+  intoView,
+  SureKey,
+} from "./ui";
 import { MenuItems, type MenuItem } from "./sidebar";
 
 const systems: Record<string, string> = {
@@ -32,13 +87,14 @@ const systems: Record<string, string> = {
   linux: "Linux",
 };
 
-
 /** The apps on the same machine as id, after it (Computer.under): listed next to it, not under it. */
-const sameMachine = (apps: App[], id: string) => apps.filter((a) => a.computer?.under === id);
+const sameMachine = (apps: App[], id: string) =>
+  apps.filter((a) => a.computer?.under === id);
 
 /** A machine's line: its system and agents, e.g. "Linux · claude 2.1 · codex". */
 /** A computer's agents, those not turned off, that have a mark. */
-const marked = (m: Computer) => m.agents.filter((a) => !a.off && (AGENT_MARKS as string[]).includes(a.agent));
+const marked = (m: Computer) =>
+  m.agents.filter((a) => !a.off && (AGENT_MARKS as string[]).includes(a.agent));
 
 const clock = (ms: number) =>
   new Date(ms).toLocaleTimeString(document.documentElement.lang || undefined, {
@@ -47,8 +103,15 @@ const clock = (ms: number) =>
   });
 
 const nameError = (e: unknown) => {
-  const code = e instanceof ApiError ? (e.body as { nameError?: string } | undefined)?.nameError : undefined;
-  return code === "taken" ? t("me.nameTaken") : code ? t("me.nameBad") : errText(e);
+  const code =
+    e instanceof ApiError
+      ? (e.body as { nameError?: string } | undefined)?.nameError
+      : undefined;
+  return code === "taken"
+    ? t("me.nameTaken")
+    : code
+      ? t("me.nameBad")
+      : errText(e);
 };
 
 /** A login of ir_web (its logins come with app "" from before 0.2's other apps, or "ir_web"). */
@@ -64,7 +127,8 @@ export function AppsPage({ onBack }: { onBack: () => void }) {
   const [view, setView] = useState<View>({ kind: "list" });
   const pairing = !!usePairing()?.open;
   const apps = q.data?.apps ?? [];
-  const open = view.kind === "app" ? apps.find((a) => a.id === view.id) : undefined;
+  const open =
+    view.kind === "app" ? apps.find((a) => a.id === view.id) : undefined;
   // Back from a page of its own, the list slides in from the other side; first shown, it does not.
   const moved = useRef(false);
   if (view.kind !== "list") moved.current = true;
@@ -72,7 +136,11 @@ export function AppsPage({ onBack }: { onBack: () => void }) {
   // 网页 opens its logins and invites; an app or a computer has no page.
   const row = (a: App) =>
     a.web ? (
-      <AppRow key={a.id} a={a} onOpen={() => setView({ kind: "app", id: a.id })} />
+      <AppRow
+        key={a.id}
+        a={a}
+        onOpen={() => setView({ kind: "app", id: a.id })}
+      />
     ) : (
       <Fragment key={a.id}>
         <ItemRow a={a} />
@@ -95,26 +163,46 @@ export function AppsPage({ onBack }: { onBack: () => void }) {
       </div>
     );
   return (
-    <div key="list" className={cn("h-full", moved.current && "g-slide")} data-dir="back">
-    <Page title={t("settings.terminals")} onBack={onBack} backLabel={t("nav.me")} busy={q.isFetching} right={<PairingKey open={pairing} />}>
-      <Needs />
-      {q.isError && <p className="m-0 text-sm text-ink-3">{errText(q.error)}</p>}
-      {q.data && (
-        <>
-          {apps.some((a) => !isComputer(a)) && <Group title={t("term.channel")}>{apps.filter((a) => !isComputer(a)).map(row)}</Group>}
-          <Group
-            title={t("apps.computer")}
-            action={
-              <IconKey label={t("apps.addComputer")} onClick={() => setView({ kind: "add" })} className="-my-2 size-6 pointer-coarse:size-8">
-                <Plus size={14} />
-              </IconKey>
-            }
-          >
-            {computers.map(row)}
-          </Group>
-        </>
-      )}
-    </Page>
+    <div
+      key="list"
+      className={cn("h-full", moved.current && "g-slide")}
+      data-dir="back"
+    >
+      <Page
+        title={t("settings.terminals")}
+        onBack={onBack}
+        backLabel={t("nav.me")}
+        busy={q.isFetching}
+        right={<PairingKey open={pairing} />}
+      >
+        <Needs />
+        {q.isError && (
+          <p className="m-0 text-sm text-ink-3">{errText(q.error)}</p>
+        )}
+        {q.data && (
+          <>
+            {apps.some((a) => !isComputer(a)) && (
+              <Group title={t("term.channel")}>
+                {apps.filter((a) => !isComputer(a)).map(row)}
+              </Group>
+            )}
+            <Group
+              title={t("apps.computer")}
+              action={
+                <IconKey
+                  label={t("apps.addComputer")}
+                  onClick={() => setView({ kind: "add" })}
+                  className="-my-2 size-6 pointer-coarse:size-8"
+                >
+                  <Plus size={14} />
+                </IconKey>
+              }
+            >
+              {computers.map(row)}
+            </Group>
+          </>
+        )}
+      </Page>
     </div>
   );
 }
@@ -129,19 +217,36 @@ export type JoinOS = "unix" | "win";
 export function joinScript(os: JoinOS, at: string, query = ""): string {
   const url = `${at}/join${os === "win" ? ".ps1" : ""}${query ? `?${query}` : ""}`;
   const arg = query ? `'${url}'` : url;
-  return os === "win" ? `powershell -c "irm ${arg} | iex"` : `curl -fsSL ${arg} | sh`;
+  return os === "win"
+    ? `powershell -c "irm ${arg} | iex"`
+    : `curl -fsSL ${arg} | sh`;
 }
 
 /** The 电脑 group's +, a page: the line to run on a computer, for its system; as it is, with only
  *  some folders, without commands. Each its copy key in its title's row; the line one line high,
  *  scrolled sideways (to its end at first), no room kept beside it (docs/前端设计规范.md "命令"). */
 function AddComputer({ onBack }: { onBack: () => void }) {
-  const [os, setOs] = useState<JoinOS>(/Win/.test(navigator.platform) ? "win" : "unix");
+  const [os, setOs] = useState<JoinOS>(
+    /Win/.test(navigator.platform) ? "win" : "unix",
+  );
   const at = location.origin;
-  const system = (v: JoinOS, label: string) => ({ v, label, icon: <span className="px-1 text-xs">{label}</span> });
+  const system = (v: JoinOS, label: string) => ({
+    v,
+    label,
+    icon: <span className="px-1 text-xs">{label}</span>,
+  });
   return (
-    <Page title={t("apps.addComputer")} onBack={onBack} backLabel={t("settings.terminals")}>
-      <Segmented label={t("apps.system")} value={os} onChange={(v) => setOs(v as JoinOS)} items={[system("unix", "macOS / Linux"), system("win", "Windows")]} />
+    <Page
+      title={t("apps.addComputer")}
+      onBack={onBack}
+      backLabel={t("settings.terminals")}
+    >
+      <Segmented
+        label={t("apps.system")}
+        value={os}
+        onChange={(v) => setOs(v as JoinOS)}
+        items={[system("unix", "macOS / Linux"), system("win", "Windows")]}
+      />
       {(
         [
           ["apps.joinPlain", ""],
@@ -167,7 +272,10 @@ function Line({ text, lang }: { text: string; lang: string }) {
     if (box.current) box.current.scrollLeft = box.current.scrollWidth;
   }, [text]);
   return (
-    <pre ref={box} className="no-bar m-0 overflow-x-auto rounded-md bg-fill px-3 py-2 text-[13px] whitespace-pre">
+    <pre
+      ref={box}
+      className="no-bar m-0 overflow-x-auto rounded-md bg-fill px-3 py-2 text-[13px] whitespace-pre"
+    >
       <code>
         <Code text={text} lang={lang} />
       </code>
@@ -176,14 +284,35 @@ function Line({ text, lang }: { text: string; lang: string }) {
 }
 
 /** A page of 应用管理: its header (back, title, its key) and its scrolling body. */
-function Page({ title, onBack, backLabel, busy, right, children }: { title: string; onBack: () => void; backLabel: string; busy?: boolean; right?: ReactNode; children: ReactNode }) {
+function Page({
+  title,
+  onBack,
+  backLabel,
+  busy,
+  right,
+  children,
+}: {
+  title: string;
+  onBack: () => void;
+  backLabel: string;
+  busy?: boolean;
+  right?: ReactNode;
+  children: ReactNode;
+}) {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <header className="flex h-10.5 shrink-0 items-center gap-1 px-1.5 pt-1.5">
-        <IconKey label={backLabel} onClick={onBack} tipSide="bottom" className="size-7">
+        <IconKey
+          label={backLabel}
+          onClick={onBack}
+          tipSide="bottom"
+          className="size-7"
+        >
           <ChevronLeft size={16} />
         </IconKey>
-        <h1 className="m-0 min-w-0 flex-1 truncate text-base font-semibold">{title}</h1>
+        <h1 className="m-0 min-w-0 flex-1 truncate text-base font-semibold">
+          {title}
+        </h1>
         {busy && <LoaderCircle size={14} className="animate-spin text-ink-4" />}
         {right}
       </header>
@@ -211,7 +340,12 @@ function PairingKey({ open }: { open: boolean }) {
   return (
     <label className="flex shrink-0 items-center gap-2 text-xs text-ink-2">
       {t("apps.pairing")}
-      <Switch label={t("apps.pairing")} on={open} disabled={busy} onChange={(v) => void set(v)} />
+      <Switch
+        label={t("apps.pairing")}
+        on={open}
+        disabled={busy}
+        onChange={(v) => void set(v)}
+      />
     </label>
   );
 }
@@ -234,10 +368,16 @@ function Needs() {
 /** 网页 in the list: it opens its logins and invites. */
 function AppRow({ a, onOpen }: { a: App; onOpen: () => void }) {
   return (
-    <button type="button" onClick={onOpen} className="g-press flex min-h-14 w-full items-center gap-3 rounded-lg px-2 text-left hover:bg-fill">
+    <button
+      type="button"
+      onClick={onOpen}
+      className="g-press flex min-h-14 w-full items-center gap-3 rounded-lg px-2 text-left hover:bg-fill"
+    >
       <Avatar src={a.avatar} name={t("term.panel")} size={32} />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-base font-medium">{t("term.panel")}</span>
+        <span className="block truncate text-base font-medium">
+          {t("term.panel")}
+        </span>
         <Seen a={a} />
       </span>
       <ChevronRight size={15} className="shrink-0 text-ink-4" />
@@ -253,12 +393,30 @@ function Seen({ a }: { a: App }) {
   // A computer is online while its executor is connected (Computer.online); another app, while it
   // has a connection (App.online counts them).
   const online = a.computer ? a.computer.online : !!a.online;
-  const used = a.host ? "" : online ? t("term.online") : ago(Math.max(a.computer?.seenAt ?? 0, a.lastSeenAt ?? 0) || a.createdAt || 0);
+  const used = a.host
+    ? ""
+    : online
+      ? t("term.online")
+      : ago(
+          Math.max(a.computer?.seenAt ?? 0, a.lastSeenAt ?? 0) ||
+            a.createdAt ||
+            0,
+        );
   const agents = a.computer ? marked(a.computer) : [];
-  const words = [used, a.web && a.logins ? t("apps.loginCount", { n: a.logins }) : "", a.computer?.os ? (systems[a.computer.os] ?? a.computer.os) : "", !a.host && a.computer?.shell ? t("apps.shell") : ""].filter(Boolean);
+  const words = [
+    used,
+    a.web && a.logins ? t("apps.loginCount", { n: a.logins }) : "",
+    a.computer?.os ? (systems[a.computer.os] ?? a.computer.os) : "",
+    !a.host && a.computer?.shell ? t("apps.shell") : "",
+  ].filter(Boolean);
   return (
     <span className="no-bar flex min-w-0 items-center gap-2.5 overflow-x-auto text-xs whitespace-nowrap text-ink-3 tabular-nums">
-      {online && !a.host ? <span className="-mr-1 size-1.5 shrink-0 rounded-full bg-run" aria-hidden /> : null}
+      {online && !a.host ? (
+        <span
+          className="-mr-1 size-1.5 shrink-0 rounded-full bg-run"
+          aria-hidden
+        />
+      ) : null}
       {words.map((w) => (
         <span key={w} className="shrink-0">
           {w}
@@ -291,39 +449,97 @@ function ItemRow({ a }: { a: App }) {
   const grant = useGrant(a);
   const m = a.computer;
   // What a person here may change of a computer that takes grants, connected (docs/exec.md "放开").
-  const grants: MenuItem[] = !a.host && m?.grant && m.online
-    ? [
-        m.shell
-          ? { icon: <SquareTerminal size={15} />, label: t("grant.shellOff"), run: () => void grant({ shell: false }) }
-          : { icon: <SquareTerminal size={15} />, label: t("grant.shellOn"), run: () => void grant({ shell: true }) },
-        { icon: <FolderOpen size={15} />, label: t("grant.addFolder"), run: () => setFolders(true) },
-      ]
-    : [];
+  const grants: MenuItem[] =
+    !a.host && m?.grant && m.online
+      ? [
+          m.shell
+            ? {
+                icon: <SquareTerminal size={15} />,
+                label: t("grant.shellOff"),
+                run: () => void grant({ shell: false }),
+              }
+            : {
+                icon: <SquareTerminal size={15} />,
+                label: t("grant.shellOn"),
+                run: () => void grant({ shell: true }),
+              },
+          {
+            icon: <FolderOpen size={15} />,
+            label: t("grant.addFolder"),
+            run: () => setFolders(true),
+          },
+        ]
+      : [];
   return (
     <div className="flex flex-col">
-      <div {...(a.host ? {} : menu.on)} className={cn("flex min-h-14 items-center gap-3 rounded-lg px-2", menu.at && "bg-fill")}>
-        {a.host ? <IrMark size={32} className="text-ink" /> : <AvatarKey label={t("term.avatar")} onClick={face.open} src={a.avatar} name={a.name} size={32} type={a.type} />}
+      <div
+        {...(a.host ? {} : menu.on)}
+        className={cn(
+          "flex min-h-14 items-center gap-3 rounded-lg px-2",
+          menu.at && "bg-fill",
+        )}
+      >
+        {a.host ? (
+          <IrMark size={32} className="text-ink" />
+        ) : (
+          <AvatarKey
+            label={t("term.avatar")}
+            onClick={face.open}
+            src={a.avatar}
+            name={a.name}
+            size={32}
+            type={a.type}
+          />
+        )}
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-2">
-            {renaming ? <Rename id={a.id} name={a.name} done={() => setRenaming(false)} /> : <span className="truncate text-base font-medium">{a.host ? "Iridium" : a.name}</span>}
-            {a.id === me?.app && !a.host && <span className="shrink-0 text-xs text-ink-3">{t("term.this")}</span>}
+            {renaming ? (
+              <Rename id={a.id} name={a.name} done={() => setRenaming(false)} />
+            ) : (
+              <span className="truncate text-base font-medium">
+                {a.host ? "Iridium" : a.name}
+              </span>
+            )}
+            {a.id === me?.app && !a.host && (
+              <span className="shrink-0 text-xs text-ink-3">
+                {t("term.this")}
+              </span>
+            )}
           </span>
           <Seen a={a} />
         </span>
         {a.host ? (
-          <span className="size-7 shrink-0 pointer-coarse:size-10" aria-hidden />
+          <span
+            className="size-7 shrink-0 pointer-coarse:size-10"
+            aria-hidden
+          />
         ) : (
           !renaming && (
-            <IconKey label={t("term.renameIt")} onClick={() => setRenaming(true)} className="size-7">
+            <IconKey
+              label={t("term.renameIt")}
+              onClick={() => setRenaming(true)}
+              className="size-7"
+            >
               <PencilLine size={14} />
             </IconKey>
           )
         )}
       </div>
       {face.crop}
-      {folders && m && <OpenFolder a={a} m={m} grant={grant} done={() => setFolders(false)} />}
+      {folders && m && (
+        <OpenFolder a={a} m={m} grant={grant} done={() => setFolders(false)} />
+      )}
       {face.input}
-      {!a.host && menu.menu([...grants, { icon: <Trash2 size={15} />, label: remove, sure: t("term.revokeSure"), run: () => void revoke(qc, a.id, a.name) }])}
+      {!a.host &&
+        menu.menu([
+          ...grants,
+          {
+            icon: <Trash2 size={15} />,
+            label: remove,
+            sure: t("term.revokeSure"),
+            run: () => void revoke(qc, a.id, a.name),
+          },
+        ])}
     </div>
   );
 }
@@ -334,15 +550,27 @@ function useGrant(a: App) {
   const qc = useQueryClient();
   return async (g: MachineGrant) => {
     const more = g.shell === true || !!g.roots?.length;
-    const waiting = more ? toast(t("grant.waiting", { name: a.name }), { timeout: 90000 }) : "";
+    const waiting = more
+      ? toast(t("grant.waiting", { name: a.name }), { timeout: 90000 })
+      : "";
     try {
       await api.grantMachine(a.id, g);
       void qc.invalidateQueries({ queryKey: ["apps"] });
       if (more) toast(t("grant.done"));
       return true;
     } catch (e) {
-      const code = e instanceof ApiError ? (e.body as { code?: string } | undefined)?.code : undefined;
-      toast(code === "declined" ? t("grant.declined", { name: a.name }) : code === "no_grant" ? t("grant.noGrant", { name: a.name }) : t("err.action"), { error: true, description: code ? undefined : errText(e) });
+      const code =
+        e instanceof ApiError
+          ? (e.body as { code?: string } | undefined)?.code
+          : undefined;
+      toast(
+        code === "declined"
+          ? t("grant.declined", { name: a.name })
+          : code === "no_grant"
+            ? t("grant.noGrant", { name: a.name })
+            : t("err.action"),
+        { error: true, description: code ? undefined : errText(e) },
+      );
       return false;
     } finally {
       if (waiting) toasts.close(waiting);
@@ -352,7 +580,17 @@ function useGrant(a: App) {
 
 /** 开放文件夹, under a computer's row: the folders it serves now, and a whole path there to add
  *  (confirmed at its terminal). Enter adds it, Escape closes. */
-function OpenFolder({ a, m, grant, done }: { a: App; m: Computer; grant: (g: MachineGrant) => Promise<boolean>; done: () => void }) {
+function OpenFolder({
+  a,
+  m,
+  grant,
+  done,
+}: {
+  a: App;
+  m: Computer;
+  grant: (g: MachineGrant) => Promise<boolean>;
+  done: () => void;
+}) {
   const [path, setPath] = useState("");
   const [busy, setBusy] = useState(false);
   const add = async () => {
@@ -376,7 +614,11 @@ function OpenFolder({ a, m, grant, done }: { a: App; m: Computer; grant: (g: Mac
               <SecondKey disabled={busy} onClick={done}>
                 {t("me.cancel")}
               </SecondKey>
-              <MainKey busy={busy} disabled={busy || !path.trim()} onClick={() => void add()}>
+              <MainKey
+                busy={busy}
+                disabled={busy || !path.trim()}
+                onClick={() => void add()}
+              >
                 {t("grant.allow")}
               </MainKey>
             </>
@@ -385,7 +627,9 @@ function OpenFolder({ a, m, grant, done }: { a: App; m: Computer; grant: (g: Mac
             <input
               autoFocus
               value={path}
-              placeholder={m.home ? `${m.home}${m.sep || "/"}…` : t("grant.folderPath")}
+              placeholder={
+                m.home ? `${m.home}${m.sep || "/"}…` : t("grant.folderPath")
+              }
               aria-label={t("grant.folderPath")}
               onChange={(e) => setPath(e.target.value)}
               onKeyDown={(e) => {
@@ -403,7 +647,7 @@ function OpenFolder({ a, m, grant, done }: { a: App; m: Computer; grant: (g: Mac
 }
 
 /** A row's menu, at the pointer on a right click, under the row on a long press. */
-function useRowMenu() {
+export function useRowMenu() {
   const [at, setAt] = useMenuAt();
   const box = useRef<HTMLDivElement>(null);
   const lp = useLongPress(() => {
@@ -416,12 +660,22 @@ function useRowMenu() {
     on: {
       ref: box,
       ...lp,
-      onContextMenu: (e: React.MouseEvent) => !lp.onContextMenu(e) && own(e) && (e.preventDefault(), setAt({ x: e.clientX, y: e.clientY })),
+      onContextMenu: (e: React.MouseEvent) =>
+        !lp.onContextMenu(e) &&
+        own(e) &&
+        (e.preventDefault(), setAt({ x: e.clientX, y: e.clientY })),
     },
     menu: (items: MenuItem[]) => (
       <Menu.Root open={at !== null} onOpenChange={(o) => !o && setAt(null)}>
         <Menu.Portal>
-          <Menu.Positioner anchor={anchor} side="bottom" align="start" sideOffset={4} collisionPadding={8} className="z-50">
+          <Menu.Positioner
+            anchor={anchor}
+            side="bottom"
+            align="start"
+            sideOffset={4}
+            collisionPadding={8}
+            className="z-50"
+          >
             <MenuItems items={items} />
           </Menu.Positioner>
         </Menu.Portal>
@@ -435,7 +689,8 @@ function useFacePick(id: string) {
   const qc = useQueryClient();
   const [picture, setPicture] = useState<string | null>(null);
   const file = useRef<HTMLInputElement>(null);
-  const drop = () => setPicture((old) => (old && URL.revokeObjectURL(old), null));
+  const drop = () =>
+    setPicture((old) => (old && URL.revokeObjectURL(old), null));
   const save = async (blob: Blob) => {
     try {
       await api.profile({ avatar: blob }, id);
@@ -455,7 +710,13 @@ function useFacePick(id: string) {
         hidden
         onChange={(e) => {
           const f = e.target.files?.[0];
-          if (f) setPicture((old) => (old && URL.revokeObjectURL(old), URL.createObjectURL(f)));
+          if (f)
+            setPicture(
+              (old) => (
+                old && URL.revokeObjectURL(old),
+                URL.createObjectURL(f)
+              ),
+            );
           e.target.value = "";
         }}
       />
@@ -487,20 +748,34 @@ function AppPage({ data, onBack }: { data: Apps; onBack: () => void }) {
       onBack={onBack}
       backLabel={t("settings.terminals")}
       right={
-        <IconKey label={me?.public ? t("term.invite") : t("term.needPublic")} disabled={!me?.public || making} onClick={() => setMaking(true)} tipSide="bottom" className="size-7">
+        <IconKey
+          label={me?.public ? t("term.invite") : t("term.needPublic")}
+          disabled={!me?.public || making}
+          onClick={() => setMaking(true)}
+          tipSide="bottom"
+          className="size-7"
+        >
           <Plus size={16} />
         </IconKey>
       }
     >
       {making && <InviteForm done={() => setMaking(false)} />}
-      <WebLogins logins={logins} invites={data.invites} onPasskeys={me?.public ? setKeys : undefined} />
+      <WebLogins
+        logins={logins}
+        invites={data.invites}
+        onPasskeys={me?.public ? setKeys : undefined}
+      />
     </Page>
   );
 }
 
 /** Rows under a title (a login's permissions, opened inline), else a plain list. */
 function Rows({ title, children }: { title?: string; children: ReactNode }) {
-  return title ? <Group title={title}>{children}</Group> : <section className="flex flex-col">{children}</section>;
+  return title ? (
+    <Group title={title}>{children}</Group>
+  ) : (
+    <section className="flex flex-col">{children}</section>
+  );
 }
 
 /** Removes app, ir_web's login or invite id; false if it failed. */
@@ -520,7 +795,17 @@ async function revoke(qc: QueryClient, id: string, name: string) {
 /** A login, as an app's row: its avatar (pressed, a new one), name (its key renames it), when it
  *  was last active, waiting or not; its permissions and removal in its menu (right click, a long
  *  press). */
-function LoginRow({ l, app, remove, onPasskeys }: { l: Login; app: string; remove: () => void; onPasskeys?: () => void }) {
+function LoginRow({
+  l,
+  app,
+  remove,
+  onPasskeys,
+}: {
+  l: Login;
+  app: string;
+  remove: () => void;
+  onPasskeys?: () => void;
+}) {
   const me = useMe().data;
   const [renaming, setRenaming] = useState(false);
   const [perms, setPerms] = useState(false);
@@ -528,57 +813,152 @@ function LoginRow({ l, app, remove, onPasskeys }: { l: Login; app: string; remov
   const menu = useRowMenu();
   return (
     <div className="flex flex-col">
-      <div {...menu.on} className={cn("flex min-h-12 items-center gap-3 rounded-lg px-2", menu.at && "bg-fill")}>
-        <AvatarKey label={t("term.avatar")} onClick={face.open} src={l.avatar} name={l.name} size={28} {...deviceBadge(l.device)} />
+      <div
+        {...menu.on}
+        className={cn(
+          "flex min-h-12 items-center gap-3 rounded-lg px-2",
+          menu.at && "bg-fill",
+        )}
+      >
+        <AvatarKey
+          label={t("term.avatar")}
+          onClick={face.open}
+          src={l.avatar}
+          name={l.name}
+          size={28}
+          {...deviceBadge(l.device)}
+        />
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-2">
-            {renaming ? <Rename id={l.id} name={l.name} done={() => setRenaming(false)} /> : <span className="truncate text-base">{l.name}</span>}
-            {l.id === me?.login && <span className="shrink-0 text-xs text-ink-3">{t("term.this")}</span>}
-            {!l.approvedAt && <span className="shrink-0 rounded-sm bg-fill-2 px-1.5 text-[11px] leading-[18px] text-ink-2">{t("apps.pending")}</span>}
+            {renaming ? (
+              <Rename id={l.id} name={l.name} done={() => setRenaming(false)} />
+            ) : (
+              <span className="truncate text-base">{l.name}</span>
+            )}
+            {l.id === me?.login && (
+              <span className="shrink-0 text-xs text-ink-3">
+                {t("term.this")}
+              </span>
+            )}
+            {!l.approvedAt && (
+              <span className="shrink-0 rounded-sm bg-fill-2 px-1.5 text-[11px] leading-[18px] text-ink-2">
+                {t("apps.pending")}
+              </span>
+            )}
           </span>
           <span className="flex items-center gap-1.5 text-xs whitespace-nowrap text-ink-3 tabular-nums">
-            {l.online ? <span className="size-1.5 shrink-0 rounded-full bg-run" aria-hidden /> : null}
-            {l.online ? t("term.online") : ago(l.lastSeenAt || l.createdAt || 0)}
-            {onPasskeys && l.passkeys ? ` · ${t("passkey.count", { n: l.passkeys })}` : null}
+            {l.online ? (
+              <span
+                className="size-1.5 shrink-0 rounded-full bg-run"
+                aria-hidden
+              />
+            ) : null}
+            {l.online
+              ? t("term.online")
+              : ago(l.lastSeenAt || l.createdAt || 0)}
+            {onPasskeys && l.passkeys
+              ? ` · ${t("passkey.count", { n: l.passkeys })}`
+              : null}
           </span>
         </span>
         {!renaming && (
-          <IconKey label={t("term.renameIt")} onClick={() => setRenaming(true)} className="size-7">
+          <IconKey
+            label={t("term.renameIt")}
+            onClick={() => setRenaming(true)}
+            className="size-7"
+          >
             <PencilLine size={14} />
           </IconKey>
         )}
       </div>
       {face.crop}
       {perms && (
-        <div ref={intoView} className="g-fade mb-2 ml-11 rounded-lg bg-fill/60 py-2">
-          <PermsEditor title={t("apps.loginPerms")} perms={l.perms} save={(p) => api.loginPerms(app, l.id, p)} />
+        <div
+          ref={intoView}
+          className="g-fade mb-2 ml-11 rounded-lg bg-fill/60 py-2"
+        >
+          <PermsEditor
+            title={t("apps.loginPerms")}
+            perms={l.perms}
+            save={(p) => api.loginPerms(app, l.id, p)}
+          />
         </div>
       )}
       {face.input}
       {menu.menu([
-        { icon: <SlidersHorizontal size={15} />, label: t("apps.perms"), run: () => setPerms((on) => !on) },
-        ...(onPasskeys ? [{ icon: <KeyRound size={15} />, label: t("passkey.menu"), run: onPasskeys }] : []),
-        { icon: <Trash2 size={15} />, label: t("apps.removeLogin"), sure: t("term.revokeSure"), run: remove },
+        {
+          icon: <SlidersHorizontal size={15} />,
+          label: t("apps.perms"),
+          run: () => setPerms((on) => !on),
+        },
+        ...(onPasskeys
+          ? [
+              {
+                icon: <KeyRound size={15} />,
+                label: t("passkey.menu"),
+                run: onPasskeys,
+              },
+            ]
+          : []),
+        {
+          icon: <Trash2 size={15} />,
+          label: t("apps.removeLogin"),
+          sure: t("term.revokeSure"),
+          run: remove,
+        },
       ])}
     </div>
   );
 }
 
 /** 网页's logins (the browsers' passkeys) and its unused invites as slots. */
-function WebLogins({ logins, invites, onPasskeys }: { logins: Login[]; invites: PendingInvite[]; onPasskeys?: (login: string) => void }) {
+function WebLogins({
+  logins,
+  invites,
+  onPasskeys,
+}: {
+  logins: Login[];
+  invites: PendingInvite[];
+  onPasskeys?: (login: string) => void;
+}) {
   const qc = useQueryClient();
   return (
     <Group title={t("apps.logins")}>
       {logins.map((l) => (
-        <LoginRow key={l.id} l={l} app="ir_web" remove={() => void revoke(qc, l.id, l.name)} onPasskeys={onPasskeys && (() => onPasskeys(l.id))} />
+        <LoginRow
+          key={l.id}
+          l={l}
+          app="ir_web"
+          remove={() => void revoke(qc, l.id, l.name)}
+          onPasskeys={onPasskeys && (() => onPasskeys(l.id))}
+        />
       ))}
       {invites.map((i) => (
         <div key={i.id} className="flex min-h-10 items-center gap-3 px-2">
           <Link2 size={15} className="mx-1.5 shrink-0 text-ink-3" />
-          <span className="min-w-0 flex-1 truncate text-base">{i.setup ? t("term.setup") : i.name || <span className="text-ink-3">{t("term.unnamed")}</span>}</span>
-          {i.claude && <span className="shrink-0 text-xs text-ink-3">{t("term.withClaude")}</span>}
-          {i.expiresAt ? <span className="text-xs text-ink-3 tabular-nums">{t("term.until", { time: clock(i.expiresAt) })}</span> : null}
-          <SureKey label={t("term.revoke")} sure={t("term.revokeSure")} run={() => void revoke(qc, i.id, i.name || t("term.unnamed"))} className="size-7">
+          <span className="min-w-0 flex-1 truncate text-base">
+            {i.setup
+              ? t("term.setup")
+              : i.name || (
+                  <span className="text-ink-3">{t("term.unnamed")}</span>
+                )}
+          </span>
+          {i.claude && (
+            <span className="shrink-0 text-xs text-ink-3">
+              {t("term.withClaude")}
+            </span>
+          )}
+          {i.expiresAt ? (
+            <span className="text-xs text-ink-3 tabular-nums">
+              {t("term.until", { time: clock(i.expiresAt) })}
+            </span>
+          ) : null}
+          <SureKey
+            label={t("term.revoke")}
+            sure={t("term.revokeSure")}
+            run={() => void revoke(qc, i.id, i.name || t("term.unnamed"))}
+            className="size-7"
+          >
             <Trash2 size={14} />
           </SureKey>
         </div>
@@ -589,11 +969,19 @@ function WebLogins({ logins, invites, onPasskeys }: { logins: Login[]; invites: 
 }
 
 /** The marks of the devices a browser of 网页 is on (api.Device); "none" shows none. */
-const DEVICE_MARKS: Record<Device, LucideIcon> = { computer: Monitor, laptop: Laptop, phone: Smartphone, none: EyeOff };
+const DEVICE_MARKS: Record<Device, LucideIcon> = {
+  computer: Monitor,
+  laptop: Laptop,
+  phone: Smartphone,
+  none: EyeOff,
+};
 const DEVICE_CHOICES: Device[] = ["computer", "laptop", "phone", "none"];
 
 /** A login's avatar's corner: the device it was last on (its browser's passkey's). */
-const deviceBadge = (d?: Device) => (d && d !== "none" ? { badge: DEVICE_MARKS[d], badgeLabel: t(`device.${d}`) } : {});
+const deviceBadge = (d?: Device) =>
+  d && d !== "none"
+    ? { badge: DEVICE_MARKS[d], badgeLabel: t(`device.${d}`) }
+    : {};
 
 /** A day as "11-10". */
 const day = (ms: number) => {
@@ -608,7 +996,10 @@ const day = (ms: number) => {
 function PasskeysPage({ login, onBack }: { login: Login; onBack: () => void }) {
   useLang();
   const qc = useQueryClient();
-  const q = useQuery({ queryKey: ["passkeys", login.id], queryFn: () => api.passkeys(login.id) });
+  const q = useQuery({
+    queryKey: ["passkeys", login.id],
+    queryFn: () => api.passkeys(login.id),
+  });
   const at = `passkeys:${login.id}`;
   const changed = () => {
     void qc.invalidateQueries({ queryKey: ["passkeys", login.id] });
@@ -630,16 +1021,29 @@ function PasskeysPage({ login, onBack }: { login: Login; onBack: () => void }) {
       backLabel={t("term.panel")}
       busy={q.isFetching}
       right={
-        <IconKey label={t("passkey.add")} onClick={() => void add()} tipSide="bottom" className="size-7">
+        <IconKey
+          label={t("passkey.add")}
+          onClick={() => void add()}
+          tipSide="bottom"
+          className="size-7"
+        >
           <Plus size={16} />
         </IconKey>
       }
     >
       <SecretHere at={at} />
-      {q.isError && <p className="m-0 text-sm text-ink-3">{errText(q.error)}</p>}
+      {q.isError && (
+        <p className="m-0 text-sm text-ink-3">{errText(q.error)}</p>
+      )}
       <section className="flex flex-col">
         {keys.map((k) => (
-          <PasskeyRow key={k.id} login={login.id} k={k} last={keys.length === 1} changed={changed} />
+          <PasskeyRow
+            key={k.id}
+            login={login.id}
+            k={k}
+            last={keys.length === 1}
+            changed={changed}
+          />
         ))}
         {q.data?.links.map((l) => (
           <PasskeyLinkRow key={l.id} login={login.id} l={l} changed={changed} />
@@ -649,7 +1053,17 @@ function PasskeysPage({ login, onBack }: { login: Login; onBack: () => void }) {
   );
 }
 
-function PasskeyRow({ login, k, last, changed }: { login: string; k: Passkey; last: boolean; changed: () => void }) {
+function PasskeyRow({
+  login,
+  k,
+  last,
+  changed,
+}: {
+  login: string;
+  k: Passkey;
+  last: boolean;
+  changed: () => void;
+}) {
   const Mark = DEVICE_MARKS[k.device] ?? Monitor;
   const set = async (d: Device | "") => {
     try {
@@ -669,8 +1083,17 @@ function PasskeyRow({ login, k, last, changed }: { login: string; k: Passkey; la
     }
   };
   const chosen: Device | "" = k.auto ? "" : k.device;
-  const item = (d: Device | "", Icon: LucideIcon, label: string, hint?: string) => (
-    <Menu.Item key={d || "auto"} onClick={() => void set(d)} className="flex min-h-8 cursor-default items-center gap-2.5 rounded-md px-2.5 py-1 text-base outline-none select-none data-highlighted:bg-fill pointer-coarse:min-h-11">
+  const item = (
+    d: Device | "",
+    Icon: LucideIcon,
+    label: string,
+    hint?: string,
+  ) => (
+    <Menu.Item
+      key={d || "auto"}
+      onClick={() => void set(d)}
+      className="flex min-h-8 cursor-default items-center gap-2.5 rounded-md px-2.5 py-1 text-base outline-none select-none data-highlighted:bg-fill pointer-coarse:min-h-11"
+    >
       <Icon size={15} className="shrink-0 text-ink-2" />
       <span className="flex min-w-0 flex-1 flex-col">
         <span className="truncate">{label}</span>
@@ -682,7 +1105,9 @@ function PasskeyRow({ login, k, last, changed }: { login: string; k: Passkey; la
   return (
     <div className="flex min-h-14 items-center gap-3 rounded-lg px-2">
       <Menu.Root>
-        <Tip label={`${t("passkey.device")} · ${k.auto ? t("passkey.auto") : t(`device.${k.device}`)}`}>
+        <Tip
+          label={`${t("passkey.device")} · ${k.auto ? t("passkey.auto") : t(`device.${k.device}`)}`}
+        >
           <Menu.Trigger
             aria-label={t("passkey.device")}
             className="g-press grid size-8 shrink-0 place-items-center rounded-lg bg-fill text-ink-2 outline-none hover:bg-fill-2 focus-visible:ring-2 focus-visible:ring-edge data-popup-open:bg-fill-2 data-popup-open:text-ink"
@@ -691,12 +1116,28 @@ function PasskeyRow({ login, k, last, changed }: { login: string; k: Passkey; la
           </Menu.Trigger>
         </Tip>
         <Menu.Portal>
-          <Menu.Positioner side="bottom" align="start" sideOffset={4} collisionPadding={8} className="z-50">
-            <Menu.Popup finalFocus={false} className="g-unfold glass thick float max-w-[calc(100vw-16px)] min-w-48 rounded-lg p-1.5 text-ink outline-none">
+          <Menu.Positioner
+            side="bottom"
+            align="start"
+            sideOffset={4}
+            collisionPadding={8}
+            className="z-50"
+          >
+            <Menu.Popup
+              finalFocus={false}
+              className="g-unfold glass thick float max-w-[calc(100vw-16px)] min-w-48 rounded-lg p-1.5 text-ink outline-none"
+            >
               <div className="flex flex-col">
-                {item("", MonitorSmartphone, t("passkey.auto"), t("passkey.autoHint"))}
+                {item(
+                  "",
+                  MonitorSmartphone,
+                  t("passkey.auto"),
+                  t("passkey.autoHint"),
+                )}
                 <div className="mx-2 my-1 border-t border-edge" />
-                {DEVICE_CHOICES.map((d) => item(d, DEVICE_MARKS[d], t(`device.${d}`)))}
+                {DEVICE_CHOICES.map((d) =>
+                  item(d, DEVICE_MARKS[d], t(`device.${d}`)),
+                )}
               </div>
             </Menu.Popup>
           </Menu.Positioner>
@@ -705,17 +1146,31 @@ function PasskeyRow({ login, k, last, changed }: { login: string; k: Passkey; la
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-2">
           <span className="truncate text-base">{k.name}</span>
-          {k.current && <span className="shrink-0 text-xs text-ink-3">{t("term.this")}</span>}
-          {k.auto && <span className="shrink-0 rounded-sm bg-fill px-1 text-[11px] leading-4 text-ink-2">{t("passkey.auto")}</span>}
+          {k.current && (
+            <span className="shrink-0 text-xs text-ink-3">
+              {t("term.this")}
+            </span>
+          )}
+          {k.auto && (
+            <span className="shrink-0 rounded-sm bg-fill px-1 text-[11px] leading-4 text-ink-2">
+              {t("passkey.auto")}
+            </span>
+          )}
         </span>
         <span className="flex items-center gap-1.5 text-xs whitespace-nowrap text-ink-3 tabular-nums">
           <span className="truncate">
-            {t("passkey.made", { date: day(k.createdAt) })} · {t("passkey.used", { ago: ago(k.lastUsedAt) })}
+            {t("passkey.made", { date: day(k.createdAt) })} ·{" "}
+            {t("passkey.used", { ago: ago(k.lastUsedAt) })}
           </span>
         </span>
       </span>
       {!last && (
-        <SureKey label={t("passkey.remove")} sure={t("term.revokeSure")} run={() => void remove()} className="size-7">
+        <SureKey
+          label={t("passkey.remove")}
+          sure={t("term.revokeSure")}
+          run={() => void remove()}
+          className="size-7"
+        >
           <Trash2 size={14} />
         </SureKey>
       )}
@@ -724,7 +1179,15 @@ function PasskeyRow({ login, k, last, changed }: { login: string; k: Passkey; la
 }
 
 /** A link to add a passkey not used yet: 等待新设备, till when, its ✕ takes it back. */
-function PasskeyLinkRow({ login, l, changed }: { login: string; l: PasskeyLink; changed: () => void }) {
+function PasskeyLinkRow({
+  login,
+  l,
+  changed,
+}: {
+  login: string;
+  l: PasskeyLink;
+  changed: () => void;
+}) {
   const drop = async () => {
     try {
       await api.dropPasskeyLink(login, l.id);
@@ -736,9 +1199,18 @@ function PasskeyLinkRow({ login, l, changed }: { login: string; l: PasskeyLink; 
   return (
     <div className="flex min-h-12 items-center gap-3 px-2">
       <Link2 size={15} className="mx-2 shrink-0 text-ink-3" />
-      <span className="min-w-0 flex-1 truncate text-base text-ink-2">{t("passkey.waiting")}</span>
-      <span className="text-xs text-ink-3 tabular-nums">{t("term.until", { time: clock(l.expiresAt) })}</span>
-      <SureKey label={t("term.revoke")} sure={t("term.revokeSure")} run={() => void drop()} className="size-7">
+      <span className="min-w-0 flex-1 truncate text-base text-ink-2">
+        {t("passkey.waiting")}
+      </span>
+      <span className="text-xs text-ink-3 tabular-nums">
+        {t("term.until", { time: clock(l.expiresAt) })}
+      </span>
+      <SureKey
+        label={t("term.revoke")}
+        sure={t("term.revokeSure")}
+        run={() => void drop()}
+        className="size-7"
+      >
         <Trash2 size={14} />
       </SureKey>
     </div>
@@ -789,9 +1261,15 @@ function InviteForm({ done }: { done: () => void }) {
         <div className="flex items-center gap-2 px-0.5">
           <span className="min-w-0 flex-1">
             <span className="block text-sm">{t("term.withClaude")}</span>
-            <span className="block text-xs text-ink-3">{t("term.withClaudeHint")}</span>
+            <span className="block text-xs text-ink-3">
+              {t("term.withClaudeHint")}
+            </span>
           </span>
-          <Switch label={t("term.withClaude")} on={withClaude} onChange={setWithClaude} />
+          <Switch
+            label={t("term.withClaude")}
+            on={withClaude}
+            onChange={setWithClaude}
+          />
         </div>
       )}
       <div className="flex justify-end gap-2">
@@ -808,11 +1286,20 @@ function InviteForm({ done }: { done: () => void }) {
 const AGENTS = ["claude", "codex", "pi", "dsh", "agy"];
 const ALL = "*";
 const permsOf = (p?: Perms): Perms => p ?? { agents: [ALL], scope: [ALL] };
-const same = (a: string[], b: string[]) => a.length === b.length && a.every((v, i) => v === b[i]);
+const same = (a: string[], b: string[]) =>
+  a.length === b.length && a.every((v, i) => v === b[i]);
 
 /** What an app may use: its agents (all, or some) and its scope (all, or places "应用名:路径").
  *  Changed here, saved by whoever approves. */
-function PermsEditor({ perms, save: put, title }: { perms?: Perms; save: (p: Perms) => Promise<Perms>; title?: string }) {
+function PermsEditor({
+  perms,
+  save: put,
+  title,
+}: {
+  perms?: Perms;
+  save: (p: Perms) => Promise<Perms>;
+  title?: string;
+}) {
   const qc = useQueryClient();
   const was = permsOf(perms);
   const [p, setP] = useState<Perms>(was);
@@ -828,11 +1315,14 @@ function PermsEditor({ perms, save: put, title }: { perms?: Perms; save: (p: Per
   const flipAgent = (a: string, on: boolean) =>
     setP({
       ...p,
-      agents: on ? [...p.agents.filter((x) => x !== ALL), a] : p.agents.filter((x) => x !== a),
+      agents: on
+        ? [...p.agents.filter((x) => x !== ALL), a]
+        : p.agents.filter((x) => x !== a),
     });
   const addPlace = () => {
     const v = place.trim();
-    if (v && !p.scope.includes(v)) setP({ ...p, scope: [...p.scope.filter((x) => x !== ALL), v] });
+    if (v && !p.scope.includes(v))
+      setP({ ...p, scope: [...p.scope.filter((x) => x !== ALL), v] });
     setPlace("");
   };
   const save = async () => {
@@ -851,7 +1341,11 @@ function PermsEditor({ perms, save: put, title }: { perms?: Perms; save: (p: Per
     <Rows title={title}>
       <div className="flex min-h-10 items-center gap-2 px-2">
         <span className="min-w-0 flex-1 text-sm">{t("apps.allAgents")}</span>
-        <Switch label={t("apps.allAgents")} on={allAgents} onChange={(on) => setP({ ...p, agents: on ? [ALL] : [] })} />
+        <Switch
+          label={t("apps.allAgents")}
+          on={allAgents}
+          onChange={(on) => setP({ ...p, agents: on ? [ALL] : [] })}
+        />
       </div>
       {!allAgents && (
         <div className="g-fade flex flex-wrap gap-1.5 px-2 pb-2">
@@ -874,15 +1368,29 @@ function PermsEditor({ perms, save: put, title }: { perms?: Perms; save: (p: Per
       )}
       <div className="flex min-h-10 items-center gap-2 px-2">
         <span className="min-w-0 flex-1 text-sm">{t("apps.allScope")}</span>
-        <Switch label={t("apps.allScope")} on={allScope} onChange={(on) => setP({ ...p, scope: on ? [ALL] : [] })} />
+        <Switch
+          label={t("apps.allScope")}
+          on={allScope}
+          onChange={(on) => setP({ ...p, scope: on ? [ALL] : [] })}
+        />
       </div>
       {!allScope && (
         <div className="g-fade flex flex-col gap-1 px-2 pb-2">
-          {p.scope.length === 0 && <p className="m-0 text-xs text-ink-3">{t("apps.scopeNone")}</p>}
+          {p.scope.length === 0 && (
+            <p className="m-0 text-xs text-ink-3">{t("apps.scopeNone")}</p>
+          )}
           {p.scope.map((s) => (
             <div key={s} className="flex min-h-8 items-center gap-2">
-              <code className="min-w-0 flex-1 truncate font-mono text-xs">{s}</code>
-              <IconKey label={t("apps.scopeRemove")} onClick={() => setP({ ...p, scope: p.scope.filter((x) => x !== s) })} className="size-6">
+              <code className="min-w-0 flex-1 truncate font-mono text-xs">
+                {s}
+              </code>
+              <IconKey
+                label={t("apps.scopeRemove")}
+                onClick={() =>
+                  setP({ ...p, scope: p.scope.filter((x) => x !== s) })
+                }
+                className="size-6"
+              >
                 <X size={13} />
               </IconKey>
             </div>
@@ -920,7 +1428,15 @@ function PermsEditor({ perms, save: put, title }: { perms?: Perms; save: (p: Per
 }
 
 /** The name in place, chosen whole: Enter or leaving saves it, Escape keeps the old one. */
-function Rename({ id, name: was, done }: { id: string; name: string; done: () => void }) {
+function Rename({
+  id,
+  name: was,
+  done,
+}: {
+  id: string;
+  name: string;
+  done: () => void;
+}) {
   const qc = useQueryClient();
   const [name, setName] = useState(was);
   const gone = useRef(false);
