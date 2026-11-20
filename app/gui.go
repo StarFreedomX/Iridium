@@ -91,6 +91,12 @@ func gui() int {
 
 	u.menu = u.app.Menu.New()
 	u.tray = u.app.SystemTray.New().SetIcon(trayIcon).SetMenu(u.menu)
+	if runtime.GOOS == "darwin" {
+		// The menu bar's own kind of icon: the mark's shape alone, the bar tinting it, at its size
+		// (kumo, 2026-11-20: the coloured one stood out too large).
+		mark, _ := assets.ReadFile("assets/tray-mac.png")
+		u.tray.SetTemplateIcon(mark)
+	}
 	u.tray.SetTooltip("Iridium")
 	u.tray.OnClick(u.show)
 	u.redraw()
@@ -111,15 +117,6 @@ func pageOf(c Config) string {
 		return s.URL + "/"
 	}
 	return "/"
-}
-
-// loggedIn marks whether the window is logged in to address.
-func loggedIn(address string, in bool) {
-	_, _ = updateConfig(func(c *Config) {
-		if s := c.server(address); s != nil {
-			s.LoggedIn = in
-		}
-	})
 }
 
 func (u *ui) show() {
@@ -152,6 +149,19 @@ func (u *ui) message(w application.Window, msg string, o *application.OriginInfo
 		return
 	}
 	switch verb {
+	case "me":
+		// Who the window is there, for the app's own page.
+		var me struct{ Name, Avatar string }
+		if json.Unmarshal([]byte(arg), &me) == nil && len(me.Avatar) < 512<<10 && (me.Avatar == "" || strings.HasPrefix(me.Avatar, "data:image/")) {
+			_, _ = updateConfig(func(c *Config) {
+				if s := c.server(server); s != nil {
+					s.LoggedIn, s.Name, s.Avatar = true, me.Name, me.Avatar
+				}
+			})
+		}
+	case "home":
+		// The app's own page, with the Iridiums in its list.
+		u.win.SetURL("/")
 	case "needlogin":
 		// The Iridium's login page, in the app: the app's own instead (its passkey is in the browser).
 		if _, err := updateConfig(func(c *Config) { c.Current = server; c.server(server).LoggedIn = false }); err == nil {
@@ -207,13 +217,14 @@ func (u *ui) message(w application.Window, msg string, o *application.OriginInfo
 	}
 }
 
-// local answers the app's own login page: the list, the one chosen, and logging in to it (an
-// address typed is checked to be an Iridium and put in the list first).
+// local answers the app's own page (web/src/appwin): the Iridiums in the list, with who the
+// window is at those logged in to; opening one, logging in to one from the browser (an address
+// typed is checked to be an Iridium and put in the list first), removing one.
 func (u *ui) local(w application.Window, verb, arg string) {
 	state := func(c Config) map[string]any {
-		list := []map[string]string{}
+		list := []map[string]any{}
 		for _, s := range c.Servers {
-			list = append(list, map[string]string{"url": s.URL, "host": hostOf(s.URL)})
+			list = append(list, map[string]any{"url": s.URL, "host": hostOf(s.URL), "loggedIn": s.LoggedIn, "name": s.Name, "avatar": s.Avatar})
 		}
 		return map[string]any{"servers": list, "current": c.current()}
 	}
@@ -227,12 +238,13 @@ func (u *ui) local(w application.Window, verb, arg string) {
 	case "hello":
 		c, _ := loadConfig()
 		reply(w, state(c))
-	case "select":
-		if c, err := updateConfig(func(c *Config) {
-			if c.server(arg) != nil {
-				c.Current = arg
-			}
-		}); err == nil {
+	case "open":
+		if c, _ := loadConfig(); c.server(arg) != nil {
+			u.switchTo(arg)
+		}
+	case "remove":
+		if c, err := updateConfig(func(c *Config) { c.remove(arg) }); err == nil {
+			u.joins.Sync(c)
 			application.InvokeAsync(u.redraw)
 			reply(w, state(c))
 		}
@@ -262,16 +274,27 @@ func (u *ui) local(w application.Window, verb, arg string) {
 				st := state(c)
 				st["added"] = true
 				reply(w, st)
-			} else if c, err = updateConfig(func(c *Config) { c.Current = a }); err != nil {
-				return
 			}
 			name := c.Name
 			if name == "" {
 				name = join.MachineName()
 			}
-			browserLogin(a, name, u.app.Browser.OpenURL, func(m map[string]string) { reply(w, m) }, func(link string) {
-				loggedIn(a, true)
+			browserLogin(a, name, u.app.Browser.OpenURL, func(m map[string]string) {
+				m["server"] = a
+				reply(w, m)
+			}, func(link, who string) {
+				_, _ = updateConfig(func(c *Config) {
+					if s := c.server(a); s != nil {
+						s.LoggedIn = true
+						if who != "" {
+							s.Name = who
+						}
+					}
+					c.Current = a
+				})
+				application.InvokeAsync(u.redraw)
 				u.win.SetURL(link)
+				u.show()
 			})
 		}()
 	}
@@ -492,7 +515,7 @@ func (u *ui) redraw() {
 		host := hostOf(s.URL)
 		state := "未接入"
 		if !s.Off {
-			state = u.joins.Status(s.URL)
+			state = brief(u.joins.Status(s.URL))
 		}
 		sub := m.AddSubmenu(fmt.Sprintf("%s · %s", host, state))
 		show := sub.AddCheckbox("在窗口中显示", s.URL == cur)
@@ -604,4 +627,28 @@ func appLog() func(string, ...any) {
 		}
 	}
 	return log.Printf
+}
+
+// brief is a join's last word as the tray's menu says it: a state, short; the whole line is in
+// the log.
+func brief(line string) string {
+	switch {
+	case line == "":
+		return "连接中"
+	case strings.HasPrefix(line, "已连接"), strings.HasPrefix(line, "可访问"):
+		return "已连接"
+	case strings.HasPrefix(line, "配对码"):
+		code, _, _ := strings.Cut(strings.TrimPrefix(line, "配对码 "), "：")
+		return "配对码 " + code
+	case strings.Contains(line, "runs here"):
+		return "已由其他程序接入"
+	case strings.HasPrefix(line, "连接中"), strings.HasPrefix(line, "已断开"):
+		return line
+	case strings.Contains(line, "没开配对"):
+		return "未开配对"
+	}
+	if r := []rune(line); len(r) > 16 {
+		return string(r[:16]) + "…"
+	}
+	return line
 }

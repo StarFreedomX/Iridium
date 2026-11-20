@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 )
 
 type appStartReply struct {
@@ -13,7 +14,7 @@ type appStartReply struct {
 }
 
 type appPollReply struct {
-	Status, Ticket string
+	Status, Ticket, Name string
 }
 
 // startApp is the app's first step: no cookie, no Origin (not a page).
@@ -69,7 +70,7 @@ func TestAppLogin(t *testing.T) {
 	wantStatus(t, h.do(req{method: "POST", path: "/_ir/api/app/answer", body: appIDRequest{ID: s.ID, Allow: false}}), http.StatusConflict)
 
 	p, _ := h.pollApp(s.ID, "the app's secret")
-	if p.Status != "allowed" || p.Ticket == "" {
+	if p.Status != "allowed" || p.Ticket == "" || p.Name != "Kumo" {
 		t.Fatalf("poll after allowing: %+v", p)
 	}
 	h.secrets = append(h.secrets, p.Ticket)
@@ -80,10 +81,16 @@ func TestAppLogin(t *testing.T) {
 	// The app's web view: no cookie of its own yet; the ticket makes it the same login.
 	h.cookie = ""
 	w := h.do(req{path: "/_ir/app/finish?ticket=" + p.Ticket})
-	wantStatus(t, w, http.StatusFound)
-	if loc := w.Header().Get("Location"); loc != "/" || h.cookie == "" || h.cookie == browser {
-		t.Fatalf("finish: to %q, cookie set %v", loc, h.cookie != "")
+	wantStatus(t, w, http.StatusOK)
+	// On to the page from this site's own page (a redirect would not carry the Strict cookie).
+	if !strings.Contains(w.Body.String(), `http-equiv="refresh" content="0;url=/"`) || h.cookie == "" || h.cookie == browser {
+		t.Fatalf("finish: %q, cookie set %v", w.Body.String(), h.cookie != "")
 	}
+	if c := w.Result().Cookies()[0]; c.MaxAge != int(AppTimeout/time.Second) {
+		t.Fatalf("the app's cookie lasts %ds", c.MaxAge)
+	}
+	// Long: unused for days past the browser's idle limit, still in.
+	h.clock.Advance(3 * 24 * time.Hour)
 	if got, code := h.whoami(); code != http.StatusOK || got.Login != me.Login {
 		t.Fatalf("the app is %+v (%d), want %s", got, code, me.Login)
 	}

@@ -125,8 +125,10 @@ func decodeJSON(rw http.ResponseWriter, r *http.Request, v any) bool {
 	return true
 }
 
-func sessionCookie(token string) *http.Cookie {
-	return &http.Cookie{Name: CookieName, Value: token, Path: "/", MaxAge: int(AbsoluteTimeout / time.Second),
+func sessionCookie(token string) *http.Cookie { return cookieFor(token, AbsoluteTimeout) }
+
+func cookieFor(token string, life time.Duration) *http.Cookie {
+	return &http.Cookie{Name: CookieName, Value: token, Path: "/", MaxAge: int(life / time.Second),
 		Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode}
 }
 

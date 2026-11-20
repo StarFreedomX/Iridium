@@ -36,7 +36,7 @@ var logins = struct {
 
 // browserLogin asks server for a login, opens its page in the browser, tells said the code to
 // check, and once the person allows it calls done with the address that logs the web view in.
-func browserLogin(server, name string, open func(string) error, said func(map[string]string), done func(string)) {
+func browserLogin(server, name string, open func(string) error, said func(map[string]string), done func(link, who string)) {
 	ctx, cancel := context.WithTimeout(context.Background(), 11*time.Minute)
 	logins.mu.Lock()
 	if stop := logins.m[server]; stop != nil {
@@ -46,18 +46,19 @@ func browserLogin(server, name string, open func(string) error, said func(map[st
 	logins.mu.Unlock()
 	go func() {
 		defer cancel()
-		ticket, err := loginFlow(ctx, server, name, open, said)
+		ticket, who, err := loginFlow(ctx, server, name, open, said)
 		switch {
 		case errors.Is(err, context.Canceled):
 		case err != nil:
 			said(map[string]string{"error": err.Error()})
 		default:
-			done(server + "/_ir/app/finish?ticket=" + ticket)
+			done(server+"/_ir/app/finish?ticket="+ticket, who)
 		}
 	}()
 }
 
-func loginFlow(ctx context.Context, server, name string, open func(string) error, said func(map[string]string)) (string, error) {
+// loginFlow is the ticket, and the name of the login that allowed it.
+func loginFlow(ctx context.Context, server, name string, open func(string) error, said func(map[string]string)) (string, string, error) {
 	raw := make([]byte, 32)
 	_, _ = rand.Read(raw)
 	secret := base64.RawURLEncoding.EncodeToString(raw)
@@ -67,35 +68,35 @@ func loginFlow(ctx context.Context, server, name string, open func(string) error
 		var se statusError
 		if errors.As(err, &se) && (se == http.StatusNotFound || se == http.StatusMethodNotAllowed || se == http.StatusForbidden) {
 			// An Iridium from before: no such route (a page's POST there, 403 for its Origin).
-			return "", fmt.Errorf("%s 的版本不支持应用登录，请先更新", hostOf(server))
+			return "", "", fmt.Errorf("%s 的版本不支持应用登录，请先更新", hostOf(server))
 		}
-		return "", fmt.Errorf("无法登录：%v", err)
+		return "", "", fmt.Errorf("无法登录：%v", err)
 	}
 	if !strings.HasPrefix(st.URL, server+"/") {
-		return "", errors.New("无法登录：服务器给的地址不对")
+		return "", "", errors.New("无法登录：服务器给的地址不对")
 	}
 	said(map[string]string{"code": st.Code})
 	if err := open(st.URL); err != nil {
-		return "", fmt.Errorf("无法打开浏览器：%v", err)
+		return "", "", fmt.Errorf("无法打开浏览器：%v", err)
 	}
 	for {
 		select {
 		case <-ctx.Done():
-			return "", ctx.Err()
+			return "", "", ctx.Err()
 		case <-time.After(2 * time.Second):
 		}
-		var p struct{ Status, Ticket string }
+		var p struct{ Status, Ticket, Name string }
 		err := post(ctx, server+"/_ir/api/app/poll", map[string]string{"id": st.ID, "secret": secret}, &p)
 		var se statusError
 		switch {
 		case errors.As(err, &se) && se == http.StatusNotFound:
-			return "", errors.New("已过期，请重新登录")
+			return "", "", errors.New("已过期，请重新登录")
 		case err != nil:
 			continue // a weak link: asked again
 		case p.Status == "denied":
-			return "", errors.New("已拒绝")
+			return "", "", errors.New("已拒绝")
 		case p.Status == "allowed" && p.Ticket != "":
-			return p.Ticket, nil
+			return p.Ticket, p.Name, nil
 		}
 	}
 }

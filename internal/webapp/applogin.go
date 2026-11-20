@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -144,7 +145,11 @@ func (w *Web) apiAppPoll(rw http.ResponseWriter, r *http.Request, key string) {
 		t := gate.NewSecret()
 		l.ticket = gate.HashSecret(t)
 		l.expires = now.Add(AppTicketTTL)
-		writeJSON(rw, http.StatusOK, map[string]string{"status": "allowed", "ticket": t})
+		name := ""
+		if info, ok := w.core.Endpoint(l.login); ok {
+			name = info.Name
+		}
+		writeJSON(rw, http.StatusOK, map[string]string{"status": "allowed", "ticket": t, "name": name})
 	}
 }
 
@@ -178,7 +183,7 @@ func (w *Web) appFinish(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	token, s := w.newSessionLocked(found.login, found.passkey, r, now)
-	s.Device = DeviceComputer
+	s.Device, s.App, s.ExpiresAt = DeviceComputer, true, now.Add(AppTimeout)
 	err := w.commitLocked(Change{Sessions: []Session{s}})
 	w.mu.Unlock()
 	if err != nil {
@@ -187,8 +192,13 @@ func (w *Web) appFinish(rw http.ResponseWriter, r *http.Request) {
 	}
 	w.core.Seen(found.login)
 	w.log.Info("webapp: app logged in", "endpoint", found.login, "name", info.Name, "computer", found.name)
-	http.SetCookie(rw, sessionCookie(token))
-	http.Redirect(rw, r, "/", http.StatusFound)
+	http.SetCookie(rw, cookieFor(token, AppTimeout))
+	// On to the page from a page of this site, not by a redirect: the app's window came here from
+	// its own page, another site, and a redirect of that navigation is still that site's, which
+	// a SameSite=Strict cookie is not sent with: the page would have found itself logged out.
+	rw.Header().Set("Content-Type", "text/html; charset=utf-8")
+	rw.Header().Set("Cache-Control", "no-store")
+	_, _ = io.WriteString(rw, `<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=/"><title>Iridium</title>`)
 }
 
 type appIDRequest struct {

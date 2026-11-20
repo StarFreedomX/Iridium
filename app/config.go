@@ -23,6 +23,10 @@ type Server struct {
 	// LoggedIn: the window was logged in to it (its cookie there); till its page says otherwise,
 	// it is opened at once, not the app's login page.
 	LoggedIn bool `json:"loggedIn,omitempty"`
+	// Who the window is there (its page tells, irapp.ts), for the app's own page: name, face (a
+	// data: URL).
+	Name   string `json:"name,omitempty"`
+	Avatar string `json:"avatar,omitempty"`
 }
 
 // Config is the app's own, kept on this computer: what it joins and how. What an Iridium may do

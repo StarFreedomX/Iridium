@@ -70,7 +70,8 @@ type Session struct {
 	Device     string    `json:"device,omitempty"`
 	CreatedAt  time.Time `json:"createdAt"`
 	LastSeenAt time.Time `json:"lastSeenAt"`
-	ExpiresAt  time.Time `json:"expiresAt"` // absolute limit
+	ExpiresAt  time.Time `json:"expiresAt"`     // absolute limit
+	App        bool      `json:"app,omitempty"` // the desktop app's (applogin.go): its longer limits
 }
 
 // State is everything ir_web persists.

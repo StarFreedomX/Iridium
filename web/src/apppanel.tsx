@@ -1,15 +1,12 @@
 // The desktop app's panel (appkey.tsx): what the app tells (irapp.ts), and what it is asked.
 // Anything that gives this Iridium more of the computer the app asks of the person itself.
 import { Check, FolderPlus, Plus, X } from "lucide-react";
-import { useState } from "react";
 import { t } from "./i18n";
 import { ask, type AppState } from "./irapp";
 import { Group, Item } from "./settings";
 import { cn, IconKey, Switch } from "./ui";
 
 export default function AppPanel({ app }: { app: AppState }) {
-  const [adding, setAdding] = useState(false);
-  const [address, setAddress] = useState("");
   const me = app.computer;
   const set = (terms: object) => ask("set", JSON.stringify(terms));
   return (
@@ -20,7 +17,8 @@ export default function AppPanel({ app }: { app: AppState }) {
           <IconKey
             label={t("app.add")}
             className="-my-2 size-6"
-            onClick={() => setAdding(!adding)}
+            // The app's own page: the Iridiums, one added and logged in to from the browser there.
+            onClick={() => ask("home")}
           >
             <Plus size={14} />
           </IconKey>
@@ -61,30 +59,6 @@ export default function AppPanel({ app }: { app: AppState }) {
             )}
           </div>
         ))}
-        {adding && (
-          <form
-            className="g-fade mt-1 flex gap-1.5"
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (address.trim()) ask("add", address.trim());
-            }}
-          >
-            <input
-              autoFocus
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-              placeholder={t("app.addressPh")}
-              spellCheck={false}
-              className="h-8 min-w-0 flex-1 rounded-md bg-fill px-2.5 text-sm outline-none placeholder:text-ink-3"
-            />
-            <button
-              type="submit"
-              className="g-press h-8 shrink-0 rounded-md bg-ink px-3 text-sm text-paper"
-            >
-              {t("app.connect")}
-            </button>
-          </form>
-        )}
       </Group>
 
       <Group title={t("app.computer", { name: me.name })}>

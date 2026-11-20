@@ -40,6 +40,10 @@ const (
 	CookieName      = "__Host-ir" // a login's session cookie
 	IdleTimeout     = 12 * time.Hour
 	AbsoluteTimeout = 7 * 24 * time.Hour
+	// The desktop app's sessions (applogin.go): long, as an app stays logged in (kumo, 2026-11-20);
+	// one unused for AppIdleTimeout ends.
+	AppTimeout     = 365 * 24 * time.Hour
+	AppIdleTimeout = 60 * 24 * time.Hour
 	InviteTTL       = 10 * time.Minute
 
 	// Headers ir_web speaks for a login with (Satori's), set on every browser request it forwards.
@@ -516,7 +520,11 @@ func (w *Web) identify(r *http.Request, now time.Time) (Session, bool) {
 }
 
 func sessionExpired(s Session, now time.Time) bool {
-	return !now.Before(s.ExpiresAt) || now.Sub(s.LastSeenAt) >= IdleTimeout
+	idle := IdleTimeout
+	if s.App {
+		idle = AppIdleTimeout
+	}
+	return !now.Before(s.ExpiresAt) || now.Sub(s.LastSeenAt) >= idle
 }
 
 // unauthenticated sends a browser navigation to the login page, anything else a 401.
