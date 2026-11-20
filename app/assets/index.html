@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="color-scheme" content="light dark">
+<title>Iridium</title>
+<style>
+  body { margin: 0; height: 100vh; display: grid; place-items: center; font: 14px system-ui, sans-serif; background: Canvas; color: CanvasText; }
+  form { display: flex; flex-direction: column; gap: 10px; width: min(320px, 80vw); }
+  h1 { margin: 0 0 6px; font-size: 18px; font-weight: 600; }
+  input { padding: 8px 10px; border-radius: 8px; border: 1px solid color-mix(in oklch, CanvasText 20%, transparent); font: inherit; background: transparent; color: inherit; }
+  button { padding: 8px 10px; border-radius: 8px; border: 0; font: inherit; background: CanvasText; color: Canvas; }
+  p { margin: 0; min-height: 1.4em; color: color-mix(in oklch, CanvasText 55%, transparent); font-size: 12px; }
+</style>
+</head>
+<body>
+<form id="f">
+  <h1>Iridium</h1>
+  <input id="a" placeholder="服务器地址，如 ir.example.com" autofocus autocomplete="url" spellcheck="false">
+  <button>连接</button>
+  <p id="m"></p>
+</form>
+<script>
+  // The only thing this page asks of the app: an address to add (gui.go's RawMessageHandler takes
+  // it from this page's origin only).
+  document.getElementById("f").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const a = document.getElementById("a").value.trim();
+    if (!a) return;
+    if (!window._wails || !window._wails.invoke) {
+      document.getElementById("m").textContent = "无法连接应用";
+      return;
+    }
+    document.getElementById("m").textContent = "连接中";
+    window._wails.invoke("ir:add:" + a);
+  });
+  window.addEventListener("ir-app", (e) => (document.getElementById("m").textContent = e.detail.error || ""));
+</script>
+</body>
+</html>
