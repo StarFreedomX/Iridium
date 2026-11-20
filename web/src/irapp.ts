@@ -4,23 +4,22 @@
 // this Iridium more of the computer the app asks the person in a dialog of its own, never here.
 import { useSyncExternalStore } from "react";
 
+/** An Iridium in the app's list, with this computer as joined to it. */
 export type AppServer = {
   url: string;
   host: string;
   current: boolean;
   joined: boolean;
+  status: string; // the join's state, short
+  shell: boolean;
+  roots: string[]; // none: all
+  agents: { name: string; on: boolean }[];
 };
 export type AppState = {
   app: "ir-app";
   version: string;
+  name: string; // this computer's
   servers: AppServer[];
-  computer: {
-    name: string;
-    joined: boolean;
-    shell: boolean;
-    roots: string[];
-    status?: string;
-  };
   autostart: boolean;
   update: string; // a new version downloaded, waiting for a restart; "": none
   error?: string; // what the last ask came to

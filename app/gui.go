@@ -48,6 +48,15 @@ func gui() int {
 	u := &ui{}
 	u.joins = &Joins{Logf: logf, Changed: func() { application.InvokeAsync(u.redraw) }}
 	u.joins.Ask = u.ask
+	u.joins.AskEach = u.askEach
+	u.joins.Widened = func(server string, shell bool, roots, off []string) {
+		_, _ = updateConfig(func(c *Config) {
+			if s := c.server(server); s != nil {
+				s.NoShell, s.Roots, s.AgentsOff = !shell, roots, off
+			}
+		})
+		application.InvokeAsync(u.redraw)
+	}
 	u.app = application.New(application.Options{
 		Name:        "Iridium",
 		Description: "Iridium",
@@ -189,7 +198,11 @@ func (u *ui) message(w application.Window, msg string, o *application.OriginInfo
 	case "set":
 		go u.set(w, server, arg)
 	case "pickroot":
-		go u.pickRoot(w, server)
+		to := server
+		if arg != "" && c.server(arg) != nil {
+			to = arg
+		}
+		go u.pickRoot(w, to, server)
 	case "autostart":
 		if arg == "on" {
 			_ = u.app.Autostart.Enable()
@@ -229,6 +242,10 @@ func (u *ui) local(w application.Window, verb, arg string) {
 		return map[string]any{"servers": list, "current": c.current()}
 	}
 	switch verb {
+	case "askstate":
+		reply(w, askState())
+	case "answer":
+		answerAsk(arg)
 	case "clipboard":
 		// Its text field's ⌘V (web/src/appwin/bridge.ts): this page only, the app's own.
 		text, _ := u.app.Clipboard.Text()
@@ -303,35 +320,46 @@ func (u *ui) local(w application.Window, verb, arg string) {
 // hello is what an Iridium's page learns of the app: that it is in it, and the Iridiums in its
 // list (the window's switcher, which the page draws in its top bar).
 func (u *ui) hello(c Config, server string) map[string]any {
+	name := c.Name
+	if name == "" {
+		name = join.MachineName()
+	}
+	// Each Iridium in the list, with this computer as joined to it: its state, what it may do here.
 	list := []map[string]any{}
 	for _, s := range c.Servers {
-		list = append(list, map[string]any{"url": s.URL, "host": hostOf(s.URL), "current": s.URL == server, "joined": !s.Off})
-	}
-	me := map[string]any{"name": c.Name, "joined": false, "shell": false, "roots": []string{}}
-	if me["name"] == "" {
-		me["name"] = join.MachineName()
-	}
-	if s := c.server(server); s != nil {
-		me["joined"], me["shell"], me["status"] = !s.Off, !s.NoShell, u.joins.Status(server)
-		if s.Roots != nil {
-			me["roots"] = s.Roots
+		agents := []map[string]any{}
+		for _, a := range u.joins.Agents() {
+			agents = append(agents, map[string]any{"name": a.Agent, "on": !slices.Contains(s.AgentsOff, a.Agent)})
 		}
+		status := "未接入"
+		if !s.Off {
+			status = brief(u.joins.Status(s.URL))
+		}
+		roots := s.Roots
+		if roots == nil {
+			roots = []string{}
+		}
+		list = append(list, map[string]any{"url": s.URL, "host": hostOf(s.URL), "current": s.URL == server,
+			"joined": !s.Off, "status": status, "shell": !s.NoShell, "roots": roots, "agents": agents})
 	}
 	auto, _ := u.app.Autostart.IsEnabled()
 	u.mu.Lock()
 	ready := u.ready
 	u.mu.Unlock()
-	return map[string]any{"app": "ir-app", "version": version.Version, "servers": list, "computer": me, "autostart": auto, "update": ready}
+	return map[string]any{"app": "ir-app", "version": version.Version, "name": name, "servers": list, "autostart": auto, "update": ready}
 }
 
 // terms are what a page may ask to change of this computer for its Iridium: narrowing is done at
 // once; widening (joining it, command lines on, a folder more) only once the person here allows it
 // in a dialog of this computer's.
 type terms struct {
-	Joined *bool    `json:"joined"`
-	Shell  *bool    `json:"shell"`
-	Roots  []string `json:"roots"` // the folders kept: only fewer (a folder more is pickroot's)
-	All    bool     `json:"all"`   // every folder again
+	URL    string `json:"url"` // the Iridium they are for; "": the page's own
+	Joined *bool  `json:"joined"`
+	// Agents: each named turned on or off.
+	Agents map[string]bool `json:"agents"`
+	Shell  *bool           `json:"shell"`
+	Roots  []string        `json:"roots"` // the folders kept: only fewer (a folder more is pickroot's)
+	All    bool            `json:"all"`   // every folder again
 }
 
 func (u *ui) set(w application.Window, server, arg string) {
@@ -339,12 +367,21 @@ func (u *ui) set(w application.Window, server, arg string) {
 	if json.Unmarshal([]byte(arg), &t) != nil {
 		return
 	}
+	page := server
+	if t.URL != "" {
+		server = t.URL
+	}
 	c, _ := loadConfig()
 	s := c.server(server)
 	if s == nil {
 		return
 	}
 	var wider []string
+	for a, on := range t.Agents {
+		if on && slices.Contains(s.AgentsOff, a) {
+			wider = append(wider, "允许 "+hostOf(server)+" 在这台电脑上启动 "+a)
+		}
+	}
 	if t.Joined != nil && *t.Joined && s.Off {
 		wider = append(wider, "让这台电脑接入 "+hostOf(server))
 	}
@@ -370,7 +407,7 @@ func (u *ui) set(w application.Window, server, arg string) {
 		ok := u.confirm(ctx, strings.Join(wider, "；")+"？")
 		cancel()
 		if !ok {
-			reply(w, u.hello(c, server))
+			reply(w, u.hello(c, page))
 			return
 		}
 	}
@@ -391,18 +428,24 @@ func (u *ui) set(w application.Window, server, arg string) {
 		if t.All {
 			s.Roots = nil
 		}
+		for a, on := range t.Agents {
+			s.AgentsOff = slices.DeleteFunc(s.AgentsOff, func(x string) bool { return x == a })
+			if !on {
+				s.AgentsOff = append(s.AgentsOff, a)
+			}
+		}
 	})
 	if err != nil {
 		return
 	}
 	u.joins.Sync(c)
 	application.InvokeAsync(u.redraw)
-	reply(w, u.hello(c, server))
+	reply(w, u.hello(c, page))
 }
 
 // pickRoot: a folder for server, chosen by the person here in this computer's own picker (the
 // choosing is the allowing): one more, or, with all of them open, the only one from now on.
-func (u *ui) pickRoot(w application.Window, server string) {
+func (u *ui) pickRoot(w application.Window, server, page string) {
 	dir, err := u.app.Dialog.OpenFile().CanChooseDirectories(true).CanChooseFiles(false).
 		SetTitle("允许 " + hostOf(server) + " 访问的文件夹").PromptForSingleSelection()
 	if err != nil || dir == "" {
@@ -417,7 +460,7 @@ func (u *ui) pickRoot(w application.Window, server string) {
 		return
 	}
 	u.joins.Sync(c)
-	reply(w, u.hello(c, server))
+	reply(w, u.hello(c, page))
 }
 
 // add checks that address is an Iridium, then (asked by a page, with this computer's dialog)

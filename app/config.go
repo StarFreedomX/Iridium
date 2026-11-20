@@ -18,8 +18,9 @@ type Server struct {
 	URL string `json:"url"`
 	Off bool   `json:"off,omitempty"` // not joined (still shown when chosen)
 	// What it may do here (docs/exec.md): no command lines; only these folders ("": all).
-	NoShell bool     `json:"noShell,omitempty"`
-	Roots   []string `json:"roots,omitempty"`
+	NoShell   bool     `json:"noShell,omitempty"`
+	Roots     []string `json:"roots,omitempty"`
+	AgentsOff []string `json:"agentsOff,omitempty"` // the agents it may not start here, by name
 	// LoggedIn: the window was logged in to it (its cookie there); till its page says otherwise,
 	// it is opened at once, not the app's login page.
 	LoggedIn bool `json:"loggedIn,omitempty"`

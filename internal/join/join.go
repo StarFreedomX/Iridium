@@ -72,6 +72,13 @@ type Options struct {
 	Prog Program
 	// Ask asks the person here about a grant from the Iridium's page; nil: its terminal (ask).
 	Ask func(context.Context, string) bool
+	// AskEach, Widened: the executor's (executor.Options): a request asked item by item, and
+	// what it allows after one widened it.
+	AskEach func(ctx context.Context, by string, items []executor.Item) []bool
+	Widened func(shell bool, roots, off []string)
+	// Live is told each executor as it is made (one each time it pairs again): the desktop app
+	// sets what its owner allows on it, at once (executor.Set).
+	Live func(*executor.Executor)
 }
 
 // Program is a program that joins: ir join (in iridium), or ir-computer (cmd/ir-computer).
@@ -320,13 +327,16 @@ func (o *Options) Run(ctx context.Context) error {
 					o.say("%s", o.grants(ex))
 				}
 			},
-			Denied: o.denied, Ask: o.ask(),
+			Denied: o.denied, Ask: o.ask(), AskEach: o.AskEach, Widened: o.Widened,
 			Replied: func(r wire.HelloReply) {
 				o.newer(rctx, ex, r, func() { restarting.Store(true); rcancel() })
 			},
 		})
 		if err != nil {
 			return err
+		}
+		if o.Live != nil {
+			o.Live(ex)
 		}
 		err = ex.Run(rctx)
 		ex.Close()

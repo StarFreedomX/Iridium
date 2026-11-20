@@ -2,9 +2,9 @@
 // the Iridiums in the app's list, one under another: one logged in to with who the window is
 // there (its face, its name), pressed to go in; another with 使用浏览器登录 (the passkey is used
 // in the system's browser); a row to add one.
-import { ChevronRight, LoaderCircle, Plus, X } from "lucide-react";
+import { ChevronRight, LoaderCircle, Plus, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { cn, IrMark } from "../ui";
+import { cn, IrMark, SureKey } from "../ui";
 import { ask, clipboardKeys, onAnswer, whenReady } from "./bridge";
 
 type Server = {
@@ -107,14 +107,14 @@ export function Login() {
                       使用浏览器登录
                     </button>
                   )}
-                  <button
-                    type="button"
-                    aria-label="移除"
-                    onClick={() => ask("ir:remove:" + s.url)}
-                    className="g-press -mr-1 grid size-6 shrink-0 place-items-center rounded-md text-ink-3 opacity-0 group-hover:opacity-100 hover:bg-fill hover:text-ink"
+                  <SureKey
+                    label="移除"
+                    sure="确认移除"
+                    run={() => ask("ir:remove:" + s.url)}
+                    className="size-7"
                   >
-                    <X size={13} />
-                  </button>
+                    <Trash2 size={14} />
+                  </SureKey>
                 </div>
                 {said && (
                   <p

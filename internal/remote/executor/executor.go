@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"net/http"
 	"net/url"
 	"os"
@@ -48,6 +49,12 @@ type Options struct {
 	// allowed it. nil: no one to ask, and grants of more are declined.
 	// It gives up as ctx ends (no answer in time: no).
 	Ask func(ctx context.Context, question string) bool
+	// AskEach, when set, is asked in Ask's place, the request taken apart: each thing asked for
+	// (Item) allowed or not on its own (the desktop app's panel). Its answer is one bool an item.
+	AskEach func(ctx context.Context, by string, items []Item) []bool
+	// Widened is told what it allows after a request widened it (a grant, an agent started that
+	// was off), so that its owner's settings keep it.
+	Widened func(shell bool, roots, off []string)
 	// Denied tells the person at its terminal of something it turned down (Denial), each once a
 	// minute at most.
 	Denied func(Denial)
@@ -86,6 +93,9 @@ type Executor struct {
 	// shell and roots are what it has now: Options' widened by grants.
 	shell bool
 	roots []string
+	// off: the agents its owner turned off (by name, wire.AgentInfo.Agent): not offered in the
+	// hello, not started (Set).
+	off   map[string]bool
 	told  map[Denial]time.Time // Denied, by when it was last told
 	asked sync.Mutex           // one question at its terminal at a time
 }
@@ -262,6 +272,12 @@ func (e *Executor) hello() wire.Hello {
 	}
 	e.mu.Lock()
 	shell, roots := e.shell, slices.Clone(e.roots)
+	var agents []wire.AgentInfo
+	for _, a := range e.o.Agents {
+		if !e.off[a.Agent] {
+			agents = append(agents, a)
+		}
+	}
 	var holds []wire.HoldState
 	for _, h := range e.holds {
 		holds = append(holds, h.state())
@@ -270,7 +286,7 @@ func (e *Executor) hello() wire.Hello {
 	return wire.Hello{
 		Protocol: wire.Protocol, Program: e.o.Program, OS: runtime.GOOS, Arch: runtime.GOARCH,
 		Home: home, Sep: string(filepath.Separator), Scratch: filepath.Join(e.o.State, "scratch"),
-		Env: helloEnv(e.o.Env), Agents: e.o.Agents, Holds: holds, IRClient: e.o.IR != "",
+		Env: helloEnv(e.o.Env), Agents: agents, Holds: holds, IRClient: e.o.IR != "",
 		// The older two said too, for an older Iridium.
 		Shell: &shell, NoShell: !shell, AgentShell: shell, Roots: roots,
 		MachineID: e.o.MachineID, Caps: caps,
@@ -332,14 +348,45 @@ func (e *Executor) withIR(env []string, dir string) []string {
 // shQuote is s as one word for sh.
 func shQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
 
-// agentArgv: argv begins with one of the agents' own.
+// agentArgv: argv begins with one of the agents' own that is on.
 func (e *Executor) agentArgv(argv []string) bool {
+	a := e.agentOf(argv)
+	return a != "" && !e.isOff(a)
+}
+
+// agentOf is the agent whose own argv begins argv; "": none.
+func (e *Executor) agentOf(argv []string) string {
 	for _, a := range e.o.Agents {
 		if len(a.Argv) > 0 && len(argv) >= len(a.Argv) && slices.Equal(argv[:len(a.Argv)], a.Argv) {
-			return true
+			return a.Agent
 		}
 	}
-	return false
+	return ""
+}
+
+func (e *Executor) isOff(agent string) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.off[agent]
+}
+
+// Set is what its owner allows now, at this computer (the desktop app's switches, kumo,
+// 2026-11-20): command lines, the folders served (none: all), the agents turned off. At once for
+// what starts from now on; what runs keeps running. The connection is made again, so that its
+// Iridium hears the hello with them.
+func (e *Executor) Set(shell bool, roots []string, off []string) {
+	m := map[string]bool{}
+	for _, a := range off {
+		m[a] = true
+	}
+	e.mu.Lock()
+	same := e.shell == shell && slices.Equal(e.roots, roots) && maps.Equal(e.off, m)
+	e.shell, e.roots, e.off = shell, slices.Clone(roots), m
+	e.mu.Unlock()
+	if !same {
+		e.o.Logf("executor: set: shell %v, roots %s, agents off %s", shell, strings.Join(roots, ", "), strings.Join(off, ", "))
+		e.Drop()
+	}
 }
 
 func bad(format string, a ...any) error {
@@ -484,6 +531,16 @@ func (e *Executor) newHolder(id string) *holder {
 func (e *Executor) start(id string, spec spec) (any, error) {
 	if id == "" || strings.ContainsAny(id, `/\.`) || len(spec.Argv) == 0 {
 		return nil, bad("bad hold.start")
+	}
+	if a := e.agentOf(spec.Argv); a != "" && e.isOff(a) {
+		// Turned off here: the Iridium may only ask; the person here says.
+		if yes := e.askEach(context.Background(), "", []Item{{Kind: ItemAgent, Value: a}}); !yes[0] {
+			return nil, &wire.Error{Code: wire.CodeDenied, Message: a + " does not start here: its owner turned it off"}
+		}
+		e.mu.Lock()
+		delete(e.off, a)
+		e.mu.Unlock()
+		e.widened()
 	}
 	if !e.shellOn() && !e.agentArgv(spec.Argv) {
 		e.deny(Denial{What: DeniedShell})

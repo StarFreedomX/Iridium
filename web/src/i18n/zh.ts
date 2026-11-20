@@ -879,8 +879,8 @@ export const zh = {
   "app.connect": "连接",
   "app.remove": "移除",
   "app.joinedShort": "已接入",
-  "app.computer": "这台电脑 · {name}",
-  "app.joined": "接入此服务器",
+  "app.computer": "这台电脑 {name}",
+  "app.joined": "接入",
   "app.shell": "命令行",
   "app.folders": "可访问的文件夹",
   "app.allFolders": "全部",
@@ -890,6 +890,8 @@ export const zh = {
   "app.version": "版本 {v}",
   "app.check": "检查更新",
   "app.restartTo": "重启以更新到 {v}",
+  "app.shown": "窗口中",
+  "app.removeSure": "确认移除",
 } as const;
 
 export type Key = keyof typeof zh;

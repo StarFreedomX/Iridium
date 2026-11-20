@@ -114,19 +114,28 @@ func (e *Executor) grant(ctx context.Context, p wire.GrantParams) (any, error) {
 		}
 	}
 	if wantShell || len(more) > 0 {
-		var asks []string
+		var items []Item
 		if wantShell {
-			asks = append(asks, "开启命令行")
+			items = append(items, Item{Kind: ItemShell})
 		}
-		if len(more) > 0 {
-			asks = append(asks, "访问 "+strings.Join(more, "、"))
+		for _, r := range more {
+			items = append(items, Item{Kind: ItemFolder, Value: r})
 		}
-		q := strings.Join(asks, "，")
-		if p.By != "" {
-			q = p.By + " 请求" + q
-		}
-		if !e.ask(ctx, q) {
+		yes := e.askEach(ctx, p.By, items)
+		if !slices.Contains(yes, true) {
 			return nil, &wire.Error{Code: wire.CodeDenied, Message: "declined at that computer"}
+		}
+		// What was allowed of it, item by item.
+		wantShell, more = false, nil
+		for i, it := range items {
+			if !yes[i] {
+				continue
+			}
+			if it.Kind == ItemShell {
+				wantShell = true
+			} else {
+				more = append(more, it.Value)
+			}
 		}
 	}
 	e.mu.Lock()
@@ -141,8 +150,87 @@ func (e *Executor) grant(ctx context.Context, p wire.GrantParams) (any, error) {
 	e.mu.Unlock()
 	if wantShell || len(more) > 0 {
 		e.o.Logf("executor: granted: shell %v, roots %s", out.Shell, strings.Join(out.Roots, ", "))
+		e.widened()
 	}
 	return out, nil
+}
+
+// What a request asks for, one thing at a time (Item.Kind).
+const (
+	ItemShell  = "shell"  // command lines
+	ItemFolder = "folder" // a folder more (Value)
+	ItemAgent  = "agent"  // an agent turned off, to start (Value, its name)
+)
+
+// Item is one thing a request from the Iridium asks for.
+type Item struct {
+	Kind  string `json:"kind"`
+	Value string `json:"value,omitempty"`
+}
+
+// String is the item as a question says it (zh).
+func (it Item) String() string {
+	switch it.Kind {
+	case ItemShell:
+		return "开启命令行"
+	case ItemFolder:
+		return "访问 " + it.Value
+	case ItemAgent:
+		return "启动 " + it.Value
+	}
+	return it.Kind
+}
+
+// askEach asks the person here about items, one answer each: AskEach, else all of them in one
+// question (Ask); no one there, or no answer in askFor, is no to all.
+func (e *Executor) askEach(ctx context.Context, by string, items []Item) []bool {
+	no := make([]bool, len(items))
+	if e.o.AskEach == nil {
+		var s []string
+		for _, it := range items {
+			s = append(s, it.String())
+		}
+		q := strings.Join(s, "，")
+		if by != "" {
+			q = by + " 请求" + q
+		}
+		if e.ask(ctx, q) {
+			for i := range no {
+				no[i] = true
+			}
+		}
+		return no
+	}
+	e.asked.Lock()
+	defer e.asked.Unlock()
+	if ctx.Err() != nil {
+		return no
+	}
+	ctx, cancel := context.WithTimeout(ctx, askFor)
+	defer cancel()
+	yes := e.o.AskEach(ctx, by, items)
+	if len(yes) != len(items) || ctx.Err() != nil {
+		return no
+	}
+	return yes
+}
+
+// widened tells its owner what it allows now (Options.Widened).
+func (e *Executor) widened() {
+	if e.o.Widened == nil {
+		return
+	}
+	e.mu.Lock()
+	shell, roots := e.shell, slices.Clone(e.roots)
+	var off []string
+	for a, o := range e.off {
+		if o {
+			off = append(off, a)
+		}
+	}
+	e.mu.Unlock()
+	slices.Sort(off)
+	e.o.Widened(shell, roots, off)
 }
 
 // ask asks the person at its terminal q, one question at a time: no one there (Options.Ask nil),

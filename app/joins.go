@@ -3,31 +3,48 @@ package main
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/kumoSleeping/iridium/internal/join"
+	"github.com/kumoSleeping/iridium/internal/remote/executor"
+	"github.com/kumoSleeping/iridium/internal/remote/wire"
 )
 
 // prog is how the app says itself in its pairing and hello: the Iridium marks it as the app's.
 // Update is off: the app updates as itself, not to its Iridium's release (update.go).
 var prog = join.Program{Name: "ir-app", Self: "ir-app", Usage: usage}
 
-// Joins runs this computer's join to each Iridium that is on, each in its own goroutine, and keeps
-// the last thing each said for the tray.
+// Joins runs this computer's join to each Iridium that is on, each in its own goroutine, keeps
+// the last thing each said for the tray, and sets on each what its owner allows, at once (Sync).
 type Joins struct {
 	Ask     func(context.Context, string) bool // nil: none here to ask (a grant is turned down)
 	Changed func()                             // a status changed
+	// AskEach asks the person here about a request from the Iridium at server, item by item (the
+	// app's panel); nil: Ask.
+	AskEach func(ctx context.Context, server, by string, items []executor.Item) []bool
+	// Widened is told what server may do here after a request the person allowed.
+	Widened func(server string, shell bool, roots, off []string)
 	// Terminal: asked at the terminal it runs in (headless), as ir-computer asks, when Ask is nil.
 	Terminal bool
 	Logf     func(string, ...any)
 
 	mu      sync.Mutex
 	running map[string]context.CancelFunc
-	as      map[string]string // what each running one was started with (its Server, its name)
+	name    map[string]string // the computer's name each runs with: another, it starts again
+	terms   map[string]Server // what each may do here now
+	live    map[string]*executor.Executor
 	status  map[string]string
+
+	agentsOnce sync.Once
+	agents     []wire.AgentInfo
+}
+
+// Agents are the agents installed here (looked for once).
+func (j *Joins) Agents() []wire.AgentInfo {
+	j.agentsOnce.Do(func() { j.agents = join.FindAgents(j.Logf) })
+	return j.agents
 }
 
 // Status is what the join to address said last.
@@ -37,12 +54,14 @@ func (j *Joins) Status(address string) string {
 	return j.status[address]
 }
 
-// Sync starts the joins of c's servers that are on and stops the others.
+// Sync starts the joins of c's servers that are on and stops the others; on those running it
+// sets their terms (command lines, folders, agents) at once, what runs there kept running.
 func (j *Joins) Sync(c Config) {
+	agents := j.Agents()
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	if j.running == nil {
-		j.running, j.as, j.status = map[string]context.CancelFunc{}, map[string]string{}, map[string]string{}
+		j.running, j.name, j.terms, j.live, j.status = map[string]context.CancelFunc{}, map[string]string{}, map[string]Server{}, map[string]*executor.Executor{}, map[string]string{}
 	}
 	want := map[string]Server{}
 	for _, s := range c.Servers {
@@ -51,25 +70,24 @@ func (j *Joins) Sync(c Config) {
 		}
 	}
 	for u, stop := range j.running {
-		if s, ok := want[u]; !ok || j.as[u] != signature(s, c.Name) {
-			// Gone, or its terms changed: ended (started again below with the new ones).
+		if _, ok := want[u]; !ok || j.name[u] != c.Name {
 			stop()
 			delete(j.running, u)
+			delete(j.live, u)
 			j.status[u] = "已断开"
 		}
 	}
 	for u, s := range want {
+		j.terms[u] = s
 		if j.running[u] == nil {
 			ctx, stop := context.WithCancel(context.Background())
-			j.running[u], j.as[u] = stop, signature(s, c.Name)
+			j.running[u], j.name[u] = stop, c.Name
 			j.status[u] = "连接中"
-			go j.run(ctx, s, c.Name)
+			go j.run(ctx, s, c.Name, agents)
+		} else if ex := j.live[u]; ex != nil {
+			ex.Set(!s.NoShell, s.Roots, s.AgentsOff)
 		}
 	}
-}
-
-func signature(s Server, name string) string {
-	return fmt.Sprintf("%v|%q|%q", s.NoShell, s.Roots, name)
 }
 
 // Stop ends every join (the app quitting): the agents they started end with them.
@@ -82,7 +100,7 @@ func (j *Joins) Stop() {
 	}
 }
 
-func (j *Joins) run(ctx context.Context, s Server, name string) {
+func (j *Joins) run(ctx context.Context, s Server, name string, agents []wire.AgentInfo) {
 	address := s.URL
 	base, err := join.BaseDir()
 	if err != nil {
@@ -90,8 +108,33 @@ func (j *Joins) run(ctx context.Context, s Server, name string) {
 		return
 	}
 	o := join.Options{
-		URL: address, Name: name, Roots: s.Roots, Shell: !s.NoShell, Base: base, Prog: prog,
+		URL: address, Name: name, Roots: s.Roots, Shell: !s.NoShell, Base: base, Prog: prog, Agents: agents,
 		Out: lineWriter(func(l string) { j.set(address, l) }), Logf: j.Logf, Ask: j.Ask,
+		Widened: func(shell bool, roots, off []string) {
+			j.mu.Lock()
+			t := j.terms[address]
+			t.NoShell, t.Roots, t.AgentsOff = !shell, roots, off
+			j.terms[address] = t
+			j.mu.Unlock()
+			if j.Widened != nil {
+				j.Widened(address, shell, roots, off)
+			}
+		},
+		// Each executor made (again, as it pairs again) takes the terms as they are now.
+		Live: func(ex *executor.Executor) {
+			j.mu.Lock()
+			if ctx.Err() == nil {
+				j.live[address] = ex
+			}
+			t := j.terms[address]
+			j.mu.Unlock()
+			ex.Set(!t.NoShell, t.Roots, t.AgentsOff)
+		},
+	}
+	if j.AskEach != nil {
+		o.AskEach = func(ctx context.Context, by string, items []executor.Item) []bool {
+			return j.AskEach(ctx, address, by, items)
+		}
 	}
 	if o.Name == "" {
 		o.Name = join.MachineName()

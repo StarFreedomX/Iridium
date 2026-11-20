@@ -879,8 +879,8 @@ export const en: Dict = {
   "app.connect": "Connect",
   "app.remove": "Remove",
   "app.joinedShort": "Joined",
-  "app.computer": "This computer · {name}",
-  "app.joined": "Joined to this server",
+  "app.computer": "This computer {name}",
+  "app.joined": "Joined",
   "app.shell": "Command lines",
   "app.folders": "Folders it may use",
   "app.allFolders": "All",
@@ -890,4 +890,6 @@ export const en: Dict = {
   "app.version": "Version {v}",
   "app.check": "Check for updates",
   "app.restartTo": "Restart to update to {v}",
+  "app.shown": "in the window",
+  "app.removeSure": "Remove?",
 };
