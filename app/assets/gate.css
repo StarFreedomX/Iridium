@@ -207,7 +207,8 @@ input[aria-invalid=true] { color: var(--danger); }
   outline: none;
 }
 .pick select:hover, .icon:hover { color: var(--fg); }
-.pick select:focus-visible, .icon:focus-visible { box-shadow: 0 0 0 3px var(--ring); }
+/* No focus rings on this page (kumo, 2026-11-20): not the system's, not the gate's. */
+:focus, :focus-visible { outline: none !important; box-shadow: none !important; }
 #add { margin-bottom: .75rem; }
 #add input { width: 100%; }
 /* No server yet: the field alone, under the name. */
