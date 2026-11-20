@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -76,6 +77,16 @@ func gui() int {
 		e.Cancel()
 		u.win.Hide()
 	})
+
+	// macOS gives a web view ⌘C, ⌘V, ⌘A, ⌘Z only through the menu bar's Edit menu: without one,
+	// nothing pastes. Elsewhere the keys work without, and a menu would be a bar in the window.
+	if runtime.GOOS == "darwin" {
+		bar := u.app.Menu.New()
+		bar.AddRole(application.AppMenu)
+		bar.AddRole(application.EditMenu)
+		bar.AddRole(application.WindowMenu)
+		u.app.Menu.SetApplicationMenu(bar)
+	}
 
 	u.menu = u.app.Menu.New()
 	u.tray = u.app.SystemTray.New().SetIcon(trayIcon).SetMenu(u.menu)

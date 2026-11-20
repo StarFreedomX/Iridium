@@ -170,41 +170,45 @@ input[aria-invalid=true] { color: var(--danger); }
 .row .btn { flex: 1; }
 .btn.ghost { background: transparent; color: var(--fg); box-shadow: inset 0 0 0 1px var(--line, color-mix(in oklch, var(--fg) 18%, transparent)); }
 
-/* The app's own page (index.html): the gate's card, with the server to log in to. */
-.pick { display: flex; gap: .5rem; margin-bottom: .75rem; }
+/* The app's own page (index.html): the gate's card; the server under the name, as words (no box
+   of its own), a + beside it. */
+.brand { margin-bottom: .5rem; }
+.pick { display: flex; justify-content: center; align-items: center; gap: .125rem; margin-bottom: 1.5rem; }
 .pick select {
-  flex: 1;
-  min-width: 0;
-  height: 2.75rem;
-  padding: 0 2.25rem 0 .875rem;
+  max-width: 14rem;
+  height: 1.75rem;
+  padding: 0 1.25rem 0 .5rem;
   font: inherit;
-  font-size: 1rem;
-  color: inherit;
-  background: var(--field) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2371717a' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right .875rem center;
+  font-size: .875rem;
+  color: var(--muted);
+  background: transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%2371717a' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right .375rem center;
   border: 0;
-  border-radius: .75rem;
+  border-radius: .5rem;
   outline: none;
   appearance: none;
   -webkit-appearance: none;
+  text-overflow: ellipsis;
   cursor: pointer;
 }
-.pick select:focus-visible, .icon:focus-visible { box-shadow: 0 0 0 3px var(--ring); }
 .icon {
   display: grid;
   place-items: center;
-  width: 2.75rem;
-  height: 2.75rem;
+  width: 1.75rem;
+  height: 1.75rem;
   flex: none;
   font: inherit;
-  font-size: 1.375rem;
+  font-size: 1.125rem;
   line-height: 1;
-  color: var(--fg);
-  background: var(--field);
+  color: var(--muted);
+  background: transparent;
   border: 0;
-  border-radius: .75rem;
+  border-radius: .5rem;
   cursor: pointer;
   outline: none;
 }
-.icon:hover { opacity: .8; }
+.pick select:hover, .icon:hover { color: var(--fg); }
+.pick select:focus-visible, .icon:focus-visible { box-shadow: 0 0 0 3px var(--ring); }
 #add { margin-bottom: .75rem; }
 #add input { width: 100%; }
+/* No server yet: the field alone, under the name. */
+.pick[hidden] + #add { margin-top: 1.25rem; }
