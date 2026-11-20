@@ -41,6 +41,7 @@ type ui struct {
 
 func gui() int {
 	logf := appLog()
+	loginEnv(logf)
 	// The app's own pages: web/src/appwin, built into assets/ui (npm run build:app).
 	page, _ := fs.Sub(assets, "assets/ui")
 	icon, _ := assets.ReadFile("assets/icon.png")
