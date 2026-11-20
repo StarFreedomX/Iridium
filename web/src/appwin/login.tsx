@@ -58,12 +58,13 @@ export function Login() {
     <main className="grid h-full place-items-center bg-paper text-ink select-none [&_*:focus-visible]:outline-none">
       <div
         className={cn(
-          "flex w-[min(320px,calc(100vw-32px))] flex-col items-center",
+          "flex w-[min(320px,calc(100vw-32px))] flex-col",
           servers === null && "invisible",
         )}
       >
-        <IrMark size={44} className="text-ink" />
-        <h1 className="m-0 mt-3 mb-7 text-xl font-semibold tracking-tight">
+        {/* The mark and the name in a row, the mark's edge on the key's (kumo, 2026-11-20). */}
+        <h1 className="m-0 mb-6 flex items-center gap-2.5 text-xl font-semibold tracking-tight">
+          <IrMark size={32} className="text-ink" />
           Iridium
         </h1>
 
@@ -158,7 +159,7 @@ export function Login() {
         </form>
         <p
           className={cn(
-            "m-0 mt-3 min-h-5 text-center text-xs",
+            "m-0 mt-3 min-h-5 text-xs",
             note?.error ? "text-err" : "text-ink-3",
           )}
           role="status"
