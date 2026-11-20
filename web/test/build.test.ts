@@ -1,11 +1,19 @@
-// The build's sizes (plan "弱网"): the first screen at most 250KB gzipped (the user, 2026-11-06; was 200KB); the chat loaded only when
-// opened, under its own limit (300KB gzipped: the user, 2026-11-12; was 200KB), its libraries apart from the first screen's; a brotli and a gzip
-// beside each script and style; the later files listed for idle prefetch.
+// The build's sizes (plan "弱网"): the first screen's mark 250KB gzipped (the user, 2026-11-06; was 200KB); the chat loaded only when
+// opened, its mark 300KB gzipped (the user, 2026-11-12; was 200KB), its libraries apart from the first screen's; a brotli and a gzip
+// beside each script and style; the later files listed for idle prefetch. Past a mark is a warning, not a failure: the pages grow
+// with what they do (the user, 2026-11-20); whoever sees it tells the user.
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gzipSync } from "node:zlib";
 import { afterAll, beforeAll, expect, test } from "vitest";
+
+/** A size past its mark: said, not failed. */
+function mark(what: string, size: number, limit: number) {
+  console.log(`${what} ${size.toFixed(1)}KB gzipped`);
+  // Straight to stderr: vitest keeps a passed test's console to itself.
+  if (size > limit) process.stderr.write(`\nWARNING: ${what} ${size.toFixed(1)}KB gzipped, past its ${limit}KB mark: tell the user\n\n`);
+}
 
 type Chunk = { file: string; imports?: string[]; dynamicImports?: string[]; css?: string[]; isEntry?: boolean; isDynamicEntry?: boolean };
 let out = "";
@@ -34,23 +42,21 @@ function files(key: string, into = new Set<string>()): Set<string> {
 const text = (fs: Iterable<string>) => [...fs].map((f) => readFileSync(join(out, f), "utf8")).join("\n");
 const kb = (fs: Iterable<string>) => [...fs].reduce((n, f) => n + gz(f), 0) / 1024;
 
-test("the first screen is at most 250KB gzipped, without the chat's Markdown", () => {
+test("the first screen's size, without the chat's Markdown", () => {
   const first = files("index.html");
   const size = kb(first) + gz("index.html") / 1024 + gz("favicon.svg") / 1024 + gz("theme.js") / 1024;
-  console.log(`first screen ${size.toFixed(1)}KB gzipped`);
-  expect(size).toBeLessThanOrEqual(250);
+  mark("first screen", size, 250);
   const js = text(first);
   expect(js).not.toContain("data-streamdown");
   // React's production build.
   expect(js).not.toContain('unique "key" prop');
 });
 
-test("the chat comes apart, under its limit", () => {
+test("the chat comes apart; its size", () => {
   const first = files("index.html");
   const chat = [...files("src/chat/chat.tsx")].filter((f) => !first.has(f));
-  console.log(`chat ${kb(chat).toFixed(1)}KB gzipped`);
+  mark("chat", kb(chat), 300);
   expect(manifest["src/chat/chat.tsx"]!.isDynamicEntry).toBe(true);
-  expect(kb(chat)).toBeLessThanOrEqual(300);
   expect(text(chat)).toContain("data-streamdown");
   // The page fetches them ahead once idle: the HTML lists them.
   const later = /<meta name="later" content="([^"]*)"/.exec(readFileSync(join(out, "index.html"), "utf8"))![1]!.split(" ");
