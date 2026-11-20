@@ -92,12 +92,22 @@ func gui() int {
 	return 0
 }
 
-// pageOf is the window's address: the Iridium shown, else the page that asks for one.
+// pageOf is the window's address: the Iridium shown once logged in to, else the app's own login
+// page (assets/index.html).
 func pageOf(c Config) string {
-	if cur := c.current(); cur != "" {
-		return cur + "/"
+	if s := c.server(c.current()); s != nil && s.LoggedIn {
+		return s.URL + "/"
 	}
 	return "/"
+}
+
+// loggedIn marks whether the window is logged in to address.
+func loggedIn(address string, in bool) {
+	_, _ = updateConfig(func(c *Config) {
+		if s := c.server(address); s != nil {
+			s.LoggedIn = in
+		}
+	})
 }
 
 func (u *ui) show() {
@@ -123,13 +133,18 @@ func (u *ui) message(w application.Window, msg string, o *application.OriginInfo
 	}
 	logf("message %s from %q", verb, origin)
 	if server == "" {
-		// Not an Iridium's page: the app's own address page, or nothing.
-		if verb == "add" && (strings.HasPrefix(origin, "wails:") || strings.HasPrefix(origin, "http://wails.localhost")) {
-			go u.add(w, arg, false)
+		// Not an Iridium's page: the app's own login page (assets), or nothing.
+		if strings.HasPrefix(origin, "wails:") || strings.HasPrefix(origin, "http://wails.localhost") {
+			u.local(w, verb, arg)
 		}
 		return
 	}
 	switch verb {
+	case "needlogin":
+		// The Iridium's login page, in the app: the app's own instead (its passkey is in the browser).
+		if _, err := updateConfig(func(c *Config) { c.Current = server; c.server(server).LoggedIn = false }); err == nil {
+			u.win.SetURL("/")
+		}
 	case "hello":
 		reply(w, u.hello(c, server))
 	case "switch":
@@ -177,16 +192,70 @@ func (u *ui) message(w application.Window, msg string, o *application.OriginInfo
 			}
 			reply(w, h)
 		}()
-	case "login":
-		name := c.Name
-		if name == "" {
-			name = join.MachineName()
+	}
+}
+
+// local answers the app's own login page: the list, the one chosen, and logging in to it (an
+// address typed is checked to be an Iridium and put in the list first).
+func (u *ui) local(w application.Window, verb, arg string) {
+	state := func(c Config) map[string]any {
+		list := []map[string]string{}
+		for _, s := range c.Servers {
+			list = append(list, map[string]string{"url": s.URL, "host": hostOf(s.URL)})
 		}
-		browserLogin(server, name, u.app.Browser.OpenURL, func(m map[string]string) { reply(w, m) }, func(link string) {
-			if c, _ := loadConfig(); c.current() == server {
-				u.win.SetURL(link)
+		return map[string]any{"servers": list, "current": c.current()}
+	}
+	switch verb {
+	case "hello":
+		c, _ := loadConfig()
+		reply(w, state(c))
+	case "select":
+		if c, err := updateConfig(func(c *Config) {
+			if c.server(arg) != nil {
+				c.Current = arg
 			}
-		})
+		}); err == nil {
+			application.InvokeAsync(u.redraw)
+			reply(w, state(c))
+		}
+	case "login":
+		go func() {
+			a, err := normalize(arg)
+			if err != nil {
+				reply(w, map[string]string{"error": "地址无效"})
+				return
+			}
+			c, _ := loadConfig()
+			if c.server(a) == nil {
+				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+				err := isIridium(ctx, a)
+				cancel()
+				if err != nil {
+					reply(w, map[string]string{"error": err.Error()})
+					return
+				}
+				// Typed here by the person: in the list, and this computer joined to it.
+				if c, err = updateConfig(func(c *Config) { c.add(a) }); err != nil {
+					reply(w, map[string]string{"error": err.Error()})
+					return
+				}
+				u.joins.Sync(c)
+				application.InvokeAsync(u.redraw)
+				st := state(c)
+				st["added"] = true
+				reply(w, st)
+			} else if c, err = updateConfig(func(c *Config) { c.Current = a }); err != nil {
+				return
+			}
+			name := c.Name
+			if name == "" {
+				name = join.MachineName()
+			}
+			browserLogin(a, name, u.app.Browser.OpenURL, func(m map[string]string) { reply(w, m) }, func(link string) {
+				loggedIn(a, true)
+				u.win.SetURL(link)
+			})
+		}()
 	}
 }
 
@@ -335,7 +404,7 @@ func (u *ui) add(w application.Window, address string, ask bool) {
 	}
 	u.joins.Sync(c)
 	application.InvokeAsync(u.redraw)
-	u.win.SetURL(a + "/")
+	u.win.SetURL(pageOf(c))
 }
 
 func (u *ui) switchTo(address string) {

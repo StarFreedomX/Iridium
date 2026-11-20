@@ -33,8 +33,6 @@ const S = {
   cancelled: ['已取消，或超时', 'Cancelled, or timed out'],
   provider: ['系统 Passkey 服务出错', 'The system passkey service failed'],
   browser: ['浏览器拒绝了', 'The browser refused'],
-  inApp: ['在浏览器中登录', 'Sign in in your browser'],
-  inAppWait: ['在浏览器中核对代码 {code} 后允许', 'Check the code {code} in your browser, then allow'],
   appAsk: ['「{name}」上的 Iridium 应用请求以你的身份登录', 'The Iridium app on "{name}" asks to sign in as you'],
   appCheck: ['核对应用里显示的代码', 'Check it against the code the app shows'],
   allow: ['允许', 'Allow'],
@@ -283,7 +281,7 @@ async function initJoin() {
 async function initLogin() {
   const s = (await api('/_ir/api/session')).data;
   if (s.authenticated) return location.replace(nextUrl());
-  if (inApp) return; // the app's key is there already
+  if (inApp) return; // the app's own page instead
   view('login');
   if (s.setup) {
     $('login').hidden = true;
@@ -326,9 +324,9 @@ function done(msg) {
   document.querySelector('#v-bad .note').textContent = msg;
 }
 
-/** In the app's own window (its bridge there: window._wails) the login page asks the app to log
- *  in from the system's browser, where the passkey is; the app says the code to check. The bridge
- *  comes once the page has loaded (wails:runtime-config-ready), or is there already. */
+/** In the desktop app's window (its bridge there: window._wails) this login page is the app's own
+ *  instead: there the passkey is used from the system's browser (applogin.go). The bridge comes
+ *  once the page has loaded (wails:runtime-config-ready), or is there already. */
 let inApp = false;
 
 function watchForApp() {
@@ -336,18 +334,8 @@ function watchForApp() {
     const w = window._wails;
     if (inApp || !w || typeof w.invoke !== 'function') return;
     inApp = true;
-    view('login');
-    $('setup').hidden = true;
-    const btn = $('login');
-    btn.hidden = false;
-    btn.textContent = t('inApp');
-    btn.onclick = () => w.invoke('ir:login');
-    window.addEventListener('ir-app', (e) => {
-      const d = e.detail || {};
-      if (d.code) status(t('inAppWait').replace('{code}', d.code));
-      else if (d.error) status(d.error, true);
-    });
-    w.invoke('wails:runtime:ready');
+    view('wait');
+    w.invoke('ir:needlogin');
   };
   window.addEventListener('wails:runtime-config-ready', found);
   found();

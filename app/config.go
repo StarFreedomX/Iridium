@@ -20,6 +20,9 @@ type Server struct {
 	// What it may do here (docs/exec.md): no command lines; only these folders ("": all).
 	NoShell bool     `json:"noShell,omitempty"`
 	Roots   []string `json:"roots,omitempty"`
+	// LoggedIn: the window was logged in to it (its cookie there); till its page says otherwise,
+	// it is opened at once, not the app's login page.
+	LoggedIn bool `json:"loggedIn,omitempty"`
 }
 
 // Config is the app's own, kept on this computer: what it joins and how. What an Iridium may do
