@@ -6,20 +6,63 @@
 // the chat staying under it; on a phone a sheet too, by a swipe up from the left quarter or ⋯. The jump box
 // (⌘K) opens in the sidebar, not over the page. The chat, the settings and the jump box come only as
 // they are opened, or the page is idle: the first screen stays light.
+import { AppKey } from "./appkey";
 import { Dialog } from "@base-ui/react/dialog";
 import { Toast } from "@base-ui/react/toast";
 import { Tooltip } from "@base-ui/react/tooltip";
-import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType, type CSSProperties, type ReactNode } from "react";
+import {
+  lazy,
+  memo,
+  Suspense,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentType,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import { api, queryClient } from "./api/client";
 import { firstScreen, watchTurns } from "./chats";
 import { CreatePopover, WsPlus } from "./create";
-import { agentsQ, LOCAL_ME, pushQ, useApps, useHome, useMe, useSettings, useUpdate, useWorkspaces } from "./data";
+import {
+  agentsQ,
+  LOCAL_ME,
+  pushQ,
+  useApps,
+  useHome,
+  useMe,
+  useSettings,
+  useUpdate,
+  useWorkspaces,
+} from "./data";
 import { t, useLang } from "./i18n";
-import { applyTheme, initialTheme, keepTheme, MeKey, useTellLang, type ThemePref } from "./me";
+import {
+  applyTheme,
+  initialTheme,
+  keepTheme,
+  MeKey,
+  useTellLang,
+  type ThemePref,
+} from "./me";
 import { motion, pageTurn } from "./motion";
 import { prefetch, settled } from "./prefetch";
 import { prefetchRoles } from "./roles";
-import { close, go, onTurn, openChat, over, quietDialog, route, setUsageMachine, usagePoint, useRoute, type Route } from "./route";
+import {
+  close,
+  go,
+  onTurn,
+  openChat,
+  over,
+  quietDialog,
+  route,
+  setUsageMachine,
+  usagePoint,
+  useRoute,
+  type Route,
+} from "./route";
 import { Pager, TABS_H } from "./pager";
 import { atLeft, GRIP, Sheet } from "./sheet";
 import { HeadKeys, Sidebar } from "./sidebar";
@@ -28,7 +71,17 @@ import { follow } from "./stream";
 import { ToastList, toasts } from "./toast";
 import { buildTree, flat } from "./tree";
 import { usePlaces } from "./reorder";
-import { cn, holdMenu, IrMark, kept, keep, params, PHONE, useMedia, useMinute } from "./ui";
+import {
+  cn,
+  holdMenu,
+  IrMark,
+  kept,
+  keep,
+  params,
+  PHONE,
+  useMedia,
+  useMinute,
+} from "./ui";
 import { watchUnread } from "./unread";
 import { warmUp } from "./warm";
 
@@ -40,7 +93,10 @@ import { warmUp } from "./warm";
 function part<P extends object>(get: () => Promise<ComponentType<P>>) {
   let code: ComponentType<P> | undefined;
   let coming: Promise<ComponentType<P>> | undefined;
-  const load = () => (coming ??= get().then((c) => (code = memo(c) as unknown as ComponentType<P>)).catch((e) => ((coming = undefined), Promise.reject(e))));
+  const load = () =>
+    (coming ??= get()
+      .then((c) => (code = memo(c) as unknown as ComponentType<P>))
+      .catch((e) => ((coming = undefined), Promise.reject(e))));
   const Lazy = lazy(() => load().then((c) => ({ default: c })));
   function Part(p: P) {
     const [C] = useState(() => code ?? Lazy);
@@ -49,14 +105,24 @@ function part<P extends object>(get: () => Promise<ComponentType<P>>) {
   return Object.assign(Part, { load });
 }
 const ChatPage = part(() => import("./chat/chat").then((m) => m.ChatPage));
-const SettingsPage = part(() => import("./settings").then((m) => m.SettingsPage));
+const SettingsPage = part(() =>
+  import("./settings").then((m) => m.SettingsPage),
+);
 const AppsPage = part(() => import("./apps").then((m) => m.AppsPage));
-const SecretsPage = part(() => import("./credentials").then((m) => m.SecretsPage));
+const SecretsPage = part(() =>
+  import("./credentials").then((m) => m.SecretsPage),
+);
 const RolesPage = part(() => import("./rolespage").then((m) => m.RolesPage));
 const UsagePage = part(() => import("./usage").then((m) => m.UsagePage));
 /** The page of the settings' dialog a route is: the settings, or one of their own pages. */
 type SetsPage = "settings" | "apps" | "secrets" | "roles" | "usage";
-const setsPageOf = (r: Route): SetsPage => (r.name === "apps" || r.name === "secrets" || r.name === "roles" || r.name === "usage" ? r.name : "settings");
+const setsPageOf = (r: Route): SetsPage =>
+  r.name === "apps" ||
+  r.name === "secrets" ||
+  r.name === "roles" ||
+  r.name === "usage"
+    ? r.name
+    : "settings";
 const Jump = part(() => import("./jump").then((m) => m.Jump));
 export const loadChat = ChatPage.load;
 // The address names a chat: its code and its first screen are asked for now, ahead of the first
@@ -71,11 +137,16 @@ export const loadChat = ChatPage.load;
 /** The settings and the jump box, their code run, the settings' answers asked: once idle, or a
  *  pointer on their key. */
 const loadPanels = () => {
-  for (const p of [SettingsPage, AppsPage, SecretsPage, UsagePage, Jump]) void p.load().catch(() => {});
+  for (const p of [SettingsPage, AppsPage, SecretsPage, UsagePage, Jump])
+    void p.load().catch(() => {});
   void queryClient.prefetchQuery(agentsQ);
   void queryClient.prefetchQuery(pushQ);
   // The credentials' rows too: their page slid in empty and filled after.
-  void queryClient.prefetchQuery({ queryKey: ["secrets"], queryFn: api.secrets, staleTime: 30_000 });
+  void queryClient.prefetchQuery({
+    queryKey: ["secrets"],
+    queryFn: api.secrets,
+    staleTime: 30_000,
+  });
 };
 
 // Once idle, the later parts' files into the cache (vite.config.ts LATER); then their code runs from
@@ -83,7 +154,9 @@ const loadPanels = () => {
 // once. Not after one failed: a module that failed to load stays failed in the browser.
 // What the "+" popover draws (its roles), asked for once idle, apart from the files: drawn
 // whole as it opens, nothing pushed in after (docs/前端设计规范.md "后到的不撑开").
-void settled().then(() => (prefetchRoles(), void queryClient.prefetchQuery(agentsQ)));
+void settled().then(
+  () => (prefetchRoles(), void queryClient.prefetchQuery(agentsQ)),
+);
 void prefetch().then((all) => {
   if (!all) return;
   void loadChat().catch(() => {});
@@ -119,7 +192,9 @@ export function App() {
   quietDialog(!phone);
   // On a phone, whether the sidebar's sheet is out, and how tall it is: the chat keeps its newest
   // above it while it is out.
-  const [sheetOut, setSheetOut] = useState(() => phone && route().name !== "chat");
+  const [sheetOut, setSheetOut] = useState(
+    () => phone && route().name !== "chat",
+  );
   const [sheetH, setSheetH] = useState(0);
   const systemDark = useMedia("(prefers-color-scheme: dark)");
   const [theme, setTheme] = useState<ThemePref>(initialTheme);
@@ -136,7 +211,8 @@ export function App() {
   // On a phone the usage is a page of the sheet's own (the user, 2026-11-08): the 设置 page keeps
   // the last of its own pages under it.
   const ownPage = !phone || r.name !== "usage";
-  if (over(r) && ownPage && setsPage !== setsPageOf(r)) setSetsPage(setsPageOf(r));
+  if (over(r) && ownPage && setsPage !== setsPageOf(r))
+    setSetsPage(setsPageOf(r));
   // One sheet on a phone, two pages in it: the sessions and the 终端 panel (the user, 2026-11-08),
   // the panel shown while its route is open.
   const sheetIsOut = sheetOut || setsOut;
@@ -157,7 +233,18 @@ export function App() {
   // Each minute too: a subagent long quiet is let go.
   const minute = useMinute();
   const places = usePlaces();
-  const tree = useMemo(() => buildTree(list ?? [], ws.data ?? [], t("nav.unsorted"), Math.max(minute, Date.now()), undefined, places), [list, ws.data, t("nav.unsorted"), minute, places]);
+  const tree = useMemo(
+    () =>
+      buildTree(
+        list ?? [],
+        ws.data ?? [],
+        t("nav.unsorted"),
+        Math.max(minute, Date.now()),
+        undefined,
+        places,
+      ),
+    [list, ws.data, t("nav.unsorted"), minute, places],
+  );
 
   useEffect(() => follow(open), [open]);
   // Unread, and the chats of turns that end off screen.
@@ -171,7 +258,10 @@ export function App() {
   useEffect(() => {
     if (!list) return;
     // Not those the list leaves out (a group at another machine no one opened): no count for them.
-    unread.current?.take(list.filter((s) => !tree.unlisted.has(s.id)), meNow ?? LOCAL_ME);
+    unread.current?.take(
+      list.filter((s) => !tree.unlisted.has(s.id)),
+      meNow ?? LOCAL_ME,
+    );
     watchTurns(list, turns.current, open);
   }, [list, meNow?.id]);
   // The chats you may open next, warmed (src/warm.ts).
@@ -195,7 +285,17 @@ export function App() {
   if (phone && pulled && !seen) setSeen(true);
   // Out, its page is the route's; going down, it stays as it was; coming up, the swipe's.
   const lastPage = useRef(2);
-  const sheetPage = sheetIsOut ? (setsOut ? (r.name === "usage" ? 1 : 0) : 2) : pulled ? (pulled === "me" ? 0 : 2) : lastPage.current;
+  const sheetPage = sheetIsOut
+    ? setsOut
+      ? r.name === "usage"
+        ? 1
+        : 0
+      : 2
+    : pulled
+      ? pulled === "me"
+        ? 0
+        : 2
+      : lastPage.current;
   lastPage.current = sheetPage;
   // Just come out too: its page set at once, not slid to as it rises.
   const wasOut = useRef(sheetIsOut);
@@ -210,7 +310,14 @@ export function App() {
   // A tab, or a swipe across: the sheet stays out, the back key going back to the sessions.
   // 终端 the left page, as a swipe up from the left brings it; the sessions the right (the user, 2026-11-08);
   // the usage between them (the user, 2026-11-08).
-  const toPage = (i: number) => (setSheetOut(true), i === 0 ? go({ name: "settings" }, route().name === "usage") : i === 1 ? (setUsageMachine(), go({ name: "usage" }, over(route()))) : over(route()) && close(under));
+  const toPage = (i: number) => (
+    setSheetOut(true),
+    i === 0
+      ? go({ name: "settings" }, route().name === "usage")
+      : i === 1
+        ? (setUsageMachine(), go({ name: "usage" }, over(route())))
+        : over(route()) && close(under)
+  );
   // Put away, the panel is drawn afresh once it is down: its first page, not renaming.
   const [setsRound, setSetsRound] = useState(0);
   useEffect(() => {
@@ -219,14 +326,29 @@ export function App() {
     // last frames.
     let gone = false;
     const round = () => !gone && setSetsRound((n) => n + 1);
-    const t = setTimeout(() => (window.requestIdleCallback ? window.requestIdleCallback(round, { timeout: 2000 }) : setTimeout(round, 200)), motion.dur(3) + 60);
+    const t = setTimeout(
+      () =>
+        window.requestIdleCallback
+          ? window.requestIdleCallback(round, { timeout: 2000 })
+          : setTimeout(round, 200),
+      motion.dur(3) + 60,
+    );
     return () => ((gone = true), clearTimeout(t));
   }, [setsOut]);
 
   // Chat to chat on a computer, the main pane swaps quickly, drifting the way the sidebar lists them.
   const now = useRef({ tree, phone });
   now.current = { tree, phone };
-  useEffect(() => onTurn(pageTurn(() => flat(now.current.tree).map((s) => s.id), () => !now.current.phone)), []);
+  useEffect(
+    () =>
+      onTurn(
+        pageTurn(
+          () => flat(now.current.tree).map((s) => s.id),
+          () => !now.current.phone,
+        ),
+      ),
+    [],
+  );
 
   // The jump box, in the sidebar (the user, 2026-11-06); on a phone ⌘K brings the sheet out too, and
   // ⌘\ brings it out or puts it away.
@@ -235,15 +357,33 @@ export function App() {
   jumpingNow.current = jumping;
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "k") {
+      if (
+        (e.metaKey || e.ctrlKey) &&
+        !e.shiftKey &&
+        !e.altKey &&
+        e.key.toLowerCase() === "k"
+      ) {
         e.preventDefault();
         const to = !jumpingNow.current;
         setJumping(to);
         if (to && now.current.phone) setSheet(true);
-      } else if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key === "\\" && now.current.phone) {
+      } else if (
+        (e.metaKey || e.ctrlKey) &&
+        !e.shiftKey &&
+        !e.altKey &&
+        e.key === "\\" &&
+        now.current.phone
+      ) {
         e.preventDefault();
         setSheet(!sheetNow.current);
-      } else if (e.altKey && !e.metaKey && !e.ctrlKey && (e.key === "ArrowUp" || e.key === "ArrowDown") && open && !e.defaultPrevented) {
+      } else if (
+        e.altKey &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        (e.key === "ArrowUp" || e.key === "ArrowDown") &&
+        open &&
+        !e.defaultPrevented
+      ) {
         const all = flat(tree);
         const i = all.findIndex((s) => s.id === open);
         const next = all[i + (e.key === "ArrowDown" ? 1 : -1)];
@@ -255,7 +395,10 @@ export function App() {
   }, [tree, open]);
   const sheetNow = useRef(sheetIsOut);
   sheetNow.current = sheetIsOut;
-  const setThemeKept = useCallback((v: ThemePref) => (setTheme(v), keepTheme(v)), []);
+  const setThemeKept = useCallback(
+    (v: ThemePref) => (setTheme(v), keepTheme(v)),
+    [],
+  );
   // The chat's keys to the phone's sheet, the same each draw (the chat is drawn again only as its
   // props change).
   const sheetNowFn = useRef(setSheet);
@@ -265,11 +408,21 @@ export function App() {
   // The rows' own, the same each draw: a row is drawn again only as it changes (sidebar.tsx).
   const phoneNow = useRef(phone);
   phoneNow.current = phone;
-  const onSelect = useCallback((id: string) => (openChat(id), phoneNow.current && setSheetOut(false)), []);
+  const onSelect = useCallback(
+    (id: string) => (openChat(id), phoneNow.current && setSheetOut(false)),
+    [],
+  );
   const chatCode = useCallback(() => void loadChat().catch(() => {}), []);
 
   const onSettings = () => (over(r) ? close(under) : go({ name: "settings" }));
-  const me = <MeKey open={over(r)} onOpen={onSettings} dot={!!update.data?.available} code={loadPanels} />;
+  const me = (
+    <MeKey
+      open={over(r)}
+      onOpen={onSettings}
+      dot={!!update.data?.available}
+      code={loadPanels}
+    />
+  );
   const sidebar = (
     <Sidebar
       tree={tree}
@@ -287,11 +440,27 @@ export function App() {
       }
       onSearch={() => setJumping((j) => !j)}
       confirms={confirms}
-      onConfirm={(c) => (c.session && list?.some((s) => s.id === c.session) ? openChat(c.session) : go({ name: c.kind.startsWith("secret_") ? "secrets" : "apps" }, over(r)))}
+      onConfirm={(c) =>
+        c.session && list?.some((s) => s.id === c.session)
+          ? openChat(c.session)
+          : go(
+              { name: c.kind.startsWith("secret_") ? "secrets" : "apps" },
+              over(r),
+            )
+      }
       chatCode={chatCode}
       panelsCode={loadPanels}
       createKey={(trigger) => <CreatePopover trigger={trigger} />}
-      wsPlus={(w, trigger, o, setO) => <WsPlus key={w.key} w={{ id: w.id, name: w.name, path: w.root }} trigger={trigger} open={o} setOpen={setO} opened={(id) => openChat(id)} />}
+      wsPlus={(w, trigger, o, setO) => (
+        <WsPlus
+          key={w.key}
+          w={{ id: w.id, name: w.name, path: w.root }}
+          trigger={trigger}
+          open={o}
+          setOpen={setO}
+          opened={(id) => openChat(id)}
+        />
+      )}
       me={me}
       reveal={phone ? onSheet : undefined}
     />
@@ -300,10 +469,26 @@ export function App() {
   const main = (
     // On a phone a tap on the chat puts the sheet away, the composer back (the user, 2026-11-06);
     // not one on its top bar: its ⋯ opens over the sheet (the user, 2026-11-06).
-    <main className={cn("relative h-full min-w-0 flex-1 bg-paper", !phone && "g-turn")} onClickCapture={phone && ((sheetOut && open) || setsOut) ? (e) => !(e.target as Element).closest?.("header") && setSheet(false) : undefined}>
+    <main
+      className={cn(
+        "relative h-full min-w-0 flex-1 bg-paper",
+        !phone && "g-turn",
+      )}
+      onClickCapture={
+        phone && ((sheetOut && open) || setsOut)
+          ? (e) => !(e.target as Element).closest?.("header") && setSheet(false)
+          : undefined
+      }
+    >
       <Suspense fallback={<Waiting />}>
         {under.name === "chat" ? (
-          <ChatPage key={under.id} id={under.id} sheet={below} onSheet={phone ? onSheet : undefined} onMe={phone ? onMe : undefined} />
+          <ChatPage
+            key={under.id}
+            id={under.id}
+            sheet={below}
+            onSheet={phone ? onSheet : undefined}
+            onMe={phone ? onMe : undefined}
+          />
         ) : (
           <Empty below={below} />
         )}
@@ -318,12 +503,17 @@ export function App() {
   const usageOut = !phone && r.name === "usage";
   // The dialog keeps the page it showed while it goes (its route already left): the usage fading
   // as itself, never as the settings (the user, 2026-11-08).
-  const dialogPage: SetsPage = over(r) ? setsPageOf(r) : (setsPage ?? "settings");
+  const dialogPage: SetsPage = over(r)
+    ? setsPageOf(r)
+    : (setsPage ?? "settings");
   const usageLook = !phone && dialogPage === "usage";
   const settingsAt = useSettingsAt(over(r) && !phone, usageLook);
   // The usage asked for with the settings open (or back): another panel at another place, drawn
   // anew fading in, not the same one gone there in one frame, wider.
-  const lookWas = useRef<{ open: boolean; usage: boolean }>({ open: false, usage: false });
+  const lookWas = useRef<{ open: boolean; usage: boolean }>({
+    open: false,
+    usage: false,
+  });
   const swapped = useRef(false);
   const openNow = over(r) && !phone;
   if (lookWas.current.open !== openNow || lookWas.current.usage !== usageLook) {
@@ -337,13 +527,32 @@ export function App() {
   // The terminals and the credentials keep the settings' height, scrolling within (the user,
   // 2026-11-08: going in, the dialog neither grows nor shrinks); opened on them first, they fit.
   const settingsH = useRef<number | undefined>(undefined);
-  if (dialogPage === "settings" && fit.h !== undefined) settingsH.current = fit.h;
-  const boxH = (dialogPage === "apps" || dialogPage === "secrets" || dialogPage === "roles") && settingsH.current !== undefined ? settingsH.current : fit.h;
-  const settingsStyle: CSSProperties | undefined = settingsAt && boxH !== undefined && !usageLook && room !== undefined ? { ...settingsAt, height: `min(${boxH}px, ${typeof room === "number" ? `${room}px` : room})` } : settingsAt;
+  if (dialogPage === "settings" && fit.h !== undefined)
+    settingsH.current = fit.h;
+  const boxH =
+    (dialogPage === "apps" ||
+      dialogPage === "secrets" ||
+      dialogPage === "roles") &&
+    settingsH.current !== undefined
+      ? settingsH.current
+      : fit.h;
+  const settingsStyle: CSSProperties | undefined =
+    settingsAt && boxH !== undefined && !usageLook && room !== undefined
+      ? {
+          ...settingsAt,
+          height: `min(${boxH}px, ${typeof room === "number" ? `${room}px` : room})`,
+        }
+      : settingsAt;
   // The usage panel floats as a row's menu does: one of them at a time (ui.tsx holdMenu).
   const underNow = useRef(under);
   underNow.current = under;
-  useEffect(() => (usageOut ? holdMenu(() => route().name === "usage" && close(underNow.current)) : undefined), [usageOut]);
+  useEffect(
+    () =>
+      usageOut
+        ? holdMenu(() => route().name === "usage" && close(underNow.current))
+        : undefined,
+    [usageOut],
+  );
   const usagePage = () => (
     <Suspense fallback={<Waiting />}>
       <UsagePage />
@@ -371,7 +580,11 @@ export function App() {
             </div>
           ) : (
             <div key="settings" className={cn(slide, "h-full")} data-dir="back">
-              <SettingsPage key={setsRound} theme={theme} setTheme={setThemeKept} />
+              <SettingsPage
+                key={setsRound}
+                theme={theme}
+                setTheme={setThemeKept}
+              />
             </div>
           )
         }
@@ -384,9 +597,15 @@ export function App() {
       modal={false}
       onOpenChange={(o, d) => {
         if (o || !over(route())) return;
-        const e = d.event as (Event & { relatedTarget?: EventTarget | null }) | undefined;
-        const key = (x?: EventTarget | null) => !!(x as Element | null)?.closest?.("[data-settings-key]");
-        if ((d.reason === "outside-press" || d.reason === "focus-out") && (key(e?.target) || key(e?.relatedTarget))) return d.cancel();
+        const e = d.event as
+          (Event & { relatedTarget?: EventTarget | null }) | undefined;
+        const key = (x?: EventTarget | null) =>
+          !!(x as Element | null)?.closest?.("[data-settings-key]");
+        if (
+          (d.reason === "outside-press" || d.reason === "focus-out") &&
+          (key(e?.target) || key(e?.relatedTarget))
+        )
+          return d.cancel();
         close(under);
       }}
     >
@@ -398,7 +617,13 @@ export function App() {
           aria-label={t("nav.me")}
           style={settingsStyle}
           data-glide-h={fit.glide || undefined}
-          className={cn("g-dialog glass thick float fixed z-50 overflow-hidden rounded-lg text-ink outline-none", swapped.current && "g-fade", usageLook ? "w-[min(360px,calc(100vw-16px))]" : "w-[min(288px,calc(100vw-16px))]")}
+          className={cn(
+            "g-dialog glass thick float fixed z-50 overflow-hidden rounded-lg text-ink outline-none",
+            swapped.current && "g-fade",
+            usageLook
+              ? "w-[min(360px,calc(100vw-16px))]"
+              : "w-[min(288px,calc(100vw-16px))]",
+          )}
         >
           {setsBody(dialogPage)}
         </Dialog.Popup>
@@ -409,27 +634,76 @@ export function App() {
   return (
     <Toast.Provider toastManager={toasts}>
       <Tooltip.Provider delay={450} closeDelay={60}>
-        <div className="flex h-full overflow-hidden" data-still={params.get("still") === "1" || undefined}>
+        <div
+          className="flex h-full overflow-hidden"
+          data-still={params.get("still") === "1" || undefined}
+        >
           {!phone && sidebar}
           {main}
           {phone && (
-            <Sheet open={sheetIsOut} setOpen={setSheet} size={!open ? "full" : "half"} raised={jumping && !setsOut} name="phone" head={GRIP + TABS_H} from={() => true} onPull={(x) => setPulled(atLeft(x) ? "me" : "sessions")} label={setsOut ? (r.name === "usage" ? t("usage.title") : t("nav.me")) : t("nav.sessions")} onHeight={setSheetH}>
+            <Sheet
+              open={sheetIsOut}
+              setOpen={setSheet}
+              size={!open ? "full" : "half"}
+              raised={jumping && !setsOut}
+              name="phone"
+              head={GRIP + TABS_H}
+              from={() => true}
+              onPull={(x) => setPulled(atLeft(x) ? "me" : "sessions")}
+              label={
+                setsOut
+                  ? r.name === "usage"
+                    ? t("usage.title")
+                    : t("nav.me")
+                  : t("nav.sessions")
+              }
+              onHeight={setSheetH}
+            >
               <Pager
                 // The tabs' bar is px-3, the list's rows end 4px further right: its "+" in line with
                 // theirs (the user, 2026-11-08).
-                ends={[null, null, <span key="s" className="-mr-1 flex"><HeadKeys createKey={(trigger) => <CreatePopover trigger={trigger} />} /></span>]}
+                ends={[
+                  null,
+                  null,
+                  <span key="s" className="-mr-1 flex">
+                    <HeadKeys
+                      createKey={(trigger) => (
+                        <CreatePopover trigger={trigger} />
+                      )}
+                    />
+                  </span>,
+                ]}
                 page={sheetPage}
                 still={turnStill}
                 onPage={toPage}
                 tabs={[
-                  { label: <>{t("nav.me")}{update.data?.available && <span className="size-1.5 rounded-full bg-err" aria-hidden />}</>, aria: update.data?.available ? `${t("nav.me")} · ${t("settings.updateReady")}` : t("nav.me") },
+                  {
+                    label: (
+                      <>
+                        {t("nav.me")}
+                        {update.data?.available && (
+                          <span
+                            className="size-1.5 rounded-full bg-err"
+                            aria-hidden
+                          />
+                        )}
+                      </>
+                    ),
+                    aria: update.data?.available
+                      ? `${t("nav.me")} · ${t("settings.updateReady")}`
+                      : t("nav.me"),
+                  },
                   { label: t("usage.title"), aria: t("usage.title") },
                   { label: t("nav.sessions"), aria: t("nav.sessions") },
                 ]}
               >
                 {[
-                  <div key="me" className="absolute inset-0">{seen && setsBody(setsPage ?? "settings")}</div>,
-                  <div key="usage" className="absolute inset-0">{seen && usagePage()}</div>,
+                  <div key="me" className="absolute inset-0">
+                    {seen && setsBody(setsPage ?? "settings")}
+                  </div>,
+                  <div key="usage" className="absolute inset-0">
+                    {seen && usagePage()}
+                  </div>,
                   sidebar,
                 ]}
               </Pager>
@@ -438,7 +712,11 @@ export function App() {
         </div>
         {settings}
         <Toast.Portal>
-          <Toast.Viewport className={cn("fixed top-[60px] left-1/2 z-60 flex w-[min(400px,calc(100vw-24px))] -translate-x-1/2 flex-col items-center gap-2 outline-none")}>
+          <Toast.Viewport
+            className={cn(
+              "fixed top-[60px] left-1/2 z-60 flex w-[min(400px,calc(100vw-24px))] -translate-x-1/2 flex-col items-center gap-2 outline-none",
+            )}
+          >
             <ToastList onJump={(id) => openChat(id)} />
           </Toast.Viewport>
         </Toast.Portal>
@@ -450,7 +728,13 @@ export function App() {
 /** The settings' pages: the first one shown as the dialog (or the phone's tab) comes, still, as it
  *  rises with it; only a page gone to after that slides in (g-slide). Sliding the first too, the
  *  page drifted on after the dialog had stopped, its last frames off by a fraction of a pixel. */
-function SetsPages({ page, children }: { page: SetsPage; children: (slide: string | undefined) => ReactNode }) {
+function SetsPages({
+  page,
+  children,
+}: {
+  page: SetsPage;
+  children: (slide: string | undefined) => ReactNode;
+}) {
   const [at, setAt] = useState(page);
   const [moved, setMoved] = useState(false);
   if (at !== page) {
@@ -461,21 +745,31 @@ function SetsPages({ page, children }: { page: SetsPage; children: (slide: strin
 }
 
 /** Back a step in the settings' dialog. */
-const back = () => (history.state?.depth > 1 ? history.back() : go({ name: "settings" }, true));
+const back = () =>
+  history.state?.depth > 1 ? history.back() : go({ name: "settings" }, true);
 
 /** The main pane with nothing open: the faint mark alone, in the middle of what the phone's sheet
  *  leaves free. */
 function Empty({ below }: { below: number }) {
   return (
-    <div className="grid h-full place-items-center transition-[padding] duration-(--dur-3) ease-(--ease-out)" style={{ paddingBottom: below }} aria-hidden>
-      <IrMark size={44} className="text-fill-2" />
+    <div
+      className="relative grid h-full place-items-center transition-[padding] duration-(--dur-3) ease-(--ease-out)"
+      style={{ paddingBottom: below }}
+    >
+      <IrMark size={44} className="text-fill-2" aria-hidden />
+      {/* The desktop app's key where a chat's top bar has it (appkey.tsx); nothing in a browser. */}
+      <span className="absolute top-2 right-2">
+        <AppKey />
+      </span>
     </div>
   );
 }
 
 /** While a part's code comes: the top bar's place, frosted and empty. */
 function Waiting() {
-  return <div className="glass absolute inset-x-0 top-0 h-12 shadow-[0_0.5px_0_var(--edge)] pointer-coarse:h-13" />;
+  return (
+    <div className="glass absolute inset-x-0 top-0 h-12 shadow-[0_0.5px_0_var(--edge)] pointer-coarse:h-13" />
+  );
 }
 
 /** The settings' dialog as tall as the page in it would stand: its scroller's whole content and
@@ -490,11 +784,17 @@ function useFit(el: HTMLElement | null, open: boolean) {
     const ro = new ResizeObserver(() => measure());
     let watched: Element[] = [];
     const measure = () => {
-      const root = el.firstElementChild?.firstElementChild as HTMLElement | null | undefined;
+      const root = el.firstElementChild?.firstElementChild as
+        HTMLElement | null | undefined;
       if (!root) return;
       const sc = root.querySelector<HTMLElement>(".overflow-y-auto");
-      const want = [root, sc, sc?.firstElementChild].filter(Boolean) as Element[];
-      if (want.some((x, i) => x !== watched[i]) || want.length !== watched.length) {
+      const want = [root, sc, sc?.firstElementChild].filter(
+        Boolean,
+      ) as Element[];
+      if (
+        want.some((x, i) => x !== watched[i]) ||
+        want.length !== watched.length
+      ) {
         ro.disconnect();
         want.forEach((x) => ro.observe(x));
         watched = want;
@@ -509,7 +809,11 @@ function useFit(el: HTMLElement | null, open: boolean) {
       const box = sc.getBoundingClientRect();
       const m = getComputedStyle(el).transform;
       const scale = (m && m !== "none" ? new DOMMatrixReadOnly(m).a : 1) || 1;
-      const inner = last ? (last.getBoundingClientRect().bottom - box.top) / scale + sc.scrollTop + parseFloat(getComputedStyle(sc).paddingBottom) : 0;
+      const inner = last
+        ? (last.getBoundingClientRect().bottom - box.top) / scale +
+          sc.scrollTop +
+          parseFloat(getComputedStyle(sc).paddingBottom)
+        : 0;
       setH(Math.ceil(root.offsetHeight - sc.clientHeight + inner));
     };
     measure();
@@ -526,7 +830,10 @@ function useFit(el: HTMLElement | null, open: boolean) {
 /** Where the 终端 panel stands, open: above the me key (me.tsx data-settings-key), its left edge on
  *  the key's, as tall as fits there up to 600px; with too little room or no key in sight, at the
  *  window's bottom left. */
-function useSettingsAt(open: boolean, usage: boolean): CSSProperties | undefined {
+function useSettingsAt(
+  open: boolean,
+  usage: boolean,
+): CSSProperties | undefined {
   const [at, setAt] = useState<CSSProperties>();
   // The window made another size: placed again, not left where the key was.
   const [size, setSize] = useState(0);
@@ -544,20 +851,38 @@ function useSettingsAt(open: boolean, usage: boolean): CSSProperties | undefined
     if (p) {
       const w = Math.min(360, innerWidth - 16);
       const h = Math.min(560, innerHeight - 16);
-      const left = Math.max(8, Math.min(innerWidth - w - 8, p.end ? p.x - w : p.x));
+      const left = Math.max(
+        8,
+        Math.min(innerWidth - w - 8, p.end ? p.x - w : p.x),
+      );
       const top = p.y + h + 8 <= innerHeight ? p.y : Math.max(8, p.y - h);
       setAt({ left, top, height: h });
       return;
     }
     const w = Math.min(288, innerWidth - 16);
-    const b = document.querySelector("[data-settings-key]")?.getBoundingClientRect();
-    const seen = b && b.width > 0 && b.right > 0 && b.left < innerWidth && b.bottom <= innerHeight;
+    const b = document
+      .querySelector("[data-settings-key]")
+      ?.getBoundingClientRect();
+    const seen =
+      b &&
+      b.width > 0 &&
+      b.right > 0 &&
+      b.left < innerWidth &&
+      b.bottom <= innerHeight;
     const room = seen ? b.top - 16 : 0;
     if (!seen || room < 360) {
-      setAt({ left: 8, bottom: "max(8px, env(safe-area-inset-bottom))", height: "min(600px, calc(100dvh - 16px))" });
+      setAt({
+        left: 8,
+        bottom: "max(8px, env(safe-area-inset-bottom))",
+        height: "min(600px, calc(100dvh - 16px))",
+      });
       return;
     }
-    setAt({ left: Math.max(8, Math.min(innerWidth - w - 8, b.left)), bottom: innerHeight - b.top + 8, height: Math.min(600, room) });
+    setAt({
+      left: Math.max(8, Math.min(innerWidth - w - 8, b.left)),
+      bottom: innerHeight - b.top + 8,
+      height: Math.min(600, room),
+    });
   }, [open, usage, size]);
   return at;
 }

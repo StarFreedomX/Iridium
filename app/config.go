@@ -17,6 +17,9 @@ import (
 type Server struct {
 	URL string `json:"url"`
 	Off bool   `json:"off,omitempty"` // not joined (still shown when chosen)
+	// What it may do here (docs/exec.md): no command lines; only these folders ("": all).
+	NoShell bool     `json:"noShell,omitempty"`
+	Roots   []string `json:"roots,omitempty"`
 }
 
 // Config is the app's own, kept on this computer: what it joins and how. What an Iridium may do
@@ -25,8 +28,6 @@ type Config struct {
 	Servers []Server `json:"servers"`
 	Current string   `json:"current,omitempty"` // the one in the window
 	Name    string   `json:"name,omitempty"`    // this computer's name; "": the host name
-	Roots   []string `json:"roots,omitempty"`   // "": all
-	NoShell bool     `json:"noShell,omitempty"`
 }
 
 var cfgMu sync.Mutex
@@ -122,4 +123,14 @@ func (c *Config) remove(address string) {
 	if c.Current == address {
 		c.Current = ""
 	}
+}
+
+// server is address's entry, for changing in place; nil: not in the list.
+func (c *Config) server(address string) *Server {
+	for i := range c.Servers {
+		if c.Servers[i].URL == address {
+			return &c.Servers[i]
+		}
+	}
+	return nil
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -25,6 +26,7 @@ type Joins struct {
 
 	mu      sync.Mutex
 	running map[string]context.CancelFunc
+	as      map[string]string // what each running one was started with (its Server, its name)
 	status  map[string]string
 }
 
@@ -40,29 +42,34 @@ func (j *Joins) Sync(c Config) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	if j.running == nil {
-		j.running, j.status = map[string]context.CancelFunc{}, map[string]string{}
+		j.running, j.as, j.status = map[string]context.CancelFunc{}, map[string]string{}, map[string]string{}
 	}
-	want := map[string]bool{}
+	want := map[string]Server{}
 	for _, s := range c.Servers {
 		if !s.Off {
-			want[s.URL] = true
+			want[s.URL] = s
 		}
 	}
 	for u, stop := range j.running {
-		if !want[u] {
+		if s, ok := want[u]; !ok || j.as[u] != signature(s, c.Name) {
+			// Gone, or its terms changed: ended (started again below with the new ones).
 			stop()
 			delete(j.running, u)
 			j.status[u] = "已断开"
 		}
 	}
-	for u := range want {
+	for u, s := range want {
 		if j.running[u] == nil {
 			ctx, stop := context.WithCancel(context.Background())
-			j.running[u] = stop
+			j.running[u], j.as[u] = stop, signature(s, c.Name)
 			j.status[u] = "连接中"
-			go j.run(ctx, u, c)
+			go j.run(ctx, s, c.Name)
 		}
 	}
+}
+
+func signature(s Server, name string) string {
+	return fmt.Sprintf("%v|%q|%q", s.NoShell, s.Roots, name)
 }
 
 // Stop ends every join (the app quitting): the agents they started end with them.
@@ -75,14 +82,15 @@ func (j *Joins) Stop() {
 	}
 }
 
-func (j *Joins) run(ctx context.Context, address string, c Config) {
+func (j *Joins) run(ctx context.Context, s Server, name string) {
+	address := s.URL
 	base, err := join.BaseDir()
 	if err != nil {
 		j.set(address, "无法启动："+err.Error())
 		return
 	}
 	o := join.Options{
-		URL: address, Name: c.Name, Roots: c.Roots, Shell: !c.NoShell, Base: base, Prog: prog,
+		URL: address, Name: name, Roots: s.Roots, Shell: !s.NoShell, Base: base, Prog: prog,
 		Out: lineWriter(func(l string) { j.set(address, l) }), Logf: j.Logf, Ask: j.Ask,
 	}
 	if o.Name == "" {

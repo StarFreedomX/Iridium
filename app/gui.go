@@ -10,10 +10,12 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/kumoSleeping/iridium/internal/join"
 	"github.com/kumoSleeping/iridium/internal/version"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
@@ -103,58 +105,264 @@ func (u *ui) show() {
 	u.win.Focus()
 }
 
-// message is what a page sends (window._wails.invoke): the address page's address, or from an
-// Iridium's own page (its origin one in the list) what the app may do for it. Anything else, from
-// any other origin, is dropped: a page is never trusted for what only a person here allows.
+// message is what a page sends (window._wails.invoke). The address page (the app's own) adds an
+// Iridium; an Iridium's own page (its origin one in the list) may ask what the app is, switch to
+// another in the list, add one (with a dialog of this computer's: joining is this computer's
+// to allow), and log in from the browser. Anything else, from any other origin, is dropped: a
+// page is never trusted for what only a person here allows.
 func (u *ui) message(w application.Window, msg string, o *application.OriginInfo, logf func(string, ...any)) {
 	origin := ""
 	if o != nil {
 		origin = o.Origin
 	}
-	logf("message from %q (main frame %v): %.80s", origin, o != nil && o.IsMainFrame, msg)
 	c, _ := loadConfig()
-	if a, ok := strings.CutPrefix(msg, "ir:add:"); ok && !isServer(c, origin) {
-		address, err := normalize(a)
-		if err != nil {
-			reply(w, map[string]string{"error": "地址无效"})
-			return
-		}
-		c, err = updateConfig(func(c *Config) { c.add(address) })
-		if err != nil {
-			reply(w, map[string]string{"error": err.Error()})
-			return
-		}
-		u.joins.Sync(c)
-		u.redraw()
-		u.win.SetURL(address + "/")
+	server := serverOf(c, origin)
+	verb, arg, _ := strings.Cut(strings.TrimPrefix(msg, "ir:"), ":")
+	if !strings.HasPrefix(msg, "ir:") {
 		return
 	}
-	if !isServer(c, origin) {
+	logf("message %s from %q", verb, origin)
+	if server == "" {
+		// Not an Iridium's page: the app's own address page, or nothing.
+		if verb == "add" && (strings.HasPrefix(origin, "wails:") || strings.HasPrefix(origin, "http://wails.localhost")) {
+			go u.add(w, arg, false)
+		}
 		return
 	}
-	switch msg {
-	case "ir:hello":
-		// The page learns it is in the app, and which: it may show what only the app does.
-		reply(w, map[string]any{"app": "ir-app", "version": version.Version})
+	switch verb {
+	case "hello":
+		reply(w, u.hello(c, server))
+	case "switch":
+		for _, s := range c.Servers {
+			if s.URL == arg {
+				u.switchTo(arg)
+			}
+		}
+	case "add":
+		go u.add(w, arg, true)
+	case "remove":
+		if arg == server {
+			return // not the one the page is on: from another's
+		}
+		if c, err := updateConfig(func(c *Config) { c.remove(arg) }); err == nil {
+			u.joins.Sync(c)
+			application.InvokeAsync(u.redraw)
+			reply(w, u.hello(c, server))
+		}
+	case "set":
+		go u.set(w, server, arg)
+	case "pickroot":
+		go u.pickRoot(w, server)
+	case "autostart":
+		if arg == "on" {
+			_ = u.app.Autostart.Enable()
+		} else {
+			_ = u.app.Autostart.Disable()
+		}
+		application.InvokeAsync(u.redraw)
+		reply(w, u.hello(c, server))
+	case "update":
+		if arg == "restart" {
+			_ = u.app.Updater.Restart(context.Background())
+			return
+		}
+		go func() {
+			_, err := u.app.Updater.Check(context.Background())
+			c, _ := loadConfig()
+			h := u.hello(c, server)
+			if err != nil {
+				h["error"] = "检查更新失败"
+			} else if h["update"] == "" {
+				h["notice"] = "已是最新"
+			}
+			reply(w, h)
+		}()
+	case "login":
+		name := c.Name
+		if name == "" {
+			name = join.MachineName()
+		}
+		browserLogin(server, name, u.app.Browser.OpenURL, func(m map[string]string) { reply(w, m) }, func(link string) {
+			if c, _ := loadConfig(); c.current() == server {
+				u.win.SetURL(link)
+			}
+		})
 	}
 }
 
-// isServer: is origin (scheme://host[:port]) one of the Iridiums in the list?
-func isServer(c Config, origin string) bool {
+// hello is what an Iridium's page learns of the app: that it is in it, and the Iridiums in its
+// list (the window's switcher, which the page draws in its top bar).
+func (u *ui) hello(c Config, server string) map[string]any {
+	list := []map[string]any{}
+	for _, s := range c.Servers {
+		list = append(list, map[string]any{"url": s.URL, "host": hostOf(s.URL), "current": s.URL == server, "joined": !s.Off})
+	}
+	me := map[string]any{"name": c.Name, "joined": false, "shell": false, "roots": []string{}}
+	if me["name"] == "" {
+		me["name"] = join.MachineName()
+	}
+	if s := c.server(server); s != nil {
+		me["joined"], me["shell"], me["status"] = !s.Off, !s.NoShell, u.joins.Status(server)
+		if s.Roots != nil {
+			me["roots"] = s.Roots
+		}
+	}
+	auto, _ := u.app.Autostart.IsEnabled()
+	u.mu.Lock()
+	ready := u.ready
+	u.mu.Unlock()
+	return map[string]any{"app": "ir-app", "version": version.Version, "servers": list, "computer": me, "autostart": auto, "update": ready}
+}
+
+// terms are what a page may ask to change of this computer for its Iridium: narrowing is done at
+// once; widening (joining it, command lines on, a folder more) only once the person here allows it
+// in a dialog of this computer's.
+type terms struct {
+	Joined *bool    `json:"joined"`
+	Shell  *bool    `json:"shell"`
+	Roots  []string `json:"roots"` // the folders kept: only fewer (a folder more is pickroot's)
+	All    bool     `json:"all"`   // every folder again
+}
+
+func (u *ui) set(w application.Window, server, arg string) {
+	var t terms
+	if json.Unmarshal([]byte(arg), &t) != nil {
+		return
+	}
+	c, _ := loadConfig()
+	s := c.server(server)
+	if s == nil {
+		return
+	}
+	var wider []string
+	if t.Joined != nil && *t.Joined && s.Off {
+		wider = append(wider, "让这台电脑接入 "+hostOf(server))
+	}
+	if t.Shell != nil && *t.Shell && s.NoShell {
+		wider = append(wider, "允许 "+hostOf(server)+" 在这台电脑上执行命令")
+	}
+	if t.All && len(s.Roots) > 0 {
+		wider = append(wider, "允许 "+hostOf(server)+" 访问这台电脑的全部文件夹")
+	}
+	if t.Roots != nil {
+		// Only folders it had: a page cannot name a new one.
+		for _, r := range t.Roots {
+			if !slices.Contains(s.Roots, r) {
+				return
+			}
+		}
+		if len(s.Roots) > 0 && len(t.Roots) == 0 {
+			return // none left would be all: that is no narrowing
+		}
+	}
+	if len(wider) > 0 {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		ok := u.confirm(ctx, strings.Join(wider, "；")+"？")
+		cancel()
+		if !ok {
+			reply(w, u.hello(c, server))
+			return
+		}
+	}
+	c, err := updateConfig(func(c *Config) {
+		s := c.server(server)
+		if s == nil {
+			return
+		}
+		if t.Joined != nil {
+			s.Off = !*t.Joined
+		}
+		if t.Shell != nil {
+			s.NoShell = !*t.Shell
+		}
+		if t.Roots != nil {
+			s.Roots = t.Roots
+		}
+		if t.All {
+			s.Roots = nil
+		}
+	})
+	if err != nil {
+		return
+	}
+	u.joins.Sync(c)
+	application.InvokeAsync(u.redraw)
+	reply(w, u.hello(c, server))
+}
+
+// pickRoot: a folder for server, chosen by the person here in this computer's own picker (the
+// choosing is the allowing): one more, or, with all of them open, the only one from now on.
+func (u *ui) pickRoot(w application.Window, server string) {
+	dir, err := u.app.Dialog.OpenFile().CanChooseDirectories(true).CanChooseFiles(false).
+		SetTitle("允许 " + hostOf(server) + " 访问的文件夹").PromptForSingleSelection()
+	if err != nil || dir == "" {
+		return
+	}
+	c, err := updateConfig(func(c *Config) {
+		if s := c.server(server); s != nil && !slices.Contains(s.Roots, dir) {
+			s.Roots = append(s.Roots, dir)
+		}
+	})
+	if err != nil {
+		return
+	}
+	u.joins.Sync(c)
+	reply(w, u.hello(c, server))
+}
+
+// add checks that address is an Iridium, then (asked by a page, with this computer's dialog)
+// puts it in the list, joins it and shows it.
+func (u *ui) add(w application.Window, address string, ask bool) {
+	a, err := normalize(address)
+	if err != nil {
+		reply(w, map[string]string{"error": "地址无效"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := isIridium(ctx, a); err != nil {
+		reply(w, map[string]string{"error": err.Error()})
+		return
+	}
+	if ask && !u.confirm(ctx, fmt.Sprintf("添加 %s，并让这台电脑接入它？", hostOf(a))) {
+		reply(w, map[string]string{"error": "已取消"})
+		return
+	}
+	c, err := updateConfig(func(c *Config) { c.add(a) })
+	if err != nil {
+		reply(w, map[string]string{"error": err.Error()})
+		return
+	}
+	u.joins.Sync(c)
+	application.InvokeAsync(u.redraw)
+	u.win.SetURL(a + "/")
+}
+
+func (u *ui) switchTo(address string) {
+	if c, err := updateConfig(func(c *Config) { c.Current = address }); err == nil {
+		u.win.SetURL(pageOf(c))
+		application.InvokeAsync(u.redraw)
+	}
+}
+
+// serverOf is the Iridium in the list whose origin (scheme://host[:port]) origin is; "": none.
+func serverOf(c Config, origin string) string {
 	if origin == "" {
-		return false
+		return ""
 	}
 	o, err := url.Parse(origin)
 	if err != nil {
-		return false
+		return ""
 	}
 	for _, s := range c.Servers {
 		if su, err := url.Parse(s.URL); err == nil && su.Scheme == o.Scheme && strings.EqualFold(su.Host, o.Host) {
-			return true
+			return s.URL
 		}
 	}
-	return false
+	return ""
 }
+
+func isServer(c Config, origin string) bool { return serverOf(c, origin) != "" }
 
 // reply hands the page an "ir-app" event with v as its detail.
 func reply(w application.Window, v any) {
@@ -164,10 +372,13 @@ func reply(w application.Window, v any) {
 
 // ask asks the person here, in a dialog of this computer's, never on a page: an Iridium asking
 // for more than it was given (docs/exec.md "放开").
-func (u *ui) ask(ctx context.Context, q string) bool {
+func (u *ui) ask(ctx context.Context, q string) bool { return u.confirm(ctx, q+"。允许？") }
+
+// confirm is a question to the person here, in a dialog of this computer's: allowed or not.
+func (u *ui) confirm(ctx context.Context, q string) bool {
 	answer := make(chan bool, 1)
 	application.InvokeAsync(func() {
-		d := u.app.Dialog.Question().SetTitle("Iridium").SetMessage(q + "。允许？")
+		d := u.app.Dialog.Question().SetTitle("Iridium").SetMessage(q)
 		yes := d.AddButton("允许")
 		yes.OnClick(func() { answer <- true })
 		no := d.AddButton("拒绝")
@@ -199,11 +410,8 @@ func (u *ui) redraw() {
 		sub := m.AddSubmenu(fmt.Sprintf("%s · %s", host, state))
 		show := sub.AddCheckbox("在窗口中显示", s.URL == cur)
 		show.OnClick(func(*application.Context) {
-			if c, err := updateConfig(func(c *Config) { c.Current = s.URL }); err == nil {
-				u.win.SetURL(pageOf(c))
-				u.show()
-				application.InvokeAsync(u.redraw)
-			}
+			u.switchTo(s.URL)
+			u.show()
 		})
 		on := sub.AddCheckbox("接入这台电脑", !s.Off)
 		on.OnClick(func(*application.Context) {

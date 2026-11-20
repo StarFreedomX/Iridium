@@ -129,6 +129,7 @@ type Web struct {
 	st *memState
 
 	flows *flows
+	apps  appLogins // the desktop app's logins (applogin.go)
 
 	reqMu sync.Mutex
 	reqs  map[*inFlight]struct{}
@@ -153,7 +154,7 @@ func New(cfg Config) (*Web, error) {
 	}
 	w := &Web{
 		cfg: cfg, core: cfg.Core, store: cfg.Store, log: cfg.Logger, now: cfg.Now, ipHeader: cfg.ClientIPHeader,
-		flows: newFlows(), reqs: map[*inFlight]struct{}{},
+		flows: newFlows(), apps: appLogins{m: map[string]*appLogin{}}, reqs: map[*inFlight]struct{}{},
 		stop: make(chan struct{}), done: make(chan struct{}),
 	}
 	if w.log == nil {

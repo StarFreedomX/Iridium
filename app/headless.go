@@ -60,20 +60,25 @@ func headless(args []string) int {
 	if *name != "" {
 		c.Name = *name
 	}
-	if *noShell {
-		c.NoShell = true
-	}
-	if *roots != "" {
-		c.Roots = nil
-		for _, r := range strings.Split(*roots, ",") {
-			if r = strings.TrimSpace(r); r != "" {
-				abs, err := filepath.Abs(r)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "ir-app: %v\n", err)
-					return 2
-				}
-				c.Roots = append(c.Roots, abs)
+	var dirs []string
+	for _, r := range strings.Split(*roots, ",") {
+		if r = strings.TrimSpace(r); r != "" {
+			abs, err := filepath.Abs(r)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "ir-app: %v\n", err)
+				return 2
 			}
+			dirs = append(dirs, abs)
+		}
+	}
+	// The options are the terms for every Iridium it joins.
+	for i := range c.Servers {
+		c.Servers[i].Off = false
+		if *noShell {
+			c.Servers[i].NoShell = true
+		}
+		if dirs != nil {
+			c.Servers[i].Roots = dirs
 		}
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)

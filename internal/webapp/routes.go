@@ -20,6 +20,7 @@ var webFS embed.FS
 
 var pages = map[string][2]string{ // path → file, content type
 	"/_ir/login":    {"web/gate.html", "text/html; charset=utf-8"},
+	"/_ir/app":      {"web/gate.html", "text/html; charset=utf-8"}, // the desktop app's login, allowed here
 	"/_ir/join":     {"web/gate.html", "text/html; charset=utf-8"},
 	"/_ir/gate.js":  {"web/gate.js", "text/javascript; charset=utf-8"},
 	"/_ir/gate.css": {"web/gate.css", "text/css; charset=utf-8"},
@@ -67,6 +68,17 @@ func (w *Web) serveGate(rw http.ResponseWriter, r *http.Request) {
 		http.ServeContent(rw, r, "", time.Time{}, bytes.NewReader(data))
 	case p == "/_ir/api/session" && get:
 		w.apiSession(rw, r)
+	case p == "/_ir/app/finish" && get && w.public:
+		w.appFinish(rw, r)
+	case (p == "/_ir/api/app/start" || p == "/_ir/api/app/poll") && r.Method == http.MethodPost && w.public:
+		// The app's own requests, not a page's: no cookie, no Origin; its secret is what counts.
+		key := gate.ClientKey(r, w.ipHeader)
+		r.Body = http.MaxBytesReader(rw, r.Body, maxBody)
+		if p == "/_ir/api/app/start" {
+			w.apiAppStart(rw, r, key)
+		} else {
+			w.apiAppPoll(rw, r, key)
+		}
 	case strings.HasPrefix(p, "/_ir/api/") && r.Method == http.MethodPost && w.public:
 		w.serveAPI(rw, r)
 	default:
@@ -96,6 +108,10 @@ func (w *Web) serveAPI(rw http.ResponseWriter, r *http.Request) {
 		w.apiLoginOptions(rw, r)
 	case "/_ir/api/login/verify":
 		w.apiLoginVerify(rw, r, key)
+	case "/_ir/api/app/info":
+		w.apiAppInfo(rw, r)
+	case "/_ir/api/app/answer":
+		w.apiAppAnswer(rw, r, key)
 	default:
 		writeJSON(rw, http.StatusNotFound, apiError{"not_found"})
 	}

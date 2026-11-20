@@ -33,6 +33,15 @@ const S = {
   cancelled: ['已取消，或超时', 'Cancelled, or timed out'],
   provider: ['系统 Passkey 服务出错', 'The system passkey service failed'],
   browser: ['浏览器拒绝了', 'The browser refused'],
+  inApp: ['在浏览器中登录', 'Sign in in your browser'],
+  inAppWait: ['在浏览器中核对代码 {code} 后允许', 'Check the code {code} in your browser, then allow'],
+  appAsk: ['「{name}」上的 Iridium 应用请求以你的身份登录', 'The Iridium app on "{name}" asks to sign in as you'],
+  appCheck: ['核对应用里显示的代码', 'Check it against the code the app shows'],
+  allow: ['允许', 'Allow'],
+  deny: ['拒绝', 'Deny'],
+  appAllowed: ['已允许，可以关闭此页', 'Allowed. You can close this page.'],
+  appDenied: ['已拒绝', 'Denied'],
+  appExpired: ['请求无效或已过期，请在应用里重新登录', 'This request is invalid or expired. Sign in again from the app.'],
 };
 const t = (k) => (S[k] || [k, k])[ZH ? 0 : 1];
 
@@ -95,7 +104,7 @@ function encodeCredential(c) {
 const decodeIds = (list) => (list || []).map((c) => ({ ...c, id: b64uToBuf(c.id) }));
 
 function view(name) {
-  for (const v of ['wait', 'login', 'join', 'bad']) $('v-' + v).hidden = v !== name;
+  for (const v of ['wait', 'login', 'join', 'app', 'bad']) $('v-' + v).hidden = v !== name;
   status('');
 }
 
@@ -135,7 +144,7 @@ async function busy(btn, fn) {
   }
 }
 
-async function login() {
+async function login(then = () => location.replace(nextUrl())) {
   status(''); // the spinner in the key says it
   const opt = await api('/_ir/api/login/options', {});
   if (opt.status !== 200) {
@@ -155,7 +164,7 @@ async function login() {
   }
   status('');
   const v = await api('/_ir/api/login/verify', { flow: opt.data.flow, response: encodeCredential(cred) });
-  if (v.status === 200) location.replace(nextUrl());
+  if (v.status === 200) await then();
   else status(v.status === 429 ? t('tooMany') : v.data.code === 'flow_expired' ? t('expired') : t('loginFailed'), true);
 }
 
@@ -274,12 +283,74 @@ async function initJoin() {
 async function initLogin() {
   const s = (await api('/_ir/api/session')).data;
   if (s.authenticated) return location.replace(nextUrl());
+  if (inApp) return; // the app's key is there already
   view('login');
   if (s.setup) {
     $('login').hidden = true;
     $('setup').hidden = false;
   }
   $('login').onclick = () => busy($('login'), login);
+}
+
+// --- the desktop app (applogin.go) ---
+
+/** The page as it is in the browser: a computer's app asks to log in as this login. */
+async function initApp() {
+  const id = new URLSearchParams(location.search).get('id') || '';
+  const s = (await api('/_ir/api/session')).data;
+  if (s.authenticated) return showApp(id);
+  view('login');
+  $('login').onclick = () => busy($('login'), () => login(() => showApp(id)));
+}
+
+async function showApp(id) {
+  const r = await api('/_ir/api/app/info', { id });
+  if (r.status !== 200 || r.data.answered) return done(t('appExpired'));
+  view('app');
+  const ask = $('app-ask');
+  ask.replaceChildren(Object.assign(document.createElement('strong'), { textContent: t('appAsk').replace('{name}', r.data.name) }),
+    Object.assign(document.createElement('span'), { textContent: t('appCheck') }));
+  $('app-code').textContent = r.data.code;
+  const answer = (allow) => async () => {
+    const a = await api('/_ir/api/app/answer', { id, allow });
+    if (a.status === 200) done(t(allow ? 'appAllowed' : 'appDenied'));
+    else if (a.status === 404 || a.status === 409) done(t('appExpired'));
+    else status(requestError(a), true);
+  };
+  $('app-allow').onclick = () => busy($('app-allow'), answer(true));
+  $('app-deny').onclick = () => busy($('app-deny'), answer(false));
+}
+
+function done(msg) {
+  view('bad');
+  document.querySelector('#v-bad .note').textContent = msg;
+}
+
+/** In the app's own window (its bridge there: window._wails) the login page asks the app to log
+ *  in from the system's browser, where the passkey is; the app says the code to check. The bridge
+ *  comes once the page has loaded (wails:runtime-config-ready), or is there already. */
+let inApp = false;
+
+function watchForApp() {
+  const found = () => {
+    const w = window._wails;
+    if (inApp || !w || typeof w.invoke !== 'function') return;
+    inApp = true;
+    view('login');
+    $('setup').hidden = true;
+    const btn = $('login');
+    btn.hidden = false;
+    btn.textContent = t('inApp');
+    btn.onclick = () => w.invoke('ir:login');
+    window.addEventListener('ir-app', (e) => {
+      const d = e.detail || {};
+      if (d.code) status(t('inAppWait').replace('{code}', d.code));
+      else if (d.error) status(d.error, true);
+    });
+    w.invoke('wails:runtime:ready');
+  };
+  window.addEventListener('wails:runtime-config-ready', found);
+  found();
 }
 
 async function init() {
@@ -291,6 +362,7 @@ async function init() {
   }
   document.querySelector('.spinner').setAttribute('aria-label', t('wait'));
 
+  if (location.pathname === '/_ir/login') watchForApp();
   if (!window.PublicKeyCredential) {
     view('bad');
     document.querySelector('#v-bad .note').textContent = t('noSupport');
@@ -298,6 +370,7 @@ async function init() {
   }
   try {
     if (location.pathname === '/_ir/join') await initJoin();
+    else if (location.pathname === '/_ir/app') await initApp();
     else await initLogin();
   } catch {
     view('bad');

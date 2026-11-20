@@ -16,7 +16,21 @@
 - 这台电脑能做什么由这里定（`app.json` 和启动参数），服务器只能请求。
 - 服务器请求放开时，窗口版弹本机对话框（允许、拒绝，不放进网页）；无头版在它的终端里问，没有终端（服务）就拒绝。
 - 网页和应用之间：网页 `window._wails.invoke("…")`，应用按消息的来源处理，只认列表里服务器的来源（协议、主机、端口都对上）；地址页只认 `ir:add:`。回给网页的是事件 `ir-app`（网页先发 `wails:runtime:ready` 才收得到）。现在只有 `ir:hello` → `{app, version}`。网页里没有任何放开权限的口。
-- 内嵌网页里没有 Passkey（Linux WebKitGTK、未签名的 Mac）：登录改在系统浏览器里做，下一步。
+- 页面要放宽什么（接入、命令行、全部文件夹、添加服务器）都要本机对话框确认；收窄直接生效；加文件夹用本机的文件夹选择框（选了就是允许）。权限按服务器各一份。
+
+## 登录（2026-11-20）
+
+内嵌网页里没有 Passkey（Linux WebKitGTK、未签名的 Mac），在系统浏览器里登录（`internal/webapp/applogin.go`）：
+
+1. 应用窗口停在登录页时，页面认出应用（`window._wails`，等事件 `wails:runtime-config-ready`），按钮换成“在浏览器中登录”。
+2. 应用自己生成一个密钥，把它的 SHA-256 发给 `POST /_ir/api/app/start {name, verifier}`，拿到 `{id, code, url}`；页面显示代码，系统浏览器打开 `/_ir/app?id=…`。
+3. 浏览器里用 Passkey 登录（已登录就跳过），看到“「电脑名」上的 Iridium 应用请求以你的身份登录”和代码，核对后允许或拒绝。
+4. 应用轮询 `POST /_ir/api/app/poll {id, secret}`，允许后拿到一次性凭证（2 分钟），窗口打开 `/_ir/app/finish?ticket=…`，这边给这个窗口一个同一登录的会话，回到首页。
+5. 请求 10 分钟过期，只在内存；同时待批最多 50 个。只看到浏览器地址栏里的 id 拿不到任何东西。
+
+## 右上角
+
+应用里的网页顶栏右上角（`web/src/appkey.tsx`，浏览器里不出现）一个键，弹出：服务器（切换、添加、移除；添加时先查 `/_ir/health`，不是 Iridium 不加）、这台电脑对这个服务器的接入/命令行/文件夹、应用自己（登录时打开、版本和更新）。网页和应用之间：`ir:hello`、`ir:switch:`、`ir:add:`、`ir:remove:`、`ir:set:{json}`、`ir:pickroot`、`ir:autostart:`、`ir:update:check|restart`、`ir:login`，回的是事件 `ir-app`（整个状态，或 `error`、`notice`、`code`）。
 
 ## 更新
 
@@ -35,7 +49,8 @@
 
 ## 还没做
 
-- 系统浏览器登录（一次允许，网页登录和配对一起）。
+- 浏览器登录时顺带完成执行端配对（现在登录后网页里还要再批一次配对卡片）。
+- 弹窗里的通知、密钥存储（TOKEN 进钥匙串）。
 - 服务器的 `/app/update.json` 代理、电脑列表里的“应用”标志、CI 发版。
-- 截屏、键鼠（`screen.*`、`input.*`），本机规则的设置界面和记录，TOKEN 进钥匙串。
+- 截屏、键鼠（`screen.*`、`input.*`），本机操作记录。
 - Windows 图标资源、Mac 签名公证。空闲时自动重启更新。
