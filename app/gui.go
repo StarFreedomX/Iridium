@@ -41,7 +41,8 @@ type ui struct {
 
 func gui() int {
 	logf := appLog()
-	page, _ := fs.Sub(assets, "assets")
+	// The app's own pages: web/src/appwin, built into assets/ui (npm run build:app).
+	page, _ := fs.Sub(assets, "assets/ui")
 	icon, _ := assets.ReadFile("assets/icon.png")
 	trayIcon, _ := assets.ReadFile("assets/tray.png")
 	u := &ui{}
@@ -217,6 +218,12 @@ func (u *ui) local(w application.Window, verb, arg string) {
 		return map[string]any{"servers": list, "current": c.current()}
 	}
 	switch verb {
+	case "clipboard":
+		// Its text field's ⌘V (web/src/appwin/bridge.ts): this page only, the app's own.
+		text, _ := u.app.Clipboard.Text()
+		reply(w, map[string]string{"clipboard": text})
+	case "copy":
+		u.app.Clipboard.SetText(arg)
 	case "hello":
 		c, _ := loadConfig()
 		reply(w, state(c))

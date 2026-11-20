@@ -14,6 +14,8 @@ GO=${GO:-go}
 command -v "$GO" >/dev/null 2>&1 || GO=$HOME/.local/bin/go
 mkdir -p "$out"
 out=$(cd "$out" && pwd)
+# The app's own pages (web/src/appwin) into assets/ui, which it embeds.
+(cd ../web && npm run --silent build:app >/dev/null)
 flags="-s -w -X github.com/kumoSleeping/iridium/internal/version.Version=$version -X main.updateKey=${IR_APP_UPDATE_KEY:-}"
 build() { # os arch tags file
 	echo "app-build: $1/$2"

@@ -56,3 +56,8 @@ Mac 的 .app 必须整个签名（临时签名，不用 Apple ID）：只有 Go 
 - 服务器的 `/app/update.json` 代理、电脑列表里的“应用”标志、CI 发版。
 - 截屏、键鼠（`screen.*`、`input.*`），本机操作记录。
 - Windows 图标资源、Mac 签名公证。空闲时自动重启更新。
+
+## 应用自己的页面（2026-11-20）
+
+- 登录页等应用本地的页面写在 `web/src/appwin`，用网页同一套样式和组件（`IrMark`、Base UI 菜单），`npm run build:app` 构建到 `app/assets/ui`（不进 git，`scripts/app-build.sh` 先构建）。服务器用 ir 的弹出菜单选，菜单里“添加服务器”；不用系统下拉框。
+- Mac 上这个无 cgo 的网页视图里 ⌘V 不进输入框（粘贴事件到了页面，但不写进去）：应用页面的输入框自己处理 ⌘C/⌘X/⌘V/⌘A，经应用读写剪贴板（`ir:clipboard`、`ir:copy:`，只认应用自己的页面）。服务器网页里的输入框还没处理。
