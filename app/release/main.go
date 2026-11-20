@@ -2,7 +2,8 @@
 // signed manifest an app updates from (docs/app.md "更新").
 //
 //	go run ./release keygen                       a key: the private half (base64) out, the public on stderr
-//	go run ./release bundle <binary> <zip> <ver>  Iridium.app around a macOS binary, zipped
+//	go run ./release bundle <binary> <dir> <ver>  Iridium.app around a macOS binary, in dir
+//	go run ./release zip <app> <zip>              a bundle zipped as it is (signed, its signature kept)
 //	go run ./release manifest <ver> <dir>         update.json and update.json.sig for the files in dir,
 //	                                              signed with IR_APP_SIGN_KEY (the private half, base64)
 package main
@@ -27,7 +28,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fail("usage: release keygen | bundle <binary> <zip> <version> | manifest <version> <dir>")
+		fail("usage: release keygen | bundle <binary> <dir> <version> | zip <app> <zip> | manifest <version> <dir>")
 	}
 	var err error
 	switch a := os.Args[2:]; os.Args[1] {
@@ -37,9 +38,14 @@ func main() {
 		fmt.Fprintln(os.Stderr, "public:", base64.StdEncoding.EncodeToString(pub))
 	case "bundle":
 		if len(a) != 3 {
-			fail("usage: release bundle <binary> <zip> <version>")
+			fail("usage: release bundle <binary> <dir> <version>")
 		}
 		err = bundle(a[0], a[1], a[2])
+	case "zip":
+		if len(a) != 2 {
+			fail("usage: release zip <app> <zip>")
+		}
+		err = zipDir(a[0], a[1])
 	case "manifest":
 		if len(a) != 2 {
 			fail("usage: release manifest <version> <dir>")
@@ -77,8 +83,10 @@ const plist = `<?xml version="1.0" encoding="UTF-8"?>
 </plist>
 `
 
-// bundle zips Iridium.app: the binary, its Info.plist and its icon.
-func bundle(bin, out, version string) error {
+// bundle writes dir/Iridium.app: the binary, its Info.plist and its icon. Signed after
+// (scripts/app-build.sh): a bundle whose Info.plist and resources its signature does not cover,
+// macOS calls damaged once it was downloaded.
+func bundle(bin, dir, version string) error {
 	exe, err := os.ReadFile(bin)
 	if err != nil {
 		return err
@@ -87,34 +95,69 @@ func bundle(bin, out, version string) error {
 	if err != nil {
 		return err
 	}
+	app := filepath.Join(dir, "Iridium.app", "Contents")
+	for _, d := range []string{"MacOS", "Resources"} {
+		if err := os.MkdirAll(filepath.Join(app, d), 0o755); err != nil {
+			return err
+		}
+	}
+	for _, f := range []struct {
+		name string
+		mode os.FileMode
+		b    []byte
+	}{
+		{"Info.plist", 0o644, fmt.Appendf(nil, plist, version)},
+		{"Resources/icon.icns", 0o644, icns(png)},
+		{"MacOS/ir-app", 0o755, exe},
+	} {
+		if err := os.WriteFile(filepath.Join(app, f.name), f.b, f.mode); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// zipDir zips the directory app (Iridium.app) under its own name, modes kept.
+func zipDir(app, out string) error {
 	f, err := os.Create(out)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
 	z := zip.NewWriter(f)
-	add := func(name string, mode os.FileMode, b []byte) error {
-		h := &zip.FileHeader{Name: name, Method: zip.Deflate, Modified: time.Now()}
-		h.SetMode(mode)
+	base := filepath.Dir(app)
+	err = filepath.WalkDir(app, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(base, p)
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		h, err := zip.FileInfoHeader(info)
+		if err != nil {
+			return err
+		}
+		h.Name = filepath.ToSlash(rel)
+		if d.IsDir() {
+			h.Name += "/"
+			_, err = z.CreateHeader(h)
+			return err
+		}
+		h.Method = zip.Deflate
 		w, err := z.CreateHeader(h)
+		if err != nil {
+			return err
+		}
+		b, err := os.ReadFile(p)
 		if err != nil {
 			return err
 		}
 		_, err = w.Write(b)
 		return err
-	}
-	for _, d := range []string{"Iridium.app/", "Iridium.app/Contents/", "Iridium.app/Contents/MacOS/", "Iridium.app/Contents/Resources/"} {
-		if err := add(d, os.ModeDir|0o755, nil); err != nil {
-			return err
-		}
-	}
-	if err := add("Iridium.app/Contents/Info.plist", 0o644, fmt.Appendf(nil, plist, version)); err != nil {
-		return err
-	}
-	if err := add("Iridium.app/Contents/Resources/icon.icns", 0o644, icns(png)); err != nil {
-		return err
-	}
-	if err := add("Iridium.app/Contents/MacOS/ir-app", 0o755, exe); err != nil {
+	})
+	if err != nil {
 		return err
 	}
 	return z.Close()

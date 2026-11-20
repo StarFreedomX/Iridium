@@ -45,6 +45,8 @@
 
 ## 构建
 
+Mac 的 .app 必须整个签名（临时签名，不用 Apple ID）：只有 Go 链接器给程序的那个签名、Info.plist 和资源没封装时，下载来的会被说成“已损坏”，设置里也打不开（2026-11-20 实测）。整个签了以后是“无法验证开发者”，系统设置 → 隐私与安全性里能“仍要打开”。脚本在有 `codesign`（Mac）或 `rcodesign` 的机器上签，都没有就警告：发版要在 Mac 上（CI 的 macOS 机器）打包。
+
 `scripts/app-build.sh <版本> <目录>`：`ir-app-linux-<arch>`、`ir-app-windows-amd64.exe`、`ir-app-darwin-<arch>.zip`（Iridium.app）；有 `IR_APP_SIGN_KEY` 时再出清单和签名。密钥 `cd app && go run ./release keygen`。大小：Windows 13MB，Mac 约 19MB（zip 9MB），Linux 20MB（含 `ir` 命令行）。
 
 ## 还没做
