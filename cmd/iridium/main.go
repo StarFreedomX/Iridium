@@ -1,5 +1,6 @@
-// Command iridium is the whole of Iridium in one binary: `iridium serve` is the daemon,
-// `iridium hold` the holder it starts for each agent process, and run as ir it is the CLI.
+// Command iridium is the whole of Iridium in one binary: with no arguments (or `iridium app`) the
+// desktop app (internal/desktop), `iridium serve` the daemon alone, `iridium hold` the holder it
+// starts for each agent process, and run as ir it is the CLI.
 // `iridium join` (ir join) makes the machine an executor of another Iridium.
 package main
 
@@ -13,11 +14,13 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/kumoSleeping/iridium/internal/api"
 	"github.com/kumoSleeping/iridium/internal/cli"
 	"github.com/kumoSleeping/iridium/internal/config"
+	"github.com/kumoSleeping/iridium/internal/desktop"
 	"github.com/kumoSleeping/iridium/internal/discover"
 	"github.com/kumoSleeping/iridium/internal/harness"
 	hdsh "github.com/kumoSleeping/iridium/internal/harness/dsh"
@@ -36,7 +39,7 @@ import (
 )
 
 const usage = `usage:
-  iridium serve [-config <file>]   the daemon
+` + desktop.Usage + `  iridium serve [-config <file>]   the daemon alone (a server: no window)
   iridium hold <dir>               the holder of one agent process (the daemon starts it)
   iridium ir ...                   the CLI, as when run as ir
   iridium install [-config <file>] [-unit <name>] [-listen <addr>] [-env NAME=VALUE]... [-now]
@@ -51,14 +54,26 @@ const usage = `usage:
 `
 
 func main() {
-	if filepath.Base(os.Args[0]) == "ir" {
+	desktop.HandleUpdateHelper()
+	if strings.TrimSuffix(strings.ToLower(filepath.Base(os.Args[0])), ".exe") == "ir" {
 		os.Exit(irMain(os.Args[1:]))
 	}
+	// Opened from the Finder, an older macOS adds -psn_<process serial number>.
+	if len(os.Args) == 2 && strings.HasPrefix(os.Args[1], "-psn_") {
+		os.Args = os.Args[:1]
+	}
 	if len(os.Args) < 2 {
+		if desktop.CanShow() {
+			os.Exit(desktop.Main())
+		}
 		fmt.Fprint(os.Stderr, usage)
 		os.Exit(2)
 	}
 	switch os.Args[1] {
+	case "app":
+		os.Exit(desktop.Main())
+	case "headless":
+		os.Exit(desktop.Headless(os.Args[2:]))
 	case "serve":
 		os.Exit(serve(os.Args[2:]))
 	case "hold":
@@ -75,6 +90,9 @@ func main() {
 		os.Exit(nodeCmd(os.Args[2:]))
 	case "version", "--version":
 		os.Exit(versionCmd())
+	case "help", "-h", "--help":
+		fmt.Print(usage)
+		os.Exit(0)
 	}
 	fmt.Fprint(os.Stderr, usage)
 	os.Exit(2)
