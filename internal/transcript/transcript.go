@@ -17,7 +17,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 	"unicode"
 	"unicode/utf16"
@@ -119,10 +118,7 @@ func (f *File) refresh() error {
 	if err != nil {
 		return err
 	}
-	ino := uint64(0)
-	if s, ok := st.Sys().(*syscall.Stat_t); ok {
-		ino = s.Ino
-	}
+	ino := fileID(f.path, st)
 	end := f.size // in the file
 	if f.zst != nil {
 		end = f.zst.end

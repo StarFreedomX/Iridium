@@ -250,7 +250,6 @@ func StopPost(dir string) int {
 	return 0
 }
 
-
 func readSpec(dir string) (Spec, error) {
 	var s Spec
 	b, err := os.ReadFile(filepath.Join(dir, FileSpec))

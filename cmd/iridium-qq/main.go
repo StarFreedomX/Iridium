@@ -23,7 +23,6 @@ import (
 	"syscall"
 	"time"
 
-	"golang.org/x/sys/unix"
 	"rsc.io/qr"
 
 	"github.com/kumoSleeping/iridium/internal/config"
@@ -197,11 +196,6 @@ func migrate(root string, units bool) {
 	if err := startBot(root, id); err != nil {
 		fmt.Fprintf(os.Stderr, "iridium-qq: Bot %s 的服务：%v\n", id, err)
 	}
-}
-
-func isTerminal(f *os.File) bool {
-	_, err := unix.IoctlGetTermios(int(f.Fd()), ioctlGetTermios)
-	return err == nil
 }
 
 // ---- setup ----

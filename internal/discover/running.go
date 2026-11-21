@@ -2,13 +2,10 @@ package discover
 
 import (
 	"encoding/json"
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
-
-	"golang.org/x/sys/unix"
 
 	"github.com/kumoSleeping/iridium/internal/api"
 )
@@ -51,7 +48,7 @@ func (x *Index) alive(c claudeReg) bool {
 	if err != nil || st.UID != x.o.UID {
 		return false
 	}
-	return c.ProcStart == "" || c.ProcStart == st.procStart()
+	return st.startIs(c.ProcStart)
 }
 
 // userNamed is the name the user gave a Claude session; "" for one Claude made up.
@@ -103,7 +100,7 @@ func (x *Index) scanProcs() {
 		}
 		p := &proc{st: st}
 		all[pid] = p
-		if c, ok := reg[pid]; ok && (c.ProcStart == "" || c.ProcStart == st.procStart()) {
+		if c, ok := reg[pid]; ok && st.startIs(c.ProcStart) {
 			p.agent, p.sessions, p.name, p.needs = "claude", []string{c.SessionID}, userNamed(c), needsOf(c)
 			continue
 		}
@@ -247,24 +244,6 @@ func contains(l []string, s string) bool {
 		if v == s {
 			return true
 		}
-	}
-	return false
-}
-
-// locked: another process holds the flock on path (dsh's session.lock, Codex's writer lock).
-// Tried and let go at once; a file that is not there is no lock.
-func locked(path string) bool {
-	f, err := os.Open(path)
-	if err != nil {
-		return false
-	}
-	defer f.Close()
-	err = unix.Flock(int(f.Fd()), unix.LOCK_EX|unix.LOCK_NB)
-	if errors.Is(err, unix.EWOULDBLOCK) {
-		return true
-	}
-	if err == nil {
-		_ = unix.Flock(int(f.Fd()), unix.LOCK_UN)
 	}
 	return false
 }

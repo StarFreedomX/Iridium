@@ -38,9 +38,9 @@ func notifyStop(sigs chan<- os.Signal) {
 type group int
 
 func newGroup(pid int, _ func(string, ...any)) group { return group(pid) }
-func (g group) term()                                 { _ = unix.Kill(-int(g), unix.SIGTERM) }
-func (g group) kill()                                 { _ = unix.Kill(-int(g), unix.SIGKILL) }
-func (g group) close()                                {}
+func (g group) term()                                { _ = unix.Kill(-int(g), unix.SIGTERM) }
+func (g group) kill()                                { _ = unix.Kill(-int(g), unix.SIGKILL) }
+func (g group) close()                               {}
 
 func exitOf(ps *os.ProcessState) Exit {
 	ws, ok := ps.Sys().(syscall.WaitStatus)

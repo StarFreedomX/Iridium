@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/kumoSleeping/iridium/internal/agents"
@@ -37,6 +36,12 @@ type Stat struct {
 	Started   time.Time
 	UID       int
 	ProcStart string
+}
+
+// startIs says whether recorded (a registry's procStart) is this start: "" (none recorded) and a
+// ProcStart of "*" (where what Claude records is not known: Windows) match any.
+func (s Stat) startIs(recorded string) bool {
+	return recorded == "" || s.ProcStart == "*" || recorded == s.procStart()
 }
 
 // procStart is how Claude's registry names this start.
@@ -82,9 +87,7 @@ func (p ProcFS) Stat(pid int) (Stat, error) {
 	if err != nil {
 		return s, err
 	}
-	if st, ok := dir.Sys().(*syscall.Stat_t); ok {
-		s.UID = int(st.Uid)
-	}
+	s.UID = ownerOf(dir)
 	b, err := os.ReadFile(p.path(pid, "stat"))
 	if err != nil {
 		return s, err

@@ -143,7 +143,7 @@ func (j *Job) Add(pid int) error {
 func (j *Job) Active() int {
 	var info struct {
 		TotalUserTime, TotalKernelTime, ThisPeriodTotalUserTime, ThisPeriodTotalKernelTime int64
-		TotalPageFaultCount, TotalProcesses, ActiveProcesses, TotalTerminatedProcesses    uint32
+		TotalPageFaultCount, TotalProcesses, ActiveProcesses, TotalTerminatedProcesses     uint32
 	}
 	if err := windows.QueryInformationJobObject(j.h, windows.JobObjectBasicAccountingInformation, uintptr(unsafe.Pointer(&info)), uint32(unsafe.Sizeof(info)), nil); err != nil {
 		return 0
