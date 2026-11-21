@@ -210,53 +210,84 @@ export function AppsPage({ onBack }: { onBack: () => void }) {
 /** A computer's system, as its join line is written: macOS and Linux one (sh), Windows another. */
 export type JoinOS = "unix" | "win";
 
-/** What a join line asks of the computer (internal/joinscript Args): kept running as its service,
- *  command lines, only some agents (none given: all), only some folders ("": all). */
+/** What the computer is asked (ir's options, docs/exec.md "安装"): kept running as its service
+ *  (ir start, else ir serve in that terminal), command lines, only some agents (none given: all),
+ *  only some folders ("": all), the downloads through this Iridium (proxy) and not GitHub. */
 export type JoinTerms = {
-  install?: boolean;
+  keep?: boolean;
   shell?: boolean;
   agents?: string[];
   roots?: string;
+  proxy?: boolean;
 };
 
-/** The query of a join line: in the order the script reads them, a value escaped only where it
- *  must be (~, /, : and , stay as typed; ' too is escaped, the line quoting the address in '). */
-export function joinQuery(j: JoinTerms): string {
-  const esc = (v: string) =>
-    encodeURIComponent(v)
-      .replace(/%2C|%2F|%3A|%7E/gi, decodeURIComponent)
-      .replace(/'/g, "%27");
-  const q: string[] = [];
-  if (j.install) q.push("install");
-  if (j.shell === false) q.push("shell=0");
-  if (j.agents?.length) q.push(`agents=${j.agents.join(",")}`);
+/** ir's words for joining at: an executor only (--no-server), with the terms. */
+export function joinArgs(at: string, j: JoinTerms): string[] {
+  const a = [j.keep ? "start" : "serve", "--no-server", "--join", at];
+  if (j.shell === false) a.push("--no-shell");
+  if (j.agents?.length) a.push("--agents", j.agents.join(","));
   const roots = j.roots?.trim();
-  if (roots) q.push(`roots=${esc(roots)}`);
-  return q.join("&");
+  if (roots) a.push("--roots", roots);
+  if (j.proxy) a.push("--proxy");
+  return a;
 }
 
-/** The line that makes a computer join this Iridium (docs/exec.md "一行命令"): it fetches the
- *  script this Iridium writes (internal/joinscript), which fetches iridium and runs it there as an
- *  executor of this one, in that terminal or as its service. The options in the query, the address
- *  quoted once there is one. Windows: from cmd or PowerShell alike. */
-export function joinScript(os: JoinOS, at: string, query = ""): string {
-  const url = `${at}/join${os === "win" ? ".ps1" : ""}${query ? `?${query}` : ""}`;
-  const arg = query ? `'${url}'` : url;
+/** A word of sh or PowerShell: as it is when it is plain, else in single quotes. */
+function word(os: JoinOS, w: string): string {
+  if (/^[A-Za-z0-9_@%+=:,./~-]+$/.test(w)) return w;
   return os === "win"
-    ? `powershell -c "irm ${arg} | iex"`
-    : `curl -fsSL ${arg} | sh`;
+    ? `'${w.replace(/'/g, "''")}'`
+    : `'${w.replace(/'/g, `'\\''`)}'`;
 }
 
-/** The 电脑 group's +, a page: the line to run on a computer, for its system, and what it asks of
+/** Where the install script is (internal/joinscript): GitHub's latest release (recommended), or
+ *  this Iridium's, whose downloads come through it (proxy). */
+export const INSTALL_SH =
+  "https://github.com/kumoSleeping/Iridium/releases/latest/download/install.sh";
+export const INSTALL_PS1 =
+  "https://github.com/kumoSleeping/Iridium/releases/latest/download/install.ps1";
+
+/** The line for a computer without ir: the install script, then ir with args. Windows: from cmd or
+ *  PowerShell alike. */
+export function installLine(
+  os: JoinOS,
+  at: string,
+  args: string[],
+  proxy = false,
+): string {
+  const url =
+    os === "win"
+      ? proxy
+        ? `'${at}/install.ps1?proxy'`
+        : INSTALL_PS1
+      : proxy
+        ? `'${at}/install?proxy'`
+        : INSTALL_SH;
+  const rest = args.map((a) => word(os, a)).join(" ");
+  return os === "win"
+    ? `powershell -c "& ([scriptblock]::Create((irm ${url}))) ${rest}"`
+    : `curl -fsSL ${url} | sh -s -- ${rest}`;
+}
+
+/** The line for a computer that has ir: kept running, ir join (to its service); else ir serve. */
+export function irLine(os: JoinOS, at: string, j: JoinTerms): string {
+  const a = joinArgs(at, j);
+  const words = j.keep ? ["join", ...a.slice(3)] : a;
+  return ["ir", ...words].map((w) => word(os, w)).join(" ");
+}
+
+/** The 电脑 group's +, a page: the lines to run on a computer, for its system, and what they ask of
  *  that computer, one switch a row (docs/前端设计规范.md "设置"): kept running, command lines, each
- *  agent, the folders. The line under them with its copy key in its title's row, one line high,
- *  scrolled sideways (to its end at first), no room kept beside it ("命令"). */
+ *  agent, the folders, downloads through this Iridium. Under them two lines, each with its copy key
+ *  in its title's row, one line high, scrolled sideways (to its end at first): for a computer
+ *  without ir (the install script, then ir) and for one with it. */
 function AddComputer({ onBack }: { onBack: () => void }) {
   const [os, setOs] = useState<JoinOS>(
     /Win/.test(navigator.platform) ? "win" : "unix",
   );
-  const [install, setInstall] = useState(false);
+  const [keep, setKeep] = useState(true);
   const [shell, setShell] = useState(true);
+  const [proxy, setProxy] = useState(false);
   const [off, setOff] = useState<string[]>([]);
   const [roots, setRoots] = useState("");
   const at = location.origin;
@@ -266,11 +297,15 @@ function AddComputer({ onBack }: { onBack: () => void }) {
     icon: <span className="px-1 text-xs">{label}</span>,
   });
   const on = AGENT_MARKS.filter((a) => !off.includes(a));
-  const line = joinScript(
-    os,
-    at,
-    joinQuery({ install, shell, agents: off.length ? on : undefined, roots }),
-  );
+  const terms: JoinTerms = {
+    keep,
+    shell,
+    agents: off.length ? on : undefined,
+    roots,
+    proxy,
+  };
+  const line = installLine(os, at, joinArgs(at, terms), proxy);
+  const has = irLine(os, at, terms);
   return (
     <Page
       title={t("apps.addComputer")}
@@ -285,11 +320,7 @@ function AddComputer({ onBack }: { onBack: () => void }) {
       />
       <div className="flex flex-col">
         <Item label={t("apps.joinKeep")}>
-          <Switch
-            label={t("apps.joinKeep")}
-            on={install}
-            onChange={setInstall}
-          />
+          <Switch label={t("apps.joinKeep")} on={keep} onChange={setKeep} />
         </Item>
         <Item label={t("apps.joinShell")}>
           <Switch label={t("apps.joinShell")} on={shell} onChange={setShell} />
@@ -325,9 +356,15 @@ function AddComputer({ onBack }: { onBack: () => void }) {
             className="no-ring h-8 w-48 min-w-0 rounded-md bg-fill px-2.5 font-mono text-xs placeholder:font-sans placeholder:text-ink-3"
           />
         </Item>
+        <Item label={t("apps.joinProxy")}>
+          <Switch label={t("apps.joinProxy")} on={proxy} onChange={setProxy} />
+        </Item>
       </div>
       <Group title={t("apps.joinLine")} action={<CopyKey text={line} />}>
         <Line text={line} lang={os === "win" ? "powershell" : "sh"} />
+      </Group>
+      <Group title={t("apps.joinHasIr")} action={<CopyKey text={has} />}>
+        <Line text={has} lang={os === "win" ? "powershell" : "sh"} />
       </Group>
     </Page>
   );

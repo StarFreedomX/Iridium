@@ -1,23 +1,70 @@
 import { describe, expect, it } from "vitest";
-import { joinQuery, joinScript } from "../src/apps";
+import { installLine, irLine, joinArgs } from "../src/apps";
 
-// The 电脑 group's + (apps.tsx): one line a person pastes on the computer that joins.
-describe("joinScript", () => {
-  it("fetches this Iridium's script and runs it there, the options in its query", () => {
-    expect(joinScript("unix", "https://ir.example.com")).toBe("curl -fsSL https://ir.example.com/join | sh");
-    expect(joinScript("unix", "https://ir.example.com", "roots=~/work")).toBe("curl -fsSL 'https://ir.example.com/join?roots=~/work' | sh");
-    expect(joinScript("win", "https://ir.example.com")).toBe('powershell -c "irm https://ir.example.com/join.ps1 | iex"');
-    expect(joinScript("win", "https://ir.example.com", "shell")).toBe(`powershell -c "irm 'https://ir.example.com/join.ps1?shell' | iex"`);
-    for (const os of ["unix", "win"] as const) expect(joinScript(os, "https://ir.example.com", "shell")).not.toContain("--install");
+// The 电脑 group's + (apps.tsx): the lines a person pastes on the computer that joins.
+const at = "https://ir.example.com";
+
+describe("joinArgs", () => {
+  it("are ir's options for an executor of this Iridium, in order", () => {
+    expect(joinArgs(at, { keep: true })).toEqual([
+      "start",
+      "--no-server",
+      "--join",
+      at,
+    ]);
+    expect(
+      joinArgs(at, {
+        shell: false,
+        agents: ["claude", "codex"],
+        roots: " ~/work ",
+        proxy: true,
+      }),
+    ).toEqual([
+      "serve",
+      "--no-server",
+      "--join",
+      at,
+      "--no-shell",
+      "--agents",
+      "claude,codex",
+      "--roots",
+      "~/work",
+      "--proxy",
+    ]);
   });
 });
 
-describe("joinQuery", () => {
-  it("writes what the computer is asked, in order, escaped only where it must be", () => {
-    expect(joinQuery({ shell: true })).toBe("");
-    expect(joinQuery({ install: true, shell: false, agents: ["claude", "codex"], roots: " ~/work,C:\\工作 " })).toBe(
-      "install&shell=0&agents=claude,codex&roots=~/work,C:%5C%E5%B7%A5%E4%BD%9C",
+describe("installLine", () => {
+  it("installs from GitHub, then runs ir with the args; with proxy, the script of this Iridium", () => {
+    expect(installLine("unix", at, joinArgs(at, { keep: true }))).toBe(
+      "curl -fsSL https://github.com/kumoSleeping/Iridium/releases/latest/download/install.sh | sh -s -- start --no-server --join https://ir.example.com",
     );
-    expect(joinQuery({ roots: "~/it's mine" })).toBe("roots=~/it%27s%20mine");
+    expect(
+      installLine("unix", at, joinArgs(at, { keep: true, proxy: true }), true),
+    ).toBe(
+      "curl -fsSL 'https://ir.example.com/install?proxy' | sh -s -- start --no-server --join https://ir.example.com --proxy",
+    );
+    expect(installLine("win", at, joinArgs(at, { keep: true }))).toBe(
+      'powershell -c "& ([scriptblock]::Create((irm https://github.com/kumoSleeping/Iridium/releases/latest/download/install.ps1))) start --no-server --join https://ir.example.com"',
+    );
+  });
+  it("quotes a word that needs it, as each shell does", () => {
+    expect(
+      installLine("unix", at, joinArgs(at, { roots: "~/it's mine" })),
+    ).toContain("--roots '~/it'\\''s mine'");
+    expect(
+      installLine("win", at, joinArgs(at, { roots: "C:\\它's" })),
+    ).toContain("--roots 'C:\\它''s'");
+  });
+});
+
+describe("irLine", () => {
+  it("joins with ir join when kept running, else runs ir serve there", () => {
+    expect(irLine("unix", at, { keep: true, shell: false })).toBe(
+      "ir join https://ir.example.com --no-shell",
+    );
+    expect(irLine("unix", at, { keep: false })).toBe(
+      "ir serve --no-server --join https://ir.example.com",
+    );
   });
 });
