@@ -1,14 +1,21 @@
 package joinscript
 
 import (
-	"encoding/base64"
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/kumoSleeping/iridium/internal/version"
 )
 
 func get(t *testing.T, target, origin string) (int, string) {
@@ -18,89 +25,135 @@ func get(t *testing.T, target, origin string) (int, string) {
 	return w.Code, w.Body.String()
 }
 
-// The sh line: the address and the options written in as words, the script valid sh; what a
-// query carries stays one word.
-func TestSh(t *testing.T) {
-	code, s := get(t, "/join?shell=0&roots=~/work,~/it's%20mine&name=$(x)", "https://ir.example.com")
-	if code != 200 {
-		t.Fatalf("%d %s", code, s)
-	}
-	want := `exec "$exe" 'serve' '--no-server' '--join' 'https://ir.example.com' '--no-shell' '--roots' '~/work,~/it'\''s mine' '--name' '$(x)'`
-	if !strings.Contains(s, want+"\n") {
-		t.Errorf("no %s in:\n%s", want, s)
-	}
-	if !strings.Contains(s, `"https://ir.example.com/join/iridium-$os-$arch.tar.gz"`) || strings.Contains(s, "{{") {
-		t.Errorf("not filled in:\n%s", s)
-	}
-	if _, err := exec.LookPath("sh"); err == nil {
-		f := filepath.Join(t.TempDir(), "join.sh")
-		if err := os.WriteFile(f, []byte(s), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		if out, err := exec.Command("sh", "-n", f).CombinedOutput(); err != nil {
-			t.Errorf("sh -n: %v %s", err, out)
-		}
-	}
-	// The script itself installs nothing: iridium install does, when asked.
-	for _, bad := range []string{"systemctl", "launchctl", "LaunchAgents"} {
-		if strings.Contains(s, bad) {
-			t.Errorf("has %q", bad)
-		}
-	}
-}
-
-// What each line runs: an executor in the terminal, the same installed, an Iridium of its own.
-func TestArgs(t *testing.T) {
+// An Iridium's script installs its version from GitHub; with proxy, through it; the paths of
+// before are gone.
+func TestServe(t *testing.T) {
+	was := version.Version
+	defer func() { version.Version = was }()
+	version.Version = "v1.2.3"
 	for target, want := range map[string]string{
-		"/join":           `exec "$exe" 'serve' '--no-server' '--join' 'https://ir.example.com'`,
-		"/join?install":   `exec "$exe" 'install' '--no-server' '--join' 'https://ir.example.com'`,
-		"/join?install=0": `exec "$exe" 'serve' '--no-server' '--join' 'https://ir.example.com'`,
-		"/join?install&agents=claude,codex&shell=false": `exec "$exe" 'install' '--no-server' '--join' 'https://ir.example.com' '--no-shell' '--agents' 'claude,codex'`,
-		"/install":          `exec "$exe" 'install'`,
-		"/install?roots=/x": `exec "$exe" 'install'`,
+		"/install":             "base='https://github.com/kumoSleeping/Iridium/releases/download/v1.2.3/'",
+		"/install?proxy":       "base='https://ir.example.com/install/'",
+		"/install?proxy=0":     "base='https://github.com/kumoSleeping/Iridium/releases/download/v1.2.3/'",
+		"/install.ps1":         "$base = 'https://github.com/kumoSleeping/Iridium/releases/download/v1.2.3/'",
+		"/install.ps1?proxy=1": "$base = 'https://ir.example.com/install/'",
 	} {
 		code, s := get(t, target, "https://ir.example.com")
-		if code != 200 || !strings.Contains(s, want+"\n") {
+		if code != 200 || !strings.Contains(s, want) || strings.Contains(s, "{{") {
 			t.Errorf("%s: %d, no %s in:\n%s", target, code, want, s)
 		}
+		if !strings.Contains(s, "https://ir.example.com") {
+			t.Errorf("%s: the origin not in what it says next", target)
+		}
 	}
-	if code, s := get(t, "/install.ps1", "https://ir.example.com"); code != 200 || !strings.Contains(s, "@('"+base64.StdEncoding.EncodeToString([]byte("install"))+"')") {
-		t.Errorf("install.ps1: %d\n%s", code, s)
+	version.Version = "v1.2.4-dev.3+gabc"
+	if _, s := get(t, "/install", "https://ir.example.com"); !strings.Contains(s, "base='https://github.com/kumoSleeping/Iridium/releases/latest/download/'") {
+		t.Errorf("a build of no release:\n%s", s)
+	}
+	for _, p := range []string{"/join", "/join.ps1"} {
+		if code, _ := get(t, p, "https://ir.example.com"); code != 404 {
+			t.Errorf("%s: %d", p, code)
+		}
+	}
+	if code, _ := get(t, "/install", "https://ir.example.com/'x"); code != 400 {
+		t.Errorf("a bad origin: %d", code)
 	}
 }
 
-// The PowerShell line: ASCII only, the arguments base64 of UTF-8.
-func TestPowerShell(t *testing.T) {
-	code, s := get(t, "/join.ps1?roots=C:\\%E5%B7%A5%E4%BD%9C&shell", "http://127.0.0.1:7811")
-	if code != 200 {
-		t.Fatalf("%d %s", code, s)
+// The sh script, run: it fetches the archive and SHA256SUMS from base, checks it, puts iridium in
+// ~/.local/opt/iridium with ir linked in ~/.local/bin, and runs what it is given as ir; a file that
+// does not match is not installed.
+func TestInstallSh(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("the Linux branch")
 	}
-	for _, c := range s {
-		if c > 0x7e || c < 0x20 && c != '\n' && c != '\r' {
-			t.Fatalf("not ASCII: %q", c)
+	for _, c := range []string{"sh", "curl", "tar", "awk", "sha256sum"} {
+		if _, err := exec.LookPath(c); err != nil {
+			t.Skip(c, err)
 		}
 	}
-	b64 := func(s string) string { return "'" + base64.StdEncoding.EncodeToString([]byte(s)) + "'" }
-	if want := "@(" + b64("serve") + ", " + b64("--no-server") + ", " + b64("--join") + ", " + b64("http://127.0.0.1:7811") + ", " + b64("--roots") + ", " + b64(`C:\工作`) + ")"; !strings.Contains(s, want) {
-		t.Errorf("no %s in:\n%s", want, s)
+	prog := []byte("#!/bin/sh\necho \"ran: $*\"\n")
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	for _, f := range []struct {
+		name string
+		b    []byte
+	}{{"./iridium", prog}, {"./README.md", []byte("r")}, {"./icon.png", []byte("png")}} {
+		tw.WriteHeader(&tar.Header{Name: f.name, Mode: 0o755, Size: int64(len(f.b)), Typeflag: tar.TypeReg})
+		tw.Write(f.b)
 	}
-	if strings.Contains(s, "schtasks") || strings.Contains(s, "{{") {
-		t.Errorf("script:\n%s", s)
+	tw.Close()
+	gz.Close()
+	archive := ArchiveName("linux", map[string]string{"amd64": "amd64", "arm64": "arm64"}[runtime.GOARCH])
+	if runtime.GOARCH != "amd64" && runtime.GOARCH != "arm64" {
+		t.Skip(runtime.GOARCH)
+	}
+	sum := sha256.Sum256(buf.Bytes())
+	good := hex.EncodeToString(sum[:]) + "  " + archive + "\n"
+	sums := good
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/r/SHA256SUMS":
+			w.Write([]byte(sums))
+		case "/r/" + archive:
+			w.Write(buf.Bytes())
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	script, err := Render(false, srv.URL+"/r/", "v1.2.3", "https://ir.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	run := func(args ...string) (string, error) {
+		cmd := exec.Command("sh", append([]string{"-s", "--"}, args...)...)
+		cmd.Stdin = bytes.NewReader(script)
+		cmd.Env = []string{"HOME=" + home, "PATH=" + os.Getenv("PATH")}
+		out, err := cmd.CombinedOutput()
+		return string(out), err
+	}
+	out, err := run()
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	exe := filepath.Join(home, ".local", "opt", "iridium", "iridium")
+	if b, _ := os.ReadFile(exe); !bytes.Equal(b, prog) {
+		t.Fatalf("not installed: %q\n%s", b, out)
+	}
+	if l, _ := os.Readlink(filepath.Join(home, ".local", "bin", "ir")); l != exe {
+		t.Errorf("ir -> %q", l)
+	}
+	if !strings.Contains(out, "ir start --no-server --join https://ir.example.com") {
+		t.Errorf("what next:\n%s", out)
+	}
+	if out, err := run("start", "--no-server", "--join", "https://ir.example.com"); err != nil || !strings.Contains(out, "ran: ir start --no-server --join https://ir.example.com") {
+		t.Errorf("then ir: %v\n%s", err, out)
+	}
+	os.Remove(exe)
+	sums = strings.Repeat("0", 64) + "  " + archive + "\n"
+	if out, err := run(); err == nil || !strings.Contains(out, "SHA256SUMS") {
+		t.Errorf("a bad sum installed: %v\n%s", err, out)
+	}
+	if _, err := os.Stat(exe); err == nil {
+		t.Error("a bad one in place")
 	}
 }
 
-func TestRefused(t *testing.T) {
-	for target, origin := range map[string]string{
-		"/join?name=a%22b":    "https://ir.example.com", // a quote PowerShell would pass on badly
-		"/join?roots=a%0Ab":   "https://ir.example.com",
-		"/join?agents=a%20b":  "https://ir.example.com",
-		"/join?agents=Claude": "https://ir.example.com",
-		"/join":               "https://ir.example.com\n; rm -rf ~",
-		"/join.ps1":           "https://x'y",
-		"/join/../etc/passwd": "https://ir.example.com",
-	} {
-		if code, _ := get(t, target, origin); code == 200 {
-			t.Errorf("%s from %q: 200", target, origin)
+// The PowerShell script stays ASCII (irm may read it in any code page) with its values filled in.
+func TestPs1(t *testing.T) {
+	b, err := Render(true, "https://ir.example.com/install/", "v1.2.3", "https://ir.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, c := range b {
+		if c > 0x7f {
+			t.Fatalf("not ASCII at %d", i)
 		}
+	}
+	if !strings.Contains(string(b), "} @args") || strings.Contains(string(b), "{{") {
+		t.Errorf("script:\n%s", b)
 	}
 }

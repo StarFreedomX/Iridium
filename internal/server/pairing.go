@@ -2,7 +2,6 @@ package server
 
 import (
 	"cmp"
-	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -24,7 +23,6 @@ import (
 	"github.com/kumoSleeping/iridium/internal/gate"
 	"github.com/kumoSleeping/iridium/internal/joinscript"
 	"github.com/kumoSleeping/iridium/internal/satori"
-	"github.com/kumoSleeping/iridium/internal/version"
 )
 
 // Pairing (draft 二「接入」, decisions 6-11): the one way an app comes in, an executor (ir join)
@@ -71,7 +69,7 @@ func openPath(r *http.Request) bool {
 	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/v1/internal/pair/"):
 		return true
 	case (r.Method == http.MethodGet || r.Method == http.MethodHead) && (joinscript.Path(r.URL.Path) || joinscript.BinaryPath(r.URL.Path)):
-		return true // the lines another computer runs to join or install, and iridium: nothing secret in them
+		return true // the script that installs ir on another computer, and the release's files through here: nothing secret in them
 	case (r.Method == http.MethodGet || r.Method == http.MethodHead) && r.URL.Path == "/v1/internal/face":
 		return true // this Iridium's face: the desktop app shows it before logging in (serverface.go)
 	case r.Method == http.MethodGet && r.URL.Path == "/v1/events":
@@ -491,32 +489,20 @@ func randHex(n int) string {
 	return hex.EncodeToString(b)
 }
 
-// binaries are iridium (and ir-computer, for the old lines) as this Iridium serves them
-// (joinscript.Binaries), kept under its state.
+// binaries are the release's files as this Iridium passes them on (joinscript.Binaries, the
+// script's proxy), each fetched when first asked, kept under its state.
 func (s *Server) binaries() *joinscript.Binaries {
 	s.binOnce.Do(func() {
-		// Where ir-computer alone was kept before iridium took its place (2026-11-22).
-		_ = os.RemoveAll(filepath.Join(s.cfg.StatePath(), "ir-computer"))
-		s.bin = &joinscript.Binaries{Dir: filepath.Join(s.cfg.StatePath(), "join")}
+		s.bin = &joinscript.Binaries{Dir: filepath.Join(s.cfg.StatePath(), "install")}
 	})
 	return s.bin
 }
 
-// PrefetchBinaries fetches this release's iridium archive for every system ahead, so the first
-// computer's download is served from here as it comes (its progress shown). Not for a build of no
-// release (those send the computer to GitHub's latest). ir-computer, for the old lines, is fetched
-// when one asks.
+// PrefetchBinaries no longer fetches anything ahead (2026-11-22: a computer downloads from GitHub,
+// through here only when asked): it drops what the earlier ways kept, the archives of every
+// system (state/join) and ir-computer's (state/ir-computer). To be removed once those are gone.
 func (s *Server) PrefetchBinaries() {
-	if !version.Release() {
-		return
+	for _, d := range []string{"join", "ir-computer"} {
+		_ = os.RemoveAll(filepath.Join(s.cfg.StatePath(), d))
 	}
-	go func() {
-		for _, sys := range [][2]string{{"darwin", "arm64"}, {"darwin", "amd64"}, {"linux", "amd64"}, {"linux", "arm64"}, {"windows", "amd64"}, {"windows", "arm64"}} {
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-			if _, err := s.binaries().Fetch(ctx, joinscript.ArchiveName(sys[0], sys[1])); err != nil {
-				s.logf("server: iridium %s/%s: %v", sys[0], sys[1], err)
-			}
-			cancel()
-		}
-	}()
 }

@@ -93,16 +93,16 @@ func TestJoin(t *testing.T) {
 		return nil
 	}
 
-	// The line and ir-computer are served past the gate, at the public address: a build of no
-	// release sends to GitHub's latest.
+	// The install script and the release's files are served past the gate, at the public address:
+	// a build of no release sends to GitHub's latest. The paths of before are gone.
 	nofollow := &http.Client{Transport: asHost("ir.example.com"), CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	for path, want := range map[string]int{"/join": 200, "/join/ir-computer-darwin-arm64": http.StatusFound, "/join/ir-computer-nope": http.StatusUnauthorized} {
+	for path, want := range map[string]int{"/install": 200, "/install.ps1?proxy": 200, "/install/iridium-darwin-arm64.tar.gz": http.StatusFound, "/install/iridium-nope": http.StatusUnauthorized, "/join": http.StatusUnauthorized, "/join/ir-computer-darwin-arm64": http.StatusUnauthorized} {
 		resp, err := nofollow.Get(l.base + path)
 		if err != nil {
 			t.Fatal(err)
 		}
 		resp.Body.Close()
-		if resp.StatusCode != want || want == http.StatusFound && !strings.HasSuffix(resp.Header.Get("Location"), "/latest/download/ir-computer-darwin-arm64") {
+		if resp.StatusCode != want || want == http.StatusFound && !strings.HasSuffix(resp.Header.Get("Location"), "/latest/download/iridium-darwin-arm64.tar.gz") {
 			t.Errorf("%s: %d %s", path, resp.StatusCode, resp.Header.Get("Location"))
 		}
 	}

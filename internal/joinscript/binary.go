@@ -2,6 +2,7 @@ package joinscript
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -19,38 +20,27 @@ import (
 	"github.com/kumoSleeping/iridium/internal/version"
 )
 
-// iridium through this Iridium (the user, 2026-11-17, then for ir-computer): the scripts and a
-// connected executor fetch it from <origin>/join/iridium-<os>-<arch>.tar.gz, not from GitHub, so
-// the computer reaches one address. This Iridium fetches its own release's from GitHub once, checks
-// it against that release's SHA256SUMS and keeps it (Binaries.Dir); a build of no release sends
-// the computer to the latest release.
-//
-// ir-computer-<os>-<arch>[.exe] are served the same way for the lines given out before iridium
-// took its place (2026-11-22): to go one release on.
+// The release's files through this Iridium (the query proxy of the script, 2026-11-22): for a
+// computer that cannot reach GitHub, <origin>/install/<file> serves this Iridium's release's
+// iridium archives, the macOS app and SHA256SUMS. This Iridium fetches each from GitHub when first
+// asked, checks it against SHA256SUMS and keeps it (Binaries.Dir); a build of no release sends the
+// computer to the latest release.
 
-// BinaryPrefix is where the binaries are served.
-const BinaryPrefix = "/join/"
+// BinaryPrefix is where they are served.
+const BinaryPrefix = "/install/"
 
-var binaryName = regexp.MustCompile(`^iridium-(darwin|linux|windows)-(amd64|arm64)\.tar\.gz$|^ir-computer-(darwin|linux)-(amd64|arm64)$|^ir-computer-windows-(amd64|arm64)\.exe$`)
+var binaryName = regexp.MustCompile(`^iridium-(darwin|linux|windows)-(amd64|arm64)\.tar\.gz$|^iridium-app-darwin-(amd64|arm64)\.zip$|^SHA256SUMS$`)
 
-// BinaryPath reports whether p is one of the binaries.
+// BinaryPath reports whether p is one of them.
 func BinaryPath(p string) bool {
 	name, ok := strings.CutPrefix(p, BinaryPrefix)
 	return ok && binaryName.MatchString(name)
 }
 
 // ArchiveName is iridium's release archive for goos and goarch (scripts/release.sh): the binary
-// iridium (iridium.exe on Windows), README.md and LICENSE.
+// iridium (iridium.exe on Windows), README.md, LICENSE and icon.png.
 func ArchiveName(goos, goarch string) string {
 	return "iridium-" + goos + "-" + goarch + ".tar.gz"
-}
-
-// BinaryName is ir-computer's binary for goos and goarch. To be removed with ir-computer.
-func BinaryName(goos, goarch string) string {
-	if goos == "windows" {
-		return "ir-computer-windows-" + goarch + ".exe"
-	}
-	return "ir-computer-" + goos + "-" + goarch
 }
 
 // Binaries serves the binaries, keeping them in Dir.
@@ -82,7 +72,7 @@ func (b *Binaries) base() string {
 	if b.Base != "" {
 		return b.Base
 	}
-	return releases
+	return Releases
 }
 
 // lock is the lock of one file.
@@ -130,8 +120,13 @@ func (b *Binaries) Serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ct := "application/octet-stream"
-	if strings.HasSuffix(name, ".tar.gz") {
+	switch {
+	case strings.HasSuffix(name, ".tar.gz"):
 		ct = "application/gzip"
+	case strings.HasSuffix(name, ".zip"):
+		ct = "application/zip"
+	case name == "SHA256SUMS":
+		ct = "text/plain; charset=utf-8"
 	}
 	w.Header().Set("Content-Type", ct)
 	w.Header().Set("Cache-Control", "no-store")
@@ -154,9 +149,15 @@ func (b *Binaries) Fetch(ctx context.Context, name string) (string, error) {
 		return "", err
 	}
 	tag := "v" + strings.TrimPrefix(v, "v")
-	sums, err := b.sums(ctx, tag)
+	raw, sums, err := b.sums(ctx, tag)
 	if err != nil {
 		return "", err
+	}
+	if name == "SHA256SUMS" {
+		if err := os.WriteFile(path+".tmp", raw, 0o644); err != nil {
+			return "", err
+		}
+		return path, os.Rename(path+".tmp", path)
 	}
 	want, ok := sums[name]
 	if !ok {
@@ -200,22 +201,31 @@ func (b *Binaries) Fetch(ctx context.Context, name string) (string, error) {
 	return path, nil
 }
 
-// sums is a release's SHA256SUMS, by file name.
-func (b *Binaries) sums(ctx context.Context, tag string) (map[string]string, error) {
+// sums is a release's SHA256SUMS as it is, and by file name.
+func (b *Binaries) sums(ctx context.Context, tag string) ([]byte, map[string]string, error) {
 	resp, err := b.get(ctx, b.base()+"download/"+tag+"/SHA256SUMS")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer resp.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return nil, nil, err
+	}
+	return raw, ParseSums(raw), nil
+}
+
+// ParseSums reads a SHA256SUMS: each file's sum by its name.
+func ParseSums(raw []byte) map[string]string {
 	out := map[string]string{}
-	sc := bufio.NewScanner(io.LimitReader(resp.Body, 1<<20))
+	sc := bufio.NewScanner(bytes.NewReader(raw))
 	for sc.Scan() {
 		f := strings.Fields(sc.Text())
 		if len(f) == 2 {
 			out[strings.TrimPrefix(f[1], "*")] = f[0]
 		}
 	}
-	return out, sc.Err()
+	return out
 }
 
 func (b *Binaries) get(ctx context.Context, url string) (*http.Response, error) {
