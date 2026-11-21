@@ -33,7 +33,7 @@ type Joins struct {
 	Update bool
 	// Record, when set, is kept on disk with the joins' states (iridium status).
 	Record *Record
-	Logf     func(string, ...any)
+	Logf   func(string, ...any)
 
 	mu      sync.Mutex
 	running map[string]context.CancelFunc
