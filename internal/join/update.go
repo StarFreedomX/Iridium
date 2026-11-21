@@ -1,6 +1,8 @@
 package join
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"context"
 	"errors"
 	"fmt"
@@ -19,10 +21,12 @@ import (
 	"github.com/kumoSleeping/iridium/internal/version"
 )
 
-// ir-computer keeps up with the Iridium it is connected to (the user, 2026-11-17): told another
+// An executor keeps up with the Iridium it is connected to (the user, 2026-11-17): told another
 // version in the hello's answer, it fetches that one from the Iridium (<origin>/join/, its progress
-// shown), puts it where it runs from, and asks the person at its terminal to restart now (ending
-// what it runs) or with the next run.
+// shown), puts it where it runs from (the cache of the one line, or where iridium install put it),
+// and asks the person at its terminal to restart now (ending what it runs) or with the next run.
+// iridium fetches its release archive and takes the binary out of it; ir-computer, kept for the
+// lines given out before iridium took its place, its own bare binary.
 
 // ErrRestart: the person allowed a restart into the new version (Program.Main runs it).
 var ErrRestart = errors.New("restart into the new version")
@@ -47,7 +51,7 @@ func (o *Options) newer(ctx context.Context, ex *executor.Executor, r wire.Hello
 	offered.v = r.Version
 	offered.Unlock()
 	go func() {
-		o.say("%s 已是 %s（这里 %s），更新 ir-computer", o.where(), r.Version, version.Version)
+		o.say("%s 已是 %s（这里 %s），更新 %s", o.where(), r.Version, version.Version, o.selfName())
 		if err := o.fetchSelf(ctx, selfExe(), r.Version); err != nil {
 			if ctx.Err() == nil {
 				o.say("更新失败：%v", err)
@@ -57,7 +61,7 @@ func (o *Options) newer(ctx context.Context, ex *executor.Executor, r wire.Hello
 			offered.Unlock()
 			return
 		}
-		q := "ir-computer " + r.Version + " 已下载，现在重启"
+		q := o.selfName() + " " + r.Version + " 已下载，现在重启"
 		if n := ex.Busy(); n > 0 {
 			q += fmt.Sprintf("（结束这里正在运行的 %d 个进程）", n)
 		}
@@ -71,13 +75,27 @@ func (o *Options) newer(ctx context.Context, ex *executor.Executor, r wire.Hello
 	}()
 }
 
-// fetchSelf fetches ir-computer v for this system from the Iridium into exe (where it runs from),
+// selfName is the program that updates itself: ir-computer (cmd/ir-computer, to be removed with
+// it), else iridium.
+func (o *Options) selfName() string {
+	if o.prog().Self == "ir-computer" {
+		return "ir-computer"
+	}
+	return "iridium"
+}
+
+// fetchSelf fetches selfName v for this system from the Iridium into exe (where it runs from),
 // its progress shown; it must say it is v.
 func (o *Options) fetchSelf(ctx context.Context, exe, v string) error {
 	if exe == "" {
 		return errors.New("where it runs from is not known")
 	}
-	url := o.URL + joinscript.BinaryPrefix + joinscript.BinaryName(runtime.GOOS, runtime.GOARCH)
+	name := o.selfName()
+	file := joinscript.ArchiveName(runtime.GOOS, runtime.GOARCH)
+	if name == "ir-computer" {
+		file = joinscript.BinaryName(runtime.GOOS, runtime.GOARCH)
+	}
+	url := o.URL + joinscript.BinaryPrefix + file
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return err
@@ -95,10 +113,15 @@ func (o *Options) fetchSelf(ctx context.Context, exe, v string) error {
 		return fmt.Errorf("%s: %s", url, resp.Status)
 	}
 	tmp := exe + ".new"
-	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o755)
+	down := tmp
+	if name != "ir-computer" {
+		down = exe + ".tar.gz"
+	}
+	f, err := os.OpenFile(down, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o755)
 	if err != nil {
 		return err
 	}
+	defer os.Remove(down)
 	defer os.Remove(tmp)
 	p := &progress{o: o, size: resp.ContentLength, shown: -1}
 	_, err = io.Copy(io.MultiWriter(f, p), resp.Body)
@@ -109,13 +132,61 @@ func (o *Options) fetchSelf(ctx context.Context, exe, v string) error {
 	if err != nil {
 		return err
 	}
+	if down != tmp {
+		if err := unpack(down, binaryIn(runtime.GOOS), tmp); err != nil {
+			return err
+		}
+	}
 	vctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	out, err := exec.CommandContext(vctx, tmp, "version").Output()
-	if got := strings.TrimSpace(string(out)); err != nil || got != "ir-computer "+v {
-		return fmt.Errorf("the one fetched says %q, not ir-computer %s (%v)", got, v, err)
+	if got := strings.TrimSpace(string(out)); err != nil || got != name+" "+v {
+		return fmt.Errorf("the one fetched says %q, not %s %s (%v)", got, name, v, err)
 	}
 	return replaceExe(tmp, exe)
+}
+
+// binaryIn is the binary's name in iridium's archive for goos (scripts/release.sh).
+func binaryIn(goos string) string {
+	if goos == "windows" {
+		return "iridium.exe"
+	}
+	return "iridium"
+}
+
+// unpack writes the file name of the tar.gz archive at path to dst, executable.
+func unpack(path, name, dst string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		return err
+	}
+	tr := tar.NewReader(gz)
+	for {
+		h, err := tr.Next()
+		if err == io.EOF {
+			return fmt.Errorf("no %s in the archive", name)
+		}
+		if err != nil {
+			return err
+		}
+		if h.Typeflag != tar.TypeReg || strings.TrimPrefix(h.Name, "./") != name {
+			continue
+		}
+		out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o755)
+		if err != nil {
+			return err
+		}
+		_, err = io.Copy(out, io.LimitReader(tr, 1<<30))
+		if cerr := out.Close(); err == nil {
+			err = cerr
+		}
+		return err
+	}
 }
 
 // replaceExe puts the file at tmp in place of exe, which runs.

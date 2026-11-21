@@ -3,8 +3,11 @@
 package join
 
 import (
+	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -19,6 +22,44 @@ import (
 	"github.com/kumoSleeping/iridium/internal/remote/wire"
 	"github.com/kumoSleeping/iridium/internal/version"
 )
+
+// iridium (executor only) fetches its release archive from the Iridium and takes the binary out.
+func TestUpdateArchive(t *testing.T) {
+	newer := []byte("#!/bin/sh\necho 'iridium v1.0.1'\n")
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	for _, f := range []struct {
+		name string
+		b    []byte
+	}{{"./README.md", []byte("readme")}, {"./" + binaryIn(runtime.GOOS), newer}} {
+		tw.WriteHeader(&tar.Header{Name: f.name, Mode: 0o755, Size: int64(len(f.b)), Typeflag: tar.TypeReg})
+		tw.Write(f.b)
+	}
+	tw.Close()
+	gz.Close()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != joinscript.BinaryPrefix+joinscript.ArchiveName(runtime.GOOS, runtime.GOARCH) {
+			http.NotFound(w, r)
+			return
+		}
+		w.Write(buf.Bytes())
+	}))
+	defer srv.Close()
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "iridium")
+	os.WriteFile(exe, []byte("old"), 0o755)
+	o := Options{URL: srv.URL, Out: io.Discard, Prog: Program{Name: "iridium --join", Self: "ir-app", Update: true}}
+	if err := o.fetchSelf(context.Background(), exe, "v1.0.1"); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(exe); !bytes.Equal(b, newer) {
+		t.Fatalf("in place: %q", b)
+	}
+	if ents, _ := os.ReadDir(dir); len(ents) != 1 {
+		t.Errorf("left beside it: %v", ents)
+	}
+}
 
 // Connected to an Iridium of another release, ir-computer fetches that one's of itself from it,
 // its progress shown, checks it says that version, puts it in place and asks to restart.
@@ -39,7 +80,7 @@ func TestUpdate(t *testing.T) {
 	exe := filepath.Join(t.TempDir(), "ir-computer")
 	os.WriteFile(exe, []byte("old"), 0o755)
 	var out bytes.Buffer
-	o := Options{URL: srv.URL, Out: &out, Prog: Program{Name: "ir-computer", Update: true}}
+	o := Options{URL: srv.URL, Out: &out, Prog: Program{Name: "ir-computer", Self: "ir-computer", Update: true}}
 	if err := o.fetchSelf(context.Background(), exe, "v1.0.1"); err != nil {
 		t.Fatal(err)
 	}

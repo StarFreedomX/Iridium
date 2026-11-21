@@ -81,13 +81,15 @@ type Options struct {
 	Live func(*executor.Executor)
 }
 
-// Program is a program that joins: ir join (in iridium), or ir-computer (cmd/ir-computer).
+// Program is a program that joins: iridium (its executor, its desktop app, ir join), or
+// ir-computer (cmd/ir-computer, kept for the lines given out before).
 type Program struct {
 	Name  string // as a person types it: ir join, ir-computer
 	Self  string // what it says it is in its pairing and hello, before the version: iridium
 	Usage string
 	// Update: connected to an Iridium of another release, it fetches that one's of itself and asks
-	// to restart (ir-computer; ir join is updated with its Iridium).
+	// to restart (update.go): an executor alone; not where an Iridium runs in the same program,
+	// which updates with its own release.
 	Update bool
 }
 
