@@ -16,6 +16,8 @@ import (
 // computer joined to it while it is on.
 type Server struct {
 	URL string `json:"url"`
+	// Local: this computer's own Iridium (local.go), never joined: it is this computer.
+	Local bool `json:"local,omitempty"`
 	Off bool   `json:"off,omitempty"` // not joined (still shown when chosen)
 	// What it may do here (docs/exec.md): no command lines; only these folders ("": all).
 	NoShell   bool     `json:"noShell,omitempty"`
@@ -98,6 +100,42 @@ func updateConfig(f func(*Config)) (Config, error) {
 	}
 	f(&c)
 	return c, saveConfig(c)
+}
+
+// exists: has the app's file been written yet? Not: the app's first start.
+func configExists() bool {
+	p, err := configPath()
+	if err != nil {
+		return false
+	}
+	_, err = os.Stat(p)
+	return err == nil
+}
+
+// setLocal has this computer's Iridium at address in the list, first; shown says it is the one in
+// the window. An address it had before (its public address turned on or off) is replaced.
+func (c *Config) setLocal(address string, shown bool) {
+	if l := c.local(); l != nil {
+		if c.Current == l.URL {
+			c.Current = address
+		}
+		l.URL = address
+	} else {
+		c.Servers = append([]Server{{URL: address, Local: true}}, slices.DeleteFunc(c.Servers, func(s Server) bool { return s.URL == address })...)
+	}
+	if shown {
+		c.Current = address
+	}
+}
+
+// local is this computer's own Iridium in the list; nil: not there.
+func (c *Config) local() *Server {
+	for i := range c.Servers {
+		if c.Servers[i].Local {
+			return &c.Servers[i]
+		}
+	}
+	return nil
 }
 
 // add puts address in the list (once) and makes it the one shown.

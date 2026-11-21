@@ -28,6 +28,18 @@ export default function AppPanel({ app }: { app: AppState }) {
           {app.servers.map((s) => (
             <ServerBox key={s.url} s={s} />
           ))}
+          {!app.hasLocal && (
+            // This computer's own Iridium, started and shown (internal/desktop/local.go).
+            <Item label={t("app.runLocal")}>
+              <button
+                type="button"
+                onClick={() => ask("local")}
+                className="g-press h-7 rounded-md px-2.5 text-xs text-ink-2 hover:bg-fill hover:text-ink"
+              >
+                {t("app.run")}
+              </button>
+            </Item>
+          )}
         </div>
       </Group>
 
@@ -84,7 +96,7 @@ function ServerBox({ s }: { s: AppServer }) {
           className="flex min-w-0 flex-1 flex-col items-start text-left enabled:hover:text-ink-2"
         >
           <span className="max-w-full truncate text-sm font-medium">
-            {s.host}
+            {s.local ? t("app.local") : s.host}
           </span>
           <span className="max-w-full truncate text-xs text-ink-3">
             {s.current ? `${s.status}  ${t("app.shown")}` : s.status}
@@ -100,11 +112,13 @@ function ServerBox({ s }: { s: AppServer }) {
             <Trash2 size={14} />
           </SureKey>
         )}
-        <Switch
-          label={t("app.joined")}
-          on={s.joined}
-          onChange={(v) => set({ joined: v })}
-        />
+        {!s.local && (
+          <Switch
+            label={t("app.joined")}
+            on={s.joined}
+            onChange={(v) => set({ joined: v })}
+          />
+        )}
       </div>
       <div
         aria-hidden={!s.joined || undefined}

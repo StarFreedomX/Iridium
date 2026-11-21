@@ -2,7 +2,13 @@
 // the Iridiums in the app's list, one under another, all alike: one logged in to with who the
 // window is there (its face, its name), pressed to go in; another pressed to log in from the
 // system's browser, where the passkey is; its menu (right click, or held) to remove; a row to add one.
-import { ChevronRight, LoaderCircle, Plus, Trash2 } from "lucide-react";
+import {
+  ChevronRight,
+  LoaderCircle,
+  Monitor,
+  Plus,
+  Trash2,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useRowMenu } from "../apps";
 import { cn, IrMark, MAC } from "../ui";
@@ -14,11 +20,14 @@ type Server = {
   loggedIn: boolean;
   name?: string;
   avatar?: string;
+  local?: boolean; // this computer's own Iridium: status its state
+  status?: string;
 };
 type Note = { text: string; error?: boolean; server?: string };
 
 export function Login() {
   const [servers, setServers] = useState<Server[] | null>(null);
+  const [hasLocal, setHasLocal] = useState(true);
   const [adding, setAdding] = useState(false);
   const [address, setAddress] = useState("");
   const [busy, setBusy] = useState(""); // the server being logged in to; "+" one typed
@@ -30,6 +39,7 @@ export function Login() {
       followTheme(d);
       if (Array.isArray(d.servers)) {
         setServers(d.servers as Server[]);
+        setHasLocal(d.hasLocal === true);
         if (d.added) (setAdding(false), setAddress(""));
       }
       const server = typeof d.server === "string" ? d.server : undefined;
@@ -80,7 +90,7 @@ export function Login() {
             <ServerRow
               key={s.url}
               s={s}
-              busy={busy === s.url}
+              busy={busy === s.url || (!!s.local && s.status === "启动中")}
               note={note && note.server === s.url ? note : null}
               press={() =>
                 s.loggedIn ? ask("ir:open:" + s.url) : login(s.url, s.url)
@@ -89,6 +99,19 @@ export function Login() {
             />
           ))}
 
+          {!hasLocal && (
+            // This computer's own Iridium, started and shown (internal/desktop/local.go).
+            <button
+              type="button"
+              onClick={() => (setNote(null), ask("ir:local"))}
+              className="g-press flex items-center gap-3 rounded-lg px-2 py-2 text-sm text-ink-2 hover:bg-fill hover:text-ink"
+            >
+              <span className="grid size-9 place-items-center">
+                <Monitor size={16} />
+              </span>
+              在本机运行 Iridium
+            </button>
+          )}
           {typing ? (
             <form
               className="g-fade mt-1 flex flex-col gap-2"
@@ -163,7 +186,11 @@ function Face({ s }: { s: Server }) {
     );
   return (
     <span className="grid size-9 shrink-0 place-items-center rounded-full bg-fill text-sm font-medium text-ink-2 uppercase">
-      {(s.loggedIn && s.name ? s.name : s.host).slice(0, 1)}
+      {s.local && !(s.loggedIn && s.avatar) ? (
+        <Monitor size={16} />
+      ) : (
+        (s.loggedIn && s.name ? s.name : s.host).slice(0, 1)
+      )}
     </span>
   );
 }
@@ -198,10 +225,16 @@ function ServerRow({
         <Face s={s} />
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="truncate text-sm font-medium">
-            {s.loggedIn && s.name ? s.name : s.host}
+            {s.local ? "本机" : s.loggedIn && s.name ? s.name : s.host}
           </span>
           <span className="truncate text-xs text-ink-3">
-            {s.loggedIn && s.name ? s.host : s.loggedIn ? "" : "未登录"}
+            {s.local
+              ? s.status
+              : s.loggedIn && s.name
+                ? s.host
+                : s.loggedIn
+                  ? ""
+                  : "未登录"}
           </span>
         </span>
         {busy ? (

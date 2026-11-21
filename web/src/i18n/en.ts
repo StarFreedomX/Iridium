@@ -892,4 +892,7 @@ export const en: Dict = {
   "app.restartTo": "Restart to update to {v}",
   "app.shown": "in the window",
   "app.removeSure": "Remove?",
+  "app.local": "This computer",
+  "app.runLocal": "Run Iridium on this computer",
+  "app.run": "Run",
 };

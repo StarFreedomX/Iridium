@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -35,8 +36,11 @@ type ui struct {
 	menu  *application.Menu
 	joins *Joins
 
-	mu    sync.Mutex
-	ready string // a downloaded update's version, waiting for a restart
+	here localState // this computer's own Iridium (local.go)
+
+	mu      sync.Mutex
+	ready   string // a downloaded update's version, waiting for a restart
+	waiting bool   // the window waits on the app's page for this computer's Iridium to start
 }
 
 func gui() int {
@@ -79,9 +83,23 @@ func gui() int {
 	if err != nil {
 		logf("config: %v", err)
 	}
+	// This computer's own Iridium: put in the list and shown at the app's first start (kumo,
+	// 2026-11-22); on later starts the one shown last is, and the local one is kept at its address
+	// (its public one turned on or off).
+	if addr, err := localAddress(); err != nil {
+		logf("local: %v", err)
+	} else if first := !configExists(); first || c.local() != nil {
+		if c2, err := updateConfig(func(c *Config) { c.setLocal(addr, first) }); err == nil {
+			c = c2
+		}
+	}
+	start := pageOf(c)
+	if s := c.server(c.current()); s != nil && s.Local && !answers(context.Background(), s.URL) {
+		start, u.waiting = "/", true // the app's page till it answers (startLocal)
+	}
 	u.win = u.app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name: "main", Title: "Iridium", Width: 1200, Height: 800, MinWidth: 360, MinHeight: 480,
-		URL: pageOf(c), CSS: pageCSS,
+		URL: start, CSS: pageCSS,
 		// No title bar of its own on macOS (kumo, 2026-11-20: no line under it): the page goes up to
 		// the window's top, the window dragged by that strip (pageCSS keeps it clear).
 		Mac: application.MacWindow{TitleBar: application.MacTitleBarHidden, InvisibleTitleBarHeight: macBar},
@@ -118,6 +136,9 @@ func gui() int {
 	u.tray.OnClick(u.show)
 	u.redraw()
 	u.joins.Sync(c)
+	if l := c.local(); l != nil {
+		go u.startLocal(l.URL, logf)
+	}
 	u.updates(c, logf)
 
 	if err := u.app.Run(); err != nil {
@@ -127,13 +148,79 @@ func gui() int {
 	return 0
 }
 
-// pageOf is the window's address: the Iridium shown once logged in to, else the app's own login
-// page (assets/index.html).
+// pageOf is the window's address: the Iridium shown once logged in to (this computer's on
+// loopback needs no login), else the app's own login page (assets/index.html).
 func pageOf(c Config) string {
-	if s := c.server(c.current()); s != nil && s.LoggedIn {
+	if s := c.server(c.current()); s != nil && (s.LoggedIn || (s.Local && loopback(s.URL))) {
 		return s.URL + "/"
 	}
 	return "/"
+}
+
+// loopback: is address on this computer's loopback (no public address: no login)?
+func loopback(address string) bool {
+	u, err := url.Parse(address)
+	if err != nil {
+		return false
+	}
+	h := u.Hostname()
+	if h == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(h)
+	return ip != nil && ip.IsLoopback()
+}
+
+// startLocal has this computer's Iridium running (localState.ensure) and, the window waiting for
+// it, shows it.
+func (u *ui) startLocal(address string, logf func(string, ...any)) {
+	application.InvokeAsync(u.redraw)
+	err := u.here.ensure(context.Background(), address, logf)
+	if err != nil {
+		logf("local: %v", err)
+	}
+	application.InvokeAsync(u.redraw)
+	u.mu.Lock()
+	waiting := u.waiting
+	if err == nil {
+		u.waiting = false
+	}
+	u.mu.Unlock()
+	c, _ := loadConfig()
+	switch {
+	case err == nil && waiting && c.current() == address:
+		u.win.SetURL(pageOf(c))
+	case waiting:
+		// The window is on the app's page: its row says why.
+		st := u.pageState(c)
+		if err != nil {
+			st["error"], st["server"] = "未能启动："+err.Error(), address
+		}
+		reply(u.win, st)
+	}
+}
+
+// useLocal puts this computer's Iridium in the list (asked from a page: kumo, 2026-11-22, the
+// top right adds and switches) and shows it once it runs.
+func (u *ui) useLocal(logf func(string, ...any)) error {
+	addr, err := localAddress()
+	if err != nil {
+		return err
+	}
+	if _, err := updateConfig(func(c *Config) { c.setLocal(addr, true) }); err != nil {
+		return err
+	}
+	u.switchTo(addr)
+	return nil
+}
+
+// localStatus is this computer's Iridium's state, short.
+func (u *ui) localStatus() string {
+	st, _ := u.here.get()
+	if st == "" {
+		st = localStarting
+	}
+	return st
 }
 
 func (u *ui) show() {
@@ -199,6 +286,13 @@ func (u *ui) message(w application.Window, msg string, o *application.OriginInfo
 		}
 	case "add":
 		go u.add(w, arg, true)
+	case "local":
+		// This computer's own Iridium, in the list and shown.
+		if err := u.useLocal(logf); err != nil {
+			h := u.hello(c, server)
+			h["error"] = err.Error()
+			reply(w, h)
+		}
 	case "remove":
 		if arg == server {
 			return // not the one the page is on: from another's
@@ -247,13 +341,7 @@ func (u *ui) message(w application.Window, msg string, o *application.OriginInfo
 // window is at those logged in to; opening one, logging in to one from the browser (an address
 // typed is checked to be an Iridium and put in the list first), removing one.
 func (u *ui) local(w application.Window, verb, arg string) {
-	state := func(c Config) map[string]any {
-		list := []map[string]any{}
-		for _, s := range c.Servers {
-			list = append(list, map[string]any{"url": s.URL, "host": hostOf(s.URL), "loggedIn": s.LoggedIn, "name": s.Name, "avatar": s.Avatar, "face": s.Face})
-		}
-		return map[string]any{"servers": list, "current": c.current(), "theme": c.Theme}
-	}
+	state := u.pageState
 	switch verb {
 	case "askstate":
 		st := askState()
@@ -281,6 +369,13 @@ func (u *ui) local(w application.Window, verb, arg string) {
 		if c, _ := loadConfig(); c.server(arg) != nil {
 			u.switchTo(arg)
 		}
+	case "local":
+		if err := u.useLocal(appLog()); err != nil {
+			reply(w, map[string]string{"error": err.Error()})
+			return
+		}
+		c, _ := loadConfig()
+		reply(w, state(c))
 	case "remove":
 		if c, err := updateConfig(func(c *Config) { c.remove(arg) }); err == nil {
 			u.joins.Sync(c)
@@ -339,6 +434,23 @@ func (u *ui) local(w application.Window, verb, arg string) {
 	}
 }
 
+// pageState is what the app's own page shows: the Iridiums in the list, with who the window is at
+// each, this computer's own with its state.
+func (u *ui) pageState(c Config) map[string]any {
+	list := []map[string]any{}
+	for _, s := range c.Servers {
+		e := map[string]any{"url": s.URL, "host": hostOf(s.URL), "loggedIn": s.LoggedIn, "name": s.Name, "avatar": s.Avatar, "face": s.Face}
+		if s.Local {
+			e["local"], e["status"] = true, u.localStatus()
+			if loopback(s.URL) {
+				e["loggedIn"] = true // no login on loopback
+			}
+		}
+		list = append(list, e)
+	}
+	return map[string]any{"servers": list, "current": c.current(), "theme": c.Theme, "hasLocal": c.local() != nil}
+}
+
 // hello is what an Iridium's page learns of the app: that it is in it, and the Iridiums in its
 // list (the window's switcher, which the page draws in its top bar).
 func (u *ui) hello(c Config, server string) map[string]any {
@@ -354,21 +466,23 @@ func (u *ui) hello(c Config, server string) map[string]any {
 			agents = append(agents, map[string]any{"name": a.Agent, "on": !slices.Contains(s.AgentsOff, a.Agent)})
 		}
 		status := "未接入"
-		if !s.Off {
+		if s.Local {
+			status = u.localStatus()
+		} else if !s.Off {
 			status = brief(u.joins.Status(s.URL))
 		}
 		roots := s.Roots
 		if roots == nil {
 			roots = []string{}
 		}
-		list = append(list, map[string]any{"url": s.URL, "host": hostOf(s.URL), "current": s.URL == server,
-			"joined": !s.Off, "status": status, "shell": !s.NoShell, "roots": roots, "agents": agents})
+		list = append(list, map[string]any{"url": s.URL, "host": hostOf(s.URL), "current": s.URL == server, "local": s.Local,
+			"joined": !s.Off && !s.Local, "status": status, "shell": !s.NoShell, "roots": roots, "agents": agents})
 	}
 	auto, _ := u.app.Autostart.IsEnabled()
 	u.mu.Lock()
 	ready := u.ready
 	u.mu.Unlock()
-	return map[string]any{"app": "ir-app", "version": version.Version, "name": name, "servers": list, "autostart": auto, "update": ready}
+	return map[string]any{"app": "ir-app", "version": version.Version, "name": name, "servers": list, "autostart": auto, "update": ready, "hasLocal": c.local() != nil}
 }
 
 // terms are what a page may ask to change of this computer for its Iridium: narrowing is done at
@@ -514,10 +628,23 @@ func (u *ui) add(w application.Window, address string, ask bool) {
 }
 
 func (u *ui) switchTo(address string) {
-	if c, err := updateConfig(func(c *Config) { c.Current = address }); err == nil {
-		u.win.SetURL(pageOf(c))
-		application.InvokeAsync(u.redraw)
+	c, err := updateConfig(func(c *Config) { c.Current = address })
+	if err != nil {
+		return
 	}
+	if s := c.server(address); s != nil && s.Local {
+		if st, _ := u.here.get(); st != localRunning {
+			// Not running yet: the app's page till it does.
+			u.mu.Lock()
+			u.waiting = true
+			u.mu.Unlock()
+			u.win.SetURL("/")
+			go u.startLocal(address, appLog())
+			return
+		}
+	}
+	u.win.SetURL(pageOf(c))
+	application.InvokeAsync(u.redraw)
 }
 
 // serverOf is the Iridium in the list whose origin (scheme://host[:port]) origin is; "": none.
@@ -579,7 +706,9 @@ func (u *ui) redraw() {
 	for _, s := range c.Servers {
 		host := hostOf(s.URL)
 		state := "未接入"
-		if !s.Off {
+		if s.Local {
+			host, state = "本机", u.localStatus()
+		} else if !s.Off {
 			state = brief(u.joins.Status(s.URL))
 		}
 		sub := m.AddSubmenu(fmt.Sprintf("%s · %s", host, state))
@@ -588,13 +717,15 @@ func (u *ui) redraw() {
 			u.switchTo(s.URL)
 			u.show()
 		})
-		on := sub.AddCheckbox("接入这台电脑", !s.Off)
-		on.OnClick(func(*application.Context) {
-			if c, err := updateConfig(func(c *Config) { c.setOff(s.URL, !s.Off) }); err == nil {
-				u.joins.Sync(c)
-				application.InvokeAsync(u.redraw)
-			}
-		})
+		if !s.Local {
+			on := sub.AddCheckbox("接入这台电脑", !s.Off)
+			on.OnClick(func(*application.Context) {
+				if c, err := updateConfig(func(c *Config) { c.setOff(s.URL, !s.Off) }); err == nil {
+					u.joins.Sync(c)
+					application.InvokeAsync(u.redraw)
+				}
+			})
+		}
 		sub.AddSeparator()
 		sub.Add("移除").OnClick(func(*application.Context) {
 			if c, err := updateConfig(func(c *Config) { c.remove(s.URL) }); err == nil {
@@ -602,6 +733,12 @@ func (u *ui) redraw() {
 				u.win.SetURL(pageOf(c))
 				application.InvokeAsync(u.redraw)
 			}
+		})
+	}
+	if c.local() == nil {
+		m.Add("在本机运行 Iridium").OnClick(func(*application.Context) {
+			_ = u.useLocal(appLog())
+			u.show()
 		})
 	}
 	m.Add("添加服务器…").OnClick(func(*application.Context) {
@@ -635,7 +772,7 @@ func (u *ui) redraw() {
 		})
 	}
 	m.AddSeparator()
-	m.Add(fmt.Sprintf("ir-app %s", version.Version)).SetEnabled(false)
+	m.Add(fmt.Sprintf("Iridium %s", version.Version)).SetEnabled(false)
 	m.Add("退出").OnClick(func(*application.Context) { u.app.Quit() })
 	m.Update()
 }

@@ -65,7 +65,7 @@ func (j *Joins) Sync(c Config) {
 	}
 	want := map[string]Server{}
 	for _, s := range c.Servers {
-		if !s.Off {
+		if !s.Off && !s.Local {
 			want[s.URL] = s
 		}
 	}

@@ -9,6 +9,7 @@ export type AppServer = {
   url: string;
   host: string;
   current: boolean;
+  local?: boolean; // this computer's own Iridium: never joined, its state in status
   joined: boolean;
   status: string; // the join's state, short
   shell: boolean;
@@ -22,6 +23,7 @@ export type AppState = {
   servers: AppServer[];
   autostart: boolean;
   update: string; // a new version downloaded, waiting for a restart; "": none
+  hasLocal?: boolean; // this computer's own Iridium is in the list
   error?: string; // what the last ask came to
   notice?: string;
   code?: string; // a browser login's code to check
