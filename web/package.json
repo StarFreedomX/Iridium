@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "build:app": "vite build -c vite.app.config.ts && mv ../internal/desktop/assets/ui/app.html ../internal/desktop/assets/ui/index.html",
+    "build:app": "vite build -c vite.app.config.ts && mv ../internal/desktop/assets/ui/app.html ../internal/desktop/assets/ui/index.html && touch ../internal/desktop/assets/ui/.gitkeep",
     "check": "tsc --noEmit -p . && vitest run",
     "test": "vitest run",
     "shots": "node scripts/shoot.mjs",

@@ -18,7 +18,7 @@ KEY=$HOME/.ssh/iridium_${NODE}_ed25519
 version=$(sh scripts/version.sh)
 
 if [ "${NO_WEB:-}" != 1 ]; then
-	(cd web && npm ci --no-audit --no-fund >/dev/null && npm run build >/dev/null)
+	(cd web && npm ci --no-audit --no-fund >/dev/null && npm run build >/dev/null && npm run build:app >/dev/null)
 fi
 [ -f internal/webui/dist/index.html ] || { echo "push-test: no web build in internal/webui/dist" >&2; exit 1; }
 tmp=$(mktemp -d)

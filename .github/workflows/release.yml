@@ -1,5 +1,7 @@
 # A tag v* builds the release: the web app embedded, one static binary per platform packed as
-# iridium-<os>-<arch>.tar.gz, SHA256SUMS, and the notes: the commits, then the sizes. `ir update` and the
+# iridium-<os>-<arch>.tar.gz, the desktop app's downloads (iridium-app-*: the binary on Linux and
+# Windows, Iridium.app zipped on macOS, made and signed on a Mac), SHA256SUMS, and the notes: the
+# commits, then the sizes. `ir update` and the
 # settings page read the latest release (internal/update).
 name: release
 
@@ -29,7 +31,7 @@ jobs:
           scripts/check-types.sh
           go vet ./...
           GOOS=darwin GOARCH=arm64 go vet ./...
-          GOOS=windows GOARCH=amd64 go vet ./cmd/ir-computer ./internal/join ./internal/remote/executor
+          GOOS=windows GOARCH=amd64 go vet ./...
           go test ./...
 
   build:
@@ -53,9 +55,11 @@ jobs:
           npm ci --no-audit --no-fund
           npm run check
           npm run build
+          npm run build:app
       - name: build
         env:
           VERSION: ${{ github.ref_name }}
+          IR_APP_UPDATE_KEY: ${{ secrets.IR_APP_UPDATE_KEY }}
         run: scripts/release.sh "$VERSION" dist
       - uses: actions/upload-artifact@v4
         with:
@@ -63,8 +67,40 @@ jobs:
           path: dist
           retention-days: 1
 
+  # The macOS app: Iridium.app around the macOS binaries, signed whole (ad hoc) with codesign, and
+  # the signed manifest the app updates from. A release goes out without them if this fails.
+  mac:
+    needs: build
+    runs-on: macos-latest
+    timeout-minutes: 15
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - name: bundle
+        env:
+          VERSION: ${{ github.ref_name }}
+          IR_APP_SIGN_KEY: ${{ secrets.IR_APP_SIGN_KEY }}
+        run: |
+          scripts/app-bundle.sh "$VERSION" dist
+          mkdir dist-mac
+          mv dist/iridium-app-darwin-* dist-mac/
+          [ ! -f dist/update.json ] || mv dist/update.json dist/update.json.sig dist-mac/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-mac
+          path: dist-mac
+          retention-days: 1
+
   publish:
-    needs: [go, build]
+    needs: [go, build, mac]
+    if: ${{ !cancelled() && needs.go.result == 'success' && needs.build.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -72,6 +108,11 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: dist
+          path: dist
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: dist-mac
           path: dist
       - uses: actions/setup-node@v4
         with:
@@ -84,7 +125,7 @@ jobs:
         run: |
           pre=""
           case "$VERSION" in *-*) pre="--prerelease" ;; esac
-          gh release create "$VERSION" dist/*.tar.gz dist/ir-computer-* dist/SHA256SUMS \
+          gh release create "$VERSION" dist/*.tar.gz dist/iridium-app-* dist/ir-computer-* dist/SHA256SUMS $(ls dist/update.json dist/update.json.sig 2>/dev/null) \
             --title "$VERSION" --notes-file dist/notes.md $pre
       # The dsh plugin (plugins/dsh-remote-iridium) goes to npm at Iridium's version, so dsh's
       # 添加插件 takes it by name. Releases only. npm trusts this workflow (Trusted Publishing,

@@ -1,11 +1,12 @@
-// Command release makes ir-app's release files (scripts/app-build.sh): the macOS bundle, and the
-// signed manifest an app updates from (docs/app.md "更新").
+// Command sign makes the desktop app's release files (scripts/app-bundle.sh), run from the
+// repository's root: the macOS bundle, and the signed manifest an app updates from (docs/app.md
+// "更新").
 //
-//	go run ./release keygen                       a key: the private half (base64) out, the public on stderr
-//	go run ./release bundle <binary> <dir> <ver>  Iridium.app around a macOS binary, in dir
-//	go run ./release zip <app> <zip>              a bundle zipped as it is (signed, its signature kept)
-//	go run ./release manifest <ver> <dir>         update.json and update.json.sig for the files in dir,
-//	                                              signed with IR_APP_SIGN_KEY (the private half, base64)
+//	go run ./internal/desktop/sign keygen                       a key: the private half (base64) out, the public on stderr
+//	go run ./internal/desktop/sign bundle <binary> <dir> <ver>  Iridium.app around a macOS binary, in dir
+//	go run ./internal/desktop/sign zip <app> <zip>              a bundle zipped as it is (signed, its signature kept)
+//	go run ./internal/desktop/sign manifest <ver> <dir>         update.json and update.json.sig for the files in dir,
+//	                                                            signed with IR_APP_SIGN_KEY (the private half, base64)
 package main
 
 import (
@@ -28,7 +29,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fail("usage: release keygen | bundle <binary> <dir> <version> | zip <app> <zip> | manifest <version> <dir>")
+		fail("usage: sign keygen | bundle <binary> <dir> <version> | zip <app> <zip> | manifest <version> <dir>")
 	}
 	var err error
 	switch a := os.Args[2:]; os.Args[1] {
@@ -38,17 +39,17 @@ func main() {
 		fmt.Fprintln(os.Stderr, "public:", base64.StdEncoding.EncodeToString(pub))
 	case "bundle":
 		if len(a) != 3 {
-			fail("usage: release bundle <binary> <dir> <version>")
+			fail("usage: sign bundle <binary> <dir> <version>")
 		}
 		err = bundle(a[0], a[1], a[2])
 	case "zip":
 		if len(a) != 2 {
-			fail("usage: release zip <app> <zip>")
+			fail("usage: sign zip <app> <zip>")
 		}
 		err = zipDir(a[0], a[1])
 	case "manifest":
 		if len(a) != 2 {
-			fail("usage: release manifest <version> <dir>")
+			fail("usage: sign manifest <version> <dir>")
 		}
 		err = manifest(a[0], a[1])
 	default:
@@ -60,7 +61,7 @@ func main() {
 }
 
 func fail(s string) {
-	fmt.Fprintln(os.Stderr, "release:", s)
+	fmt.Fprintln(os.Stderr, "sign:", s)
 	os.Exit(1)
 }
 
@@ -71,7 +72,7 @@ const plist = `<?xml version="1.0" encoding="UTF-8"?>
 	<key>CFBundleName</key><string>Iridium</string>
 	<key>CFBundleDisplayName</key><string>Iridium</string>
 	<key>CFBundleIdentifier</key><string>ltd.kumo.iridium.app</string>
-	<key>CFBundleExecutable</key><string>ir-app</string>
+	<key>CFBundleExecutable</key><string>iridium</string>
 	<key>CFBundleIconFile</key><string>icon</string>
 	<key>CFBundlePackageType</key><string>APPL</string>
 	<key>CFBundleShortVersionString</key><string>%[1]s</string>
@@ -84,14 +85,14 @@ const plist = `<?xml version="1.0" encoding="UTF-8"?>
 `
 
 // bundle writes dir/Iridium.app: the binary, its Info.plist and its icon. Signed after
-// (scripts/app-build.sh): a bundle whose Info.plist and resources its signature does not cover,
+// (scripts/app-bundle.sh): a bundle whose Info.plist and resources its signature does not cover,
 // macOS calls damaged once it was downloaded.
 func bundle(bin, dir, version string) error {
 	exe, err := os.ReadFile(bin)
 	if err != nil {
 		return err
 	}
-	png, err := os.ReadFile("assets/icon.png") // run from app/
+	png, err := os.ReadFile("internal/desktop/assets/icon.png") // run from the root
 	if err != nil {
 		return err
 	}
@@ -108,7 +109,7 @@ func bundle(bin, dir, version string) error {
 	}{
 		{"Info.plist", 0o644, fmt.Appendf(nil, plist, version)},
 		{"Resources/icon.icns", 0o644, icns(png)},
-		{"MacOS/ir-app", 0o755, exe},
+		{"MacOS/iridium", 0o755, exe},
 	} {
 		if err := os.WriteFile(filepath.Join(app, f.name), f.b, f.mode); err != nil {
 			return err
@@ -182,13 +183,13 @@ type artifact struct {
 	SHA256 string `json:"sha256"`
 }
 
-var named = regexp.MustCompile(`^ir-app-(darwin|linux|windows)-(amd64|arm64)(\.zip|\.exe)?$`)
+var named = regexp.MustCompile(`^iridium-app-(darwin|linux|windows)-(amd64|arm64)(\.zip|\.exe)?$`)
 
-// manifest writes dir/update.json, listing dir's ir-app-<os>-<arch>[.zip|.exe], and its signature.
+// manifest writes dir/update.json, listing dir's iridium-app-<os>-<arch>[.zip|.exe], and its signature.
 func manifest(version, dir string) error {
 	seed, err := base64.StdEncoding.DecodeString(strings.TrimSpace(os.Getenv("IR_APP_SIGN_KEY")))
 	if err != nil || len(seed) != ed25519.SeedSize {
-		return fmt.Errorf("IR_APP_SIGN_KEY is not a key (release keygen)")
+		return fmt.Errorf("IR_APP_SIGN_KEY is not a key (sign keygen)")
 	}
 	key := ed25519.NewKeyFromSeed(seed)
 	ents, err := os.ReadDir(dir)
@@ -214,7 +215,7 @@ func manifest(version, dir string) error {
 		files = append(files, artifact{OS: m[1], Arch: m[2], URL: e.Name(), Size: n, SHA256: hex.EncodeToString(h.Sum(nil))})
 	}
 	if len(files) == 0 {
-		return fmt.Errorf("no ir-app files in %s", dir)
+		return fmt.Errorf("no iridium-app files in %s", dir)
 	}
 	body, err := json.MarshalIndent(map[string]any{
 		"app": "ir-app", "version": strings.TrimPrefix(version, "v"), "published": time.Now().UTC().Format(time.RFC3339), "files": files,

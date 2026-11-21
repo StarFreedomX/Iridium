@@ -20,8 +20,9 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/updater"
 )
 
-// The app's update (docs/app.md "更新"): its own releases, apart from the Iridium's. A release is
-// a manifest, update.json, signed whole with the app's key (update.json.sig, ed25519, base64): its
+// The app's update (docs/app.md "更新"): Iridium's releases, the app's files among them; this
+// computer's own Iridium updates itself (internal/update). A release's app files are in a
+// manifest, update.json, signed whole with the app's key (update.json.sig, ed25519, base64): its
 // version and each file's SHA-256, so neither a file nor an older release can be passed off by
 // whoever serves them. Fetched from each Iridium it is joined to (which fetches it from GitHub),
 // then from GitHub itself.
@@ -30,9 +31,9 @@ import (
 // updates (a build from source).
 var updateKey = ""
 
-// githubManifest is where the app's releases are on GitHub: the release "app", its files replaced
-// by each one.
-const githubManifest = "https://github.com/kumoSleeping/Iridium/releases/download/app/update.json"
+// githubManifest is where the app's releases are on GitHub: Iridium's latest, the app's files
+// and the manifest among its assets (scripts/app-bundle.sh).
+const githubManifest = "https://github.com/kumoSleeping/Iridium/releases/latest/download/update.json"
 
 // Manifest is update.json.
 type Manifest struct {

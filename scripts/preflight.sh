@@ -23,10 +23,11 @@ git clone -q . "$tmp/src"
 cd "$tmp/src"
 # The web app and the Go side at once, as CI's two jobs.
 (cd web && npm ci --no-audit --no-fund --prefer-offline --silent && npm run check --silent &&
-	npm run build --silent >/dev/null) >"$tmp/web.log" 2>&1 &
+	npm run build --silent >/dev/null && npm run build:app --silent >/dev/null) >"$tmp/web.log" 2>&1 &
 web=$!
 go_ok=0
 { GO="$GO" scripts/check-types.sh && "$GO" vet ./... && GOOS=darwin GOARCH=arm64 "$GO" vet ./... &&
+	GOOS=windows GOARCH=amd64 "$GO" vet ./... &&
 	"$GO" test ./...; } >"$tmp/go.log" 2>&1 || go_ok=1
 web_ok=0
 wait $web || web_ok=1

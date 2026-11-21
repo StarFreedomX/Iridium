@@ -1,12 +1,17 @@
 #!/bin/sh
-# Builds the release assets into a directory (the web app must be built already, npm run build in
-# web/): for each platform a static, stripped binary packed as iridium-<os>-<arch>.tar.gz (the
-# binary, README.md, LICENSE), the official QQ plugin as iridium-qq-<os>-<arch>.tar.gz, ir-computer as
+# Builds the release assets into a directory (the web app and the desktop app's pages must be built
+# already: npm run build and npm run build:app in web/): for each platform a static, stripped binary
+# packed as iridium-<os>-<arch>.tar.gz (the binary, README.md, LICENSE), on Linux and Windows the
+# same binary bare as iridium-app-<os>-<arch>[.exe] (the desktop app's download and update; macOS's
+# is a bundle, scripts/app-bundle.sh), the official QQ plugin as iridium-qq-<os>-<arch>.tar.gz
+# (not Windows), ir-computer as
 # bare binaries ir-computer-<os>-<arch>[.exe], SHA256SUMS, and notes.md: the commits since the last tag (what the
 # settings page shows), then after the marker internal/update.NotesEnd the sizes and how to install.
 #
 #   scripts/release.sh v1.2.0 dist
-#   PLATFORMS="linux/amd64 linux/arm64"   which to build (default Linux and macOS, amd64 and arm64)
+#   PLATFORMS="linux/amd64 linux/arm64"   which to build (default Linux, macOS and Windows, amd64 and arm64)
+#   IR_APP_UPDATE_KEY                      the app's update key's public half, built in (else the app
+#                                          does not update itself)
 #   COMPUTER_PLATFORMS="windows/amd64"    which ir-computer to build (default those and Windows)
 set -eu
 cd "$(dirname "$0")/.."
@@ -18,6 +23,11 @@ if [ ! -f internal/webui/dist/index.html ]; then
 	echo "release: no web build in internal/webui/dist (run npm run build in web/)" >&2
 	exit 1
 fi
+if [ ! -f internal/desktop/assets/ui/index.html ]; then
+	echo "release: no build of the desktop app's pages (run npm run build:app in web/)" >&2
+	exit 1
+fi
+ldflags="-s -w -X github.com/kumoSleeping/iridium/internal/version.Version=$version -X github.com/kumoSleeping/iridium/internal/desktop.updateKey=${IR_APP_UPDATE_KEY:-}"
 mkdir -p "$out"
 out=$(cd "$out" && pwd)
 size() { wc -c <"$1" | tr -d ' '; }
@@ -32,18 +42,22 @@ prev=$(git describe --tags --abbrev=0 "$version^" 2>/dev/null || true)
 	echo "| 平台 | 二进制 | 下载（tar.gz） |"
 	echo "|---|---|---|"
 } >"$out/notes.md"
-for p in ${PLATFORMS:-linux/amd64 linux/arm64 darwin/arm64 darwin/amd64}; do
+for p in ${PLATFORMS:-linux/amd64 linux/arm64 darwin/arm64 darwin/amd64 windows/amd64 windows/arm64}; do
 	os=${p%/*} arch=${p#*/}
 	name=iridium-$os-$arch
+	ext=
+	[ "$os" = windows ] && ext=.exe
 	stage=$(mktemp -d)
-	CGO_ENABLED=0 GOOS=$os GOARCH=$arch "$GO" build -trimpath \
-		-ldflags "-s -w -X github.com/kumoSleeping/iridium/internal/version.Version=$version" \
-		-o "$stage/iridium" ./cmd/iridium
+	CGO_ENABLED=0 GOOS=$os GOARCH=$arch "$GO" build -trimpath -ldflags "$ldflags" \
+		-o "$stage/iridium$ext" ./cmd/iridium
 	cp README.md "$stage/" 2>/dev/null || true
 	cp LICENSE "$stage/" 2>/dev/null || true
 	tar -C "$stage" -czf "$out/$name.tar.gz" --owner=0 --group=0 --numeric-owner .
-	echo "| $os/$arch | $(mib "$(size "$stage/iridium")") | $(mib "$(size "$out/$name.tar.gz")") |" >>"$out/notes.md"
+	echo "| $os/$arch | $(mib "$(size "$stage/iridium$ext")") | $(mib "$(size "$out/$name.tar.gz")") |" >>"$out/notes.md"
+	# The desktop app's download on Linux and Windows: the binary itself.
+	[ "$os" = darwin ] || cp "$stage/iridium$ext" "$out/iridium-app-$os-$arch$ext"
 	rm -rf "$stage"
+	[ "$os" = windows ] && continue
 	# The official QQ plugin: not in Iridium's archive; 终端管理 installs it from here when asked.
 	stage=$(mktemp -d)
 	CGO_ENABLED=0 GOOS=$os GOARCH=$arch "$GO" build -trimpath \
@@ -69,9 +83,11 @@ for p in ${COMPUTER_PLATFORMS:-windows/amd64 windows/arm64 darwin/arm64 darwin/a
 		-o "$out/$name" ./cmd/ir-computer
 	echo "| $os/$arch | $(mib "$(size "$out/$name")") |" >>"$out/notes.md"
 done
-(cd "$out" && sha256sum iridium-*.tar.gz ir-computer-* >SHA256SUMS)
+(cd "$out" && sha256sum iridium-*.tar.gz iridium-app-* ir-computer-* >SHA256SUMS)
 {
 	echo
-	echo '安装：`tar xzf iridium-linux-amd64.tar.gz && ./iridium install -now`（macOS 用 iridium-darwin-arm64.tar.gz）；之后在设置里或 `ir update` 更新。'
+	echo '桌面应用：macOS 下载 iridium-app-darwin-arm64.zip，Windows 下载 iridium-app-windows-amd64.exe，Linux 下载 iridium-app-linux-amd64；打开后直接进入本机的 Iridium。'
+	echo
+	echo '只装服务器：`tar xzf iridium-linux-amd64.tar.gz && ./iridium install -now`（macOS 用 iridium-darwin-arm64.tar.gz）；之后在设置里或 `ir update` 更新。'
 } >>"$out/notes.md"
 cat "$out/notes.md"

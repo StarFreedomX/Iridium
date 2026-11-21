@@ -26,7 +26,10 @@ const usage = "usage:\n" + Usage
 func HandleUpdateHelper() { updater.HandleHelperMode() }
 
 // Main is the window, with the tray; it returns when the app quits.
-func Main() int { return gui() }
+func Main() int {
+	hideConsole()
+	return gui()
+}
 
 // Headless is `iridium headless`.
 func Headless(args []string) int { return headless(args) }
