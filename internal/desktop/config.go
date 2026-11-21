@@ -18,7 +18,7 @@ type Server struct {
 	URL string `json:"url"`
 	// Local: this computer's own Iridium (local.go), never joined: it is this computer.
 	Local bool `json:"local,omitempty"`
-	Off bool   `json:"off,omitempty"` // not joined (still shown when chosen)
+	Off   bool `json:"off,omitempty"` // not joined (still shown when chosen)
 	// What it may do here (docs/exec.md): no command lines; only these folders ("": all).
 	NoShell   bool     `json:"noShell,omitempty"`
 	Roots     []string `json:"roots,omitempty"`

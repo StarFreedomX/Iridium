@@ -48,4 +48,3 @@ func ownUnit() string {
 	}
 	return ""
 }
-
