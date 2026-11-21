@@ -63,8 +63,8 @@ func (WinProcs) PIDs() ([]int, error) {
 	return out, nil
 }
 
-// me is this process's user.
-var me = sync.OnceValue(func() *windows.SID {
+// thisUser is this process's user.
+var thisUser = sync.OnceValue(func() *windows.SID {
 	u, err := windows.GetCurrentProcessToken().GetTokenUser()
 	if err != nil {
 		return nil
@@ -106,7 +106,7 @@ func (WinProcs) Stat(pid int) (Stat, error) {
 	}
 	var tok windows.Token
 	if windows.OpenProcessToken(h, windows.TOKEN_QUERY, &tok) == nil {
-		if u, err := tok.GetTokenUser(); err == nil && me() != nil && u.User.Sid.Equals(me()) {
+		if u, err := tok.GetTokenUser(); err == nil && thisUser() != nil && u.User.Sid.Equals(thisUser()) {
 			s.UID = -1
 		}
 		tok.Close()

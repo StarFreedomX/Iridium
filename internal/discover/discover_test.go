@@ -13,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"golang.org/x/sys/unix"
 
 	"github.com/kumoSleeping/iridium/internal/api"
 	"github.com/kumoSleeping/iridium/internal/hub"
@@ -643,11 +642,11 @@ func TestFree(t *testing.T) {
 	if err := r.x.Free(idDsh); err != nil {
 		t.Fatalf("dsh: %v", err)
 	}
-	unix.Flock(int(f.Fd()), unix.LOCK_EX)
+	testLock(t, f)
 	if err := r.x.Free(idDsh); !errors.Is(err, ErrBusy) {
 		t.Fatalf("dsh while locked: %v", err)
 	}
-	unix.Flock(int(f.Fd()), unix.LOCK_UN)
+	testUnlock(f)
 	if err := r.x.Free(idDsh); err != nil {
 		t.Fatalf("dsh unlocked: %v", err)
 	}
