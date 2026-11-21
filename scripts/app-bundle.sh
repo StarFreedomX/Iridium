@@ -34,6 +34,12 @@ for a in arm64 amd64; do
 	"$GO" run ./internal/desktop/sign bundle "$tmp/$a/iridium" "$tmp/$a" "$version"
 	sign "$tmp/$a/Iridium.app" || continue
 	"$GO" run ./internal/desktop/sign zip "$tmp/$a/Iridium.app" "$out/iridium-app-darwin-$a.zip"
+	# Its sum in the release's SHA256SUMS, which the install script checks it against.
+	if [ -f "$out/SHA256SUMS" ]; then
+		grep -v " iridium-app-darwin-$a.zip\$" "$out/SHA256SUMS" >"$tmp/sums" || true
+		(cd "$out" && shasum -a 256 "iridium-app-darwin-$a.zip") >>"$tmp/sums"
+		cp "$tmp/sums" "$out/SHA256SUMS"
+	fi
 	echo "app-bundle: iridium-app-darwin-$a.zip"
 done
 if [ -n "${IR_APP_SIGN_KEY:-}" ]; then
