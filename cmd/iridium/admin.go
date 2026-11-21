@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -33,8 +34,16 @@ func installCmd(args []string) int {
 	reload := fs.Bool("reload", true, "run systemctl --user daemon-reload")
 	unit := fs.String("unit", "iridium", "the unit's name (tests: iridium-test-*)")
 	home, _ := os.UserHomeDir()
-	prefix := fs.String("prefix", filepath.Join(home, ".local", "opt", "iridium"), "where the binary is kept (copied there when it runs from elsewhere)")
-	bin := fs.String("bin", filepath.Join(home, ".local", "bin"), `where the ir link goes; "" none`)
+	defPrefix, defBin := filepath.Join(home, ".local", "opt", "iridium"), filepath.Join(home, ".local", "bin")
+	if runtime.GOOS == "windows" {
+		// %LOCALAPPDATA%\Iridium: the binary and ir.cmd, that folder put on the user's Path.
+		if d := os.Getenv("LOCALAPPDATA"); d != "" {
+			defPrefix = filepath.Join(d, "Iridium")
+		}
+		defBin = defPrefix
+	}
+	prefix := fs.String("prefix", defPrefix, "where the binary is kept (copied there when it runs from elsewhere)")
+	bin := fs.String("bin", defBin, `where the ir link goes; "" none`)
 	var env envFlag
 	fs.Var(&env, "env", "NAME=VALUE the service runs with too (repeatable)")
 	fs.Parse(args)
@@ -55,7 +64,18 @@ func installCmd(args []string) int {
 		unitDir = filepath.Join(d, "systemd", "user")
 	}
 	o := install.Options{Exe: exe, ConfigPath: cfgPath, Listen: *listen, UnitDir: unitDir, Unit: *unit, Path: os.Getenv("PATH"), Env: env, Now: *now, Out: os.Stdout}
-	if runtime.GOOS == "darwin" {
+	if runtime.GOOS == "windows" {
+		// A logon task of Task Scheduler, run as this user.
+		o.Task = true
+		if u, err := user.Current(); err == nil {
+			o.User = u.Username
+		}
+		o.Schtasks = func(args ...string) error {
+			cmd := exec.Command("schtasks", args...)
+			cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+			return cmd.Run()
+		}
+	} else if runtime.GOOS == "darwin" {
 		// A LaunchAgent; launchd gives it a bare PATH, so the agents' is written into it.
 		o.Launchd, o.UnitDir, o.Log = true, launchd.Dir(home), launchd.LogFile(home, *unit)
 		o.Launchctl, o.Domain = launchd.Run, launchd.Domain(context.Background())

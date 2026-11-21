@@ -41,6 +41,13 @@ type Options struct {
 	Log       string
 	Launchctl launchd.Launchctl
 	Domain    string
+
+	// Task registers a Task Scheduler task (Windows) that runs the daemon at the user's logon,
+	// through Schtasks (schtasks.exe's arguments; nil runs nothing); with Now it runs it too.
+	// User is the account it runs as (DOMAIN\name).
+	Task     bool
+	Schtasks func(args ...string) error
+	User     string
 }
 
 // Unit is the unit file. env: more NAME=VALUE for the daemon.
@@ -115,6 +122,9 @@ func Install(o Options) error {
 	if o.Launchd {
 		return installLaunchd(o, cfg)
 	}
+	if o.Task {
+		return installTask(o, cfg)
+	}
 	if err := os.MkdirAll(o.UnitDir, 0o755); err != nil {
 		return err
 	}
@@ -177,11 +187,12 @@ func installLaunchd(o Options, cfg config.Config) error {
 	return nil
 }
 
-// Place keeps the binary at prefix/iridium, copying exe there when it runs from elsewhere (a
-// release just unpacked), and links bin/ir to it; bin "" links nothing. It gives where the binary
-// is now. An ir that is a file of its own (not a link) is left alone.
+// Place keeps the binary at prefix/iridium (iridium.exe on Windows), copying exe there when it
+// runs from elsewhere (a release just unpacked), and links bin/ir to it; bin "" links nothing. It
+// gives where the binary is now. An ir that is a file of its own (not a link) is left alone. On
+// Windows bin gets ir.cmd and goes on the user's Path.
 func Place(exe, prefix, bin string) (string, error) {
-	dst := filepath.Join(prefix, "iridium")
+	dst := filepath.Join(prefix, exeName)
 	if same(exe, dst) {
 		return dst, link(dst, bin)
 	}
@@ -205,7 +216,7 @@ func Place(exe, prefix, bin string) (string, error) {
 		err = cerr
 	}
 	if err == nil {
-		err = os.Rename(tmp.Name(), dst)
+		err = swap(tmp.Name(), dst)
 	}
 	if err != nil {
 		os.Remove(tmp.Name())
@@ -221,23 +232,4 @@ func same(a, b string) bool {
 	}
 	fb, err := os.Stat(b)
 	return err == nil && os.SameFile(fa, fb)
-}
-
-func link(dst, bin string) error {
-	if bin == "" {
-		return nil
-	}
-	ir := filepath.Join(bin, "ir")
-	if fi, err := os.Lstat(ir); err == nil && fi.Mode()&os.ModeSymlink == 0 {
-		return nil
-	}
-	if err := os.MkdirAll(bin, 0o755); err != nil {
-		return err
-	}
-	tmp := ir + ".new"
-	os.Remove(tmp)
-	if err := os.Symlink(dst, tmp); err != nil {
-		return err
-	}
-	return os.Rename(tmp, ir)
 }
