@@ -16,14 +16,10 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
-
-	"golang.org/x/sys/unix"
 
 	"github.com/kumoSleeping/iridium/internal/platform"
 )
@@ -31,7 +27,7 @@ import (
 // Files of a hold directory.
 const (
 	FileSpec   = "spec.json" // what to run, written by the daemon before the holder starts (0600)
-	FileIn     = "in"        // named pipe: lines for the agent's stdin
+	FileIn     = "in"        // named pipe: lines for the agent's stdin (on Windows a pipe of its own, pipeName)
 	FileInLog  = "in.log"    // each line written to stdin, after the size of out.log at the time and a space
 	FileOutLog = "out.log"   // the agent's stdout, byte for byte; appended to by every agent process
 	FileErrLog = "err.log"   // the agent's stderr, and the holder's own complaints
@@ -94,15 +90,12 @@ func Run(dir string) int {
 	logf := func(format string, a ...any) { fmt.Fprintf(errLog, "iridium-hold: "+format+"\n", a...) }
 
 	// One holder per directory: a second would interleave two agents' output.
-	lock, err := os.OpenFile(filepath.Join(dir, FileLock), os.O_RDWR|os.O_CREATE, 0o600)
-	if err == nil {
-		err = unix.Flock(int(lock.Fd()), unix.LOCK_EX|unix.LOCK_NB)
-	}
+	unlock, err := platform.TryLock(filepath.Join(dir, FileLock))
 	if err != nil {
 		logf("another holder holds %s: %v", dir, err)
 		return 1
 	}
-	defer lock.Close()
+	defer unlock()
 
 	cannot := func(format string, a ...any) int {
 		logf(format, a...)
@@ -131,12 +124,7 @@ func Run(dir string) int {
 		return cannot("%v", err)
 	}
 	defer inLog.Close()
-	// Read-write, so the pipe never reads as ended while no daemon has it open: it comes and goes.
-	pipe := filepath.Join(dir, FileIn)
-	if err := unix.Mkfifo(pipe, 0o600); err != nil && !errors.Is(err, os.ErrExist) {
-		return cannot("%v", err)
-	}
-	fifo, err := os.OpenFile(pipe, os.O_RDWR, 0)
+	fifo, err := openInput(dir)
 	if err != nil {
 		return cannot("%v", err)
 	}
@@ -151,7 +139,7 @@ func Run(dir string) int {
 	cmd := &exec.Cmd{
 		Path: path, Args: spec.Argv, Env: spec.Env, Dir: spec.Cwd,
 		Stdout: out, Stderr: errLog,
-		SysProcAttr: &syscall.SysProcAttr{Setpgid: true},
+		SysProcAttr: groupAttr(),
 	}
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -159,12 +147,13 @@ func Run(dir string) int {
 	}
 	// Handled before the agent starts, so a stop that comes at once is not lost.
 	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGTERM, syscall.SIGINT)
-	signal.Ignore(syscall.SIGHUP, syscall.SIGPIPE)
+	notifyStop(sigs)
 	if err := cmd.Start(); err != nil {
 		return cannot("cannot start %s: %v", spec.Argv[0], err)
 	}
 	pid := cmd.Process.Pid
+	grp := newGroup(pid, logf)
+	defer grp.close()
 	if err := writeFile(filepath.Join(dir, FilePID), []byte(strconv.Itoa(pid)+"\n")); err != nil {
 		logf("writing the pid file: %v", err)
 	}
@@ -199,11 +188,11 @@ func Run(dir string) int {
 			stage++
 			if stage == 2 {
 				logf("agent %d still running %v after its stdin closed: SIGTERM to its group", pid, grace)
-				_ = unix.Kill(-pid, unix.SIGTERM)
+				grp.term()
 				next = time.After(grace)
 			} else {
 				logf("agent %d still running: SIGKILL to its group", pid)
-				_ = unix.Kill(-pid, unix.SIGKILL)
+				grp.kill()
 				next = nil
 			}
 		}
@@ -261,22 +250,6 @@ func StopPost(dir string) int {
 	return 0
 }
 
-func exitOf(ps *os.ProcessState) Exit {
-	ws, ok := ps.Sys().(syscall.WaitStatus)
-	if ok && ws.Signaled() {
-		name := SignalName(ws.Signal())
-		return Exit{From: "agent", Signal: &name}
-	}
-	return Exit{From: "agent", Code: ptr(ps.ExitCode())}
-}
-
-// SignalName is the signal's name as systemd writes it: KILL, TERM.
-func SignalName(s syscall.Signal) string {
-	if n := unix.SignalName(s); n != "" {
-		return strings.TrimPrefix(n, "SIG")
-	}
-	return strconv.Itoa(int(s))
-}
 
 func readSpec(dir string) (Spec, error) {
 	var s Spec
@@ -312,32 +285,6 @@ func endLine(out *os.File, path string) error {
 		_, err = out.Write([]byte{'\n'})
 	}
 	return err
-}
-
-// lookPath finds name as exec.LookPath would, but on the agent's PATH, not the holder's.
-func lookPath(name string, env []string) (string, error) {
-	if strings.Contains(name, "/") {
-		if _, err := os.Stat(name); err != nil {
-			return "", err
-		}
-		return name, nil
-	}
-	path := ""
-	for _, kv := range env {
-		if v, ok := strings.CutPrefix(kv, "PATH="); ok {
-			path = v
-		}
-	}
-	for _, d := range filepath.SplitList(path) {
-		if d == "" {
-			continue
-		}
-		p := filepath.Join(d, name)
-		if st, err := os.Stat(p); err == nil && !st.IsDir() && st.Mode()&0o111 != 0 {
-			return p, nil
-		}
-	}
-	return "", fmt.Errorf("%s not found on PATH %q", name, path)
 }
 
 // writeExit writes the exit file whole or not at all. replace: the agent's, which the holder

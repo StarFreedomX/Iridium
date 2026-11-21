@@ -11,9 +11,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
-
-	"golang.org/x/sys/unix"
 )
 
 // Prepare readies dir for a new holder: the pipe, the spec, and none of the last one's exit or
@@ -22,7 +19,7 @@ func Prepare(dir string, spec Spec) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	if err := unix.Mkfifo(filepath.Join(dir, FileIn), 0o600); err != nil && !errors.Is(err, os.ErrExist) {
+	if err := prepareInput(dir); err != nil {
 		return err
 	}
 	b, err := json.Marshal(spec)
@@ -110,7 +107,7 @@ func (in *Input) WriteLine(line []byte) error {
 	if _, err := in.f.Write(buf); err != nil {
 		in.f.Close()
 		in.f = nil
-		if errors.Is(err, syscall.EPIPE) {
+		if noReader(err) {
 			return ErrNoHolder
 		}
 		return err
@@ -118,15 +115,12 @@ func (in *Input) WriteLine(line []byte) error {
 	return nil
 }
 
-// open opens the pipe for writing without waiting for a reader: none (ENXIO) is ErrNoHolder.
+// open opens the pipe for writing without waiting for a reader: none is ErrNoHolder.
 func (in *Input) open() error {
 	if in.f != nil {
 		return nil
 	}
-	f, err := os.OpenFile(in.path, os.O_WRONLY|syscall.O_NONBLOCK, 0)
-	if errors.Is(err, syscall.ENXIO) || errors.Is(err, os.ErrNotExist) {
-		return ErrNoHolder
-	}
+	f, err := openWriter(in.path)
 	if err != nil {
 		return err
 	}
