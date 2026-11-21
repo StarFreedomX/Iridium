@@ -1,13 +1,17 @@
 // Package joinscript is the line another computer runs to join this Iridium (docs/exec.md
-// "ir-computer"): <origin>/join (sh: macOS, Linux) and <origin>/join.ps1 (PowerShell: Windows,
-// from cmd too) fetch ir-computer of this Iridium's version and run it in that terminal, the
-// address and the options (the query: shell, roots, name) written in. Nothing in them is secret:
-// they are served past the gate, and the TOKEN comes by pairing.
+// "一行命令"): <origin>/join (sh: macOS, Linux) and <origin>/join.ps1 (PowerShell: Windows, from
+// cmd too) fetch iridium of this Iridium's version and run it there as an executor of this one
+// (iridium serve --no-server --join <origin>), in that terminal, or installed as the user's
+// service with the query's install; the options (the query: shell, roots, name, agents) written
+// in. <origin>/install and /install.ps1 fetch it the same way and install an Iridium of the
+// computer's own (iridium install). Nothing in them is secret: they are served past the gate, and
+// the TOKEN comes by pairing.
 package joinscript
 
 import (
 	"embed"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/http"
 	"regexp"
@@ -20,28 +24,34 @@ import (
 var files embed.FS
 
 // Paths are the scripts' paths.
-var Paths = []string{"/join", "/join.ps1"}
+var Paths = []string{"/join", "/join.ps1", "/install", "/install.ps1"}
 
 // Path reports whether p is one of them.
-func Path(p string) bool { return p == "/join" || p == "/join.ps1" }
+func Path(p string) bool {
+	switch p {
+	case "/join", "/join.ps1", "/install", "/install.ps1":
+		return true
+	}
+	return false
+}
 
-// releases is where ir-computer is published (scripts/release.sh), a bare binary each system.
+// releases is where iridium is published (scripts/release.sh), an archive each system.
 const releases = "https://github.com/kumoSleeping/Iridium/releases/"
 
-// want is the version ir-computer says (ir-computer version) when it is this Iridium's; "" for a
-// build of no release: the latest, fetched each time.
+// want is the version iridium says (iridium version) when it is this Iridium's; "" for a build of
+// no release: the latest, fetched each time.
 func want() string {
 	if !version.Release() {
 		return ""
 	}
-	return "ir-computer " + version.Version
+	return "iridium " + version.Version
 }
 
 var originRE = regexp.MustCompile(`^https?://[A-Za-z0-9.-]+(:[0-9]+)?$|^https?://\[[0-9A-Fa-f:.]+\](:[0-9]+)?$`)
 
 // Serve answers GET or HEAD of a path Path takes; origin is the Iridium the computer joins.
 func Serve(w http.ResponseWriter, r *http.Request, origin string) {
-	ps := r.URL.Path == "/join.ps1"
+	ps := strings.HasSuffix(r.URL.Path, ".ps1")
 	if !Path(r.URL.Path) || r.Method != http.MethodGet && r.Method != http.MethodHead {
 		http.NotFound(w, r)
 		return
@@ -51,7 +61,7 @@ func Serve(w http.ResponseWriter, r *http.Request, origin string) {
 		http.Error(w, "bad address", http.StatusBadRequest)
 		return
 	}
-	args, err := Args(origin, r.URL.Query())
+	args, err := Args(r.URL.Path, origin, r.URL.Query())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -69,9 +79,17 @@ func Serve(w http.ResponseWriter, r *http.Request, origin string) {
 	_, _ = w.Write(b)
 }
 
-// Args is ir-computer's command line from the query: shell=0 (or false: no command lines), roots
-// (dir,…; ~ for the home directory), name.
-func Args(origin string, q map[string][]string) ([]string, error) {
+var agentsRE = regexp.MustCompile(`^[a-z0-9_-]+(,[a-z0-9_-]+)*$`)
+
+// Args is iridium's command line for path (Path's): /install an Iridium of the computer's own
+// (iridium install); /join an executor of origin (iridium serve --no-server --join origin), with
+// the query's install the user's service (iridium install …), and its options: shell=0 (or false:
+// no command lines), roots (dir,…; ~ for the home directory), name, agents (a,b: only these
+// start there).
+func Args(path, origin string, q map[string][]string) ([]string, error) {
+	if strings.HasPrefix(path, "/install") {
+		return []string{"install"}, nil
+	}
 	get := func(k string) (string, bool) {
 		v, ok := q[k]
 		if !ok || len(v) == 0 {
@@ -79,7 +97,11 @@ func Args(origin string, q map[string][]string) ([]string, error) {
 		}
 		return v[0], true
 	}
-	args := []string{origin}
+	verb := "serve"
+	if v, ok := get("install"); ok && v != "0" && v != "false" {
+		verb = "install"
+	}
+	args := []string{verb, "--no-server", "--join", origin}
 	if v, ok := get("shell"); ok && (v == "0" || v == "false") {
 		args = append(args, "--no-shell")
 	}
@@ -93,10 +115,16 @@ func Args(origin string, q map[string][]string) ([]string, error) {
 		}
 		args = append(args, "--"+k, v)
 	}
+	if v, _ := get("agents"); v != "" {
+		if len(v) > 256 || !agentsRE.MatchString(v) {
+			return nil, errors.New("bad agents")
+		}
+		args = append(args, "--agents", v)
+	}
 	return args, nil
 }
 
-// Script is the script (ps: PowerShell's, else sh's) that runs ir-computer with args.
+// Script is the script (ps: PowerShell's, else sh's) that runs iridium with args.
 func Script(ps bool, origin string, args []string) ([]byte, error) {
 	name := "join.sh"
 	if ps {

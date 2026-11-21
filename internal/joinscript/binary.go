@@ -19,16 +19,19 @@ import (
 	"github.com/kumoSleeping/iridium/internal/version"
 )
 
-// ir-computer through this Iridium (the user, 2026-11-17): the scripts and a connected
-// ir-computer fetch it from <origin>/join/ir-computer-<os>-<arch>[.exe], not from GitHub, so the
-// computer reaches one address. This Iridium fetches its own release's from GitHub once, checks it
-// against that release's SHA256SUMS and keeps it (Binaries.Dir); a build of no release sends the
-// computer to the latest release.
+// iridium through this Iridium (the user, 2026-11-17, then for ir-computer): the scripts and a
+// connected executor fetch it from <origin>/join/iridium-<os>-<arch>.tar.gz, not from GitHub, so
+// the computer reaches one address. This Iridium fetches its own release's from GitHub once, checks
+// it against that release's SHA256SUMS and keeps it (Binaries.Dir); a build of no release sends
+// the computer to the latest release.
+//
+// ir-computer-<os>-<arch>[.exe] are served the same way for the lines given out before iridium
+// took its place (2026-11-22): to go one release on.
 
 // BinaryPrefix is where the binaries are served.
 const BinaryPrefix = "/join/"
 
-var binaryName = regexp.MustCompile(`^ir-computer-(darwin|linux)-(amd64|arm64)$|^ir-computer-windows-(amd64|arm64)\.exe$`)
+var binaryName = regexp.MustCompile(`^iridium-(darwin|linux|windows)-(amd64|arm64)\.tar\.gz$|^ir-computer-(darwin|linux)-(amd64|arm64)$|^ir-computer-windows-(amd64|arm64)\.exe$`)
 
 // BinaryPath reports whether p is one of the binaries.
 func BinaryPath(p string) bool {
@@ -36,7 +39,13 @@ func BinaryPath(p string) bool {
 	return ok && binaryName.MatchString(name)
 }
 
-// BinaryName is the binary for goos and goarch.
+// ArchiveName is iridium's release archive for goos and goarch (scripts/release.sh): the binary
+// iridium (iridium.exe on Windows), README.md and LICENSE.
+func ArchiveName(goos, goarch string) string {
+	return "iridium-" + goos + "-" + goarch + ".tar.gz"
+}
+
+// BinaryName is ir-computer's binary for goos and goarch. To be removed with ir-computer.
 func BinaryName(goos, goarch string) string {
 	if goos == "windows" {
 		return "ir-computer-windows-" + goarch + ".exe"
@@ -120,7 +129,11 @@ func (b *Binaries) Serve(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("Content-Type", "application/octet-stream")
+	ct := "application/octet-stream"
+	if strings.HasSuffix(name, ".tar.gz") {
+		ct = "application/gzip"
+	}
+	w.Header().Set("Content-Type", ct)
 	w.Header().Set("Cache-Control", "no-store")
 	http.ServeContent(w, r, name, st.ModTime(), f)
 }

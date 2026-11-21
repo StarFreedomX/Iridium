@@ -25,11 +25,11 @@ func TestSh(t *testing.T) {
 	if code != 200 {
 		t.Fatalf("%d %s", code, s)
 	}
-	want := `exec "$exe" 'https://ir.example.com' '--no-shell' '--roots' '~/work,~/it'\''s mine' '--name' '$(x)'`
+	want := `exec "$exe" 'serve' '--no-server' '--join' 'https://ir.example.com' '--no-shell' '--roots' '~/work,~/it'\''s mine' '--name' '$(x)'`
 	if !strings.Contains(s, want+"\n") {
 		t.Errorf("no %s in:\n%s", want, s)
 	}
-	if !strings.Contains(s, `"https://ir.example.com/join/ir-computer-$os-$arch"`) || strings.Contains(s, "{{") {
+	if !strings.Contains(s, `"https://ir.example.com/join/iridium-$os-$arch.tar.gz"`) || strings.Contains(s, "{{") {
 		t.Errorf("not filled in:\n%s", s)
 	}
 	if _, err := exec.LookPath("sh"); err == nil {
@@ -41,11 +41,31 @@ func TestSh(t *testing.T) {
 			t.Errorf("sh -n: %v %s", err, out)
 		}
 	}
-	// It runs it in the foreground: nothing about login.
-	for _, bad := range []string{"--install", "systemctl", "launchctl", "LaunchAgents"} {
+	// The script itself installs nothing: iridium install does, when asked.
+	for _, bad := range []string{"systemctl", "launchctl", "LaunchAgents"} {
 		if strings.Contains(s, bad) {
 			t.Errorf("has %q", bad)
 		}
+	}
+}
+
+// What each line runs: an executor in the terminal, the same installed, an Iridium of its own.
+func TestArgs(t *testing.T) {
+	for target, want := range map[string]string{
+		"/join":           `exec "$exe" 'serve' '--no-server' '--join' 'https://ir.example.com'`,
+		"/join?install":   `exec "$exe" 'install' '--no-server' '--join' 'https://ir.example.com'`,
+		"/join?install=0": `exec "$exe" 'serve' '--no-server' '--join' 'https://ir.example.com'`,
+		"/join?install&agents=claude,codex&shell=false": `exec "$exe" 'install' '--no-server' '--join' 'https://ir.example.com' '--no-shell' '--agents' 'claude,codex'`,
+		"/install":          `exec "$exe" 'install'`,
+		"/install?roots=/x": `exec "$exe" 'install'`,
+	} {
+		code, s := get(t, target, "https://ir.example.com")
+		if code != 200 || !strings.Contains(s, want+"\n") {
+			t.Errorf("%s: %d, no %s in:\n%s", target, code, want, s)
+		}
+	}
+	if code, s := get(t, "/install.ps1", "https://ir.example.com"); code != 200 || !strings.Contains(s, "@('"+base64.StdEncoding.EncodeToString([]byte("install"))+"')") {
+		t.Errorf("install.ps1: %d\n%s", code, s)
 	}
 }
 
@@ -61,7 +81,7 @@ func TestPowerShell(t *testing.T) {
 		}
 	}
 	b64 := func(s string) string { return "'" + base64.StdEncoding.EncodeToString([]byte(s)) + "'" }
-	if want := "@(" + b64("http://127.0.0.1:7811") + ", " + b64("--roots") + ", " + b64(`C:\工作`) + ")"; !strings.Contains(s, want) {
+	if want := "@(" + b64("serve") + ", " + b64("--no-server") + ", " + b64("--join") + ", " + b64("http://127.0.0.1:7811") + ", " + b64("--roots") + ", " + b64(`C:\工作`) + ")"; !strings.Contains(s, want) {
 		t.Errorf("no %s in:\n%s", want, s)
 	}
 	if strings.Contains(s, "schtasks") || strings.Contains(s, "{{") {
@@ -73,6 +93,8 @@ func TestRefused(t *testing.T) {
 	for target, origin := range map[string]string{
 		"/join?name=a%22b":    "https://ir.example.com", // a quote PowerShell would pass on badly
 		"/join?roots=a%0Ab":   "https://ir.example.com",
+		"/join?agents=a%20b":  "https://ir.example.com",
+		"/join?agents=Claude": "https://ir.example.com",
 		"/join":               "https://ir.example.com\n; rm -rf ~",
 		"/join.ps1":           "https://x'y",
 		"/join/../etc/passwd": "https://ir.example.com",

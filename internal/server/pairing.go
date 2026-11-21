@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"math/big"
 	"net/http"
+	"os"
 	"path"
 	"path/filepath"
 	"slices"
@@ -70,7 +71,7 @@ func openPath(r *http.Request) bool {
 	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/v1/internal/pair/"):
 		return true
 	case (r.Method == http.MethodGet || r.Method == http.MethodHead) && (joinscript.Path(r.URL.Path) || joinscript.BinaryPath(r.URL.Path)):
-		return true // the line another computer runs to join, and ir-computer: nothing secret in them
+		return true // the lines another computer runs to join or install, and iridium: nothing secret in them
 	case (r.Method == http.MethodGet || r.Method == http.MethodHead) && r.URL.Path == "/v1/internal/face":
 		return true // this Iridium's face: the desktop app shows it before logging in (serverface.go)
 	case r.Method == http.MethodGet && r.URL.Path == "/v1/events":
@@ -490,17 +491,21 @@ func randHex(n int) string {
 	return hex.EncodeToString(b)
 }
 
-// binaries are ir-computer as this Iridium serves it (joinscript.Binaries), kept under its state.
+// binaries are iridium (and ir-computer, for the old lines) as this Iridium serves them
+// (joinscript.Binaries), kept under its state.
 func (s *Server) binaries() *joinscript.Binaries {
 	s.binOnce.Do(func() {
-		s.bin = &joinscript.Binaries{Dir: filepath.Join(s.cfg.StatePath(), "ir-computer")}
+		// Where ir-computer alone was kept before iridium took its place (2026-11-22).
+		_ = os.RemoveAll(filepath.Join(s.cfg.StatePath(), "ir-computer"))
+		s.bin = &joinscript.Binaries{Dir: filepath.Join(s.cfg.StatePath(), "join")}
 	})
 	return s.bin
 }
 
-// PrefetchBinaries fetches this release's ir-computer for every system ahead, so the first
+// PrefetchBinaries fetches this release's iridium archive for every system ahead, so the first
 // computer's download is served from here as it comes (its progress shown). Not for a build of no
-// release (those send the computer to GitHub's latest).
+// release (those send the computer to GitHub's latest). ir-computer, for the old lines, is fetched
+// when one asks.
 func (s *Server) PrefetchBinaries() {
 	if !version.Release() {
 		return
@@ -508,8 +513,8 @@ func (s *Server) PrefetchBinaries() {
 	go func() {
 		for _, sys := range [][2]string{{"darwin", "arm64"}, {"darwin", "amd64"}, {"linux", "amd64"}, {"linux", "arm64"}, {"windows", "amd64"}, {"windows", "arm64"}} {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-			if _, err := s.binaries().Fetch(ctx, joinscript.BinaryName(sys[0], sys[1])); err != nil {
-				s.logf("server: ir-computer %s/%s: %v", sys[0], sys[1], err)
+			if _, err := s.binaries().Fetch(ctx, joinscript.ArchiveName(sys[0], sys[1])); err != nil {
+				s.logf("server: iridium %s/%s: %v", sys[0], sys[1], err)
 			}
 			cancel()
 		}
