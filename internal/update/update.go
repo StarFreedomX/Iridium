@@ -178,6 +178,7 @@ func (u *Updater) Run(ctx context.Context) {
 		for _, p := range old {
 			os.Remove(p)
 		}
+		dropReplaced(exe)
 	}
 	t := time.NewTimer(time.Minute)
 	defer t.Stop()
@@ -437,7 +438,7 @@ func (u *Updater) Apply(ctx context.Context, force bool) (api.UpdateState, error
 	}
 	// A new file renamed over the old, never written into it: the running binary keeps its inode
 	// (macOS kills a process whose signed binary changes under it).
-	if err := os.Rename(bin, exe); err != nil {
+	if err := replace(bin, exe); err != nil {
 		return fail(err)
 	}
 	u.mu.Lock()
@@ -464,7 +465,7 @@ func keepPrev(exe string) error {
 	prev := Prev(exe)
 	tmp := prev + ".tmp"
 	os.Remove(tmp)
-	if err := os.Link(exe, tmp); err != nil {
+	if err := link(exe, tmp); err != nil {
 		if err := copyFile(exe, tmp); err != nil {
 			os.Remove(tmp)
 			return err
@@ -559,9 +560,9 @@ func (u *Updater) stageLocked(ctx context.Context, m Manifest) (string, error) {
 }
 
 // download writes the asset's binary to a file in dir (so the rename stays on one file system),
-// once its sha256 matched; an archive gives the binary named iridium in it.
+// once its sha256 matched; an archive gives the binary named iridium (iridium.exe) in it.
 func (u *Updater) download(ctx context.Context, a Asset, dir string) (string, error) {
-	return u.fetch(ctx, a, dir, "iridium", true)
+	return u.fetch(ctx, a, dir, binName, true)
 }
 
 // fetch is download for the binary named bin; track: publish the progress (the update's own).
@@ -577,7 +578,7 @@ func (u *Updater) fetch(ctx context.Context, a Asset, dir, bin string, track boo
 			u.set(func(s *api.UpdateState) { s.Size = a.Size })
 		}
 	}
-	f, err := os.CreateTemp(dir, staging+"*")
+	f, err := os.CreateTemp(dir, staging+"*"+exeExt)
 	if err != nil {
 		return "", err
 	}
@@ -709,7 +710,7 @@ func unpack(archive, dir, bin string) (string, error) {
 		if hd.Typeflag != tar.TypeReg || path.Base(hd.Name) != bin {
 			continue
 		}
-		out, err := os.CreateTemp(dir, staging+"*")
+		out, err := os.CreateTemp(dir, staging+"*"+exeExt)
 		if err != nil {
 			return "", err
 		}
