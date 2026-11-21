@@ -1,9 +1,6 @@
-//go:build !windows
-
 // Command iridium is the whole of Iridium in one binary: `iridium serve` is the daemon,
 // `iridium hold` the holder it starts for each agent process, and run as ir it is the CLI.
-// `iridium join` (ir join) makes the machine an executor of another Iridium; on Windows that is
-// all it does (main_windows.go).
+// `iridium join` (ir join) makes the machine an executor of another Iridium.
 package main
 
 import (
@@ -18,8 +15,6 @@ import (
 	"path/filepath"
 	"syscall"
 
-	"golang.org/x/sys/unix"
-
 	"github.com/kumoSleeping/iridium/internal/api"
 	"github.com/kumoSleeping/iridium/internal/cli"
 	"github.com/kumoSleeping/iridium/internal/config"
@@ -30,6 +25,7 @@ import (
 	"github.com/kumoSleeping/iridium/internal/hub"
 	"github.com/kumoSleeping/iridium/internal/join"
 	"github.com/kumoSleeping/iridium/internal/machineid"
+	"github.com/kumoSleeping/iridium/internal/platform"
 	"github.com/kumoSleeping/iridium/internal/pricing"
 	"github.com/kumoSleeping/iridium/internal/push"
 	"github.com/kumoSleeping/iridium/internal/remote"
@@ -110,15 +106,12 @@ func serve(args []string) int {
 		return 1
 	}
 	// One daemon per state directory.
-	lock, err := os.OpenFile(filepath.Join(state, "daemon.lock"), os.O_RDWR|os.O_CREATE, 0o600)
-	if err == nil {
-		err = unix.Flock(int(lock.Fd()), unix.LOCK_EX|unix.LOCK_NB)
-	}
+	unlock, err := platform.TryLock(filepath.Join(state, "daemon.lock"))
 	if err != nil {
 		log.Printf("another daemon runs on %s: %v", state, err)
 		return 1
 	}
-	defer lock.Close()
+	defer unlock()
 
 	st, err := store.Open(filepath.Join(state, "iridium.db"))
 	if err != nil {
