@@ -2,7 +2,7 @@
 
 “执行端”是协议名（exec）。接入方称为**电脑**，每个接入程序是电脑上的一条**连接**（`docs/next/k_glossary.md`“电脑”）。
 
-另一台机器（Windows、Mac、Linux）跑一个**执行端**：替这边启动 agent 进程、转发它的输入输出、读写文件。会话还是这边托管，网页、驱动、记录解析、卡片全部照旧。第一个实现是 dsh 插件 `dsh-remote-iridium`（2026-11-08 定）；第二个是 Iridium 二进制自己的 `ir join <地址>`（Linux、Mac）；第三个是单独的小程序 `ir-computer <地址>`（Windows、Mac、Linux，2026-11-13，见“ir-computer”）。不做节点：别的机器都以执行端接入，见 `plan.md`“别的机器”（用户，2026-11-08）。
+另一台机器（Windows、Mac、Linux）跑一个**执行端**：替这边启动 agent 进程、转发它的输入输出、读写文件。会话还是这边托管，网页、驱动、记录解析、卡片全部照旧。第一个实现是 dsh 插件 `dsh-remote-iridium`（2026-11-08 定）；第二个是 Iridium 二进制自己的 `ir join <地址>`（Linux、Mac）；第三个是单独的小程序 `ir-computer <地址>`（Windows、Mac、Linux，2026-11-13），2026-11-22 起由 `iridium serve --no-server --join <地址>` 取代（见“一行命令”）。不做节点：别的机器都以执行端接入，见 `plan.md`“别的机器”（用户，2026-11-08）。
 
 执行端不懂会话、历史、审批，也不懂 agent 的协议：会话归这边托管，agent 的协议由这边现有的驱动讲。这边断开时，那边的回合照样跑完；断开期间不能发话、不能答审批。
 
@@ -170,28 +170,30 @@ agent 的 `ir sh`：每条命令一个新进程，不经托管进程，不写文
 | | Windows | Mac | Linux |
 |---|---|---|---|
 | 整棵进程树 | Job Object（或 `taskkill /T /F`） | 新进程组，`kill(-pgid)`，先 TERM 后 KILL | 同 Mac |
-| 常驻 | 插件跟着 `dsh web`；`ir join`、`ir-computer` 不常驻，只在终端里跑（见“ir-computer”） | 同左 | 同左 |
+| 常驻 | 插件跟着 `dsh web`；一行命令加 `install` 装成用户服务（计划任务），不加只在终端里跑（见“一行命令”） | 同左（LaunchAgent） | 同左（systemd 用户服务） |
 | 换行 | 只认 `\n`，行尾的 `\r` 去掉 | `\n` | `\n` |
 | dsh 记录的目录名 | `C:\a\b` → `C-a-b`（`/ \ :` 换成 `-`） | `/Users/a` → `Users-a` | 同 Mac |
 | 编码 | UTF-8，不带 BOM | UTF-8 | UTF-8 |
 
 这边的路径处理不能用 `filepath`（它只懂本机）：远端路径一律按握手的 `sep` 处理。
 
-## ir-computer
+## 一行命令
 
-`cmd/ir-computer`（2026-11-13）：电脑一端的单独程序，不受“一个二进制”约束（`AGENTS.md`）。和 `ir join` 是同一套代码（`internal/join`），选项相同；握手和配对里的 `program` 是 `ir-computer <版本>`。
+电脑一端就是 `iridium` 本身（2026-11-22 起，取代 `cmd/ir-computer`）：`iridium serve --no-server --join <地址>` 只当执行端，代码还是 `internal/join`；握手和配对里的 `program` 跟着程序（桌面应用、只当执行端都是 `ir-app <版本>`）。
 
-只在终端里跑（用户，2026-11-16）：不装登录时运行项，没有托盘、菜单栏图标。Ctrl-C 或关掉窗口（Mac、Linux 收 SIGHUP，Windows 的关闭当 SIGTERM）就断开，它起的 agent 一起结束。TOKEN 照旧留着，下次运行不用再配对。
-
-- 一行命令（应用管理 → 电脑的“+”）：Mac、Linux `curl -fsSL <地址>/join | sh`；Windows `powershell -c "irm <地址>/join.ps1 | iex"`，cmd 和 PowerShell 里都能粘。选项写在查询里：`?shell`、`?roots=~/work,~/notes`、`?name=…`（有查询时地址加引号）。
-- `/join`、`/join.ps1` 由这边免登录提供（`internal/joinscript`），这边把地址和选项写进去：查询里的值在 sh 里是单引号的一个词，PowerShell 里是 UTF-8 的 base64（脚本只有 ASCII）；带 `"`、换行、控制字符的不给。脚本下载和这边同版本的 `ir-computer`（不是发布版的这边用 latest，每次重下）到缓存目录（Mac `~/Library/Caches/iridium`，Linux `~/.cache/iridium`，Windows `%LOCALAPPDATA%\iridium\cache`），版本对得上就不重下，然后在当前终端里运行。
-- 下载走这边（用户，2026-11-17）：`/join/ir-computer-<系统>-<架构>[.exe]` 免登录，这边按自己的发布版从 GitHub 取一次、用那个发布的 `SHA256SUMS` 校验后存在 `<state>/ir-computer/<版本>/`（启动时把各系统的预先取好，旧版本的删掉）；不是发布版的这边 302 到 GitHub 的 latest。脚本用 `curl --progress-bar` 显示进度（Windows 有 `curl.exe` 就用它）。
-- 连上后跟上版本（用户，2026-11-17）：握手的回答带这边的版本（`HelloReply.version`）。ir-computer 是发布版、这边是另一个发布版时，从这边下载那个版本（终端里显示 `下载中 37%`），确认它说的版本对，替换缓存里的自己（Windows 先把正在运行的改名为 `.old`），再在终端里问“现在重启？”，说明会结束几个正在运行的进程；y 就结束执行端、原样参数重新运行（Unix exec，Windows 在同一窗口起新进程等它结束），否则下次运行时生效。每个版本只做一次。`ir join` 不自己更新（跟着它的 Iridium 更新）。
-- 以前装的（`--install`，2026-11-16 前）：运行时去掉这个 Iridium 的登录时运行项（`iridium-join-<主机-端口>`）、停掉它起的那份，删掉旧命令下载的 `~/.local/bin/ir-computer`（Windows `%LOCALAPPDATA%\iridium\ir-computer.exe`）。登录项带 `--resident` 起来的（`ir update` 过的 `ir join`）去掉自己的登录项，正常退出。
-- 那边 agent 用的 `ir` 是它自己（按名字 `ir` 进命令行模式，Mac、Linux）。
+- 应用管理 → 电脑的“+”给一行命令，上面是开关：常驻、执行命令、每个 agent、文件夹，命令跟着变。Mac、Linux `curl -fsSL <地址>/join | sh`；Windows `powershell -c "irm <地址>/join.ps1 | iex"`，cmd 和 PowerShell 里都能粘。有查询时地址加引号。
+- 查询：`install`（常驻：`iridium install …`，装成用户服务，开机、重启后照跑；不加就在当前终端里跑，Ctrl-C 或关窗口就断）、`shell=0`（`--no-shell`）、`roots=~/work,~/notes`（`--roots`）、`name=…`（`--name`）、`agents=claude,codex`（`--agents`，只让这几个启动）。
+- 脚本跑的命令：前台 `iridium serve --no-server --join <地址> <选项>`；常驻 `iridium install --no-server --join <地址> <选项>`。`/install`、`/install.ps1`：下载后 `iridium install`，在那台电脑上装一个自己的 Iridium，不接入这边。
+- 脚本由这边免登录提供（`internal/joinscript`），地址和选项写进去：值在 sh 里是单引号的一个词，PowerShell 里是 UTF-8 的 base64（脚本只有 ASCII）；带 `"`、换行、控制字符的不给，`agents` 只收小写名字和逗号。脚本把和这边同版本的 `iridium` 下到缓存目录（Mac `~/Library/Caches/iridium`，Linux `~/.cache/iridium`，Windows `%LOCALAPPDATA%\iridium\cache`），`iridium version` 对得上就不重下；不是发布版的这边每次下 latest。
+- 下载走这边（用户，2026-11-17）：`/join/iridium-<系统>-<架构>.tar.gz` 免登录，这边按自己的发布版从 GitHub 取一次、用那个发布的 `SHA256SUMS` 校验后存在 `<state>/join/<版本>/`（启动时把各系统的预先取好，旧版本的删掉）；不是发布版的这边 302 到 GitHub 的 latest。脚本解出 `iridium`（Windows `iridium.exe`，用系统自带的 `tar.exe`）。
+- 连上后跟上版本（用户，2026-11-17）：只当执行端时，握手的回答带这边的版本（`HelloReply.version`），两边是不同的发布版就从这边下载那个版本的压缩包（终端里显示 `下载中 37%`），取出 `iridium`，确认它说的版本对，替换正在运行的自己（缓存里的，或 `install` 放到 `~/.local/opt/iridium`、`%LOCALAPPDATA%\Iridium` 的；Windows 先把正在运行的改名为 `.old`），再问“现在重启？”；y 就原样参数重新运行，否则下次运行时生效。同一个进程里还跑着 Iridium 时不这样做：跟着那个 Iridium 自己的更新。
+- 以前装的（`--install`，2026-11-16 前）：运行时去掉这个 Iridium 的登录时运行项（`iridium-join-<主机-端口>`）、停掉它起的那份，删掉旧命令下载的 `~/.local/bin/ir-computer`（Windows `%LOCALAPPDATA%\iridium\ir-computer.exe`）。
+- 那边 agent 用的 `ir` 是它自己（按名字 `ir` 进命令行模式）。
 - 那边 agent 的 `ir` 和主机上 agent 的 `ir` 权限一样（kumo，2026-11-18；此前按那台电脑的应用权限算，看不到主机、别的电脑和同频道的会话）：主机的，或这一回合所属登录的。只有两样不同：Claude 仍只给“本人的”电脑（Claude 的条款）；只在套接字上有的（凭据 `ir run`、读主机本地路径的 `files`）仍没有。
 - 主机上的命令行：`POST /v1/internal/machines/host/shell`，给不在主机上的 agent 用（它自己的工具只够得到它那台电脑）。别的电脑上的会话，提示词的 `Where:` 一行写了这条命令。
-- 发布包里是裸二进制 `ir-computer-<系统>-<架构>`（Windows 带 `.exe`）；`ir update` 不管它。Mac 用 curl 下载的不带隔离标记，arm64 由 Go 链接器做了临时签名，可直接运行；从终端起，文件夹的访问授权算在终端名下。
+- Mac 用 curl 下载的不带隔离标记，arm64 由 Go 链接器做了临时签名，可直接运行；从终端起，文件夹的访问授权算在终端名下。
+
+**ir-computer（待删）**：`cmd/ir-computer` 和 `/join/ir-computer-<系统>-<架构>[.exe]` 只为之前给出去的旧脚本和已经在跑的 ir-computer（它自己更新时下载的还是裸二进制）再留一个版本，之后一起删掉（连同 `joinscript.BinaryName`、发布里的 `ir-computer-*`、`release.sh` 里那段）。
 
 ## 开发测试用的连接
 
