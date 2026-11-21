@@ -4,6 +4,8 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -22,11 +24,15 @@ import (
 )
 
 // An executor keeps up with the Iridium it is connected to (the user, 2026-11-17): told another
-// version in the hello's answer, it fetches that one from the Iridium (<origin>/join/, its progress
-// shown), puts it where it runs from (the cache of the one line, or where iridium install put it),
-// and asks the person at its terminal to restart now (ending what it runs) or with the next run.
-// iridium fetches its release archive and takes the binary out of it; ir-computer, kept for the
-// lines given out before iridium took its place, its own bare binary.
+// version in the hello's answer, it fetches that release from GitHub, or with Proxy through the
+// Iridium (<origin>/install/, 2026-11-22), its progress shown, checks it against the release's
+// SHA256SUMS, puts it where it runs from (where the install script put it; inside Iridium.app on
+// macOS, the bundle signed again), and asks the person at its terminal to restart now (ending
+// what it runs) or with the next run. iridium takes the binary out of its release archive;
+// ir-computer (cmd/ir-computer, to be removed) fetches its own bare binary from GitHub.
+
+// releases is where the releases are (tests change it).
+var releases = joinscript.ReleaseBase
 
 // ErrRestart: the person allowed a restart into the new version (Program.Main runs it).
 var ErrRestart = errors.New("restart into the new version")
@@ -93,25 +99,52 @@ func (o *Options) fetchSelf(ctx context.Context, exe, v string) error {
 	name := o.selfName()
 	file := joinscript.ArchiveName(runtime.GOOS, runtime.GOARCH)
 	if name == "ir-computer" {
-		file = joinscript.BinaryName(runtime.GOOS, runtime.GOARCH)
+		file = "ir-computer-" + runtime.GOOS + "-" + runtime.GOARCH
+		if runtime.GOOS == "windows" {
+			file += ".exe"
+		}
 	}
-	url := o.URL + joinscript.BinaryPrefix + file
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	base := releases(v)
+	c := &http.Client{Timeout: 15 * time.Minute}
+	if o.Proxy && name != "ir-computer" {
+		base = o.URL + joinscript.BinaryPrefix
+		if o.HTTP != nil {
+			c = &http.Client{Transport: o.HTTP.Transport, Timeout: 15 * time.Minute}
+		}
+	}
+	fetch := func(url string) (*http.Response, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return nil, err
+		}
+		resp, err := c.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			return nil, fmt.Errorf("%s: %s", url, resp.Status)
+		}
+		return resp, nil
+	}
+	sumsResp, err := fetch(base + "SHA256SUMS")
 	if err != nil {
 		return err
 	}
-	c := &http.Client{Timeout: 15 * time.Minute}
-	if o.HTTP != nil {
-		c = &http.Client{Transport: o.HTTP.Transport, Timeout: 15 * time.Minute}
+	raw, err := io.ReadAll(io.LimitReader(sumsResp.Body, 1<<20))
+	sumsResp.Body.Close()
+	if err != nil {
+		return err
 	}
-	resp, err := c.Do(req)
+	want := joinscript.ParseSums(raw)[file]
+	if want == "" {
+		return fmt.Errorf("%s: not in the release's SHA256SUMS", file)
+	}
+	resp, err := fetch(base + file)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("%s: %s", url, resp.Status)
-	}
 	tmp := exe + ".new"
 	down := tmp
 	if name != "ir-computer" {
@@ -124,13 +157,17 @@ func (o *Options) fetchSelf(ctx context.Context, exe, v string) error {
 	defer os.Remove(down)
 	defer os.Remove(tmp)
 	p := &progress{o: o, size: resp.ContentLength, shown: -1}
-	_, err = io.Copy(io.MultiWriter(f, p), resp.Body)
+	sum := sha256.New()
+	_, err = io.Copy(io.MultiWriter(f, p, sum), resp.Body)
 	if cerr := f.Close(); err == nil {
 		err = cerr
 	}
 	p.end(err == nil)
 	if err != nil {
 		return err
+	}
+	if got := hex.EncodeToString(sum.Sum(nil)); got != want {
+		return fmt.Errorf("%s: sha256 %s, SHA256SUMS says %s", file, got, want)
 	}
 	if down != tmp {
 		if err := unpack(down, binaryIn(runtime.GOOS), tmp); err != nil {
@@ -143,7 +180,18 @@ func (o *Options) fetchSelf(ctx context.Context, exe, v string) error {
 	if got := strings.TrimSpace(string(out)); err != nil || got != name+" "+v {
 		return fmt.Errorf("the one fetched says %q, not %s %s (%v)", got, name, v, err)
 	}
-	return replaceExe(tmp, exe)
+	if err := replaceExe(tmp, exe); err != nil {
+		return err
+	}
+	// Inside Iridium.app (macOS, the install script's): the bundle signed again, else macOS takes
+	// it for damaged; ad hoc, as the release signed it.
+	if i := strings.Index(exe, ".app/Contents/MacOS/"); i >= 0 && runtime.GOOS == "darwin" {
+		app := exe[:i+len(".app")]
+		if out, err := exec.CommandContext(ctx, "codesign", "--force", "--deep", "-s", "-", app).CombinedOutput(); err != nil {
+			o.say("%s 重新签名失败：%v %s", app, err, strings.TrimSpace(string(out)))
+		}
+	}
+	return nil
 }
 
 // binaryIn is the binary's name in iridium's archive for goos (scripts/release.sh).

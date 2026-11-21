@@ -79,6 +79,9 @@ type Options struct {
 	// Live is told each executor as it is made (one each time it pairs again): the desktop app
 	// sets what its owner allows on it, at once (executor.Set).
 	Live func(*executor.Executor)
+	// Proxy: it follows its Iridium's release through that Iridium (<origin>/install/…), not from
+	// GitHub: a computer that cannot reach GitHub (ir join --proxy).
+	Proxy bool
 }
 
 // Program is a program that joins: iridium (its executor, its desktop app, ir join), or

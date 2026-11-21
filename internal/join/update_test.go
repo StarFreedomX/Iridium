@@ -7,6 +7,8 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -23,7 +25,19 @@ import (
 	"github.com/kumoSleeping/iridium/internal/version"
 )
 
-// iridium (executor only) fetches its release archive from the Iridium and takes the binary out.
+// sumsOf is a SHA256SUMS of these files.
+func sumsOf(files map[string][]byte) []byte {
+	var b strings.Builder
+	for name, f := range files {
+		s := sha256.Sum256(f)
+		b.WriteString(hex.EncodeToString(s[:]) + "  " + name + "\n")
+	}
+	return []byte(b.String())
+}
+
+// iridium (executor only) fetches its release archive from GitHub, or with Proxy through the
+// Iridium, checks it against SHA256SUMS and takes the binary out; one that does not match is not
+// put in place.
 func TestUpdateArchive(t *testing.T) {
 	newer := []byte("#!/bin/sh\necho 'iridium v1.0.1'\n")
 	var buf bytes.Buffer
@@ -38,44 +52,81 @@ func TestUpdateArchive(t *testing.T) {
 	}
 	tw.Close()
 	gz.Close()
+	archive := joinscript.ArchiveName(runtime.GOOS, runtime.GOARCH)
+	sums := sumsOf(map[string][]byte{archive: buf.Bytes()})
+	var paths []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != joinscript.BinaryPrefix+joinscript.ArchiveName(runtime.GOOS, runtime.GOARCH) {
+		paths = append(paths, r.URL.Path)
+		switch strings.TrimPrefix(strings.TrimPrefix(r.URL.Path, "/gh/v1.0.1/"), joinscript.BinaryPrefix) {
+		case "SHA256SUMS":
+			w.Write(sums)
+		case archive:
+			w.Write(buf.Bytes())
+		default:
 			http.NotFound(w, r)
-			return
 		}
-		w.Write(buf.Bytes())
 	}))
 	defer srv.Close()
-	dir := t.TempDir()
-	exe := filepath.Join(dir, "iridium")
+	was := releases
+	releases = func(v string) string { return srv.URL + "/gh/" + v + "/" }
+	defer func() { releases = was }()
+	for _, proxy := range []bool{false, true} {
+		paths = nil
+		dir := t.TempDir()
+		exe := filepath.Join(dir, "iridium")
+		os.WriteFile(exe, []byte("old"), 0o755)
+		o := Options{URL: srv.URL, Out: io.Discard, Proxy: proxy, Prog: Program{Name: "iridium --join", Self: "ir-app", Update: true}}
+		if err := o.fetchSelf(context.Background(), exe, "v1.0.1"); err != nil {
+			t.Fatal(proxy, err)
+		}
+		if b, _ := os.ReadFile(exe); !bytes.Equal(b, newer) {
+			t.Fatalf("in place: %q", b)
+		}
+		if ents, _ := os.ReadDir(dir); len(ents) != 1 {
+			t.Errorf("left beside it: %v", ents)
+		}
+		want := "/gh/v1.0.1/" + archive
+		if proxy {
+			want = joinscript.BinaryPrefix + archive
+		}
+		if len(paths) != 2 || paths[1] != want {
+			t.Errorf("proxy %v fetched %v", proxy, paths)
+		}
+	}
+	sums = sumsOf(map[string][]byte{archive: []byte("another")})
+	exe := filepath.Join(t.TempDir(), "iridium")
 	os.WriteFile(exe, []byte("old"), 0o755)
 	o := Options{URL: srv.URL, Out: io.Discard, Prog: Program{Name: "iridium --join", Self: "ir-app", Update: true}}
-	if err := o.fetchSelf(context.Background(), exe, "v1.0.1"); err != nil {
-		t.Fatal(err)
+	if err := o.fetchSelf(context.Background(), exe, "v1.0.1"); err == nil || !strings.Contains(err.Error(), "SHA256SUMS") {
+		t.Fatalf("a bad sum: %v", err)
 	}
-	if b, _ := os.ReadFile(exe); !bytes.Equal(b, newer) {
-		t.Fatalf("in place: %q", b)
-	}
-	if ents, _ := os.ReadDir(dir); len(ents) != 1 {
-		t.Errorf("left beside it: %v", ents)
+	if b, _ := os.ReadFile(exe); string(b) != "old" {
+		t.Fatalf("a bad one in place: %q", b)
 	}
 }
 
-// Connected to an Iridium of another release, ir-computer fetches that one's of itself from it,
+// Connected to an Iridium of another release, ir-computer fetches that one's of itself (GitHub),
 // its progress shown, checks it says that version, puts it in place and asks to restart.
 func TestUpdate(t *testing.T) {
 	newer := []byte("#!/bin/sh\necho 'ir-computer v1.0.1'\n")
+	file := "ir-computer-" + runtime.GOOS + "-" + runtime.GOARCH
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != joinscript.BinaryPrefix+joinscript.BinaryName(runtime.GOOS, runtime.GOARCH) {
+		switch r.URL.Path {
+		case "/gh/" + file:
+			w.Write(newer)
+		case "/gh/SHA256SUMS":
+			w.Write(sumsOf(map[string][]byte{file: newer}))
+		default:
 			http.NotFound(w, r)
-			return
 		}
-		w.Write(newer)
 	}))
 	defer srv.Close()
-	was := version.Version
+	was := releases
+	releases = func(string) string { return srv.URL + "/gh/" }
+	defer func() { releases = was }()
+	wasV := version.Version
 	version.Version = "v1.0.0"
-	defer func() { version.Version = was }()
+	defer func() { version.Version = wasV }()
 
 	exe := filepath.Join(t.TempDir(), "ir-computer")
 	os.WriteFile(exe, []byte("old"), 0o755)
