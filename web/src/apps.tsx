@@ -56,7 +56,7 @@ import { Segmented } from "./me";
 import { Crop } from "./profile";
 import { SecretHere } from "./secret";
 import { showSecret, useSecret } from "./secrets";
-import { Group } from "./settings";
+import { Group, Item } from "./settings";
 import { useConfirms, usePairing } from "./store";
 import { errText, toast, toasts } from "./toast";
 import {
@@ -210,10 +210,35 @@ export function AppsPage({ onBack }: { onBack: () => void }) {
 /** A computer's system, as its join line is written: macOS and Linux one (sh), Windows another. */
 export type JoinOS = "unix" | "win";
 
-/** The line that makes a computer join this Iridium while its terminal stays open (docs/exec.md
- *  "ir-computer"): it fetches the script this Iridium writes (internal/joinscript), which fetches
- *  ir-computer and runs it there. The options in the query, the address quoted once there is one.
- *  Windows: from cmd or PowerShell alike. */
+/** What a join line asks of the computer (internal/joinscript Args): kept running as its service,
+ *  command lines, only some agents (none given: all), only some folders ("": all). */
+export type JoinTerms = {
+  install?: boolean;
+  shell?: boolean;
+  agents?: string[];
+  roots?: string;
+};
+
+/** The query of a join line: in the order the script reads them, a value escaped only where it
+ *  must be (~, /, : and , stay as typed; ' too is escaped, the line quoting the address in '). */
+export function joinQuery(j: JoinTerms): string {
+  const esc = (v: string) =>
+    encodeURIComponent(v)
+      .replace(/%2C|%2F|%3A|%7E/gi, decodeURIComponent)
+      .replace(/'/g, "%27");
+  const q: string[] = [];
+  if (j.install) q.push("install");
+  if (j.shell === false) q.push("shell=0");
+  if (j.agents?.length) q.push(`agents=${j.agents.join(",")}`);
+  const roots = j.roots?.trim();
+  if (roots) q.push(`roots=${esc(roots)}`);
+  return q.join("&");
+}
+
+/** The line that makes a computer join this Iridium (docs/exec.md "一行命令"): it fetches the
+ *  script this Iridium writes (internal/joinscript), which fetches iridium and runs it there as an
+ *  executor of this one, in that terminal or as its service. The options in the query, the address
+ *  quoted once there is one. Windows: from cmd or PowerShell alike. */
 export function joinScript(os: JoinOS, at: string, query = ""): string {
   const url = `${at}/join${os === "win" ? ".ps1" : ""}${query ? `?${query}` : ""}`;
   const arg = query ? `'${url}'` : url;
@@ -222,19 +247,30 @@ export function joinScript(os: JoinOS, at: string, query = ""): string {
     : `curl -fsSL ${arg} | sh`;
 }
 
-/** The 电脑 group's +, a page: the line to run on a computer, for its system; as it is, with only
- *  some folders, without commands. Each its copy key in its title's row; the line one line high,
- *  scrolled sideways (to its end at first), no room kept beside it (docs/前端设计规范.md "命令"). */
+/** The 电脑 group's +, a page: the line to run on a computer, for its system, and what it asks of
+ *  that computer, one switch a row (docs/前端设计规范.md "设置"): kept running, command lines, each
+ *  agent, the folders. The line under them with its copy key in its title's row, one line high,
+ *  scrolled sideways (to its end at first), no room kept beside it ("命令"). */
 function AddComputer({ onBack }: { onBack: () => void }) {
   const [os, setOs] = useState<JoinOS>(
     /Win/.test(navigator.platform) ? "win" : "unix",
   );
+  const [install, setInstall] = useState(false);
+  const [shell, setShell] = useState(true);
+  const [off, setOff] = useState<string[]>([]);
+  const [roots, setRoots] = useState("");
   const at = location.origin;
   const system = (v: JoinOS, label: string) => ({
     v,
     label,
     icon: <span className="px-1 text-xs">{label}</span>,
   });
+  const on = AGENT_MARKS.filter((a) => !off.includes(a));
+  const line = joinScript(
+    os,
+    at,
+    joinQuery({ install, shell, agents: off.length ? on : undefined, roots }),
+  );
   return (
     <Page
       title={t("apps.addComputer")}
@@ -247,20 +283,52 @@ function AddComputer({ onBack }: { onBack: () => void }) {
         onChange={(v) => setOs(v as JoinOS)}
         items={[system("unix", "macOS / Linux"), system("win", "Windows")]}
       />
-      {(
-        [
-          ["apps.joinPlain", ""],
-          ["apps.joinRoots", "roots=~/work,~/notes"],
-          ["apps.joinNoShell", "shell=0"],
-        ] as const
-      ).map(([label, query]) => {
-        const line = joinScript(os, at, query);
-        return (
-          <Group key={label} title={t(label)} action={<CopyKey text={line} />}>
-            <Line text={line} lang={os === "win" ? "powershell" : "sh"} />
-          </Group>
-        );
-      })}
+      <div className="flex flex-col">
+        <Item label={t("apps.joinKeep")}>
+          <Switch
+            label={t("apps.joinKeep")}
+            on={install}
+            onChange={setInstall}
+          />
+        </Item>
+        <Item label={t("apps.joinShell")}>
+          <Switch label={t("apps.joinShell")} on={shell} onChange={setShell} />
+        </Item>
+        {AGENT_MARKS.map((a) => (
+          <Item
+            key={a}
+            label={
+              <span className="flex items-center gap-2">
+                <Logo agent={a} size={14} />
+                {agentName(a)}
+              </span>
+            }
+          >
+            <Switch
+              label={agentName(a)}
+              on={!off.includes(a)}
+              // One stays on: none would be every one.
+              disabled={on.length === 1 && !off.includes(a)}
+              onChange={(v) =>
+                setOff((o) => (v ? o.filter((x) => x !== a) : [...o, a]))
+              }
+            />
+          </Item>
+        ))}
+        <Item label={t("apps.joinFolders")}>
+          <input
+            value={roots}
+            onChange={(e) => setRoots(e.target.value)}
+            placeholder={t("apps.joinFoldersAll")}
+            spellCheck={false}
+            autoCapitalize="off"
+            className="no-ring h-8 w-48 min-w-0 rounded-md bg-fill px-2.5 font-mono text-xs placeholder:font-sans placeholder:text-ink-3"
+          />
+        </Item>
+      </div>
+      <Group title={t("apps.joinLine")} action={<CopyKey text={line} />}>
+        <Line text={line} lang={os === "win" ? "powershell" : "sh"} />
+      </Group>
     </Page>
   );
 }
