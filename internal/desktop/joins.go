@@ -36,7 +36,7 @@ type Joins struct {
 	// View: the window's. The joins run in the runtime (runtime.go), which follows the settings
 	// on disk: Sync does nothing here, Status is the runtime's.
 	View bool
-	Logf   func(string, ...any)
+	Logf func(string, ...any)
 
 	mu      sync.Mutex
 	running map[string]context.CancelFunc

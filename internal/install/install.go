@@ -40,8 +40,8 @@ type Options struct {
 	Args []string
 	// Restart: started already, it is started again (on the binary just placed).
 	Restart bool
-	Linger string // the file that says the user lingers; "" is /var/lib/systemd/linger/<user>
-	Out    io.Writer
+	Linger  string // the file that says the user lingers; "" is /var/lib/systemd/linger/<user>
+	Out     io.Writer
 
 	// Launchd writes a LaunchAgent (macOS) into UnitDir (~/Library/LaunchAgents) instead of a
 	// systemd unit, the daemon's output going to Log; with Now, Launchctl loads it into Domain.
