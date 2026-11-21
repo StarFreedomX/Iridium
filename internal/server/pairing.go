@@ -71,6 +71,8 @@ func openPath(r *http.Request) bool {
 		return true
 	case (r.Method == http.MethodGet || r.Method == http.MethodHead) && (joinscript.Path(r.URL.Path) || joinscript.BinaryPath(r.URL.Path)):
 		return true // the line another computer runs to join, and ir-computer: nothing secret in them
+	case (r.Method == http.MethodGet || r.Method == http.MethodHead) && r.URL.Path == "/v1/internal/face":
+		return true // this Iridium's face: the desktop app shows it before logging in (serverface.go)
 	case r.Method == http.MethodGet && r.URL.Path == "/v1/events":
 		return true // Satori's IDENTIFY carries the TOKEN (package satori checks it)
 	}

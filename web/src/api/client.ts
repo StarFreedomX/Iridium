@@ -457,6 +457,10 @@ export const api = {
     if (p.removeAvatar) f.set("removeAvatar", "1");
     return write<Profile>("PUT", of ? `/v1/internal/apps/${enc(of)}/profile` : "/v1/internal/me/profile", f);
   },
+  /** PUT or DELETE /v1/internal/face: this Iridium's own face, where it is one among others (the
+   *  desktop app's list); inside, Iridium keeps its mark. */
+  serverFace: (image: Blob | null) =>
+    image ? write<object>("PUT", "/v1/internal/face", image) : write<object>("DELETE", "/v1/internal/face"),
   /** PUT /v1/internal/me/device, or another app's or login's: the device it runs on. */
   device: (device: SetDevice["device"], of?: string) => write<SetDevice>("PUT", of ? `/v1/internal/apps/${enc(of)}/device` : "/v1/internal/me/device", { device } satisfies SetDevice),
   logout: () => write<{ ok: boolean }>("POST", "/_ir/api/logout"),

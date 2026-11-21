@@ -443,7 +443,11 @@ function ItemRow({ a }: { a: App }) {
   const me = useMe().data;
   const [renaming, setRenaming] = useState(false);
   const [folders, setFolders] = useState(false);
-  const face = useFacePick(a.id);
+  const face = useFacePick((b) =>
+    api
+      .profile({ avatar: b }, a.id)
+      .then(() => qc.invalidateQueries({ queryKey: ["apps"] })),
+  );
   const menu = useRowMenu();
   const remove = t(isComputer(a) ? "apps.deleteComputer" : "apps.delete");
   const grant = useGrant(a);
@@ -685,19 +689,22 @@ export function useRowMenu() {
 }
 
 /** A new face for app or login id: a picture chosen, cropped in place under the row, saved. */
-function useFacePick(id: string) {
-  const qc = useQueryClient();
+/** A face picked from a file, cropped in place (Crop), and given to upload; the one implementation
+ *  of changing a face (docs/前端设计规范.md "点头像就是换头像"). */
+export function useFacePick(
+  upload: (b: Blob) => Promise<unknown>,
+  label = t("term.avatar"),
+) {
   const [picture, setPicture] = useState<string | null>(null);
   const file = useRef<HTMLInputElement>(null);
   const drop = () =>
     setPicture((old) => (old && URL.revokeObjectURL(old), null));
   const save = async (blob: Blob) => {
     try {
-      await api.profile({ avatar: blob }, id);
+      await upload(blob);
       drop();
-      void qc.invalidateQueries({ queryKey: ["apps"] });
     } catch (e) {
-      toast(t("term.avatar"), { error: true, description: errText(e) });
+      toast(label, { error: true, description: errText(e) });
     }
   };
   return {
@@ -806,10 +813,15 @@ function LoginRow({
   remove: () => void;
   onPasskeys?: () => void;
 }) {
+  const qc = useQueryClient();
   const me = useMe().data;
   const [renaming, setRenaming] = useState(false);
   const [perms, setPerms] = useState(false);
-  const face = useFacePick(l.id);
+  const face = useFacePick((b) =>
+    api
+      .profile({ avatar: b }, l.id)
+      .then(() => qc.invalidateQueries({ queryKey: ["apps"] })),
+  );
   const menu = useRowMenu();
   return (
     <div className="flex flex-col">

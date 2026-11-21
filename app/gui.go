@@ -81,8 +81,15 @@ func gui() int {
 	}
 	u.win = u.app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name: "main", Title: "Iridium", Width: 1200, Height: 800, MinWidth: 360, MinHeight: 480,
-		URL: pageOf(c),
+		URL: pageOf(c), CSS: pageCSS,
+		// No title bar of its own on macOS (kumo, 2026-11-20: no line under it): the page goes up to
+		// the window's top, the window dragged by that strip (pageCSS keeps it clear).
+		Mac: application.MacWindow{TitleBar: application.MacTitleBarHidden, InvisibleTitleBarHeight: macBar},
 	})
+	if c.Zoom > 0 {
+		u.win.SetZoom(c.Zoom)
+	}
+	u.zoomKeys()
 	// Closing the window keeps the app (and this computer joined) in the tray.
 	u.win.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
 		e.Cancel()
@@ -159,6 +166,11 @@ func (u *ui) message(w application.Window, msg string, o *application.OriginInfo
 		return
 	}
 	switch verb {
+	case "theme":
+		// The page's day or night, for the app's own pages too.
+		if arg == "dark" || arg == "light" {
+			_, _ = updateConfig(func(c *Config) { c.Theme = arg })
+		}
 	case "me":
 		// Who the window is there, for the app's own page.
 		var me struct{ Name, Avatar string }
@@ -238,13 +250,16 @@ func (u *ui) local(w application.Window, verb, arg string) {
 	state := func(c Config) map[string]any {
 		list := []map[string]any{}
 		for _, s := range c.Servers {
-			list = append(list, map[string]any{"url": s.URL, "host": hostOf(s.URL), "loggedIn": s.LoggedIn, "name": s.Name, "avatar": s.Avatar})
+			list = append(list, map[string]any{"url": s.URL, "host": hostOf(s.URL), "loggedIn": s.LoggedIn, "name": s.Name, "avatar": s.Avatar, "face": s.Face})
 		}
-		return map[string]any{"servers": list, "current": c.current()}
+		return map[string]any{"servers": list, "current": c.current(), "theme": c.Theme}
 	}
 	switch verb {
 	case "askstate":
-		reply(w, askState())
+		st := askState()
+		c, _ := loadConfig()
+		st["theme"] = c.Theme
+		reply(w, st)
 	case "answer":
 		answerAsk(arg)
 	case "clipboard":
@@ -256,6 +271,12 @@ func (u *ui) local(w application.Window, verb, arg string) {
 	case "hello":
 		c, _ := loadConfig()
 		reply(w, state(c))
+		// The Iridiums' faces, fetched afresh; the list drawn again if one changed.
+		go func() {
+			if c, changed := refreshFaces(c); changed {
+				reply(w, state(c))
+			}
+		}()
 	case "open":
 		if c, _ := loadConfig(); c.server(arg) != nil {
 			u.switchTo(arg)
@@ -695,4 +716,33 @@ func brief(line string) string {
 		return string(r[:16]) + "…"
 	}
 	return line
+}
+
+// macBar is the strip at a macOS window's top where its buttons are, the page kept clear of it.
+const macBar = 28
+
+// pageCSS is put in every page the window shows: the page itself never scrolls or bounces (only
+// what is in it: kumo, 2026-11-20, the whole page went with the wheel), and on macOS it stands
+// below the window's buttons.
+var pageCSS = func() string {
+	css := "html,body{overflow:hidden!important;overscroll-behavior:none!important}"
+	if runtime.GOOS == "darwin" {
+		css += fmt.Sprintf("#root{box-sizing:border-box;padding-top:%dpx}", macBar)
+	}
+	return css
+}()
+
+// zoomKeys: the window's zoom by the browser's keys (⌘= or ⌘+ larger, ⌘- smaller, ⌘0 as it was;
+// Ctrl on Windows and Linux), kept for the next start (kumo, 2026-11-20).
+func (u *ui) zoomKeys() {
+	keep := func() {
+		z := u.win.GetZoom()
+		_, _ = updateConfig(func(c *Config) { c.Zoom = z })
+	}
+	in := func(application.Window) { u.win.ZoomIn(); keep() }
+	for _, k := range []string{"CmdOrCtrl+=", "CmdOrCtrl+Shift+=", "CmdOrCtrl+Plus"} {
+		u.app.KeyBinding.Add(k, in)
+	}
+	u.app.KeyBinding.Add("CmdOrCtrl+-", func(application.Window) { u.win.ZoomOut(); keep() })
+	u.app.KeyBinding.Add("CmdOrCtrl+0", func(application.Window) { u.win.ZoomReset(); keep() })
 }

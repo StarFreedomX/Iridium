@@ -5,8 +5,8 @@
 import { ChevronRight, LoaderCircle, Plus, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useRowMenu } from "../apps";
-import { cn, IrMark } from "../ui";
-import { ask, clipboardKeys, onAnswer, whenReady } from "./bridge";
+import { cn, IrMark, MAC } from "../ui";
+import { ask, clipboardKeys, followTheme, onAnswer, whenReady } from "./bridge";
 
 type Server = {
   url: string;
@@ -27,6 +27,7 @@ export function Login() {
 
   useEffect(() => {
     const stop = onAnswer((d) => {
+      followTheme(d);
       if (Array.isArray(d.servers)) {
         setServers(d.servers as Server[]);
         if (d.added) (setAdding(false), setAddress(""));
@@ -59,7 +60,12 @@ export function Login() {
   return (
     <div className="h-full bg-paper text-ink select-none [&_*:focus-visible]:outline-none">
       {/* The mark and the name at the page's top left (kumo, 2026-11-20). */}
-      <header className="fixed top-5 left-6 flex items-center gap-2.5 text-lg font-semibold tracking-tight">
+      <header
+        className={cn(
+          "fixed left-6 flex items-center gap-2.5 text-lg font-semibold tracking-tight",
+          MAC ? "top-11" : "top-5",
+        )}
+      >
         <IrMark size={28} className="text-ink" />
         Iridium
       </header>

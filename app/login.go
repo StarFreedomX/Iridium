@@ -141,3 +141,62 @@ func isIridium(ctx context.Context, address string) error {
 	}
 	return nil
 }
+
+// refreshFaces fetches each Iridium's face (GET /v1/internal/face: a data: URL, "" for none) and
+// keeps them; changed: one is not what it was. One that does not answer keeps the one it had.
+func refreshFaces(c Config) (Config, bool) {
+	faces := map[string]string{}
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	for _, s := range c.Servers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+			defer cancel()
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.URL+"/v1/internal/face", nil)
+			if err != nil {
+				return
+			}
+			res, err := httpc.Do(req)
+			if err != nil {
+				return
+			}
+			defer res.Body.Close()
+			face := ""
+			switch res.StatusCode {
+			case http.StatusOK:
+				b, err := io.ReadAll(io.LimitReader(res.Body, 2<<20))
+				ct := res.Header.Get("Content-Type")
+				if err != nil || !strings.HasPrefix(ct, "image/") || strings.HasPrefix(ct, "image/svg") {
+					return
+				}
+				face = "data:" + ct + ";base64," + base64.StdEncoding.EncodeToString(b)
+			case http.StatusNotFound:
+			default:
+				return
+			}
+			mu.Lock()
+			faces[s.URL] = face
+			mu.Unlock()
+		}()
+	}
+	wg.Wait()
+	changed := false
+	for _, s := range c.Servers {
+		if f, ok := faces[s.URL]; ok && f != s.Face {
+			changed = true
+		}
+	}
+	if !changed {
+		return c, false
+	}
+	c, err := updateConfig(func(c *Config) {
+		for i := range c.Servers {
+			if f, ok := faces[c.Servers[i].URL]; ok {
+				c.Servers[i].Face = f
+			}
+		}
+	})
+	return c, err == nil
+}

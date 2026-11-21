@@ -7,7 +7,9 @@ import { AskPanel } from "./ask";
 import { Login } from "./login";
 
 // The request panel is a window of its own, see-through round its rounded panel.
-if (location.hash === "#ask") for (const el of [document.documentElement, document.body]) el.style.background = "transparent";
+if (location.hash === "#ask")
+  for (const el of [document.documentElement, document.body])
+    el.style.background = "transparent";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

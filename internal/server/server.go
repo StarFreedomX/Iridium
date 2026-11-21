@@ -246,6 +246,7 @@ func (s *Server) Handler(local bool) http.Handler {
 	s.pushRoutes(mux)
 	mux.HandleFunc("GET /v1/internal/exec", s.execConnect)
 	s.pairRoutes(mux)
+	s.serverFaceRoutes(mux)
 	s.machineRoutes(mux)
 	s.discoverRoutes(mux)
 	s.fileRoutes(mux, local)

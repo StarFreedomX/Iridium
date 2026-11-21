@@ -28,6 +28,8 @@ type Server struct {
 	// data: URL).
 	Name   string `json:"name,omitempty"`
 	Avatar string `json:"avatar,omitempty"`
+	// Face: the Iridium's own (GET /v1/internal/face, a data: URL), what stands for it in the list.
+	Face string `json:"face,omitempty"`
 }
 
 // Config is the app's own, kept on this computer: what it joins and how. What an Iridium may do
@@ -36,6 +38,8 @@ type Config struct {
 	Servers []Server `json:"servers"`
 	Current string   `json:"current,omitempty"` // the one in the window
 	Name    string   `json:"name,omitempty"`    // this computer's name; "": the host name
+	Theme   string   `json:"theme,omitempty"`   // "dark" or "light", as the Iridium's page last was
+	Zoom    float64  `json:"zoom,omitempty"`    // the window's, as last set (⌘= ⌘- ⌘0); 0: 1
 }
 
 var cfgMu sync.Mutex

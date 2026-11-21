@@ -78,3 +78,9 @@ export function clipboardKeys(
       el.select();
   }
 }
+
+/** The day or night the Iridium's page was last in (app/gui.go "theme"), on this page too. */
+export function followTheme(d: Record<string, unknown>) {
+  if (d.theme === "dark" || d.theme === "light")
+    document.documentElement.dataset.theme = d.theme;
+}

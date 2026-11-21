@@ -4,7 +4,7 @@
 import { useEffect, useState } from "react";
 import type { Agent } from "../api/types.gen";
 import { agentName, Logo, Switch } from "../ui";
-import { ask, onAnswer, whenReady } from "./bridge";
+import { ask, followTheme, onAnswer, whenReady } from "./bridge";
 
 type Item = { kind: "shell" | "folder" | "agent"; value?: string };
 type Asking = { server: string; by: string; items: Item[] };
@@ -14,6 +14,7 @@ export function AskPanel() {
   const [on, setOn] = useState<boolean[]>([]);
   useEffect(() => {
     const stop = onAnswer((d) => {
+      followTheme(d);
       if (!("ask" in d)) return;
       const a = d.ask as Asking | null;
       setReq(a);

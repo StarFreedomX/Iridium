@@ -1542,36 +1542,8 @@ func (s *Server) avatarPut(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 2*gate.MaxAvatarBytes))
-		if err != nil {
-			refuse(w, http.StatusRequestEntityTooLarge, "avatar_too_large", "at most 2 MB")
-			return
-		}
-		// As JSON: {"avatar": the image in base64, or a data: URL}.
-		if strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") || bytes.HasPrefix(bytes.TrimSpace(data), []byte("{")) {
-			var body struct {
-				Avatar string `json:"avatar"`
-			}
-			if json.Unmarshal(data, &body) != nil {
-				refuse(w, http.StatusBadRequest, "bad_request", "avatar: the image in base64")
-				return
-			}
-			b64 := body.Avatar
-			if strings.HasPrefix(b64, "data:") {
-				_, b64, _ = strings.Cut(b64, ",")
-			}
-			if data, err = base64.StdEncoding.DecodeString(b64); err != nil {
-				refuse(w, http.StatusBadRequest, "bad_request", "avatar: the image in base64")
-				return
-			}
-		}
-		img, v, err := gate.MakeAvatar(data)
-		switch {
-		case errors.Is(err, gate.ErrAvatarTooLarge):
-			refuse(w, http.StatusRequestEntityTooLarge, "avatar_too_large", "at most 2 MB")
-			return
-		case err != nil:
-			refuse(w, http.StatusUnprocessableEntity, "avatar_format", "a PNG, JPEG or WebP image")
+		img, v, ok := avatarBody(w, r)
+		if !ok {
 			return
 		}
 		for _, key := range []string{channelAvatarKey(ch), modelAvatarKey(st)} {
@@ -2856,4 +2828,42 @@ func firstGiven(rec assemble.Record, seq int64) int64 {
 		}
 	}
 	return first
+}
+
+// avatarBody is the image a PUT of a face carries (the image itself, or JSON {"avatar": base64 or
+// a data: URL}), made into a face (gate.MakeAvatar); when it is not one it has answered.
+func avatarBody(w http.ResponseWriter, r *http.Request) ([]byte, string, bool) {
+	data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 2*gate.MaxAvatarBytes))
+	if err != nil {
+		refuse(w, http.StatusRequestEntityTooLarge, "avatar_too_large", "at most 2 MB")
+		return nil, "", false
+	}
+	// As JSON: {"avatar": the image in base64, or a data: URL}.
+	if strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") || bytes.HasPrefix(bytes.TrimSpace(data), []byte("{")) {
+		var body struct {
+			Avatar string `json:"avatar"`
+		}
+		if json.Unmarshal(data, &body) != nil {
+			refuse(w, http.StatusBadRequest, "bad_request", "avatar: the image in base64")
+			return nil, "", false
+		}
+		b64 := body.Avatar
+		if strings.HasPrefix(b64, "data:") {
+			_, b64, _ = strings.Cut(b64, ",")
+		}
+		if data, err = base64.StdEncoding.DecodeString(b64); err != nil {
+			refuse(w, http.StatusBadRequest, "bad_request", "avatar: the image in base64")
+			return nil, "", false
+		}
+	}
+	img, v, err := gate.MakeAvatar(data)
+	switch {
+	case errors.Is(err, gate.ErrAvatarTooLarge):
+		refuse(w, http.StatusRequestEntityTooLarge, "avatar_too_large", "at most 2 MB")
+		return nil, "", false
+	case err != nil:
+		refuse(w, http.StatusUnprocessableEntity, "avatar_format", "a PNG, JPEG or WebP image")
+		return nil, "", false
+	}
+	return img, v, true
 }
