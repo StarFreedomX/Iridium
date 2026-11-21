@@ -46,7 +46,7 @@ for e in ${UNIT_ENV:-}; do
 	set -- "$@" -env "$e"
 done
 if [ "${IRIDIUM_NO_SYSTEMCTL:-}" = 1 ]; then
-	"$PREFIX/iridium" install -reload=false "$@"
+	"$PREFIX/iridium" install -now=false -reload=false "$@"
 	exit 0
 fi
 # Keep the user's services running without a login and start them at boot. Enabling it for
@@ -58,7 +58,7 @@ if [ "$(loginctl show-user "$(id -un)" -p Linger --value 2>/dev/null)" != yes ];
 		echo "linger: off; needs root once: sudo loginctl enable-linger $(id -un)" >&2
 	fi
 fi
-"$PREFIX/iridium" install "$@"
+"$PREFIX/iridium" install -now=false "$@"
 if systemctl --user is-active --quiet "$UNIT.service" 2>/dev/null; then
 	systemctl --user restart "$UNIT.service"
 	echo "restarted $UNIT.service"

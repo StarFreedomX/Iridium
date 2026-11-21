@@ -56,6 +56,9 @@ type Options struct {
 	Launchctl launchd.Launchctl
 	Domain    string
 	Log       string
+	// Host is the address wanted (iridium install -public): the subdomain not asked for when it is
+	// under the domain chosen at Cloudflare. "": asked.
+	Host string
 	// Ask asks the person at the terminal; def is the answer to an empty line.
 	Ask    func(question, def string) (string, error)
 	Out    io.Writer
@@ -351,6 +354,19 @@ func (o *Options) zoneName(ctx context.Context, z zone) string {
 }
 
 func (o *Options) hostName(domain string) (string, error) {
+	if h := strings.Trim(strings.ToLower(strings.TrimSpace(o.Host)), "."); h != "" {
+		if sub := strings.TrimSuffix(h, "."+domain); sub != h && sub != "" {
+			ok := true
+			for _, l := range strings.Split(sub, ".") {
+				ok = ok && label.MatchString(l)
+			}
+			if ok {
+				o.say("地址：https://%s", h)
+				return h, nil
+			}
+		}
+		o.say("%s 不在 %s 下。", h, domain)
+	}
 	for {
 		a, err := o.Ask(fmt.Sprintf("子域名（地址是 <子域名>.%s）", domain), "ir")
 		if err != nil {

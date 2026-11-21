@@ -14,7 +14,7 @@ import (
 
 // prog is how the app says itself in its pairing and hello: the Iridium marks it as the app's.
 // Update is off: the app updates as itself, not to its Iridium's release (update.go).
-var prog = join.Program{Name: "iridium headless", Self: "ir-app", Usage: usage}
+var prog = join.Program{Name: "iridium --join", Self: "ir-app", Usage: usage}
 
 // Joins runs this computer's join to each Iridium that is on, each in its own goroutine, keeps
 // the last thing each said for the tray, and sets on each what its owner allows, at once (Sync).
@@ -26,8 +26,13 @@ type Joins struct {
 	AskEach func(ctx context.Context, server, by string, items []executor.Item) []bool
 	// Widened is told what server may do here after a request the person allowed.
 	Widened func(server string, shell bool, roots, off []string)
-	// Terminal: asked at the terminal it runs in (headless), as ir-computer asks, when Ask is nil.
+	// Terminal: asked at the terminal it runs in (no window), as ir-computer asks, when Ask is nil.
 	Terminal bool
+	// Update: each join follows its Iridium's release (join.Program.Update); off where this
+	// computer's own Iridium runs in the process, or the window's app updates itself.
+	Update bool
+	// Record, when set, is kept on disk with the joins' states (iridium status).
+	Record *Record
 	Logf     func(string, ...any)
 
 	mu      sync.Mutex
@@ -98,6 +103,9 @@ func (j *Joins) Stop() {
 		stop()
 		delete(j.running, u)
 	}
+	if j.Record != nil {
+		j.Record.remove()
+	}
 }
 
 func (j *Joins) run(ctx context.Context, s Server, name string, agents []wire.AgentInfo) {
@@ -108,7 +116,7 @@ func (j *Joins) run(ctx context.Context, s Server, name string, agents []wire.Ag
 		return
 	}
 	o := join.Options{
-		URL: address, Name: name, Roots: s.Roots, Shell: !s.NoShell, Base: base, Prog: prog, Agents: agents,
+		URL: address, Name: name, Roots: s.Roots, Shell: !s.NoShell, Base: base, Prog: j.prog(), Agents: agents,
 		Out: lineWriter(func(l string) { j.set(address, l) }), Logf: j.Logf, Ask: j.Ask,
 		Widened: func(shell bool, roots, off []string) {
 			j.mu.Lock()
@@ -156,11 +164,20 @@ func (j *Joins) run(ctx context.Context, s Server, name string, agents []wire.Ag
 	}
 }
 
+func (j *Joins) prog() join.Program {
+	p := prog
+	p.Update = j.Update
+	return p
+}
+
 func (j *Joins) set(address, line string) {
 	// The terminal's wording: the app has no window to close for it.
 	line, _, _ = strings.Cut(line, "：关闭此窗口即断开")
 	j.mu.Lock()
 	j.status[address] = line
+	if j.Record != nil {
+		j.Record.save(j.status)
+	}
 	j.mu.Unlock()
 	if j.Logf != nil {
 		j.Logf("%s: %s", address, line)

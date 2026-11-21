@@ -193,11 +193,15 @@ type multipartBody struct {
 	ct  string
 }
 
-// publicCmd: ir public [off]. Interactive: a person at a terminal only.
+// publicCmd: ir public [--host <host>] | off. Interactive: a person at a terminal only.
 func publicCmd(e adminEnv, args []string, stdout, stderr io.Writer) int {
 	off := len(args) == 1 && args[0] == "off"
+	host := ""
+	if len(args) == 2 && (args[0] == "--host" || args[0] == "-host") {
+		host, args = args[1], nil
+	}
 	if len(args) > 1 || (len(args) == 1 && !off) {
-		fmt.Fprintln(stderr, "用法：ir public [off]")
+		fmt.Fprintln(stderr, "用法：ir public [--host <地址>] | off")
 		return 2
 	}
 	if !e.tty || e.agent {
@@ -212,6 +216,7 @@ func publicCmd(e adminEnv, args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return failed(stderr, "public", err)
 	}
+	o.Host = host
 	ctx := context.Background()
 	if off {
 		err = public.Off(ctx, o)

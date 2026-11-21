@@ -32,6 +32,8 @@ type Options struct {
 	// Systemctl runs systemctl --user with args; nil runs nothing.
 	Systemctl func(args ...string) error
 	Now       bool   // enable and start it too
+	// Args are more of iridium serve's own (--no-server, --join A, ...), written after it as given.
+	Args []string
 	Linger    string // the file that says the user lingers; "" is /var/lib/systemd/linger/<user>
 	Out       io.Writer
 
@@ -52,6 +54,11 @@ type Options struct {
 
 // Unit is the unit file. env: more NAME=VALUE for the daemon.
 func Unit(exe, configPath, path string, env ...string) string {
+	return UnitArgs(exe, configPath, path, nil, env...)
+}
+
+// UnitArgs is Unit with more of serve's arguments (Options.Args).
+func UnitArgs(exe, configPath, path string, args []string, env ...string) string {
 	if path != "" {
 		env = append([]string{"PATH=" + path}, env...)
 	}
@@ -66,7 +73,7 @@ After=network.target
 
 [Service]
 Type=exec
-ExecStart=%s serve -config %s
+ExecStart=%s serve -config %s%s
 %sRestart=on-failure
 RestartSec=2
 # The holders are units of their own (systemd-run --user): a restart or an update leaves the
@@ -74,7 +81,15 @@ RestartSec=2
 
 [Install]
 WantedBy=default.target
-`, quote(exe), quote(configPath), lines)
+`, quote(exe), quote(configPath), unitArgs(args), lines)
+}
+
+func unitArgs(args []string) string {
+	s := ""
+	for _, a := range args {
+		s += " " + quote(a)
+	}
+	return s
 }
 
 // quote quotes a word for a unit file when it needs it.
@@ -130,7 +145,7 @@ func Install(o Options) error {
 	}
 	unit := filepath.Join(o.UnitDir, o.Unit+".service")
 	tmp := unit + ".tmp"
-	if err := os.WriteFile(tmp, []byte(Unit(o.Exe, o.ConfigPath, o.Path, o.Env...)), 0o644); err != nil {
+	if err := os.WriteFile(tmp, []byte(UnitArgs(o.Exe, o.ConfigPath, o.Path, o.Args, o.Env...)), 0o644); err != nil {
 		return err
 	}
 	if err := os.Rename(tmp, unit); err != nil {
@@ -170,7 +185,7 @@ func installLaunchd(o Options, cfg config.Config) error {
 	if o.Path != "" {
 		env = append([]string{"PATH=" + o.Path}, env...)
 	}
-	job := launchd.Job{Label: o.Unit, Argv: []string{o.Exe, "serve", "-config", o.ConfigPath}, Env: env, Log: o.Log}
+	job := launchd.Job{Label: o.Unit, Argv: append([]string{o.Exe, "serve", "-config", o.ConfigPath}, o.Args...), Env: env, Log: o.Log}
 	path, err := launchd.Write(o.UnitDir, job)
 	if err != nil {
 		return err

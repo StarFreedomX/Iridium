@@ -16,7 +16,14 @@ import (
 // TaskXML is the Task Scheduler task that runs exe serve -config configPath at user's logon: in
 // the user's session with the user's own environment, never stopped for running long (the
 // default stops a task after three days) nor on battery, started again a minute after a crash.
-func TaskXML(exe, configPath, user string) string {
+func TaskXML(exe, configPath, user string, args ...string) string {
+	line := `serve -config "` + configPath + `"`
+	for _, a := range args {
+		if a == "" || strings.ContainsAny(a, " \t\"") {
+			a = `"` + strings.ReplaceAll(a, `"`, `\"`) + `"`
+		}
+		line += " " + a
+	}
 	esc := func(s string) string {
 		var b bytes.Buffer
 		_ = xml.EscapeText(&b, []byte(s))
@@ -65,7 +72,7 @@ func TaskXML(exe, configPath, user string) string {
   <Actions Context="Author">
     <Exec>
       <Command>` + esc(exe) + `</Command>
-      <Arguments>` + esc(`serve -config "`+configPath+`"`) + `</Arguments>
+      <Arguments>` + esc(line) + `</Arguments>
     </Exec>
   </Actions>
 </Task>
@@ -93,7 +100,7 @@ func installTask(o Options, cfg config.Config) error {
 		fmt.Fprintf(o.Out, "注意：任务计划没有自己的环境变量，%s 不生效；在用户环境变量里设置。\n", strings.Join(o.Env, " "))
 	}
 	file := filepath.Join(cfg.StatePath(), o.Unit+"-task.xml")
-	if err := os.WriteFile(file, utf16File(TaskXML(o.Exe, o.ConfigPath, o.User)), 0o600); err != nil {
+	if err := os.WriteFile(file, utf16File(TaskXML(o.Exe, o.ConfigPath, o.User, o.Args...)), 0o600); err != nil {
 		return err
 	}
 	fmt.Fprintf(o.Out, "写了 %s：%s serve，状态在 %s。\n", file, o.Exe, cfg.StatePath())

@@ -4,6 +4,27 @@
 
 用 Wails v3 的纯 Go 后端，不用 cgo，三个系统都在 Linux 上交叉编译。Wails 是 `third_party/wails` 里改过的副本（`PATCHES.md`）：图形库在开窗口时才加载，服务、托管进程、`ir` 都不碰。`ir-computer` 和一行命令先保留（用户，2026-11-20）。
 
+## 启动参数（2026-11-22）
+
+一个程序做三样事：窗口、本机的 Iridium（服务器）、把这台电脑接入别的 Iridium（执行器）。`iridium` 默认全开，参数只减功能，`--join` 加要接入的地址（用户，2026-11-22）。
+
+| 命令 | 结果 |
+|---|---|
+| `iridium` | 全功能；没有图形界面时打印用法 |
+| `iridium serve` | 不开窗口：本机服务器 + `--join` 的接入。纯服务端就是它 |
+| `iridium serve --no-server --join A` | 纯执行器（原 `ir-computer`）；没有图形界面时 `iridium --no-server --join A` 也一样 |
+| `iridium --no-server` | 只开窗口，看别的 Iridium |
+| `iridium install [同样的参数] [-public <地址>]` | 把 `serve` 加这些参数写进用户服务并启动（`-now=false` 不启动）；`-public` 再上公网，见下 |
+| `iridium uninstall` | 停掉并去掉那个服务，程序、配置、状态都留着 |
+| `iridium status` | 版本、本机服务器、服务、窗口、每个接入的状态 |
+
+- 筛选对 `--join` 的每个 Iridium 都一样：`--name`、`--roots a,b`、`--no-shell`、`--agents claude,codex`。
+- 开窗口时接入哪些看设置（右上角每个 Iridium 的接入开关），`--join` 的加进列表；不开窗口时只接入 `--join` 写的。
+- 不开窗口时，执行器和服务器在同一个进程里，跟着它停；只有执行器时，执行器跟它的 Iridium 的版本自己更新。窗口里的执行器跟着应用退出。退出后还要被调用，另外 `iridium install --no-server --join A`。
+- 旧的写法留作别名，不写进用法：`version`、`app`、`join <地址>`、`headless`（都换成上面的参数）。
+- `status` 读每个在跑的 iridium 进程写的 `<应用配置目录>/run/<pid>.json`（窗口或 serve，各自的接入状态），进程不在了就删掉。
+- `install -public ir.example.com`：服务起来后在这个终端里跑 `ir public --host ir.example.com`：Cloudflare 登录要人点一次（链接和二维码），子域名不再问，建隧道、加 DNS、起隧道服务、从外网检查，最后打印第一个邀请。已有同名 DNS 记录时照旧停下来问。
+
 ## 本机（2026-11-22）
 
 - 第一次打开（还没有 `app.json`）：把本机的 Iridium 放进列表第一项并显示。没在跑就先 `iridium install -now`（复制到 `~/.local/opt/iridium`，Linux 装 systemd 用户服务，Mac 装 LaunchAgent，Windows 装登录时运行的计划任务），等它应答（`/_ir/health`，最多 30 秒）；装不了就把 `iridium serve` 单独起在应用之外。等的时候窗口停在应用自己的页面，本机一行显示“启动中”。

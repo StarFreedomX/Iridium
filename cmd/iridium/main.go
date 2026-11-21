@@ -6,7 +6,6 @@ package main
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -38,19 +37,30 @@ import (
 	"github.com/kumoSleeping/iridium/internal/version"
 )
 
-const usage = `usage:
-` + desktop.Usage + `  iridium serve [-config <file>]   the daemon alone (a server: no window)
-  iridium hold <dir>               the holder of one agent process (the daemon starts it)
-  iridium ir ...                   the CLI, as when run as ir
-  iridium install [-config <file>] [-unit <name>] [-listen <addr>] [-env NAME=VALUE]... [-now]
-                                   the user unit iridium.service (started only with -now)
+const usage = `usage: iridium [options]          everything: the window (where there is a screen), this
+                                   computer's Iridium, and this computer joined to others
+       iridium serve [options]    the same with no window: a server
+options take away or add:
+  --no-server                      no Iridium of this computer's own
+  --join <address>                 join this Iridium too, as an executor (repeatable)
+  --name <name>                    this computer's name there (default: the host name)
+  --roots <dir>,...                the only folders they may use (default: all)
+  --no-shell                       no command lines from them, only agents
+  --agents <agent>,...             the only agents they may start (default: all)
+  -config <file>                   this computer's Iridium's config file
+
+  iridium install [options] [-public <host>]
+                                   the same command as the user's service, started (at login, too;
+                                   -now=false: not now); -public: on the internet through Cloudflare
+  iridium uninstall                that service taken away (the binary and the state kept)
+  iridium status                   the version, and what runs here
   iridium push [-i <key>] [-listen <addr>] <user@host>
                                    this binary onto another account or machine, installed or restarted
   iridium node new <account> [-listen <addr>]
-                                   a new account on this machine with an Iridium instance of its own (root once: sudo or su)
-  iridium join <address> [--name <name>] [--roots <dir>,...] [--no-shell]
-                                   this machine as an executor of another Iridium while it runs (ir join)
-  iridium version
+                                   a new account on this machine with an Iridium of its own (root once)
+  ir ...                           the command line (iridium ir ...)
+
+  Only a server:    iridium serve            Only an executor:  iridium serve --no-server --join <address>
 `
 
 func main() {
@@ -58,41 +68,49 @@ func main() {
 	if strings.TrimSuffix(strings.ToLower(filepath.Base(os.Args[0])), ".exe") == "ir" {
 		os.Exit(irMain(os.Args[1:]))
 	}
+	args := os.Args[1:]
 	// Opened from the Finder, an older macOS adds -psn_<process serial number>.
-	if len(os.Args) == 2 && strings.HasPrefix(os.Args[1], "-psn_") {
-		os.Args = os.Args[:1]
+	if len(args) == 1 && strings.HasPrefix(args[0], "-psn_") {
+		args = nil
 	}
-	if len(os.Args) < 2 {
+	if len(args) == 0 {
 		if desktop.CanShow() {
-			os.Exit(desktop.Main())
+			os.Exit(run(nil, true))
 		}
 		fmt.Fprint(os.Stderr, usage)
 		os.Exit(2)
 	}
-	switch os.Args[1] {
-	case "app":
-		os.Exit(desktop.Main())
-	case "headless":
-		os.Exit(desktop.Headless(os.Args[2:]))
+	if strings.HasPrefix(args[0], "-") && args[0] != "-h" && args[0] != "--help" && args[0] != "--version" {
+		// Options only: everything there can be, less what they take away.
+		os.Exit(run(args, desktop.CanShow()))
+	}
+	switch args[0] {
 	case "serve":
-		os.Exit(serve(os.Args[2:]))
+		os.Exit(run(args[1:], false))
 	case "hold":
-		os.Exit(hold.Main(os.Args[2:]))
+		os.Exit(hold.Main(args[1:]))
 	case "ir":
-		os.Exit(irMain(os.Args[2:]))
-	case "join":
-		os.Exit(join.Main(os.Args[2:], os.Stdout, os.Stderr))
+		os.Exit(irMain(args[1:]))
 	case "install":
-		os.Exit(installCmd(os.Args[2:]))
+		os.Exit(installCmd(args[1:]))
+	case "uninstall":
+		os.Exit(uninstallCmd(args[1:]))
+	case "status":
+		os.Exit(statusCmd(args[1:]))
 	case "push":
-		os.Exit(pushCmd(os.Args[2:]))
+		os.Exit(pushCmd(args[1:]))
 	case "node":
-		os.Exit(nodeCmd(os.Args[2:]))
-	case "version", "--version":
-		os.Exit(versionCmd())
+		os.Exit(nodeCmd(args[1:]))
 	case "help", "-h", "--help":
 		fmt.Print(usage)
 		os.Exit(0)
+	// Older words, kept for what runs them (services, scripts): not in the usage.
+	case "version", "--version":
+		os.Exit(versionCmd())
+	case "app":
+		os.Exit(run(args[1:], true))
+	case "join", "headless":
+		os.Exit(run(append([]string{"--no-server"}, joinArgs(args[1:])...), false))
 	}
 	fmt.Fprint(os.Stderr, usage)
 	os.Exit(2)
@@ -109,10 +127,9 @@ func irMain(args []string) int {
 	return cli.Main(args)
 }
 
-func serve(args []string) int {
-	fs := flag.NewFlagSet("serve", flag.ExitOnError)
-	path := fs.String("config", config.DefaultPath(), "the config file")
-	fs.Parse(args)
+// serve is this computer's Iridium, the daemon, with its config file at path, till a signal.
+func serve(cfgPath string) int {
+	path := &cfgPath
 	cfg, err := config.Load(*path)
 	if err != nil {
 		log.Print(err)

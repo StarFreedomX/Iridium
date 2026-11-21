@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"os/exec"
 	"os/user"
@@ -23,13 +24,19 @@ import (
 	"github.com/kumoSleeping/iridium/internal/version"
 )
 
-// installCmd is `iridium install`: the user unit iridium.service (on macOS the LaunchAgent
-// ~/Library/LaunchAgents/iridium.plist), the config and the state directory. It starts nothing
-// unless -now.
+// installCmd is `iridium install [options] [-public <host>]`: the user unit iridium.service (on
+// macOS the LaunchAgent ~/Library/LaunchAgents/iridium.plist, on Windows a logon task) running
+// `iridium serve` with the options given, the config and the state directory; started at once
+// (-now=false: at the next login). -public then puts this computer's Iridium on the internet
+// (ir public --host): Cloudflare asks the person to log in once, the rest is done, and the first
+// invite is printed.
 func installCmd(args []string) int {
 	fs := flag.NewFlagSet("install", flag.ExitOnError)
-	path := fs.String("config", config.DefaultPath(), "the config file the service reads")
-	now := fs.Bool("now", false, "enable and start the service too")
+	var rf runFlags
+	rf.register(fs)
+	path := &rf.config
+	pub := fs.String("public", "", "this computer's Iridium on the internet at this address, through Cloudflare")
+	now := fs.Bool("now", true, "start the service now too")
 	listen := fs.String("listen", "", "the address a config made now listens on (default 127.0.0.1:7810)")
 	reload := fs.Bool("reload", true, "run systemctl --user daemon-reload")
 	unit := fs.String("unit", "iridium", "the unit's name (tests: iridium-test-*)")
@@ -63,7 +70,23 @@ func installCmd(args []string) int {
 	if d := os.Getenv("XDG_CONFIG_HOME"); d != "" {
 		unitDir = filepath.Join(d, "systemd", "user")
 	}
-	o := install.Options{Exe: exe, ConfigPath: cfgPath, Listen: *listen, UnitDir: unitDir, Unit: *unit, Path: os.Getenv("PATH"), Env: env, Now: *now, Out: os.Stdout}
+	if fs.NArg() > 0 {
+		fmt.Fprintf(os.Stderr, "iridium install: %q is not an option\n", fs.Arg(0))
+		return 2
+	}
+	if _, err := rf.terms(); err != nil {
+		fmt.Fprintf(os.Stderr, "iridium install: %v\n", err)
+		return 2
+	}
+	if rf.noServer && len(rf.joins) == 0 {
+		fmt.Fprintln(os.Stderr, "iridium install: nothing to run: --no-server with no --join")
+		return 2
+	}
+	if rf.noServer && *pub != "" {
+		fmt.Fprintln(os.Stderr, "iridium install: -public needs this computer's Iridium (no --no-server)")
+		return 2
+	}
+	o := install.Options{Exe: exe, ConfigPath: cfgPath, Listen: *listen, UnitDir: unitDir, Unit: *unit, Path: os.Getenv("PATH"), Env: env, Now: *now, Out: os.Stdout, Args: rf.serveArgs()}
 	if runtime.GOOS == "windows" {
 		// A logon task of Task Scheduler, run as this user.
 		o.Task = true
@@ -87,6 +110,48 @@ func installCmd(args []string) int {
 		}
 	}
 	if err := install.Install(o); err != nil {
+		log.Print(err)
+		return 1
+	}
+	if *pub == "" {
+		return 0
+	}
+	if !*now {
+		fmt.Fprintln(os.Stderr, "iridium install: -public needs it started (no -now=false)")
+		return 2
+	}
+	return goPublic(exe, cfgPath, *pub)
+}
+
+// goPublic waits for the service just started to answer, then runs ir public --host host at this
+// terminal: Cloudflare's login is the person's to do; the rest is done and the first invite
+// printed.
+func goPublic(exe, cfgPath, host string) int {
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		log.Print(err)
+		return 1
+	}
+	fmt.Println("等待服务启动……")
+	end := time.Now().Add(30 * time.Second)
+	for {
+		if c, err := net.DialTimeout("unix", cfg.SocketPath(), time.Second); err == nil {
+			c.Close()
+			break
+		}
+		if time.Now().After(end) {
+			fmt.Fprintln(os.Stderr, "iridium install: 服务 30 秒内没有启动；之后可再运行 ir public --host "+host)
+			return 1
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	cmd := exec.Command(exe, "ir", "public", "--host", host)
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	cmd.Env = append(os.Environ(), "IRIDIUM_CONFIG="+cfgPath)
+	if err := cmd.Run(); err != nil {
+		if x, ok := err.(*exec.ExitError); ok {
+			return x.ExitCode()
+		}
 		log.Print(err)
 		return 1
 	}

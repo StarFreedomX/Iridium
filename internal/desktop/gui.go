@@ -43,7 +43,7 @@ type ui struct {
 	waiting bool   // the window waits on the app's page for this computer's Iridium to start
 }
 
-func gui() int {
+func gui(o Options) int {
 	logf := appLog()
 	loginEnv(logf)
 	// The app's own pages: web/src/appwin, built into assets/ui (npm run build:app).
@@ -51,7 +51,8 @@ func gui() int {
 	icon, _ := assets.ReadFile("assets/icon.png")
 	trayIcon, _ := assets.ReadFile("assets/tray.png")
 	u := &ui{}
-	u.joins = &Joins{Logf: logf, Changed: func() { application.InvokeAsync(u.redraw) }}
+	u.joins = &Joins{Logf: logf, Changed: func() { application.InvokeAsync(u.redraw) }, Record: &Record{Kind: "window"}}
+	u.joins.Record.save(nil)
 	u.joins.Ask = u.ask
 	u.joins.AskEach = u.askEach
 	u.joins.Widened = func(server string, shell bool, roots, off []string) {
@@ -86,10 +87,30 @@ func gui() int {
 	// This computer's own Iridium: put in the list and shown at the app's first start (kumo,
 	// 2026-11-22); on later starts the one shown last is, and the local one is kept at its address
 	// (its public one turned on or off).
+	first := !configExists()
 	if addr, err := localAddress(); err != nil {
 		logf("local: %v", err)
-	} else if first := !configExists(); first || c.local() != nil {
+	} else if !o.NoServer && (first || c.local() != nil) {
 		if c2, err := updateConfig(func(c *Config) { c.setLocal(addr, first) }); err == nil {
+			c = c2
+		}
+	}
+	// --join: in the list, joined, under the terms given; the first shown on a first start.
+	for i, a := range o.Join.Addrs {
+		s := o.Join.server(a, u.joins.Agents())
+		if c2, err := updateConfig(func(c *Config) {
+			if c.server(a) == nil {
+				c.Servers = append(c.Servers, Server{URL: a})
+			}
+			e := c.server(a)
+			e.Off, e.NoShell, e.Roots, e.AgentsOff = false, s.NoShell, s.Roots, s.AgentsOff
+			if o.Join.Name != "" {
+				c.Name = o.Join.Name
+			}
+			if first && i == 0 && c.local() == nil {
+				c.Current = a
+			}
+		}); err == nil {
 			c = c2
 		}
 	}
@@ -136,7 +157,7 @@ func gui() int {
 	u.tray.OnClick(u.show)
 	u.redraw()
 	u.joins.Sync(c)
-	if l := c.local(); l != nil {
+	if l := c.local(); l != nil && !o.NoServer {
 		go u.startLocal(l.URL, logf)
 	}
 	u.updates(c, logf)
