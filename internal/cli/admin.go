@@ -17,8 +17,6 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/sys/unix"
-
 	"github.com/kumoSleeping/iridium/internal/api"
 	"github.com/kumoSleeping/iridium/internal/config"
 	"github.com/kumoSleeping/iridium/internal/launchd"
@@ -67,11 +65,6 @@ func detect() (adminEnv, error) {
 	e.outTTY = isTerminal(os.Stdout) || isTerminal(os.Stderr)
 	e.client = socketClient(cfg.SocketPath())
 	return e, nil
-}
-
-func isTerminal(f *os.File) bool {
-	_, err := unix.IoctlGetTermios(int(f.Fd()), ioctlGetTermios)
-	return err == nil
 }
 
 func socketClient(path string) *http.Client {

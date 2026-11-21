@@ -19,7 +19,8 @@ type Config struct {
 	Listen string `json:"listen"`
 	// Socket is the unix socket (0600) the local ir talks to; "" is $XDG_RUNTIME_DIR/iridium/ir.sock.
 	Socket string `json:"socket,omitempty"`
-	// StateDir holds the database and the holders' directories; "" is $XDG_STATE_HOME/iridium.
+	// StateDir holds the database and the holders' directories; "" is $XDG_STATE_HOME/iridium
+	// (on Windows %LOCALAPPDATA%\Iridium\state).
 	StateDir string `json:"stateDir,omitempty"`
 	// Hosts are the Host names served besides localhost and the loopback addresses.
 	Hosts []string `json:"hosts,omitempty"`
@@ -113,9 +114,9 @@ func Default() Config {
 	}
 }
 
-// DefaultPath is $XDG_CONFIG_HOME/iridium/config.json.
+// DefaultPath is $XDG_CONFIG_HOME/iridium/config.json (on Windows %APPDATA%\Iridium\config.json).
 func DefaultPath() string {
-	return filepath.Join(xdg("XDG_CONFIG_HOME", ".config"), "iridium", "config.json")
+	return filepath.Join(configHome(), "config.json")
 }
 
 // Load reads path over the defaults; none there is the defaults. Unknown fields are an error, so
@@ -245,7 +246,7 @@ func (c Config) StatePath() string {
 	if c.StateDir != "" {
 		return c.StateDir
 	}
-	return filepath.Join(xdg("XDG_STATE_HOME", ".local/state"), "iridium")
+	return stateHome()
 }
 
 func (c Config) SocketPath() string {
