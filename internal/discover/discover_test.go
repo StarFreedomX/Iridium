@@ -13,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-
 	"github.com/kumoSleeping/iridium/internal/api"
 	"github.com/kumoSleeping/iridium/internal/hub"
 	"github.com/kumoSleeping/iridium/internal/store"
