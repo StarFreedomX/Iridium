@@ -11,24 +11,24 @@ import { agentName, cn, IconKey, Logo, SureKey, Switch } from "./ui";
 export default function AppPanel({ app }: { app: AppState }) {
   return (
     <div className="flex max-h-[min(620px,calc(100dvh-80px))] flex-col gap-4 overflow-y-auto p-3">
-      <Group
-        title={t("app.computer", { name: app.name })}
-        action={
-          // The app's own page: the Iridiums, one added and logged in to from the browser there.
-          <IconKey
-            label={t("app.add")}
-            className="-my-2 size-6"
-            onClick={() => ask("home")}
-          >
-            <Plus size={14} />
-          </IconKey>
-        }
-      >
+      {/* Two kinds (kumo, 2026-11-22): this computer's own Iridium, then each one it joins.
+          The app itself is the window, no third. */}
+      <Group title={t("app.serverGroup")}>
         <div className="flex flex-col gap-2">
-          {app.servers.map((s) => (
-            <ServerBox key={s.url} s={s} />
-          ))}
-          {!app.hasLocal && (
+          {app.servers
+            .filter((s) => s.local)
+            .map((s) => (
+              <ServerBox key={s.url} s={s} />
+            ))}
+          {app.hasLocal ? (
+            <Item label={t("app.server")}>
+              <Switch
+                label={t("app.server")}
+                on={app.server !== false}
+                onChange={(v) => ask("server", v ? "on" : "off")}
+              />
+            </Item>
+          ) : (
             // This computer's own Iridium, started and shown (internal/desktop/local.go).
             <Item label={t("app.runLocal")}>
               <button
@@ -43,13 +43,31 @@ export default function AppPanel({ app }: { app: AppState }) {
         </div>
       </Group>
 
+      <Group
+        title={t("app.joins")}
+        action={
+          // The app's own page: the Iridiums, one added and logged in to from the browser there.
+          <IconKey
+            label={t("app.add")}
+            className="-my-2 size-6"
+            onClick={() => ask("home")}
+          >
+            <Plus size={14} />
+          </IconKey>
+        }
+      >
+        <div className="flex flex-col gap-2">
+          {app.servers
+            .filter((s) => !s.local)
+            .map((s) => (
+              <ServerBox key={s.url} s={s} />
+            ))}
+        </div>
+      </Group>
+
       <Group title={t("app.title")}>
-        <Item label={t("app.server")}>
-          <Switch
-            label={t("app.server")}
-            on={app.server !== false}
-            onChange={(v) => ask("server", v ? "on" : "off")}
-          />
+        <Item label={t("app.computerName")}>
+          <span className="truncate text-sm text-ink-2">{app.name}</span>
         </Item>
         <Item label={t("app.autostart")}>
           <Switch

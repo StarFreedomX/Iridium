@@ -13,6 +13,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRowMenu } from "../apps";
 import { cn, IrMark, MAC } from "../ui";
 import { ask, clipboardKeys, followTheme, onAnswer, whenReady } from "./bridge";
+import { Fold, useFolding } from "./fold";
 
 type Server = {
   url: string;
@@ -28,6 +29,7 @@ type Note = { text: string; error?: boolean; server?: string };
 export function Login() {
   const [servers, setServers] = useState<Server[] | null>(null);
   const [hasLocal, setHasLocal] = useState(true);
+  const rows = useFolding(servers, (s) => s.url);
   const [adding, setAdding] = useState(false);
   const [address, setAddress] = useState("");
   const [busy, setBusy] = useState(""); // the server being logged in to; "+" one typed
@@ -85,22 +87,25 @@ export function Login() {
           servers === null && "invisible",
         )}
       >
-        <div className="flex w-[min(360px,calc(100vw-32px))] flex-col gap-1">
-          {servers?.map((s) => (
-            <ServerRow
-              key={s.url}
-              s={s}
-              busy={busy === s.url || (!!s.local && s.status === "启动中")}
-              note={note && note.server === s.url ? note : null}
-              press={() =>
-                s.loggedIn ? ask("ir:open:" + s.url) : login(s.url, s.url)
-              }
-              remove={() => ask("ir:remove:" + s.url)}
-            />
+        <div className="flex w-[min(360px,calc(100vw-32px))] flex-col">
+          {rows.map(({ item: s, key, state }) => (
+            <Fold key={key} state={state}>
+              <div className="pb-1">
+                <ServerRow
+                  s={s}
+                  busy={busy === s.url || (!!s.local && s.status === "启动中")}
+                  note={note && note.server === s.url ? note : null}
+                  press={() =>
+                    s.loggedIn ? ask("ir:open:" + s.url) : login(s.url, s.url)
+                  }
+                  remove={() => ask("ir:remove:" + s.url)}
+                />
+              </div>
+            </Fold>
           ))}
 
-          {!hasLocal && (
-            // This computer's own Iridium, started and shown (internal/desktop/local.go).
+          {/* This computer's own Iridium, started and shown (internal/desktop/local.go). */}
+          <Fold state={hasLocal ? "out" : "in"}>
             <button
               type="button"
               onClick={() => (setNote(null), ask("ir:local"))}
@@ -111,7 +116,7 @@ export function Login() {
               </span>
               在本机运行 Iridium
             </button>
-          )}
+          </Fold>
           {typing ? (
             <form
               className="g-fade mt-1 flex flex-col gap-2"

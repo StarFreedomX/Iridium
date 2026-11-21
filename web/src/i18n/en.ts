@@ -897,7 +897,10 @@ export const en: Dict = {
   "app.shown": "in the window",
   "app.removeSure": "Remove?",
   "app.local": "This computer",
-  "app.server": "This computer's Iridium",
+  "app.server": "Running",
+  "app.serverGroup": "Server",
+  "app.joins": "Joined",
+  "app.computerName": "This computer",
   "app.runLocal": "Run Iridium on this computer",
   "app.run": "Run",
 };

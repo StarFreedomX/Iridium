@@ -25,3 +25,15 @@ func IsRelease(v string) bool {
 	}
 	return true
 }
+
+// Short is v as people read it: no build metadata (+g1a2b3c.dirty) and no count of commits past
+// the tag (kumo, 2026-11-22: no rubbish after the number). v0.2.48-dev.43+gd7491c4.dirty is
+// v0.2.48-dev; v0.2.48 is itself.
+func Short(v string) string {
+	v, _, _ = strings.Cut(v, "+")
+	if base, pre, ok := strings.Cut(v, "-"); ok {
+		pre, _, _ = strings.Cut(pre, ".")
+		return base + "-" + pre
+	}
+	return v
+}

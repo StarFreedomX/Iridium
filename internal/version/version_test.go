@@ -13,3 +13,11 @@ func TestIsRelease(t *testing.T) {
 		}
 	}
 }
+
+func TestShort(t *testing.T) {
+	for in, want := range map[string]string{"v0.2.48-dev.43+gd7491c4.dirty": "v0.2.48-dev", "v0.2.48": "v0.2.48", "dev": "dev", "v1.0.0+x": "v1.0.0"} {
+		if got := Short(in); got != want {
+			t.Errorf("Short(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

@@ -118,7 +118,7 @@ func gui(o Options) int {
 	}
 	u.win = u.app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name: "main", Title: "Iridium", Width: 1200, Height: 800, MinWidth: 360, MinHeight: 480,
-		URL: start, CSS: pageCSS,
+		URL: start, CSS: pageCSS, JS: pageJS,
 		// No title bar of its own on macOS (kumo, 2026-11-20: no line under it): the page goes up to
 		// the window's top, the window dragged by that strip (pageCSS keeps it clear).
 		Mac: application.MacWindow{TitleBar: application.MacTitleBarHidden, InvisibleTitleBarHeight: macBar},
@@ -264,6 +264,14 @@ func (u *ui) message(w application.Window, msg string, o *application.OriginInfo
 	server := serverOf(c, origin)
 	verb, arg, _ := strings.Cut(strings.TrimPrefix(msg, "ir:"), ":")
 	if !strings.HasPrefix(msg, "ir:") {
+		return
+	}
+	if verb == "jserror" {
+		// What went wrong in a page the window shows (pageJS), for the log: nothing is done on it.
+		if len(arg) > 2000 {
+			arg = arg[:2000]
+		}
+		logf("page %q: %s", origin, arg)
 		return
 	}
 	logf("message %s from %q", verb, origin)
@@ -511,7 +519,7 @@ func (u *ui) hello(c Config, server string) map[string]any {
 	u.mu.Lock()
 	ready := u.ready
 	u.mu.Unlock()
-	return map[string]any{"app": "ir-app", "version": version.Version, "name": name, "servers": list, "autostart": auto, "update": ready, "hasLocal": c.local() != nil, "server": !c.NoServer}
+	return map[string]any{"app": "ir-app", "version": version.Short(version.Version), "name": name, "servers": list, "autostart": auto, "update": ready, "hasLocal": c.local() != nil, "server": !c.NoServer}
 }
 
 // terms are what a page may ask to change of this computer for its Iridium: narrowing is done at
@@ -732,42 +740,57 @@ func (u *ui) redraw() {
 	m := u.menu
 	m.Clear()
 	cur := c.current()
-	for _, s := range c.Servers {
-		host := hostOf(s.URL)
-		state := "未接入"
-		if s.Local {
-			host, state = "本机", u.localStatus()
-		} else if !s.Off {
-			state = brief(u.joins.Status(s.URL))
-		}
-		sub := m.AddSubmenu(fmt.Sprintf("%s · %s", host, state))
-		show := sub.AddCheckbox("在窗口中显示", s.URL == cur)
-		show.OnClick(func(*application.Context) {
+	show := func(sub *application.Menu, s Server) {
+		sub.AddCheckbox("在窗口中显示", s.URL == cur).OnClick(func(*application.Context) {
 			u.switchTo(s.URL)
 			u.show()
 		})
-		if !s.Local {
-			on := sub.AddCheckbox("接入这台电脑", !s.Off)
-			on.OnClick(func(*application.Context) {
-				if c, err := updateConfig(func(c *Config) { c.setOff(s.URL, !s.Off) }); err == nil {
-					u.joins.Sync(c)
-					application.InvokeAsync(u.redraw)
-				}
-			})
-		}
-		sub.AddSeparator()
-		sub.Add("移除").OnClick(func(*application.Context) {
-			if c, err := updateConfig(func(c *Config) { c.remove(s.URL) }); err == nil {
-				u.joins.Sync(c)
-				u.win.SetURL(pageOf(c))
-				application.InvokeAsync(u.redraw)
-			}
-		})
 	}
-	if c.local() == nil {
+	// Two kinds (kumo, 2026-11-22): this computer's own Iridium (the server), then each Iridium
+	// this computer joins or shows. The window itself is no third: the app is built on it.
+	m.Add("服务端").SetEnabled(false)
+	if l := c.local(); l != nil {
+		state := u.localStatus()
+		if c.NoServer {
+			state = "已关闭"
+		}
+		sub := m.AddSubmenu("本机 · " + state)
+		show(sub, *l)
+		sub.AddCheckbox("运行", !c.NoServer).OnClick(func(*application.Context) {
+			on := c.NoServer
+			if SetServer(on) == nil && on {
+				go u.startLocal(l.URL, appLog())
+			}
+			application.InvokeAsync(u.redraw)
+		})
+	} else {
 		m.Add("在本机运行 Iridium").OnClick(func(*application.Context) {
 			_ = u.useLocal(appLog())
 			u.show()
+		})
+	}
+	m.AddSeparator()
+	m.Add("接入").SetEnabled(false)
+	for _, s := range c.Servers {
+		if s.Local {
+			continue
+		}
+		state := "未接入"
+		if !s.Off {
+			state = brief(u.joins.Status(s.URL))
+		}
+		sub := m.AddSubmenu(fmt.Sprintf("%s · %s", hostOf(s.URL), state))
+		show(sub, s)
+		sub.AddCheckbox("接入这台电脑", !s.Off).OnClick(func(*application.Context) {
+			_, _ = updateConfig(func(c *Config) { c.setOff(s.URL, !s.Off) })
+			application.InvokeAsync(u.redraw)
+		})
+		sub.AddSeparator()
+		sub.Add("移除").OnClick(func(*application.Context) {
+			if c, err := updateConfig(func(c *Config) { c.remove(s.URL) }); err == nil {
+				u.win.SetURL(pageOf(c))
+				application.InvokeAsync(u.redraw)
+			}
 		})
 	}
 	m.Add("添加服务器…").OnClick(func(*application.Context) {
@@ -790,15 +813,13 @@ func (u *ui) redraw() {
 	ready := u.ready
 	u.mu.Unlock()
 	if ready != "" {
-		m.Add("重启以更新到 " + ready).OnClick(func(*application.Context) { u.restartApp() })
+		m.Add("重启以更新到 " + version.Short(ready)).OnClick(func(*application.Context) { u.restartApp() })
 	}
 	m.AddSeparator()
-	m.Add(fmt.Sprintf("Iridium %s", version.Version)).SetEnabled(false)
+	m.Add("Iridium " + version.Short(version.Version)).SetEnabled(false)
 	m.Add("退出").OnClick(func(*application.Context) { u.app.Quit() })
 	m.Update()
 }
-
-// updates: the app's own releases looked for now and every six hours; a newer one is fetched at
 
 func hostOf(address string) string {
 	if p, err := url.Parse(address); err == nil && p.Host != "" {
@@ -857,6 +878,17 @@ var pageCSS = func() string {
 	}
 	return css
 }()
+
+// pageJS is put in every page the window shows: its errors, and a page still empty some seconds
+// after it loaded, go to the app's log (ir:jserror), there being no console to read in the app.
+const pageJS = `(function(){
+var q=[];function send(m){m=String(m).slice(0,2000);var w=window._wails;if(w&&w.invoke){try{w.invoke("ir:jserror:"+m)}catch(e){}}else{q.push(m)}}
+setInterval(function(){var w=window._wails;while(q.length&&w&&w.invoke){w.invoke("ir:jserror:"+q.shift())}},1000);
+addEventListener("error",function(e){send((e.message||"error")+" @ "+(e.filename||"")+":"+(e.lineno||"")+(e.error&&e.error.stack?"\n"+e.error.stack:""))},true);
+addEventListener("unhandledrejection",function(e){var r=e.reason;send("unhandled: "+(r&&(r.stack||r.message)||r))});
+var ce=console.error;console.error=function(){try{send("console.error: "+Array.prototype.map.call(arguments,String).join(" "))}catch(e){}return ce.apply(console,arguments)};
+addEventListener("load",function(){setTimeout(function(){var r=document.getElementById("root");if(r&&!r.children.length)send("empty page: "+location.href)},6000)});
+})();`
 
 // zoomKeys: the window's zoom by the browser's keys (⌘= or ⌘+ larger, ⌘- smaller, ⌘0 as it was;
 // Ctrl on Windows and Linux), kept for the next start (kumo, 2026-11-20).

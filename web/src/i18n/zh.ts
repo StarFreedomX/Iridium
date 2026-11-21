@@ -897,7 +897,10 @@ export const zh = {
   "app.shown": "窗口中",
   "app.removeSure": "确认移除",
   "app.local": "本机",
-  "app.server": "本机服务器",
+  "app.server": "运行",
+  "app.serverGroup": "服务端",
+  "app.joins": "接入",
+  "app.computerName": "这台电脑",
   "app.runLocal": "在本机运行 Iridium",
   "app.run": "运行",
 } as const;

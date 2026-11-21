@@ -35,6 +35,13 @@ let state: AppState | null = null;
 const told = new Set<() => void>();
 const bridge = () => (window as unknown as { _wails?: Bridge })._wails;
 
+/** Asks the app: verb, and what it is about. A function declaration, not a const: the module's
+ *  own first lines ask already (tellTheme), before a const below them would be set, and that threw
+ *  on the page's load, leaving it blank (kumo, 2026-11-22). */
+export function ask(verb: string, arg = "") {
+  return bridge()?.invoke(`ir:${verb}${arg ? ":" + arg : ""}`);
+}
+
 window.addEventListener("ir-app", (e) => {
   const d = (e as CustomEvent).detail as Partial<AppState>;
   // A full state, or only what an ask came to.
@@ -71,10 +78,6 @@ new MutationObserver(tellTheme).observe(document.documentElement, {
 });
 window.addEventListener("wails:runtime-config-ready", tellTheme);
 tellTheme();
-
-/** Asks the app: verb, and what it is about. */
-export const ask = (verb: string, arg = "") =>
-  bridge()?.invoke(`ir:${verb}${arg ? ":" + arg : ""}`);
 
 /** The app's state; null: not in the app. */
 export const useApp = () =>
