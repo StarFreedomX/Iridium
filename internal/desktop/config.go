@@ -32,6 +32,9 @@ type Server struct {
 	Avatar string `json:"avatar,omitempty"`
 	// Face: the Iridium's own (GET /v1/internal/face, a data: URL), what stands for it in the list.
 	Face string `json:"face,omitempty"`
+	// Proxy: this computer's iridium is fetched through this Iridium when it follows its release
+	// (ir join --proxy), not from GitHub.
+	Proxy bool `json:"proxy,omitempty"`
 }
 
 // Config is the app's own, kept on this computer: what it joins and how. What an Iridium may do
@@ -42,6 +45,8 @@ type Config struct {
 	Name    string   `json:"name,omitempty"`    // this computer's name; "": the host name
 	Theme   string   `json:"theme,omitempty"`   // "dark" or "light", as the Iridium's page last was
 	Zoom    float64  `json:"zoom,omitempty"`    // the window's, as last set (⌘= ⌘- ⌘0); 0: 1
+	// NoServer: no Iridium of this computer's own (ir server off, ir start --no-server).
+	NoServer bool `json:"noServer,omitempty"`
 }
 
 var cfgMu sync.Mutex

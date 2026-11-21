@@ -34,42 +34,15 @@ func installCmd(args []string) int {
 	fs := flag.NewFlagSet("install", flag.ExitOnError)
 	var rf runFlags
 	rf.register(fs)
-	path := &rf.config
 	pub := fs.String("public", "", "this computer's Iridium on the internet at this address, through Cloudflare")
 	now := fs.Bool("now", true, "start the service now too")
 	listen := fs.String("listen", "", "the address a config made now listens on (default 127.0.0.1:7810)")
 	reload := fs.Bool("reload", true, "run systemctl --user daemon-reload")
 	unit := fs.String("unit", "iridium", "the unit's name (tests: iridium-test-*)")
-	home, _ := os.UserHomeDir()
-	defPrefix, defBin := filepath.Join(home, ".local", "opt", "iridium"), filepath.Join(home, ".local", "bin")
-	if runtime.GOOS == "windows" {
-		// %LOCALAPPDATA%\Iridium: the binary and ir.cmd, that folder put on the user's Path.
-		if d := os.Getenv("LOCALAPPDATA"); d != "" {
-			defPrefix = filepath.Join(d, "Iridium")
-		}
-		defBin = defPrefix
-	}
-	prefix := fs.String("prefix", defPrefix, "where the binary is kept (copied there when it runs from elsewhere)")
-	bin := fs.String("bin", defBin, `where the ir link goes; "" none`)
+	prefix, bin := placeFlags(fs)
 	var env envFlag
 	fs.Var(&env, "env", "NAME=VALUE the service runs with too (repeatable)")
 	fs.Parse(args)
-	exe, err := os.Executable()
-	if err == nil {
-		exe, err = filepath.EvalSymlinks(exe)
-	}
-	if err == nil {
-		exe, err = install.Place(exe, *prefix, *bin)
-	}
-	if err != nil {
-		log.Print(err)
-		return 1
-	}
-	cfgPath, _ := filepath.Abs(*path)
-	unitDir := filepath.Join(home, ".config", "systemd", "user")
-	if d := os.Getenv("XDG_CONFIG_HOME"); d != "" {
-		unitDir = filepath.Join(d, "systemd", "user")
-	}
 	if fs.NArg() > 0 {
 		fmt.Fprintf(os.Stderr, "iridium install: %q is not an option\n", fs.Arg(0))
 		return 2
@@ -86,7 +59,70 @@ func installCmd(args []string) int {
 		fmt.Fprintln(os.Stderr, "iridium install: -public needs this computer's Iridium (no --no-server)")
 		return 2
 	}
-	o := install.Options{Exe: exe, ConfigPath: cfgPath, Listen: *listen, UnitDir: unitDir, Unit: *unit, Path: os.Getenv("PATH"), Env: env, Now: *now, Out: os.Stdout, Args: rf.serveArgs()}
+	s := service{config: rf.config, unit: *unit, prefix: *prefix, bin: *bin, env: env, now: *now, reload: *reload, listen: *listen, args: rf.serveArgs()}
+	exe, err := s.register()
+	if err != nil {
+		log.Print(err)
+		return 1
+	}
+	if *pub == "" {
+		return 0
+	}
+	if !*now {
+		fmt.Fprintln(os.Stderr, "iridium install: -public needs it started (no -now=false)")
+		return 2
+	}
+	cfgPath, _ := filepath.Abs(rf.config)
+	return goPublic(exe, cfgPath, *pub)
+}
+
+// placeFlags are where the binary is kept and where ir goes (install, ir start).
+func placeFlags(fs *flag.FlagSet) (prefix, bin *string) {
+	home, _ := os.UserHomeDir()
+	defPrefix, defBin := filepath.Join(home, ".local", "opt", "iridium"), filepath.Join(home, ".local", "bin")
+	if runtime.GOOS == "windows" {
+		// %LOCALAPPDATA%\Iridium: the binary and ir.cmd, that folder put on the user's Path.
+		if d := os.Getenv("LOCALAPPDATA"); d != "" {
+			defPrefix = filepath.Join(d, "Iridium")
+		}
+		defBin = defPrefix
+	}
+	prefix = fs.String("prefix", defPrefix, "where the binary is kept (copied there when it runs from elsewhere)")
+	bin = fs.String("bin", defBin, `where the ir link goes; "" none`)
+	return prefix, bin
+}
+
+// service is the user's service of iridium's: the unit (systemd), LaunchAgent (macOS) or logon
+// task (Windows) that runs command (serve, or ir start's run) with args.
+type service struct {
+	config, unit, prefix, bin string
+	env                       []string
+	now, reload, restart      bool
+	listen, command           string
+	args                      []string
+}
+
+// register places the binary (internal/install.Place) and writes the service, started with now
+// (again, with restart, if it runs). It gives where the binary is.
+func (s service) register() (string, error) {
+	home, _ := os.UserHomeDir()
+	exe, err := os.Executable()
+	if err == nil {
+		exe, err = filepath.EvalSymlinks(exe)
+	}
+	if err == nil {
+		exe, err = install.Place(exe, s.prefix, s.bin)
+	}
+	if err != nil {
+		return "", err
+	}
+	cfgPath, _ := filepath.Abs(s.config)
+	unitDir := filepath.Join(home, ".config", "systemd", "user")
+	if d := os.Getenv("XDG_CONFIG_HOME"); d != "" {
+		unitDir = filepath.Join(d, "systemd", "user")
+	}
+	o := install.Options{Exe: exe, ConfigPath: cfgPath, Listen: s.listen, UnitDir: unitDir, Unit: s.unit, Path: os.Getenv("PATH"), Env: s.env,
+		Now: s.now, Restart: s.restart, Out: os.Stdout, Command: s.command, Args: s.args}
 	if runtime.GOOS == "windows" {
 		// A logon task of Task Scheduler, run as this user.
 		o.Task = true
@@ -100,27 +136,16 @@ func installCmd(args []string) int {
 		}
 	} else if runtime.GOOS == "darwin" {
 		// A LaunchAgent; launchd gives it a bare PATH, so the agents' is written into it.
-		o.Launchd, o.UnitDir, o.Log = true, launchd.Dir(home), launchd.LogFile(home, *unit)
+		o.Launchd, o.UnitDir, o.Log = true, launchd.Dir(home), launchd.LogFile(home, s.unit)
 		o.Launchctl, o.Domain = launchd.Run, launchd.Domain(context.Background())
-	} else if *reload || *now {
+	} else if s.reload || s.now {
 		o.Systemctl = func(args ...string) error {
 			cmd := exec.Command("systemctl", append([]string{"--user"}, args...)...)
 			cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 			return cmd.Run()
 		}
 	}
-	if err := install.Install(o); err != nil {
-		log.Print(err)
-		return 1
-	}
-	if *pub == "" {
-		return 0
-	}
-	if !*now {
-		fmt.Fprintln(os.Stderr, "iridium install: -public needs it started (no -now=false)")
-		return 2
-	}
-	return goPublic(exe, cfgPath, *pub)
+	return exe, install.Install(o)
 }
 
 // goPublic waits for the service just started to answer, then runs ir public --host host at this

@@ -1,25 +1,30 @@
 // Package desktop is Iridium's desktop app (docs/app.md), part of the one binary: a window on an
 // Iridium's page (at first the one on this computer, which it starts), a tray icon, and this
 // computer joined to the other Iridiums in its list, as ir-computer joins (internal/join).
-// With no window (iridium serve --join), RunJoins runs the joins alone.
+// The joins and this computer's Iridium run in the runtime (runtime.go), the window only shows it;
+// with no window (ir serve --join), RunJoins runs the joins alone.
 package desktop
 
 import (
 	"os"
+	"os/exec"
 	"runtime"
-
-	"github.com/wailsapp/wails/v3/pkg/updater"
+	"strconv"
+	"time"
 )
 
 const usage = "usage: iridium --join <address> [--name <name>] [--roots <dir>,...] [--no-shell] [--agents <agent>,...]\n"
 
-// HandleUpdateHelper: started by an update to swap the program for the new one, it does that and
-// exits. First thing in main.
-func HandleUpdateHelper() { updater.HandleHelperMode() }
-
 // Main is the window, with the tray; it returns when the app quits.
 func Main(o Options) int {
 	hideConsole()
+	// Started again by the one before it (restartApp): that one ends first.
+	if pid, err := strconv.Atoi(os.Getenv("IRIDIUM_WAIT_PID")); err == nil {
+		os.Unsetenv("IRIDIUM_WAIT_PID")
+		for end := time.Now().Add(10 * time.Second); alive(pid) && time.Now().Before(end); {
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
 	return gui(o)
 }
 
@@ -31,4 +36,10 @@ func CanShow() bool {
 		return true
 	}
 	return os.Getenv("DISPLAY") != "" || os.Getenv("WAYLAND_DISPLAY") != ""
+}
+
+// Detach starts cmd apart from this process: quitting it leaves cmd running.
+func Detach(cmd *exec.Cmd) {
+	detach(cmd)
+	quiet(cmd)
 }

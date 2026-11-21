@@ -59,7 +59,6 @@ jobs:
       - name: build
         env:
           VERSION: ${{ github.ref_name }}
-          IR_APP_UPDATE_KEY: ${{ secrets.IR_APP_UPDATE_KEY }}
         run: scripts/release.sh "$VERSION" dist
       - uses: actions/upload-artifact@v4
         with:
@@ -68,7 +67,7 @@ jobs:
           retention-days: 1
 
   # The macOS app: Iridium.app around the macOS binaries, signed whole (ad hoc) with codesign, and
-  # the signed manifest the app updates from. A release goes out without them if this fails.
+  # their sums added to SHA256SUMS. A release goes out without them if this fails.
   mac:
     needs: build
     runs-on: macos-latest
@@ -86,14 +85,12 @@ jobs:
       - name: bundle
         env:
           VERSION: ${{ github.ref_name }}
-          IR_APP_SIGN_KEY: ${{ secrets.IR_APP_SIGN_KEY }}
         run: |
           scripts/app-bundle.sh "$VERSION" dist
           mkdir dist-mac
           mv dist/iridium-app-darwin-* dist-mac/
           # SHA256SUMS with the app zips' sums added (the install script checks them).
           cp dist/SHA256SUMS dist-mac/
-          [ ! -f dist/update.json ] || mv dist/update.json dist/update.json.sig dist-mac/
       - uses: actions/upload-artifact@v4
         with:
           name: dist-mac
@@ -129,7 +126,7 @@ jobs:
         run: |
           pre=""
           case "$VERSION" in *-*) pre="--prerelease" ;; esac
-          gh release create "$VERSION" dist/*.tar.gz dist/iridium-app-* dist/ir-computer-* dist/install.sh dist/install.ps1 dist/SHA256SUMS $(ls dist/update.json dist/update.json.sig 2>/dev/null) \
+          gh release create "$VERSION" dist/*.tar.gz dist/iridium-app-* dist/ir-computer-* dist/install.sh dist/install.ps1 dist/SHA256SUMS \
             --title "$VERSION" --notes-file dist/notes.md $pre
       # The dsh plugin (plugins/dsh-remote-iridium) goes to npm at Iridium's version, so dsh's
       # 添加插件 takes it by name. Releases only. npm trusts this workflow (Trusted Publishing,

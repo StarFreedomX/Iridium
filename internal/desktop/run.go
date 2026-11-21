@@ -24,6 +24,7 @@ type Terms struct {
 	Roots   []string // the only folders served (absolute); none: all
 	NoShell bool     // no command lines
 	Agents  []string // the only agents started; none: all
+	Proxy   bool     // fetch iridium through them (Server.Proxy)
 }
 
 // ParseTerms makes Terms of the flags' words: addresses normalized, folders made absolute.
@@ -57,7 +58,7 @@ func ParseTerms(addrs []string, name, roots string, noShell bool, agents string)
 
 // server is the list's entry for address under these terms, joined.
 func (t Terms) server(address string, agents []wire.AgentInfo) Server {
-	s := Server{URL: address, NoShell: t.NoShell, Roots: t.Roots}
+	s := Server{URL: address, NoShell: t.NoShell, Roots: t.Roots, Proxy: t.Proxy}
 	if len(t.Agents) > 0 {
 		for _, a := range agents {
 			if !slices.Contains(t.Agents, a.Agent) {

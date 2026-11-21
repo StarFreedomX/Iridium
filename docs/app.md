@@ -4,26 +4,30 @@
 
 用 Wails v3 的纯 Go 后端，不用 cgo，三个系统都在 Linux 上交叉编译。Wails 是 `third_party/wails` 里改过的副本（`PATCHES.md`）：图形库在开窗口时才加载，服务、托管进程、`ir` 都不碰。`ir-computer` 和一行命令先保留（用户，2026-11-20）。
 
-## 启动参数（2026-11-22）
+## 运行时和命令（2026-11-22）
 
-一个程序做三样事：窗口、本机的 Iridium（服务器）、把这台电脑接入别的 Iridium（执行器）。`iridium` 默认全开，参数只减功能，`--join` 加要接入的地址（用户，2026-11-22）。
+先把 ir 起起来（运行时），再选开哪几样（用户，2026-11-22）：本机服务器（放出别人能加入的网页）、接入别的服务器（执行器）、有头还是无头（开不开窗口）。对外只有 `ir` 一个命令，程序文件叫 `iridium`（`iridium ir …` 一样）。
 
 | 命令 | 结果 |
 |---|---|
-| `iridium` | 全功能；没有图形界面时打印用法 |
-| `iridium serve` | 不开窗口：本机服务器 + `--join` 的接入。纯服务端就是它 |
-| `iridium serve --no-server --join A` | 纯执行器（原 `ir-computer`）；没有图形界面时 `iridium --no-server --join A` 也一样 |
-| `iridium --no-server` | 只开窗口，看别的 Iridium |
-| `iridium install [同样的参数] [-public <地址>]` | 把 `serve` 加这些参数写进用户服务并启动（`-now=false` 不启动）；`-public` 再上公网，见下 |
-| `iridium uninstall` | 停掉并去掉那个服务，程序、配置、状态都留着 |
-| `iridium status` | 版本、本机服务器、服务、窗口、每个接入的状态 |
+| `ir start [--headless] [--no-server] [--join A [筛选]]…` | 把运行时注册成用户服务（systemd、LaunchAgent、登录时运行的计划任务）并启动，已在跑就换上这个程序重启；有图形界面且没有 `--headless` 时再开窗口 |
+| `ir stop` | 停掉并去掉服务，设置、程序、状态都留着 |
+| `ir server on\|off` | 本机服务器开关 |
+| `ir join A [--name] [--roots a,b] [--no-shell] [--agents a,b] [--proxy]` | 常驻接入 A，累加，各地址各自的筛选；ir 没在跑就先起来（从没用过 ir 的机器默认不开本机服务器） |
+| `ir leave A` | 不再接入 A |
+| `ir status` | 版本、服务、运行时、本机服务器、每个接入、窗口 |
+| `ir serve [--no-server] [--join A]…` | 前台跑，关终端就停；Docker、调试用 |
 
-- 筛选对 `--join` 的每个 Iridium 都一样：`--name`、`--roots a,b`、`--no-shell`、`--agents claude,codex`。
-- 开窗口时接入哪些看设置（右上角每个 Iridium 的接入开关），`--join` 的加进列表；不开窗口时只接入 `--join` 写的。
-- 不开窗口时，执行器和服务器在同一个进程里，跟着它停；只有执行器时，执行器跟它的 Iridium 的版本自己更新。窗口里的执行器跟着应用退出。退出后还要被调用，另外 `iridium install --no-server --join A`。
-- 旧的写法留作别名，不写进用法：`version`、`app`、`join <地址>`、`headless`（都换成上面的参数）。
-- `status` 读每个在跑的 iridium 进程写的 `<应用配置目录>/run/<pid>.json`（窗口或 serve，各自的接入状态），进程不在了就删掉。
-- `install -public ir.example.com`：服务起来后在这个终端里跑 `ir public --host ir.example.com`：Cloudflare 登录要人点一次（链接和二维码），子域名不再问，建隧道、加 DNS、起隧道服务、从外网检查，最后打印第一个邀请。已有同名 DNS 记录时照旧停下来问。
+- 设置就是应用的 `app.json`（`NoServer`、每个服务器的接入开关和筛选），窗口右上角改的也是它。运行时（`iridium run`）每 2 秒看一次，变了就照着做：本机服务器是它的子进程 `iridium serve`，接入在它自己的进程里。
+- 窗口只是运行时的界面：接入的状态读运行时的记录（`<应用配置目录>/run/<pid>.json`），关窗口、退出窗口都不影响服务器和接入。窗口打开时，本机还没起来就先 `ir start --headless`。
+- 服务器请求放开权限时，运行时把请求写成 `run/ask-*.json`，窗口弹面板回答（`answer-*.json`）；没开窗口或 5 分钟没答就是拒绝。
+- `start`、`stop`、`server`、`join`、`leave` 改的是开机自启和接入，agent 不能替人跑（看 `CLAUDECODE` 和会话的环境变量）。
+- 程序换了（自更新），运行时重新执行自己；窗口发现磁盘上的程序是新版本，托盘出现“重启以更新”。
+- 旧写法留作别名：`iridium install`（只装 `serve` 的服务，服务器用）、`uninstall`、`version`、`headless`、`app`。
+
+## 安装（一行命令）
+
+curl 只装程序，`sh -s --` 后面的交给 `ir`。见 `docs/exec.md`。
 
 ## 本机（2026-11-22）
 
@@ -63,26 +67,19 @@
 
 ## 更新
 
-和服务器同一次发版、同一个版本号（2026-11-22 起）：发布里 `iridium-app-darwin-<arch>.zip`（Iridium.app）、`iridium-app-windows-<arch>.exe`、`iridium-app-linux-<arch>`，加 `update.json` 和签名。
-
-- 清单 `update.json`：`app`（`ir-app`）、`version`、每个系统的文件（`os`、`arch`、`url`、`size`、`sha256`），整份用应用的 ed25519 私钥签名，签名在 `update.json.sig`（base64）。版本号也在签名里，旧版冒充不了新版。
-- 公钥构建时写进程序（`-X …/internal/desktop.updateKey`，CI 的 `IR_APP_UPDATE_KEY`），没有公钥的构建不自己更新。私钥只在发版的地方（CI 的 `IR_APP_SIGN_KEY`）。
-- 先问列表里每个服务器的 `/app/update.json`（服务器代理 GitHub，还没做），再问 GitHub 最新发布的 `update.json`。启动时查一次，之后每 6 小时。
-- 窗口版：新版下载、校验后放好，托盘出现“重启以更新到 x”，点了才换（正在跑的 agent 会结束）。换的是 Wails 自带的（Mac 换整个 .app）。
-- 无头版：校验后替换自己的文件，下次启动生效（服务重启、开机），不自己重启。
-- 安卓（以后）：下载 APK 后交给系统安装器（`PackageInstaller`），要用户点安装。
+桌面应用不再自己更新（2026-11-22）：程序只有一份，本机服务器的自更新（`internal/update`）换掉它；Mac 上换的是 .app 里的程序，换完用系统的 `codesign` 把整个 .app 重新签一次（临时签名）。执行器跟它接入的服务器的版本走（默认从 GitHub 下，`--proxy` 经那台服务器）。
 
 ## 构建
 
 Mac 的 .app 必须整个签名（临时签名，不用 Apple ID）：只有 Go 链接器给程序的那个签名、Info.plist 和资源没封装时，下载来的会被说成“已损坏”，设置里也打不开（2026-11-20 实测）。整个签了以后是“无法验证开发者”，系统设置 → 隐私与安全性里能“仍要打开”。脚本在有 `codesign`（Mac）或 `rcodesign` 的机器上签，都没有就警告：发版要在 Mac 上（CI 的 macOS 机器）打包。
 
-`scripts/release.sh` 出各系统的 `iridium-<系统>-<arch>.tar.gz`，Linux、Windows 另出裸的 `iridium-app-*`；`scripts/app-bundle.sh <版本> <目录>` 在 Mac 上（CI 的 macOS 机器）把 macOS 的二进制包成 Iridium.app、签名、压缩，有 `IR_APP_SIGN_KEY` 时再出清单和签名。密钥 `go run ./internal/desktop/sign keygen`。应用自己的页面先 `npm run build:app`。大小（去符号）：Linux 30MB，Mac 29MB（压缩 13MB），Windows 31MB。
+`scripts/release.sh` 出各系统的 `iridium-<系统>-<arch>.tar.gz`，Linux、Windows 另出裸的 `iridium-app-*`；`scripts/app-bundle.sh <版本> <目录>` 在 Mac 上（CI 的 macOS 机器）把 macOS 的二进制包成 Iridium.app、签名、压缩，把它们的校验和加进 `SHA256SUMS`。应用自己的页面先 `npm run build:app`。大小（去符号）：Linux 30MB，Mac 29MB（压缩 13MB），Windows 31MB。
 
 ## 还没做
 
 - 浏览器登录时顺带完成执行端配对（现在登录后网页里还要再批一次配对卡片）。
 - 弹窗里的通知、密钥存储（TOKEN 进钥匙串）。
-- 服务器的 `/app/update.json` 代理、电脑列表里的“应用”标志。
+- 电脑列表里的“应用”标志。
 - Windows 服务器在真机上还没跑过（2026-11-22 按逻辑写完，小问题以后由用到的人修）。
 - 本机开了公网地址后，回环地址不再放行：本机一项改用公网地址，要在浏览器里登录一次。
 - 截屏、键鼠（`screen.*`、`input.*`），本机操作记录。

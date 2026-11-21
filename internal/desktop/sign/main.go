@@ -1,42 +1,25 @@
-// Command sign makes the desktop app's release files (scripts/app-bundle.sh), run from the
-// repository's root: the macOS bundle, and the signed manifest an app updates from (docs/app.md
-// "更新").
+// Command sign makes the desktop app's macOS release files (scripts/app-bundle.sh), run from the
+// repository's root:
 //
-//	go run ./internal/desktop/sign keygen                       a key: the private half (base64) out, the public on stderr
 //	go run ./internal/desktop/sign bundle <binary> <dir> <ver>  Iridium.app around a macOS binary, in dir
 //	go run ./internal/desktop/sign zip <app> <zip>              a bundle zipped as it is (signed, its signature kept)
-//	go run ./internal/desktop/sign manifest <ver> <dir>         update.json and update.json.sig for the files in dir,
-//	                                                            signed with IR_APP_SIGN_KEY (the private half, base64)
 package main
 
 import (
 	"archive/zip"
 	"bytes"
-	"crypto/ed25519"
-	"crypto/sha256"
-	"encoding/base64"
 	"encoding/binary"
-	"encoding/hex"
-	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
-	"regexp"
-	"strings"
-	"time"
 )
 
 func main() {
 	if len(os.Args) < 2 {
-		fail("usage: sign keygen | bundle <binary> <dir> <version> | zip <app> <zip> | manifest <version> <dir>")
+		fail("usage: sign bundle <binary> <dir> <version> | zip <app> <zip>")
 	}
 	var err error
 	switch a := os.Args[2:]; os.Args[1] {
-	case "keygen":
-		pub, priv, _ := ed25519.GenerateKey(nil)
-		fmt.Println(base64.StdEncoding.EncodeToString(priv.Seed()))
-		fmt.Fprintln(os.Stderr, "public:", base64.StdEncoding.EncodeToString(pub))
 	case "bundle":
 		if len(a) != 3 {
 			fail("usage: sign bundle <binary> <dir> <version>")
@@ -47,11 +30,6 @@ func main() {
 			fail("usage: sign zip <app> <zip>")
 		}
 		err = zipDir(a[0], a[1])
-	case "manifest":
-		if len(a) != 2 {
-			fail("usage: sign manifest <version> <dir>")
-		}
-		err = manifest(a[0], a[1])
 	default:
 		fail("unknown: " + os.Args[1])
 	}
@@ -173,59 +151,4 @@ func icns(png []byte) []byte {
 	binary.Write(&b, binary.BigEndian, uint32(8+len(png)))
 	b.Write(png)
 	return b.Bytes()
-}
-
-type artifact struct {
-	OS     string `json:"os"`
-	Arch   string `json:"arch"`
-	URL    string `json:"url"`
-	Size   int64  `json:"size"`
-	SHA256 string `json:"sha256"`
-}
-
-var named = regexp.MustCompile(`^iridium-app-(darwin|linux|windows)-(amd64|arm64)(\.zip|\.exe)?$`)
-
-// manifest writes dir/update.json, listing dir's iridium-app-<os>-<arch>[.zip|.exe], and its signature.
-func manifest(version, dir string) error {
-	seed, err := base64.StdEncoding.DecodeString(strings.TrimSpace(os.Getenv("IR_APP_SIGN_KEY")))
-	if err != nil || len(seed) != ed25519.SeedSize {
-		return fmt.Errorf("IR_APP_SIGN_KEY is not a key (sign keygen)")
-	}
-	key := ed25519.NewKeyFromSeed(seed)
-	ents, err := os.ReadDir(dir)
-	if err != nil {
-		return err
-	}
-	var files []artifact
-	for _, e := range ents {
-		m := named.FindStringSubmatch(e.Name())
-		if m == nil {
-			continue
-		}
-		f, err := os.Open(filepath.Join(dir, e.Name()))
-		if err != nil {
-			return err
-		}
-		h := sha256.New()
-		n, err := io.Copy(h, f)
-		f.Close()
-		if err != nil {
-			return err
-		}
-		files = append(files, artifact{OS: m[1], Arch: m[2], URL: e.Name(), Size: n, SHA256: hex.EncodeToString(h.Sum(nil))})
-	}
-	if len(files) == 0 {
-		return fmt.Errorf("no iridium-app files in %s", dir)
-	}
-	body, err := json.MarshalIndent(map[string]any{
-		"app": "ir-app", "version": strings.TrimPrefix(version, "v"), "published": time.Now().UTC().Format(time.RFC3339), "files": files,
-	}, "", "  ")
-	if err != nil {
-		return err
-	}
-	if err := os.WriteFile(filepath.Join(dir, "update.json"), body, 0o644); err != nil {
-		return err
-	}
-	sig := base64.StdEncoding.EncodeToString(ed25519.Sign(key, body))
-	return os.WriteFile(filepath.Join(dir, "update.json.sig"), []byte(sig+"\n"), 0o644)
 }

@@ -44,6 +44,13 @@ export default function AppPanel({ app }: { app: AppState }) {
       </Group>
 
       <Group title={t("app.title")}>
+        <Item label={t("app.server")}>
+          <Switch
+            label={t("app.server")}
+            on={app.server !== false}
+            onChange={(v) => ask("server", v ? "on" : "off")}
+          />
+        </Item>
         <Item label={t("app.autostart")}>
           <Switch
             label={t("app.autostart")}

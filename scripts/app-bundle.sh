@@ -2,8 +2,7 @@
 # The desktop app's macOS downloads (docs/app.md "构建"), from a directory scripts/release.sh
 # filled: for each iridium-darwin-<arch>.tar.gz there, Iridium.app around its binary, signed whole
 # (ad hoc, no Apple ID: codesign on a Mac, else rcodesign), zipped as iridium-app-darwin-<arch>.zip.
-# Then, with IR_APP_SIGN_KEY (go run ./internal/desktop/sign keygen), update.json and its
-# signature over every iridium-app-* there: the manifest the app updates from.
+# The app updates as this computer's Iridium does (internal/update), signed again in place.
 #
 #   scripts/app-bundle.sh v1.2.0 dist
 set -eu
@@ -42,7 +41,3 @@ for a in arm64 amd64; do
 	fi
 	echo "app-bundle: iridium-app-darwin-$a.zip"
 done
-if [ -n "${IR_APP_SIGN_KEY:-}" ]; then
-	"$GO" run ./internal/desktop/sign manifest "$version" "$out"
-	echo "app-bundle: update.json"
-fi

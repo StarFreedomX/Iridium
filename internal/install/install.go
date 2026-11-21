@@ -12,6 +12,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 
 	"github.com/kumoSleeping/iridium/internal/config"
@@ -32,8 +33,13 @@ type Options struct {
 	// Systemctl runs systemctl --user with args; nil runs nothing.
 	Systemctl func(args ...string) error
 	Now       bool // enable and start it too
-	// Args are more of iridium serve's own (--no-server, --join A, ...), written after it as given.
-	Args   []string
+	// Command is what the service runs of iridium's: "" is serve (the daemon alone); ir start's
+	// is run (the runtime).
+	Command string
+	// Args are more of its own (--no-server, --join A, ...), written after it as given.
+	Args []string
+	// Restart: started already, it is started again (on the binary just placed).
+	Restart bool
 	Linger string // the file that says the user lingers; "" is /var/lib/systemd/linger/<user>
 	Out    io.Writer
 
@@ -59,6 +65,17 @@ func Unit(exe, configPath, path string, env ...string) string {
 
 // UnitArgs is Unit with more of serve's arguments (Options.Args).
 func UnitArgs(exe, configPath, path string, args []string, env ...string) string {
+	return unitOf(exe, "serve", configPath, path, args, env...)
+}
+
+func (o Options) command() string {
+	if o.Command == "" {
+		return "serve"
+	}
+	return o.Command
+}
+
+func unitOf(exe, command, configPath, path string, args []string, env ...string) string {
 	if path != "" {
 		env = append([]string{"PATH=" + path}, env...)
 	}
@@ -73,7 +90,7 @@ After=network.target
 
 [Service]
 Type=exec
-ExecStart=%s serve -config %s%s
+ExecStart=%s %s -config %s%s
 %sRestart=on-failure
 RestartSec=2
 # The holders are units of their own (systemd-run --user): a restart or an update leaves the
@@ -81,7 +98,7 @@ RestartSec=2
 
 [Install]
 WantedBy=default.target
-`, quote(exe), quote(configPath), unitArgs(args), lines)
+`, quote(exe), command, quote(configPath), unitArgs(args), lines)
 }
 
 func unitArgs(args []string) string {
@@ -145,17 +162,20 @@ func Install(o Options) error {
 	}
 	unit := filepath.Join(o.UnitDir, o.Unit+".service")
 	tmp := unit + ".tmp"
-	if err := os.WriteFile(tmp, []byte(UnitArgs(o.Exe, o.ConfigPath, o.Path, o.Args, o.Env...)), 0o644); err != nil {
+	if err := os.WriteFile(tmp, []byte(unitOf(o.Exe, o.command(), o.ConfigPath, o.Path, o.Args, o.Env...)), 0o644); err != nil {
 		return err
 	}
 	if err := os.Rename(tmp, unit); err != nil {
 		return err
 	}
-	fmt.Fprintf(o.Out, "写了 %s：%s serve，状态在 %s。\n", unit, o.Exe, cfg.StatePath())
+	fmt.Fprintf(o.Out, "写了 %s：%s %s，状态在 %s。\n", unit, o.Exe, o.command(), cfg.StatePath())
 	if o.Systemctl != nil {
 		steps := [][]string{{"daemon-reload"}}
 		if o.Now {
 			steps = append(steps, []string{"enable", "--now", o.Unit + ".service"})
+			if o.Restart {
+				steps = append(steps, []string{"restart", o.Unit + ".service"})
+			}
 		}
 		for _, s := range steps {
 			if err := o.Systemctl(s...); err != nil {
@@ -185,12 +205,12 @@ func installLaunchd(o Options, cfg config.Config) error {
 	if o.Path != "" {
 		env = append([]string{"PATH=" + o.Path}, env...)
 	}
-	job := launchd.Job{Label: o.Unit, Argv: append([]string{o.Exe, "serve", "-config", o.ConfigPath}, o.Args...), Env: env, Log: o.Log}
+	job := launchd.Job{Label: o.Unit, Argv: append([]string{o.Exe, o.command(), "-config", o.ConfigPath}, o.Args...), Env: env, Log: o.Log}
 	path, err := launchd.Write(o.UnitDir, job)
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(o.Out, "写了 %s：%s serve，状态在 %s。\n", path, o.Exe, cfg.StatePath())
+	fmt.Fprintf(o.Out, "写了 %s：%s %s，状态在 %s。\n", path, o.Exe, o.command(), cfg.StatePath())
 	if o.Now && o.Launchctl != nil {
 		if err := launchd.Load(context.Background(), o.Launchctl, o.Domain, o.Unit, path); err != nil {
 			return err
@@ -213,6 +233,19 @@ func Place(exe, prefix, bin string) (string, error) {
 	}
 	if err := os.MkdirAll(prefix, 0o755); err != nil {
 		return "", err
+	}
+	// The macOS app's own binary is not copied out: prefix/iridium is a link to it, so the app and
+	// the service are one program, updated (and signed again) in one place.
+	if InBundle(exe) {
+		tmp := dst + ".new"
+		os.Remove(tmp)
+		if err := os.Symlink(exe, tmp); err != nil {
+			return "", err
+		}
+		if err := os.Rename(tmp, dst); err != nil {
+			return "", err
+		}
+		return exe, link(dst, bin)
 	}
 	in, err := os.Open(exe)
 	if err != nil {
@@ -238,6 +271,19 @@ func Place(exe, prefix, bin string) (string, error) {
 		return "", err
 	}
 	return dst, link(dst, bin)
+}
+
+// InBundle: is exe the binary of a macOS app (…/X.app/Contents/MacOS/…)?
+func InBundle(exe string) bool {
+	return runtime.GOOS == "darwin" && strings.Contains(exe, ".app/Contents/MacOS/")
+}
+
+// Bundle is the app exe is in ("" none).
+func Bundle(exe string) string {
+	if i := strings.Index(exe, ".app/Contents/MacOS/"); i >= 0 && runtime.GOOS == "darwin" {
+		return exe[:i+len(".app")]
+	}
+	return ""
 }
 
 func same(a, b string) bool {

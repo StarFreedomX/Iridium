@@ -10,8 +10,6 @@
 #
 #   scripts/release.sh v1.2.0 dist
 #   PLATFORMS="linux/amd64 linux/arm64"   which to build (default Linux, macOS and Windows, amd64 and arm64)
-#   IR_APP_UPDATE_KEY                      the app's update key's public half, built in (else the app
-#                                          does not update itself)
 #   COMPUTER_PLATFORMS="windows/amd64"    which ir-computer to build (default those and Windows)
 set -eu
 cd "$(dirname "$0")/.."
@@ -27,7 +25,7 @@ if [ ! -f internal/desktop/assets/ui/index.html ]; then
 	echo "release: no build of the desktop app's pages (run npm run build:app in web/)" >&2
 	exit 1
 fi
-ldflags="-s -w -X github.com/kumoSleeping/iridium/internal/version.Version=$version -X github.com/kumoSleeping/iridium/internal/desktop.updateKey=${IR_APP_UPDATE_KEY:-}"
+ldflags="-s -w -X github.com/kumoSleeping/iridium/internal/version.Version=$version"
 mkdir -p "$out"
 out=$(cd "$out" && pwd)
 size() { wc -c <"$1" | tr -d ' '; }

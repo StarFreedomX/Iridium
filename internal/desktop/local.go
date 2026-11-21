@@ -109,24 +109,27 @@ func (l *localState) ensure(ctx context.Context, address string, logf func(strin
 		l.set("未运行", err)
 		return err
 	}
-	cmd := exec.CommandContext(ctx, self, "install", "-now", "-config", localPath())
+	// ir started as the user's service (ir start --headless): its runtime starts this
+	// computer's Iridium, as the settings have it on.
+	_ = SetServer(true)
+	cmd := exec.CommandContext(ctx, self, "start", "--headless", "-config", localPath())
 	quiet(cmd)
 	out, err := cmd.CombinedOutput()
-	logf("local: iridium install -now: %v\n%s", err, out)
+	logf("local: ir start --headless: %v\n%s", err, out)
 	if err == nil && waitAnswer(ctx, address, startWait) {
 		l.set(localRunning, nil)
 		return nil
 	}
-	// No user service here (no systemd for the user, say): the daemon on its own, apart from the
+	// No user service here (no systemd for the user, say): the runtime on its own, apart from the
 	// app, so that it keeps running when the app quits. It runs till the computer restarts.
-	serve := exec.Command(self, "serve", "-config", localPath())
+	serve := exec.Command(self, "run", "-config", localPath())
 	quiet(serve)
 	detach(serve)
 	if err := serve.Start(); err != nil {
 		l.set("未运行", err)
 		return err
 	}
-	logf("local: iridium serve started apart, pid %d", serve.Process.Pid)
+	logf("local: iridium run started apart, pid %d", serve.Process.Pid)
 	_ = serve.Process.Release()
 	if waitAnswer(ctx, address, startWait) {
 		l.set(localRunning, nil)

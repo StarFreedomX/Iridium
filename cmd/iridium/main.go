@@ -37,34 +37,20 @@ import (
 	"github.com/kumoSleeping/iridium/internal/version"
 )
 
-const usage = `usage: iridium [options]          everything: the window (where there is a screen), this
-                                   computer's Iridium, and this computer joined to others
-       iridium serve [options]    the same with no window: a server
-options take away or add:
-  --no-server                      no Iridium of this computer's own
-  --join <address>                 join this Iridium too, as an executor (repeatable)
-  --name <name>                    this computer's name there (default: the host name)
-  --roots <dir>,...                the only folders they may use (default: all)
-  --no-shell                       no command lines from them, only agents
-  --agents <agent>,...             the only agents they may start (default: all)
-  -config <file>                   this computer's Iridium's config file
-
-  iridium install [options] [-public <host>]
-                                   the same command as the user's service, started (at login, too;
-                                   -now=false: not now); -public: on the internet through Cloudflare
-  iridium uninstall                that service taken away (the binary and the state kept)
-  iridium status                   the version, and what runs here
+// usage is iridium's; ir's own commands are in its help (internal/irhelp) and runtimeUsage.
+const usage = `usage: ir <command>   (iridium is the same program: iridium ir <command>)
+` + runtimeUsage + `
+  iridium                          the window (from the app's icon), ir started under it
+  iridium install [options] [-public <host>], iridium uninstall
+                                   the daemon alone as the user's service (a server), as before ir
+                                   start; -public: on the internet through Cloudflare
   iridium push [-i <key>] [-listen <addr>] <user@host>
                                    this binary onto another account or machine, installed or restarted
   iridium node new <account> [-listen <addr>]
                                    a new account on this machine with an Iridium of its own (root once)
-  ir ...                           the command line (iridium ir ...)
-
-  Only a server:    iridium serve            Only an executor:  iridium serve --no-server --join <address>
 `
 
 func main() {
-	desktop.HandleUpdateHelper()
 	if strings.TrimSuffix(strings.ToLower(filepath.Base(os.Args[0])), ".exe") == "ir" {
 		os.Exit(irMain(os.Args[1:]))
 	}
@@ -75,18 +61,22 @@ func main() {
 	}
 	if len(args) == 0 {
 		if desktop.CanShow() {
-			os.Exit(run(nil, true))
+			os.Exit(desktop.Main(desktop.Options{}))
 		}
 		fmt.Fprint(os.Stderr, usage)
 		os.Exit(2)
 	}
+	if code, ok := runtimeCmd(args); ok {
+		os.Exit(code)
+	}
 	if strings.HasPrefix(args[0], "-") && args[0] != "-h" && args[0] != "--help" && args[0] != "--version" {
-		// Options only: everything there can be, less what they take away.
-		os.Exit(run(args, desktop.CanShow()))
+		os.Exit(startCmd(args)) // iridium [options]: ir start [options]
 	}
 	switch args[0] {
-	case "serve":
-		os.Exit(run(args[1:], false))
+	case "run":
+		os.Exit(runtimeMain(args[1:]))
+	case "app":
+		os.Exit(desktop.Main(desktop.Options{}))
 	case "hold":
 		os.Exit(hold.Main(args[1:]))
 	case "ir":
@@ -95,8 +85,6 @@ func main() {
 		os.Exit(installCmd(args[1:]))
 	case "uninstall":
 		os.Exit(uninstallCmd(args[1:]))
-	case "status":
-		os.Exit(statusCmd(args[1:]))
 	case "push":
 		os.Exit(pushCmd(args[1:]))
 	case "node":
@@ -107,9 +95,7 @@ func main() {
 	// Older words, kept for what runs them (services, scripts): not in the usage.
 	case "version", "--version":
 		os.Exit(versionCmd())
-	case "app":
-		os.Exit(run(args[1:], true))
-	case "join", "headless":
+	case "headless":
 		os.Exit(run(append([]string{"--no-server"}, joinArgs(args[1:])...), false))
 	}
 	fmt.Fprint(os.Stderr, usage)
@@ -118,8 +104,8 @@ func main() {
 
 // irMain is ir: join here, the rest the CLI's.
 func irMain(args []string) int {
-	if len(args) > 0 && args[0] == "join" {
-		return join.Main(args[1:], os.Stdout, os.Stderr)
+	if code, ok := runtimeCmd(args); ok {
+		return code
 	}
 	if len(args) > 0 && args[0] == "pair" {
 		return join.PairMain(args[1:], os.Stdout, os.Stderr)

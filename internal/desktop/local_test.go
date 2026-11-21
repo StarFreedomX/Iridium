@@ -85,7 +85,7 @@ func TestEnsureRunning(t *testing.T) {
 	}
 }
 
-// A daemon that never answers: install and serve are both tried, then it says so.
+// A daemon that never answers: ir start and run apart are both tried, then it says so.
 func TestEnsureFails(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("a shell script stands for the binary")
@@ -98,13 +98,14 @@ func TestEnsureFails(t *testing.T) {
 	startWait = 200 * time.Millisecond
 	defer func() { selfExe, startWait = os.Executable, 30*time.Second }()
 	t.Setenv("IRIDIUM_CONFIG", filepath.Join(dir, "config.json"))
+	t.Setenv("IR_APP_CONFIG", filepath.Join(dir, "app.json"))
 	var l localState
 	if err := l.ensure(context.Background(), "http://127.0.0.1:1", t.Logf); err == nil {
 		t.Fatal("no error")
 	}
 	time.Sleep(100 * time.Millisecond) // serve, started apart, writes its line
 	b, _ := os.ReadFile(log)
-	if got := strings.Fields(string(b)); len(got) != 2 || got[0] != "install" || got[1] != "serve" {
+	if got := strings.Fields(string(b)); len(got) != 2 || got[0] != "start" || got[1] != "run" {
 		t.Fatalf("calls %q", got)
 	}
 	if st, _ := l.get(); st != "未运行" {

@@ -33,6 +33,9 @@ type Joins struct {
 	Update bool
 	// Record, when set, is kept on disk with the joins' states (iridium status).
 	Record *Record
+	// View: the window's. The joins run in the runtime (runtime.go), which follows the settings
+	// on disk: Sync does nothing here, Status is the runtime's.
+	View bool
 	Logf   func(string, ...any)
 
 	mu      sync.Mutex
@@ -54,6 +57,16 @@ func (j *Joins) Agents() []wire.AgentInfo {
 
 // Status is what the join to address said last.
 func (j *Joins) Status(address string) string {
+	if j.View {
+		r, ok := RuntimeRecord()
+		if !ok {
+			return "ir 未运行"
+		}
+		if st, ok := r.Joins[address]; ok {
+			return st
+		}
+		return "连接中"
+	}
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	return j.status[address]
@@ -62,6 +75,9 @@ func (j *Joins) Status(address string) string {
 // Sync starts the joins of c's servers that are on and stops the others; on those running it
 // sets their terms (command lines, folders, agents) at once, what runs there kept running.
 func (j *Joins) Sync(c Config) {
+	if j.View {
+		return
+	}
 	agents := j.Agents()
 	j.mu.Lock()
 	defer j.mu.Unlock()
@@ -116,7 +132,7 @@ func (j *Joins) run(ctx context.Context, s Server, name string, agents []wire.Ag
 		return
 	}
 	o := join.Options{
-		URL: address, Name: name, Roots: s.Roots, Shell: !s.NoShell, Base: base, Prog: j.prog(), Agents: agents,
+		URL: address, Name: name, Roots: s.Roots, Shell: !s.NoShell, Base: base, Prog: j.prog(), Agents: agents, Proxy: s.Proxy,
 		Out: lineWriter(func(l string) { j.set(address, l) }), Logf: j.Logf, Ask: j.Ask,
 		Widened: func(shell bool, roots, off []string) {
 			j.mu.Lock()

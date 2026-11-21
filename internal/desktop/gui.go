@@ -18,10 +18,10 @@ import (
 	"time"
 
 	"github.com/kumoSleeping/iridium/internal/join"
+	"github.com/kumoSleeping/iridium/internal/remote/executor"
 	"github.com/kumoSleeping/iridium/internal/version"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
-	"github.com/wailsapp/wails/v3/pkg/updater"
 )
 
 //go:embed assets
@@ -51,18 +51,16 @@ func gui(o Options) int {
 	icon, _ := assets.ReadFile("assets/icon.png")
 	trayIcon, _ := assets.ReadFile("assets/tray.png")
 	u := &ui{}
-	u.joins = &Joins{Logf: logf, Changed: func() { application.InvokeAsync(u.redraw) }, Record: &Record{Kind: "window"}}
+	u.joins = &Joins{Logf: logf, View: true, Record: &Record{Kind: "window"}}
 	u.joins.Record.save(nil)
-	u.joins.Ask = u.ask
-	u.joins.AskEach = u.askEach
-	u.joins.Widened = func(server string, shell bool, roots, off []string) {
-		_, _ = updateConfig(func(c *Config) {
-			if s := c.server(server); s != nil {
-				s.NoShell, s.Roots, s.AgentsOff = !shell, roots, off
-			}
-		})
-		application.InvokeAsync(u.redraw)
-	}
+	// What the runtime is asked for more of this computer comes here to be answered (askfile.go).
+	go answerAsks(context.Background(), func(ctx context.Context, server, by string, items []executor.Item) []bool {
+		if len(items) == 1 && items[0].Kind == "text" {
+			return []bool{u.ask(ctx, items[0].Value)}
+		}
+		return u.askEach(ctx, server, by, items)
+	})
+	go u.follow()
 	u.app = application.New(application.Options{
 		Name:        "Iridium",
 		Description: "Iridium",
@@ -77,7 +75,7 @@ func gui(o Options) int {
 		Windows:           application.WindowsOptions{DisableQuitOnLastWindowClosed: true},
 		Linux:             application.LinuxOptions{DisableQuitOnLastWindowClosed: true, ProgramName: "ir-app"},
 		RawMessageHandler: func(w application.Window, msg string, o *application.OriginInfo) { u.message(w, msg, o, logf) },
-		OnShutdown:        func() { u.joins.Stop() },
+		OnShutdown:        func() { u.joins.Stop() }, // the window's record; the runtime runs on
 	})
 
 	c, err := loadConfig()
@@ -160,7 +158,10 @@ func gui(o Options) int {
 	if l := c.local(); l != nil && !o.NoServer {
 		go u.startLocal(l.URL, logf)
 	}
-	u.updates(c, logf)
+	if o.NoServer {
+		_ = SetServer(false)
+	}
+	go u.binaryUpdates()
 
 	if err := u.app.Run(); err != nil {
 		logf("%v", err)
@@ -341,20 +342,27 @@ func (u *ui) message(w application.Window, msg string, o *application.OriginInfo
 		reply(w, u.hello(c, server))
 	case "update":
 		if arg == "restart" {
-			_ = u.app.Updater.Restart(context.Background())
+			u.restartApp()
 			return
 		}
 		go func() {
-			_, err := u.app.Updater.Check(context.Background())
+			u.checkBinary()
 			c, _ := loadConfig()
 			h := u.hello(c, server)
-			if err != nil {
-				h["error"] = "检查更新失败"
-			} else if h["update"] == "" {
+			if h["update"] == "" {
 				h["notice"] = "已是最新"
 			}
 			reply(w, h)
 		}()
+	case "server":
+		// This computer's own Iridium on or off (ir server): the runtime follows the settings.
+		if err := SetServer(arg == "on"); err == nil && arg == "on" {
+			if c, _ := loadConfig(); c.local() != nil {
+				go u.startLocal(c.local().URL, logf)
+			}
+		}
+		c, _ := loadConfig()
+		reply(w, u.hello(c, server))
 	}
 }
 
@@ -503,7 +511,7 @@ func (u *ui) hello(c Config, server string) map[string]any {
 	u.mu.Lock()
 	ready := u.ready
 	u.mu.Unlock()
-	return map[string]any{"app": "ir-app", "version": version.Version, "name": name, "servers": list, "autostart": auto, "update": ready, "hasLocal": c.local() != nil}
+	return map[string]any{"app": "ir-app", "version": version.Version, "name": name, "servers": list, "autostart": auto, "update": ready, "hasLocal": c.local() != nil, "server": !c.NoServer}
 }
 
 // terms are what a page may ask to change of this computer for its Iridium: narrowing is done at
@@ -782,15 +790,7 @@ func (u *ui) redraw() {
 	ready := u.ready
 	u.mu.Unlock()
 	if ready != "" {
-		m.Add("重启以更新到 " + ready).OnClick(func(*application.Context) {
-			if err := u.app.Updater.Restart(context.Background()); err != nil {
-				u.app.Dialog.Warning().SetTitle("Iridium").SetMessage("更新失败：" + err.Error()).Show()
-			}
-		})
-	} else {
-		m.Add("检查更新").OnClick(func(*application.Context) {
-			go func() { _, _ = u.app.Updater.Check(context.Background()) }()
-		})
+		m.Add("重启以更新到 " + ready).OnClick(func(*application.Context) { u.restartApp() })
 	}
 	m.AddSeparator()
 	m.Add(fmt.Sprintf("Iridium %s", version.Version)).SetEnabled(false)
@@ -799,38 +799,6 @@ func (u *ui) redraw() {
 }
 
 // updates: the app's own releases looked for now and every six hours; a newer one is fetched at
-// once, and put in place on a restart the person chooses (agents running here end with it).
-func (u *ui) updates(c Config, logf func(string, ...any)) {
-	src, err := newSource(func() []string { c, _ := loadConfig(); return manifestURLs(c) })
-	if err != nil {
-		logf("update: %v", err)
-		return
-	}
-	if err := u.app.Updater.Init(updaterConfig(src, 6*time.Hour)); err != nil {
-		logf("update: %v", err)
-		return
-	}
-	u.app.Event.On(updater.EventUpdateAvailable, func(*application.CustomEvent) {
-		go func() {
-			if err := u.app.Updater.DownloadAndInstall(context.Background()); err != nil {
-				logf("update: %v", err)
-			}
-		}()
-	})
-	u.app.Event.On(updater.EventUpdateReady, func(e *application.CustomEvent) {
-		v := ""
-		if r, ok := e.Data.(*updater.Release); ok {
-			v = r.Version
-		}
-		logf("update: %s ready", v)
-		u.mu.Lock()
-		u.ready = v
-		u.mu.Unlock()
-		application.InvokeAsync(u.redraw)
-	})
-	u.app.Event.On(updater.EventError, func(e *application.CustomEvent) { logf("update: %v", e.Data) })
-	go func() { _, _ = u.app.Updater.Check(context.Background()) }()
-}
 
 func hostOf(address string) string {
 	if p, err := url.Parse(address); err == nil && p.Host != "" {

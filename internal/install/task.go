@@ -17,7 +17,11 @@ import (
 // the user's session with the user's own environment, never stopped for running long (the
 // default stops a task after three days) nor on battery, started again a minute after a crash.
 func TaskXML(exe, configPath, user string, args ...string) string {
-	line := `serve -config "` + configPath + `"`
+	return taskXML(exe, "serve", configPath, user, args...)
+}
+
+func taskXML(exe, command, configPath, user string, args ...string) string {
+	line := command + ` -config "` + configPath + `"`
 	for _, a := range args {
 		if a == "" || strings.ContainsAny(a, " \t\"") {
 			a = `"` + strings.ReplaceAll(a, `"`, `\"`) + `"`
@@ -100,10 +104,10 @@ func installTask(o Options, cfg config.Config) error {
 		fmt.Fprintf(o.Out, "注意：任务计划没有自己的环境变量，%s 不生效；在用户环境变量里设置。\n", strings.Join(o.Env, " "))
 	}
 	file := filepath.Join(cfg.StatePath(), o.Unit+"-task.xml")
-	if err := os.WriteFile(file, utf16File(TaskXML(o.Exe, o.ConfigPath, o.User, o.Args...)), 0o600); err != nil {
+	if err := os.WriteFile(file, utf16File(taskXML(o.Exe, o.command(), o.ConfigPath, o.User, o.Args...)), 0o600); err != nil {
 		return err
 	}
-	fmt.Fprintf(o.Out, "写了 %s：%s serve，状态在 %s。\n", file, o.Exe, cfg.StatePath())
+	fmt.Fprintf(o.Out, "写了 %s：%s %s，状态在 %s。\n", file, o.Exe, o.command(), cfg.StatePath())
 	if o.Schtasks == nil {
 		return nil
 	}
@@ -111,6 +115,9 @@ func installTask(o Options, cfg config.Config) error {
 		return fmt.Errorf("schtasks /Create: %w", err)
 	}
 	if o.Now {
+		if o.Restart {
+			_ = o.Schtasks("/End", "/TN", o.Unit)
+		}
 		if err := o.Schtasks("/Run", "/TN", o.Unit); err != nil {
 			return fmt.Errorf("schtasks /Run: %w", err)
 		}

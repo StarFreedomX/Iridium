@@ -18,19 +18,41 @@ import (
 	"github.com/kumoSleeping/iridium/internal/version"
 )
 
-// statusCmd is `iridium status`: the version, then what runs here: this computer's Iridium (does
-// it answer, where), the service install made, the window, and each join with its last word.
+// statusCmd is ir status: the version, then what runs here: ir's service and its runtime, this
+// computer's Iridium (does it answer, where), the window, and each join with its last word.
 func statusCmd(args []string) int {
 	fs := flag.NewFlagSet("status", flag.ExitOnError)
 	path := fs.String("config", config.DefaultPath(), "this computer's Iridium's config file")
 	unit := fs.String("unit", "iridium", "the service's name")
 	fs.Parse(args)
-	fmt.Println("iridium", version.Version)
+	printStatus(*path, *unit)
+	return 0
+}
 
-	cfg, err := config.Load(*path)
-	if err != nil {
-		fmt.Printf("服务器  配置读不了：%v\n", err)
+func printStatus(path, unit string) {
+	fmt.Println("iridium", version.Version)
+	if s := install.Look(unit); s.File != "" {
+		line := fmt.Sprintf("服务    %s  %s", orNone(s.State), s.File)
+		if s.Command != "" {
+			line += "\n        " + s.Command
+		}
+		fmt.Println(line)
 	} else {
+		fmt.Println("服务    未注册（ir start）")
+	}
+	rt, running := desktop.RuntimeRecord()
+	if running {
+		fmt.Printf("ir      运行中（pid %d，%s 起）\n", rt.PID, rt.Since.Format("01-02 15:04"))
+	} else {
+		fmt.Println("ir      未运行")
+	}
+	cfg, err := config.Load(path)
+	switch {
+	case err != nil:
+		fmt.Printf("服务器  配置读不了：%v\n", err)
+	case !desktop.ServerOn():
+		fmt.Println("服务器  已关闭（ir server on）")
+	default:
 		addr := "http://" + cfg.Listen
 		if h, p, err := net.SplitHostPort(cfg.Listen); err == nil && (h == "" || h == "0.0.0.0" || h == "::") {
 			addr = "http://" + net.JoinHostPort("127.0.0.1", p)
@@ -38,6 +60,8 @@ func statusCmd(args []string) int {
 		state := "未运行"
 		if answers(addr) {
 			state = "运行中"
+		} else if running && rt.Server != "" {
+			state = rt.Server
 		}
 		line := fmt.Sprintf("服务器  %s  %s", state, addr)
 		if cfg.Public.Origin != "" {
@@ -45,23 +69,22 @@ func statusCmd(args []string) int {
 		}
 		fmt.Println(line)
 	}
-	if s := install.Look(*unit); s.File != "" {
-		line := fmt.Sprintf("服务    %s  %s", orNone(s.State), s.File)
-		if s.Command != "" {
-			line += "\n        " + s.Command
-		}
-		fmt.Println(line)
-	} else {
-		fmt.Println("服务    未安装")
-	}
 	window := false
 	for _, r := range desktop.Running() {
-		what := "serve"
 		if r.Kind == "window" {
-			what, window = "窗口", true
+			window = true
 		}
 		for _, a := range sortedKeys(r.Joins) {
-			fmt.Printf("接入    %s  %s（%s，pid %d）\n", a, orNone(r.Joins[a]), what, r.PID)
+			what := ""
+			if r.Kind == "serve" {
+				what = fmt.Sprintf("（ir serve，pid %d）", r.PID)
+			}
+			fmt.Printf("接入    %s  %s%s\n", a, orNone(r.Joins[a]), what)
+		}
+	}
+	if !running {
+		for _, a := range desktop.Joined() {
+			fmt.Printf("接入    %s  —（ir 未运行）\n", a)
 		}
 	}
 	if window {
@@ -69,7 +92,6 @@ func statusCmd(args []string) int {
 	} else {
 		fmt.Println("窗口    未打开")
 	}
-	return 0
 }
 
 // uninstallCmd is `iridium uninstall`: the service install made, stopped and taken away.

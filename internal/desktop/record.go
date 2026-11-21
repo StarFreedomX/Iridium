@@ -13,7 +13,8 @@ import (
 // serve with its joins. One file each (<config dir>/Iridium/run/<pid>.json), gone when it ends;
 // one whose process is gone is taken as ended.
 type Record struct {
-	Kind  string            `json:"kind"` // "window" or "serve"
+	Kind   string            `json:"kind"`             // "runtime", "window" or "serve"
+	Server string            `json:"server,omitempty"` // the runtime's: this computer's Iridium's state
 	PID   int               `json:"pid"`
 	Since time.Time         `json:"since"`
 	Joins map[string]string `json:"joins"` // each Iridium joined: what it said last
