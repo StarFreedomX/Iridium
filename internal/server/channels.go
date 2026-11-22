@@ -177,6 +177,9 @@ type called struct {
 	// turn that took that input, not by one that ends while it still waits in the queue. None:
 	// a call kept before calls had one, closed by any turn's end.
 	Input string `json:"input,omitempty"`
+	// React: it was a reaction it was given (docs/channels.md "表情"): saying nothing for it is
+	// no silence to tell of.
+	React bool `json:"react,omitempty"`
 	// old: read from the store as this process began, its input given to the agent by then:
 	// the turn that took it may have ended while nobody listened (calls.began).
 	old bool
@@ -391,7 +394,7 @@ func (s *Server) closeCalls(id string, over []called) {
 		why, words := s.turnError(id), ""
 		// Called by another agent and nothing to say: nothing is told either (kumo, 2026-11-16);
 		// only one a person called, or one whose turn failed, leaves its line.
-		if why == "" && s.agentSaid(c.Channel, c.Seq) {
+		if why == "" && (c.React || s.agentSaid(c.Channel, c.Seq)) {
 			continue
 		}
 		if why != "" {
@@ -932,16 +935,25 @@ func (s *Server) listsChannel(ch string) bool {
 }
 
 // channelLast are the last words said in session id's channel, if it is listed with them
-// (listsChannel) and a session's (a bare one's row is made whole by bareChannels).
-func (s *Server) channelLast(id string) (*api.LastSaid, bool) {
-	if _, bare := s.ch.Own(id); bare || !s.listsChannel(id) {
+// (listsChannel) and a session's (a bare one's row is made whole by bareChannels), unless its
+// record's (rec) are later: its agent's own may not be read into the channel yet. A session alone
+// in its channel: its record's, unless they were taken back (recordLast).
+func (s *Server) channelLast(id string, rec *api.LastSaid) (*api.LastSaid, bool) {
+	if _, bare := s.ch.Own(id); bare {
 		return nil, false
+	}
+	if !s.listsChannel(id) {
+		return s.recordLast(id, rec)
 	}
 	m, ok := s.ch.Latest(id)
 	if !ok {
 		return nil, false
 	}
-	return s.lastSaid(m), true
+	last := s.lastSaid(m)
+	if rec != nil && rec.At > last.At {
+		return nil, false
+	}
+	return last, true
 }
 
 // channelAdded: message m was just written to its channel. Someone's words in a channel listed
@@ -1011,7 +1023,12 @@ func (s *Server) createChannelAs(ctx context.Context, c caller, req api.NewSessi
 	if err := s.ch.Create(store.Channel{ID: id, Cwd: req.Cwd, Machine: req.Machine, Creator: c.ID()}); err != nil {
 		return false, &createError{err}
 	}
-	if err := s.m.ListBare(id, req.Cwd, req.Caller); err != nil {
+	if req.Machine != "" && !c.byAgent() {
+		if err := s.st.SetOpener(id, c.ID()); err != nil {
+			s.logf("server: opener of %s: %v", id, err)
+		}
+	}
+	if err := s.m.ListBare(id, req.Machine, req.Cwd, req.Caller); err != nil {
 		s.logf("server: channel %s: listing it: %v", id, err)
 	}
 	if req.Workspace != 0 {
@@ -1883,6 +1900,14 @@ func (s *Server) sendChannelAs(ctx context.Context, c caller, from, ch string, r
 	if tag := s.m.SourceTag(from); tag != "" {
 		u.Name = tag
 	}
+	// Another session's agent, not of the channel, writing to it with ir: its words are that
+	// agent's, drawn and counted as its, not as the login its turn acts for (kumo, 2026-11-21: a
+	// letter from another session showed as his). Whom it wakes is as for a letter: as before.
+	outsider := ""
+	if sender == "" && c.session != "" && c.session != ch {
+		outsider = c.session
+		u = satori.User{ID: store.AgentMember(outsider)}
+	}
 	unseen := ""
 	var given int64 // how far the agent that speaks has been given the channel, once this is sent
 	if sender != "" {
@@ -1919,8 +1944,8 @@ func (s *Server) sendChannelAs(ctx context.Context, c caller, from, ch string, r
 			given = upTo
 		}
 	}
-	// Answering a message (<quote>): its agent is called as if named (docs/channels.md "叫起谁").
-	route := req.Text
+	// Answering a message (<quote>): kept with it, and given to whom it wakes; it calls no one
+	// (docs/channels.md "叫起谁": only the @ in the words do).
 	var quote int64
 	if req.Quote > 0 {
 		q, ok := s.ch.Get(ch, req.Quote)
@@ -1928,11 +1953,6 @@ func (s *Server) sendChannelAs(ctx context.Context, c caller, from, ch string, r
 			return api.SendReply{}, fmt.Errorf("%w: quote: no message %d in the channel", session.ErrBadRequest, req.Quote)
 		}
 		quote = q.Seq
-		if id, ok := store.SessionOfMember(q.Author); ok && id != sender {
-			if m, ok := by0(list, id); ok {
-				route += "\n@" + m.Nick
-			}
-		}
 	}
 	// An agent's words wake those subscribed to it only as its turn's last; on its way (and with
 	// ir), only whom they name.
@@ -1941,7 +1961,7 @@ func (s *Server) sendChannelAs(ctx context.Context, c caller, from, ch string, r
 	if sender != "" {
 		who.Member = store.AgentMember(sender)
 	}
-	routed, namedNicks, limit := s.wakes(route, who, lk, list)
+	routed, namedNicks, limit := s.wakes(req.Text, who, lk, list)
 	if limit > 0 && relay == nil {
 		return api.SendReply{}, errTooFar(limit)
 	}
@@ -1959,7 +1979,10 @@ func (s *Server) sendChannelAs(ctx context.Context, c caller, from, ch string, r
 		req.ID = session.NewInputID()
 	}
 	// An agent's words are an agent's (kind "said"), marked as sent; its turn's last are final.
-	of := channel.Data{Quote: quote, Sent: sender != "", Final: sender != "" && final}
+	of := channel.Data{Quote: quote, Sent: sender != "" || outsider != "", Final: sender != "" && final}
+	if outsider != "" {
+		of.Session = outsider
+	}
 	// Its files, as the page draws them (the words given to the agents name them already).
 	of.Files = s.files.Refs(ch, req.Attachments)
 	if sender != "" && sender != ch {
@@ -1979,16 +2002,23 @@ func (s *Server) sendChannelAs(ctx context.Context, c caller, from, ch string, r
 	if seq == 0 {
 		return api.SendReply{}, errors.New("the channel did not take the message")
 	}
-	// The logins it names, or whose message it answers, have a mark (ats.go).
+	// The logins it names have a mark (ats.go).
 	author := ""
 	if sender == "" {
 		author = readerOf(c)
 	}
-	named := s.names(ch, seq, req.Text, quote, author)
+	if outsider != "" {
+		author = store.AgentMember(outsider)
+	}
+	named := s.names(ch, seq, req.Text, author)
 	// Said: a person's begins a new run.
 	if sender == "" {
 		lk = s.chain.person(ch, c.ID())
-		go s.heard(ch, seq, req.Text, readerOf(c), u.Name, lk)
+		if outsider != "" {
+			go s.heard(ch, seq, req.Text, author, cmp.Or(s.ch.Nick(outsider), s.m.SourceTag(from)), lk)
+		} else {
+			go s.heard(ch, seq, req.Text, readerOf(c), u.Name, lk)
+		}
 	} else {
 		if final {
 			go s.heard(ch, seq, req.Text, store.AgentMember(sender), s.ch.Nick(sender), lk)
@@ -2164,14 +2194,26 @@ func whoOf(m channel.Message, by map[string]channel.Member) string {
 // it. from: who it is from, as Send takes it; lk: where the turn it begins stands in the
 // channel's run.
 func (s *Server) deliverTo(ctx context.Context, ch, to string, seq int64, said, input, from string, images []agent.Image, lk link) (bool, error) {
+	return s.deliverAs(ctx, ch, to, seq, said, input, from, images, lk, nil)
+}
+
+// deliverAs is deliverTo; react: what is given is a reaction to message seq (said, its words),
+// not the message: it is the reaction's line, with what was said since the agent last read the
+// channel, all of it, before or after seq (docs/channels.md "表情").
+func (s *Server) deliverAs(ctx context.Context, ch, to string, seq int64, said, input, from string, images []agent.Image, lk link, react *assemble.Reaction) (bool, error) {
 	// One at a time for an agent: each is given what it has not seen, once.
 	defer s.chain.lock(to)()
+	said = satori.ForwardWords(said) // a forward in it as lines
 	list, by := s.agentsOf(ch)
 	me, ok := by[to]
 	if !ok {
 		return false, channel.ErrNoMember
 	}
-	unseen, did, work, _, _, err := s.unread(ch, me, seq, by)
+	before := seq
+	if react != nil {
+		before = 0
+	}
+	unseen, did, work, _, upTo, err := s.unread(ch, me, before, by)
 	if err != nil {
 		return false, err
 	}
@@ -2247,14 +2289,16 @@ func (s *Server) deliverTo(ctx context.Context, ch, to string, seq int64, said, 
 		cc.Changes = append(cc.Changes, assemble.ProfileChange{Who: pc.Who, What: pc.What, To: pc.To})
 	}
 	// The message it answers, if it answers one: a line of it before its words.
-	if m, ok := s.ch.Get(ch, seq); ok && m.D.Quote > 0 {
+	if m, ok := s.ch.Get(ch, seq); ok && m.D.Quote > 0 && react == nil {
 		if q, ok := s.ch.Get(ch, m.D.Quote); ok {
-			cc.Quote = &assemble.Quote{Seq: q.Seq, Who: whoOf(q, by), Text: q.Text}
+			cc.Quote = &assemble.Quote{Seq: q.Seq, Who: whoOf(q, by), Text: satori.ForwardWords(q.Text)}
 		}
 	}
-	var before int64
+	// What it was given and was taken back since it was last given something here.
+	cc.Recalled = s.recalledFor(to, ch, me.Seen)
+	var line int64 // where its record is as it is given this
 	if st, err := s.m.State(to); err == nil {
-		before = st.End
+		line = st.End
 	}
 	// The standing words again only when they changed, were never given here, or may be gone
 	// from the agent's context since (a compaction): docs/channels.md "增量".
@@ -2262,13 +2306,18 @@ func (s *Server) deliverTo(ctx context.Context, ch, to string, seq int64, said, 
 	if last, ok := s.lastInjection(to, ch); ok && last.Static == static && !s.compactedSince(to, last.Line) {
 		cc.Brief = true
 	}
-	in, err := assemble.ChannelTurn(cc, seq, said, input)
+	var in assemble.Injection
+	if react != nil {
+		in, err = assemble.ChannelReaction(cc, *react)
+	} else {
+		in, err = assemble.ChannelTurn(cc, seq, said, input)
+	}
 	if err != nil {
 		return false, err
 	}
 	id := session.NewInputID()
 	rec := in.Record()
-	rec.Static, rec.Full, rec.Line = static, !cc.Brief, before
+	rec.Static, rec.Full, rec.Line = static, !cc.Brief, line
 	if rec, err := json.Marshal(rec); err == nil {
 		if err := s.st.AddInjection(store.Injection{Session: to, Channel: ch, Input: id, Seq: seq, Record: string(rec)}); err != nil {
 			s.logf("server: channel %s: keeping what %s was given: %v", ch, to, err)
@@ -2282,9 +2331,13 @@ func (s *Server) deliverTo(ctx context.Context, ch, to string, seq int64, said, 
 		}
 		return false, err
 	}
-	s.seen(ch, to, seq)
+	if react != nil {
+		s.seen(ch, to, upTo)
+	} else {
+		s.seen(ch, to, seq)
+	}
 	if !me.Direct() {
-		s.calls.add(to, called{Channel: ch, Seq: seq, From: before, Input: id})
+		s.calls.add(to, called{Channel: ch, Seq: seq, From: line, Input: id, React: react != nil})
 
 	}
 	s.chain.pass(ch, to, lk)
@@ -2308,7 +2361,7 @@ func (s *Server) unread(ch string, me channel.Member, before int64, by map[strin
 			continue
 		}
 		id, agent := store.SessionOfMember(m.Author)
-		msgs = append(msgs, strategy.Msg{Seq: m.Seq, Who: whoOf(m, by), Agent: agent, Text: fileNames(m.Text, m.D.Files), At: m.At})
+		msgs = append(msgs, strategy.Msg{Seq: m.Seq, Who: whoOf(m, by), Agent: agent, Text: fileNames(satori.ForwardWords(m.Text), m.D.Files), At: m.At})
 		if me.Nick != "" && len(deliver.Mentions(m.Text, []string{me.Nick})) > 0 {
 			named = true
 		}
@@ -2363,7 +2416,7 @@ func (s *Server) routeSaid(m channel.Message) {
 	s.answer(sender, m)
 	// The logins it names (ats.go), once it is on its way to the agents it names: what is said
 	// after it is told after this returns.
-	defer s.names(m.Channel, m.Seq, m.Text, 0, "")
+	defer s.names(m.Channel, m.Seq, m.Text, "")
 	if m.D.Final {
 		go s.heard(m.Channel, m.Seq, m.Text, m.Author, s.ch.Nick(sender), s.chain.of(m.Channel, sender))
 	}
@@ -2549,7 +2602,7 @@ func (a *answers) run(session string) {
 }
 
 // relayHead is how a channel's message given to an agent begins ("#12: …").
-var relayHead = regexp.MustCompile(`^#(\d+): `)
+var relayHead = regexp.MustCompile(`^#(\d+)(?:: | \[)`)
 
 // relayOf is what block b of session's record was given as by a channel (satori.Relayer): the
 // messages its injection record cites, in order, the one that called it last. The injection is
