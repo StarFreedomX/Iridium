@@ -65,6 +65,7 @@ type Props = {
   confirms: Need[];
   onConfirm: (c: Need) => void;
   createKey: (trigger: ReactElement) => ReactNode;
+  filesKey?: ReactNode;
   wsPlus: (ws: WsNode, trigger: ReactElement, open: boolean, setOpen: (o: boolean) => void) => ReactNode;
   me: ReactNode;
   /** The chat's code, fetched as a row is pressed. */
@@ -500,12 +501,12 @@ export function Sidebar(p: Props) {
   );
 }
 
-/** The head's key: a new workspace, a "+" (the user, 2026-11-08: back from a folder). No search key
- *  (the user, 2026-11-08): the jump box is a keyboard's (nav.searchKey). On a phone it stands right
- *  of the sheet's tabs. */
-export function HeadKeys(p: Pick<Props, "createKey">) {
+/** The file browser and the "+" for a new workspace. On a phone the keys stand right of the
+ *  sheet's tabs. The jump box is a keyboard's (nav.searchKey, the user, 2026-11-08). */
+export function HeadKeys(p: Pick<Props, "createKey" | "filesKey">) {
   return (
     <span className="flex shrink-0 items-center gap-0.5">
+      {p.filesKey}
       {p.createKey(
         <button type="button" aria-label={t("menu.new")} className="g-press grid size-8 place-items-center rounded-md text-ink-3 hover:bg-fill hover:text-ink-2 data-popup-open:bg-fill data-popup-open:text-ink-2 pointer-coarse:size-10">
           <Plus size={18} />

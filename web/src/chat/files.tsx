@@ -9,6 +9,7 @@ import { createContext, lazy, Suspense, useCallback, useContext, useState, type 
 import { api } from "../api/client";
 import { Copyable } from "./copyable";
 import type { FileRef } from "../api/types.gen";
+import { FileWindow } from "../file-window";
 import { t } from "../i18n";
 import { cn, IconKey, Tip } from "../ui";
 import { previewKind, type PreviewKind } from "./preview-lib";
@@ -146,33 +147,30 @@ export function Preview({ kind, name, view, href, className, label, tip, childre
           {children}
         </Dialog.Trigger>,
       )}
-      <Dialog.Portal>
-        <Dialog.Backdrop className="fixed inset-0 z-50 bg-paper/70 backdrop-blur-sm transition-opacity duration-(--dur-2) data-ending-style:opacity-0 data-starting-style:opacity-0" />
-        <Dialog.Popup onKeyDown={spaceShuts(() => setOpen(false))} className="g-unfold fixed top-1/2 left-1/2 z-50 flex max-h-[86vh] w-[min(960px,94vw)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl bg-paper text-ink shadow-(--shadow-float) outline-none">
-          <div className="flex h-12 shrink-0 items-center gap-2 border-b border-edge pr-2 pl-4">
-            <Dialog.Title className="min-w-0 flex-1 truncate text-sm font-medium">{name}</Dialog.Title>
-            <Tip label={t("msg.download")}>
-              <a href={href} download={name} aria-label={t("msg.download")} className="g-press grid size-8 place-items-center rounded-full text-ink-2 hover:bg-fill hover:text-ink">
-                <Download size={15} />
-              </a>
-            </Tip>
-            <Dialog.Close aria-label={t("msg.close")} className="g-press grid size-8 place-items-center rounded-full text-ink-2 hover:bg-fill hover:text-ink">
-              <X size={15} />
-            </Dialog.Close>
-          </div>
-          <div className="min-h-0 flex-1 overflow-auto overscroll-contain">
-            <Suspense
-              fallback={
-                <div className="grid min-h-40 place-items-center text-ink-3">
-                  <LoaderCircle size={18} className="animate-spin" />
-                </div>
-              }
-            >
-              <PreviewBody url={view} name={name} kind={kind} />
-            </Suspense>
-          </div>
-        </Dialog.Popup>
-      </Dialog.Portal>
+      <FileWindow className="max-h-[86vh]" onKeyDown={spaceShuts(() => setOpen(false))}>
+        <div className="flex h-12 shrink-0 items-center gap-2 border-b border-edge pr-2 pl-4">
+          <Dialog.Title className="min-w-0 flex-1 truncate text-sm font-medium">{name}</Dialog.Title>
+          <Tip label={t("msg.download")}>
+            <a href={href} download={name} aria-label={t("msg.download")} className="g-press grid size-8 place-items-center rounded-full text-ink-2 hover:bg-fill hover:text-ink">
+              <Download size={15} />
+            </a>
+          </Tip>
+          <Dialog.Close aria-label={t("msg.close")} className="g-press grid size-8 place-items-center rounded-full text-ink-2 hover:bg-fill hover:text-ink">
+            <X size={15} />
+          </Dialog.Close>
+        </div>
+        <div className="min-h-0 flex-1 overflow-auto overscroll-contain">
+          <Suspense
+            fallback={
+              <div className="grid min-h-40 place-items-center text-ink-3">
+                <LoaderCircle size={18} className="animate-spin" />
+              </div>
+            }
+          >
+            <PreviewBody url={view} name={name} kind={kind} />
+          </Suspense>
+        </div>
+      </FileWindow>
     </Dialog.Root>
   );
 }
