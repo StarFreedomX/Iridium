@@ -158,6 +158,8 @@ export const zh = {
   "browse.toFolder": "返回文件夹",
   "browse.link": "符号链接",
   "browse.updateComputer": "电脑端需更新",
+  "browse.copyChatLink": "复制聊天链接",
+  "browse.copyAbsolutePath": "复制绝对路径",
   "public.menu": "公开链接",
   "public.about": "只读：持链接者可看对话，不能发消息",
   "public.off": "未公开",

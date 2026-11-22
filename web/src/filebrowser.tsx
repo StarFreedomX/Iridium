@@ -2,17 +2,21 @@
 // and inline preview (reusing chat/preview.tsx). Desktop shows both panes side by side; a narrow
 // container (<620px) shows one pane at a time.
 import { Dialog } from "@base-ui/react/dialog";
+import { Menu } from "@base-ui/react/menu";
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
-import { ArrowLeft, ArrowUp, ChevronRight, Download, ExternalLink, FileText, Folder, House, Link2, LoaderCircle, RefreshCw } from "lucide-react";
+import { ArrowLeft, ArrowUp, ChevronRight, Copy, Download, ExternalLink, Eye, FileText, Folder, FolderOpen, House, Link2, LoaderCircle, RefreshCw } from "lucide-react";
 import { lazy, Suspense, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { api, ApiError, queryClient } from "./api/client";
 import type { DirEntry, DirListing } from "./api/types.gen";
+import { nativeAt, placeMention } from "./chat/at";
 import { size } from "./chat/files";
 import { previewKind } from "./chat/preview-lib";
 import { Choose } from "./choose";
 import { useMachines } from "./data";
 import { t } from "./i18n";
-import { cn, IconKey, Tip } from "./ui";
+import { MenuItems, type MenuItem } from "./sidebar";
+import { errText, toast } from "./toast";
+import { cn, IconKey, Tip, useLongPress, useMenuAt, usePointAnchor } from "./ui";
 
 const preview = () => import("./chat/preview");
 const PreviewBody = lazy(preview);
@@ -27,6 +31,20 @@ const filesQ = (machine: string, path: string) => ({
 export const prefetchDirectory = (machine: string, path: string) => queryClient.prefetchQuery(filesQ(machine, path));
 
 const join = (dir: string, name: string) => dir.endsWith("/") ? dir + name : `${dir}/${name}`;
+
+const fileDownload = (machine: string, path: string, name: string) => ({
+  href: api.browseFileURL(path, machine, true),
+  download: name,
+});
+
+async function copyText(text: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+    toast(t("toast.copied"));
+  } catch (e) {
+    toast(t("err.action"), { error: true, description: errText(e) });
+  }
+}
 
 /** Parent of a slash-separated page path, "" at a filesystem, drive (C:/) or UNC share root. */
 function parent(dir: string) {
@@ -92,6 +110,12 @@ export default function FileBrowser({ machine: initialMachine, path: initialPath
     returnTo.current = from;
     setSelected(name);
   };
+  const copyChatLink = (path: string) => void copyText(placeMention({ machine, path }, machines));
+  // A folder's chat link names its machine too; an absolute path is plain, as that machine writes it.
+  const copyActions = (path: string, directory: boolean): MenuItem[] => [
+    ...(directory ? [{ icon: <Link2 size={15} />, label: t("browse.copyChatLink"), run: () => copyChatLink(path) }] : []),
+    { icon: <Copy size={15} />, label: t("browse.copyAbsolutePath"), run: () => void copyText(nativeAt(computer, path)) },
+  ];
   // On a narrow pane the preview hides the list: focus the heading, and return to the file's row
   // when going back.
   useLayoutEffect(() => {
@@ -121,12 +145,13 @@ export default function FileBrowser({ machine: initialMachine, path: initialPath
         <IconKey label={t("browse.start")} onClick={() => visit("")}><House size={15} /></IconKey>
         <PathBar dir={dir} machine={machine} typed={typed} onType={setTyped} onVisit={visit} />
         <IconKey label={t("top.reload")} onClick={() => void folders.refetch()}><RefreshCw size={15} /></IconKey>
+        <IconKey label={t("browse.copyChatLink")} disabled={!folders.data?.path} onClick={() => copyChatLink(dir)}><Link2 size={15} /></IconKey>
       </div>
       <div className="flex min-h-0 flex-1">
         <div ref={list} tabIndex={-1} className={cn("min-w-0 flex-1 flex-col @min-[620px]:flex @min-[620px]:w-72 @min-[620px]:flex-none @min-[620px]:border-r @min-[620px]:border-edge", file ? "hidden" : "flex")}>
           {/* Keyed by computer and path so each folder starts at scroll top while the focusable list stays mounted. */}
           <div key={`${machine}:${dir}`} className="min-h-0 flex-1 overflow-auto overscroll-contain p-1.5">
-            <FolderContents machine={machine} dir={dir} folders={folders} selected={file?.name} onFolder={openFolder} onFile={openFile} />
+            <FolderContents machine={machine} dir={dir} folders={folders} selected={file?.name} onFolder={openFolder} onFile={openFile} copyActions={copyActions} />
           </div>
         </div>
         <div className={cn("min-w-0 flex-1 flex-col @min-[620px]:flex", file ? "flex" : "hidden")}>
@@ -226,15 +251,17 @@ function PathBar({ dir, machine, typed, onType, onVisit }: {
   );
 }
 
-/** One folder's entries (folders first, natural name order) with prefetch on hover and focus. */
-function FolderContents({ machine, dir, folders, selected, onFolder, onFile }: {
+type FolderRowsProps = {
   machine: string;
   dir: string;
-  folders: UseQueryResult<DirListing>;
   selected?: string;
   onFolder: (path: string, fromKeyboard: boolean) => void;
   onFile: (name: string, from: HTMLButtonElement) => void;
-}) {
+  copyActions: (path: string, directory: boolean) => MenuItem[];
+};
+
+/** One folder's entries (folders first, natural order), or what stands in while it loads or fails. */
+function FolderContents({ folders, ...rows }: FolderRowsProps & { folders: UseQueryResult<DirListing> }) {
   const entries = useMemo(() => {
     const byName = new Intl.Collator(undefined, { numeric: true });
     return folders.data?.entries.slice().sort((a, b) => Number(b.type === "dir") - Number(a.type === "dir") || byName.compare(a.name, b.name));
@@ -250,47 +277,126 @@ function FolderContents({ machine, dir, folders, selected, onFolder, onFile }: {
     return <p role="status" className="mx-2.5 my-3 text-sm text-ink-2">{error}</p>;
   }
   if (!entries?.length) return <p className="mx-2.5 my-3 text-sm text-ink-3">{t("browse.empty")}</p>;
+  return <FolderRows {...rows} entries={entries} />;
+}
 
-  const row = "flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-sm pointer-coarse:h-11";
+type Point = { x: number; y: number };
+
+/** The folder's rows and the one menu they share, opened at the pointer or under a row's key. */
+function FolderRows({ machine, dir, selected, onFolder, onFile, copyActions, entries }: FolderRowsProps & { entries: DirEntry[] }) {
+  const [at, setAt] = useMenuAt();
+  const [target, setTarget] = useState<{ entry: DirEntry; key: HTMLButtonElement } | null>(null);
+  const anchor = usePointAnchor(at);
+  const openMenu = (entry: DirEntry, key: HTMLButtonElement, point: Point) => {
+    setTarget({ entry, key });
+    setAt(point);
+  };
+  const items: MenuItem[] = [];
+  if (target) {
+    const { entry, key } = target;
+    const path = join(dir, entry.name);
+    const directory = entry.type === "dir";
+    if (directory) {
+      items.push({ icon: <FolderOpen size={15} />, label: t("toast.open"), run: () => onFolder(path, true) });
+    } else {
+      items.push(
+        { icon: <Eye size={15} />, label: t("msg.preview"), run: () => onFile(entry.name, key) },
+        { icon: <Download size={15} />, label: t("msg.download"), ...fileDownload(machine, path, entry.name) },
+      );
+    }
+    items.push(...copyActions(path, directory));
+  }
   return (
-    <ul role="list" className="m-0 list-none p-0">
-      {entries.map((entry) => {
-        const directory = entry.type === "dir";
-        const Icon = directory ? Folder : entry.type === "link" ? Link2 : FileText;
-        const content = (
-          <>
-            <Icon size={16} aria-hidden className="shrink-0 text-ink-3" />
-            <span className="no-bar min-w-0 flex-1 overflow-x-auto whitespace-nowrap">{entry.name}</span>
-          </>
-        );
-        if (!directory && entry.type !== "file") {
-          return (
-            <li key={entry.name}>
-              <span className={cn(row, "text-ink-3")}>
-                {content}{entry.type === "link" && <span className="text-xs">{t("browse.link")}</span>}
-              </span>
-            </li>
-          );
-        }
-        const target = join(dir, entry.name);
-        const warm = () => directory ? void prefetchDirectory(machine, target) : void preview().catch(() => {});
-        return (
-          <li key={entry.name}>
-            <button
-              type="button"
-              aria-current={selected === entry.name || undefined}
-              className={cn(row, "hover:bg-fill aria-[current=true]:bg-fill aria-[current=true]:font-medium")}
-              onPointerEnter={warm}
-              onPointerDown={warm}
-              onFocus={warm}
-              onClick={(e) => directory ? onFolder(target, e.detail === 0) : onFile(entry.name, e.currentTarget)}
-            >
-              {content}
-            </button>
-          </li>
-        );
-      })}
-    </ul>
+    <>
+      <ul role="list" className="m-0 list-none p-0">
+        {entries.map((entry) => (
+          <FolderRow
+            key={entry.name}
+            entry={entry}
+            machine={machine}
+            path={join(dir, entry.name)}
+            selected={selected === entry.name}
+            onFolder={onFolder}
+            onFile={onFile}
+            onMenu={openMenu}
+          />
+        ))}
+      </ul>
+      <Menu.Root modal={false} open={at !== null} onOpenChange={(open) => !open && setAt(null)}>
+        <Menu.Portal>
+          <Menu.Positioner anchor={anchor} side="bottom" align="start" sideOffset={4} collisionPadding={8} className="z-50">
+            <MenuItems
+              items={items}
+              label={target?.entry.name}
+              // When Esc shuts the menu, put the focus back on the row if it is still on screen.
+              finalFocus={(type) => type === "keyboard" && target?.key.getClientRects().length ? target.key : false}
+            />
+          </Menu.Positioner>
+        </Menu.Portal>
+      </Menu.Root>
+    </>
+  );
+}
+
+/** One row of the folder: warmed on hover or focus, its menu on right click, long press or menu key. */
+function FolderRow({ entry, machine, path, selected, onFolder, onFile, onMenu }: Pick<FolderRowsProps, "machine" | "onFolder" | "onFile"> & {
+  entry: DirEntry;
+  path: string;
+  selected: boolean;
+  onMenu: (entry: DirEntry, key: HTMLButtonElement, point: Point) => void;
+}) {
+  const key = useRef<HTMLButtonElement>(null);
+  const lp = useLongPress((point) => key.current && onMenu(entry, key.current, point), { suppressTouchClick: true });
+  const directory = entry.type === "dir";
+  const Icon = directory ? Folder : entry.type === "link" ? Link2 : FileText;
+  const row = "flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-sm pointer-coarse:h-11";
+  const label = (
+    <>
+      <Icon size={16} aria-hidden className="shrink-0 text-ink-3" />
+      <span className="no-bar min-w-0 flex-1 overflow-x-auto whitespace-nowrap">{entry.name}</span>
+    </>
+  );
+  if (!directory && entry.type !== "file") {
+    return (
+      <li>
+        <span className={cn(row, "text-ink-3")}>
+          {label}{entry.type === "link" && <span className="text-xs">{t("browse.link")}</span>}
+        </span>
+      </li>
+    );
+  }
+  const warm = () => directory ? void prefetchDirectory(machine, path) : void preview().catch(() => {});
+  return (
+    <li>
+      <button
+        ref={key}
+        type="button"
+        aria-current={selected || undefined}
+        aria-keyshortcuts="Shift+F10"
+        className={cn(row, "hover:bg-fill select-none aria-[current=true]:bg-fill aria-[current=true]:font-medium [-webkit-touch-callout:none]")}
+        {...lp}
+        onPointerEnter={warm}
+        onPointerDown={(e) => {
+          lp.onPointerDown(e);
+          warm();
+        }}
+        onFocus={warm}
+        onClick={(e) => directory ? onFolder(path, e.detail === 0) : onFile(entry.name, e.currentTarget)}
+        onContextMenu={(e) => {
+          if (lp.onContextMenu(e)) return;
+          e.preventDefault();
+          onMenu(entry, e.currentTarget, { x: e.clientX, y: e.clientY });
+        }}
+        onKeyDown={(e) => {
+          if (e.key !== "ContextMenu" && !(e.shiftKey && e.key === "F10")) return;
+          e.preventDefault();
+          const { left, bottom } = e.currentTarget.getBoundingClientRect();
+          onMenu(entry, e.currentTarget, { x: left, y: bottom });
+        }}
+      >
+        {label}
+      </button>
+    </li>
   );
 }
 
@@ -317,8 +423,7 @@ function FilePreview({ file, dir, machine, title }: {
           <a
             className="g-press grid size-8 shrink-0 place-items-center rounded-md text-ink-2 hover:bg-fill hover:text-ink pointer-coarse:size-10"
             aria-label={t("msg.download")}
-            download={file.name}
-            href={api.browseFileURL(filePath, machine, true)}
+            {...fileDownload(machine, filePath, file.name)}
           >
             <Download size={16} />
           </a>

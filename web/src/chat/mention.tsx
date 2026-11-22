@@ -23,23 +23,13 @@ import { Folder, MessageSquare } from "lucide-react";
 import { CloudBadge, MachineFace, type Machine } from "../machines";
 import type { Place } from "../places";
 import { AGENTS, agentName, cn, Logo, tilde, Tip, titleOf } from "../ui";
-import { baseName, nativeAt, type NamedPlace } from "./at";
 import { Face, FaceStack } from "./channel/face";
 import { isMulti } from "./channel/lib";
-import { mentions, placeLink, sessionIds, sessionLink, shortId, type Mention } from "./refs";
+import { mentions, sessionIds, sessionLink, shortId, type Mention } from "./refs";
 import { boxed, MARK } from "./boxed";
 
 /** How the composer names session to, among list: what a row dropped or picked after @ puts in. */
 export const mentionOf = (to: Session, list: Session[]) => sessionLink(titleOf(to) || tilde(to.cwd), shortId(to.id, list.map((x) => x.id)));
-
-/** How the composer names place p: a folder here by its path; one at another machine by the
- *  machine's name (its ID if the name has what would end it) and the path as it writes it. */
-export function placeMention(p: NamedPlace, ms: Machine[]): string {
-  const name = p.name || baseName(p.path) || "/";
-  if (!p.machine) return placeLink(name, p.path);
-  const m = ms.find((x) => x.id === p.machine);
-  return placeLink(name, nativeAt(m, p.path), m && !/[\s:/]/.test(m.name) ? m.name : p.machine);
-}
 
 /** The machine a mention names: by its ID, else its name in any case. */
 export const machineNamed = (name: string, ms: Machine[]) => ms.find((m) => m.id === name) ?? ms.find((m) => m.name.toLowerCase() === name.toLowerCase());

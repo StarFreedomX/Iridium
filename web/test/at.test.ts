@@ -1,8 +1,8 @@
 import { describe, expect, test } from "vitest";
 import type { DshWorkspace, Session, Workspace } from "../src/api/types.gen";
 import type { Machine } from "../src/machines";
-import { arrowInto, atPath, atSections, baseName, pathSection, typedPath } from "../src/chat/at";
-import { placeMention, placeOf } from "../src/chat/mention";
+import { arrowInto, atPath, atSections, baseName, pathSection, placeMention, typedPath } from "../src/chat/at";
+import { placeOf } from "../src/chat/mention";
 import { mentions, placesIn } from "../src/chat/refs";
 
 const win = { id: "m1", name: "otae-2", os: "windows", home: "C:\\Users\\o", sep: "\\", agents: [{ agent: "dsh" }], online: true } as Machine;

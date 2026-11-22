@@ -158,6 +158,8 @@ export const en: Dict = {
   "browse.toFolder": "Back to folder",
   "browse.link": "Symbolic link",
   "browse.updateComputer": "Computer update required",
+  "browse.copyChatLink": "Copy chat link",
+  "browse.copyAbsolutePath": "Copy absolute path",
   "public.menu": "Public link",
   "public.about": "Read-only: anyone with the link sees the conversation, cannot send",
   "public.off": "Not public",
