@@ -535,10 +535,10 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
           if (!(fold instanceof HTMLDetailsElement) || reduced() || document.hidden) return;
           e.preventDefault();
           toggleFold(fold);
-        }} className="absolute inset-0 overflow-y-auto [overflow-anchor:none] [scrollbar-gutter:stable_both-edges]" style={style}>
+        }} className="gapless absolute inset-0 overflow-y-auto [overflow-anchor:none] [scrollbar-gutter:stable_both-edges]" style={style}>
         {children}
         {/* The floor: the room kept for what shrank at the end (follow). */}
-        <div ref={spacer} aria-hidden />
+        <div ref={spacer} aria-hidden className="gapless" />
       </div>
       {fresh && !quiet && (
         <button

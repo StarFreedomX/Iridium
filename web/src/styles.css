@@ -179,6 +179,12 @@ body {
 ::selection {
   background: color-mix(in oklch, var(--ink) 18%, transparent);
 }
+/* WebKit (Safari, the desktop app on a Mac) paints a block's room around what is chosen in its
+   selection colour too: a drag from the chat into the empty room under it greyed the whole pane
+   (kumo, 2026-11-22). The chat's scroller and its floor paint none; the words keep theirs. */
+.gapless::selection {
+  background: transparent;
+}
 
 /* Focus ring for the keyboard only; the composer never shows one. */
 :focus {

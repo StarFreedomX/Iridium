@@ -1,6 +1,7 @@
 // Something with a menu of its own at a right click or a long press (a reply, a file): 引用 where
 // it may be answered (a channel's message), 复制; 折叠 or 展开 on a message that folds
-// (foldstate.ts FoldMenu). A right click on words chosen keeps the browser's menu. A message of a
+// (foldstate.ts FoldMenu). A right click on words chosen keeps the browser's menu (chosen before
+// the press: WebKit chooses the word under the pointer as it goes down). A message of a
 // channel (act) has more (react.tsx, which the chat loads and puts in acts; a public link's page
 // has none of it): the emoji to react with at the top, 撤回 at the foot, its reactions under it.
 import { Menu } from "@base-ui/react/menu";
@@ -23,6 +24,9 @@ const ITEM =
 export function Copyable({ copy, children, className, quote, act }: { copy?: string; children: ReactNode; className?: string; quote?: () => void; act?: Act }) {
   const [at, setAt] = useState<{ x: number; y: number } | null>(null);
   const down = useRef({ x: 0, y: 0 });
+  // Words chosen before the right button went down: WebKit (Safari, the desktop app on a Mac)
+  // chooses the word under it first, and that one is no choice of the user's.
+  const chose = useRef(false);
   const lp = useLongPress(() => setAt(down.current));
   const fold = useContext(FoldMenu);
   if (copy === undefined) return <div className={className}>{children}</div>;
@@ -33,12 +37,14 @@ export function Copyable({ copy, children, className, quote, act }: { copy?: str
       {...lp}
       onPointerDown={(e) => {
         down.current = { x: e.clientX, y: e.clientY };
+        if (e.button === 2 || e.ctrlKey) chose.current = !!getSelection()?.toString();
         lp.onPointerDown(e);
       }}
       onContextMenu={(e) => {
         lp.onContextMenu(e);
-        if (e.defaultPrevented || !own(e) || getSelection()?.toString()) return;
+        if (e.defaultPrevented || !own(e) || (chose.current && getSelection()?.toString())) return;
         e.preventDefault();
+        if (!chose.current) getSelection()?.removeAllRanges();
         setAt({ x: e.clientX, y: e.clientY });
       }}
     >
