@@ -42,12 +42,12 @@ type ui struct {
 	pub  publicState // its 公网访问 (public.go)
 
 	mu      sync.Mutex
-	ready   string                     // a downloaded update's version, waiting for a restart
-	waiting bool                       // the window waits on the app's page for this computer's Iridium to start
-	atApp   bool                       // the window is on the app's own page (its last word came from there)
-	control *application.WebviewWindow // the control page's window while open
+	ready   string                       // a downloaded update's version, waiting for a restart
+	waiting bool                         // the window waits on the app's page for this computer's Iridium to start
+	atApp   bool                         // the window is on the app's own page (its last word came from there)
+	control *application.WebviewWindow   // the control page's window while open
 	wins    []*application.WebviewWindow // the windows on Iridiums, the one in front (win) among them
-	shows   map[string]string           // each window's (by name) Iridium, as its page says
+	shows   map[string]string            // each window's (by name) Iridium, as its page says
 	nwin    int
 }
 
@@ -126,13 +126,20 @@ func gui(o Options) int {
 	if s := c.server(c.current()); s != nil && s.Local && !answers(context.Background(), s.URL) {
 		start, u.waiting = "/", true // the app's page till it answers (startLocal)
 	}
-	u.win = u.app.Window.NewWithOptions(application.WebviewWindowOptions{
+	opts := application.WebviewWindowOptions{
 		Name: "main", Title: "Iridium", Width: 1200, Height: 800, MinWidth: 360, MinHeight: 480,
 		URL: themed(start), CSS: pageCSS, JS: pageJS,
 		// No title bar of its own on macOS (kumo, 2026-11-20: no line under it): the page goes up to
 		// the window's top, the window dragged by that strip (pageCSS keeps it clear).
 		Mac: application.MacWindow{TitleBar: application.MacTitleBarHidden, InvisibleTitleBarHeight: macBar},
-	})
+	}
+	// Where it was last (keepFrame), given as it is made: before app.Run a window's SetSize waits on
+	// the main thread, which is not running yet, and the app hung at start.
+	if f := c.Frame; f.W >= 360 && f.H >= 480 {
+		opts.Width, opts.Height = f.W, f.H
+		opts.InitialPosition, opts.X, opts.Y = application.WindowXY, f.X, f.Y
+	}
+	u.win = u.app.Window.NewWithOptions(opts)
 	if c.Zoom > 0 {
 		u.win.SetZoom(c.Zoom)
 	}

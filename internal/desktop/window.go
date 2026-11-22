@@ -133,14 +133,9 @@ func (u *ui) syncRuntime(logf func(string, ...any)) {
 	}
 }
 
-// keepFrame: the window opens where and as large as it was last (Config.Frame), and is kept as it
-// moves and resizes (a Mac's or Windows' window does).
+// keepFrame: the window opens where and as large as it was last (Config.Frame, given as gui makes it),
+// and that is kept as it moves and resizes (a Mac's or Windows' window does).
 func (u *ui) keepFrame() {
-	c, _ := loadConfig()
-	if f := c.Frame; f.W >= 360 && f.H >= 480 {
-		u.win.SetSize(f.W, f.H)
-		u.win.SetPosition(f.X, f.Y)
-	}
 	var mu sync.Mutex
 	var t *time.Timer
 	save := func(*application.WindowEvent) {
