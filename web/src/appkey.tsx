@@ -1,20 +1,24 @@
 // The desktop app's key at the top bar's right (irapp.ts): in the app only. Pressed, the app's own
 // window comes (internal/desktop/picker.go, web/src/appwin): 服务器 and 授权操作; the app's own, so
 // this page cannot press its switches. Pressed again, that window goes.
-import { Minus, MonitorSmartphone, Square, X } from "lucide-react";
+import { MonitorSmartphone } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useMe } from "./data";
 import { t } from "./i18n";
 import { ask, useApp, useWinMax } from "./irapp";
 import { go, over, route } from "./route";
-import { cn, IconKey } from "./ui";
-import { WinKey } from "./winkey";
+import { IconKey } from "./ui";
+import { WinKeyPair } from "./winkey";
 
 export function AppKey() {
   const app = useApp();
   if (!app) return null;
   return (
-    <IconKey label={t("app.title")} tipSide="bottom" onClick={() => ask("home")}>
+    <IconKey
+      label={t("app.title")}
+      tipSide="bottom"
+      onClick={() => ask("home")}
+    >
       <MonitorSmartphone size={16} />
     </IconKey>
   );
@@ -40,7 +44,13 @@ function useClosePage(inApp: boolean) {
       const r = route();
       if (over(r)) {
         const at = document.activeElement ?? document.body;
-        at.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true }));
+        at.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Escape",
+            code: "Escape",
+            bubbles: true,
+          }),
+        );
       } else if (r.name !== "home") go({ name: "home" });
       else ask("win", "close");
     };
@@ -48,25 +58,19 @@ function useClosePage(inApp: boolean) {
   }, [inApp]);
 }
 
-/** The window's three keys at the page's top right, in the app only (kumo, 2026-11-22): no title
- *  bar on a Mac or on Windows, one look on both. A Mac's round keys at Windows' place, drawn in
- *  the page's own greys; the close key turns red under the pointer. */
+/** The window's keys at the page's top right, in the app only (winkey.tsx; kumo, 2026-11-22): no
+ *  title bar on a Mac or on Windows. */
 export function WinKeys({ className }: { className?: string }) {
   const app = useApp();
-  const max = useWinMax();
+  const full = useWinMax();
   if (!app) return null;
   return (
-    <span data-win-keys="" className={cn("ml-1 flex shrink-0 items-center", className)}>
-      <WinKey label={t("app.min")} onClick={() => ask("win", "min")}>
-        <Minus size={8} strokeWidth={3} />
-      </WinKey>
-      <WinKey label={max ? t("app.restore") : t("app.max")} onClick={() => ask("win", "max")}>
-        <Square size={6.5} strokeWidth={3} />
-      </WinKey>
-      <WinKey label={t("app.close")} onClick={() => ask("win", "close")} close>
-        <X size={8} strokeWidth={3} />
-      </WinKey>
-    </span>
+    <WinKeyPair
+      mac={app.os === "darwin"}
+      full={full}
+      ask={(v) => ask("win", v)}
+      className={className}
+    />
   );
 }
 
@@ -78,13 +82,19 @@ export function AppName() {
   const [editing, setEditing] = useState(false);
   const done = useRef(false);
   const name = app?.title || "Iridium";
-  if (!app) return <span className="truncate text-base font-semibold tracking-[-0.01em]">Iridium</span>;
+  if (!app)
+    return (
+      <span className="truncate text-base font-semibold tracking-[-0.01em]">
+        Iridium
+      </span>
+    );
   if (editing) {
     const end = (v?: string) => {
       if (done.current) return;
       done.current = true;
       setEditing(false);
-      if (v !== undefined && v.trim() !== (app.title ?? "")) ask("title", v.trim() === "Iridium" ? "" : v.trim());
+      if (v !== undefined && v.trim() !== (app.title ?? ""))
+        ask("title", v.trim() === "Iridium" ? "" : v.trim());
     };
     return (
       <input

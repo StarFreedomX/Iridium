@@ -1,21 +1,56 @@
-// A window key of the desktop app's (internal/desktop/chrome.go): the windows have no title bar,
-// their keys are the pages' own; the app's own pages (appwin) use it too, apart from the web
-// app's data.
-import type { ReactNode } from "react";
-import { cn } from "./ui";
+// The desktop app's window keys (internal/desktop/chrome.go): the windows have no title bar, their
+// keys are the pages' own, the top bar's own icon keys (kumo, 2026-11-22: no round marks). Two of
+// them, no minimise: full screen and close. Full screen is each system's own (kumo, 2026-11-22): a
+// Mac's full screen (its green button), Windows' maximise and back.
+import { Maximize2, Minimize2, Square, Copy, X } from "lucide-react";
+import { t } from "./i18n";
+import { cn, IconKey } from "./ui";
 
-/** One window key: a round mark in a key the size of the bar's others. */
-export function WinKey({ label, onClick, close, children }: { label: string; onClick: () => void; close?: boolean; children: ReactNode }) {
+/** Full screen (a Mac) or maximise (Windows, Linux), then close. ask: the app asked a key's verb. */
+export function WinKeyPair({
+  mac,
+  full,
+  ask,
+  className,
+}: {
+  mac: boolean;
+  full: boolean;
+  ask: (verb: string) => void;
+  className?: string;
+}) {
   return (
-    <button type="button" aria-label={label} onClick={onClick} className="group/wk grid size-7 shrink-0 place-items-center rounded-md">
-      <span
-        className={cn(
-          "grid size-3.5 place-items-center rounded-full bg-fill-2 text-ink-3 transition-colors duration-(--dur-1)",
-          close ? "group-hover/wk:bg-err group-hover/wk:text-[#fff]" : "group-hover/wk:bg-ink-4 group-hover/wk:text-paper",
-        )}
+    <span
+      data-win-keys=""
+      className={cn("flex shrink-0 items-center gap-0.5", className)}
+    >
+      {mac ? (
+        <IconKey
+          label={full ? t("app.unfull") : t("app.full")}
+          tipSide="bottom"
+          onClick={() => ask("full")}
+        >
+          {full ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+        </IconKey>
+      ) : (
+        <IconKey
+          label={full ? t("app.restore") : t("app.max")}
+          tipSide="bottom"
+          onClick={() => ask("max")}
+        >
+          {full ? (
+            <Copy size={13} className="-scale-x-100" />
+          ) : (
+            <Square size={13} />
+          )}
+        </IconKey>
+      )}
+      <IconKey
+        label={t("app.close")}
+        tipSide="bottom"
+        onClick={() => ask("close")}
       >
-        {children}
-      </span>
-    </button>
+        <X size={16} />
+      </IconKey>
+    </span>
   );
 }

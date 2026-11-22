@@ -10,10 +10,11 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/events"
 )
 
-// The windows' frame (kumo, 2026-11-22): no title bar on any system. The three keys (minimise,
-// maximise, close) are drawn by the page itself at its top right, one look on a Mac and on
-// Windows (web/src/appkey.tsx WinKeys, the picker's in web/src/appwin); a Mac's own three buttons
-// are hidden. The page's top bar drags the window (chromeJS); on Windows and Linux, where the
+// The windows' frame (kumo, 2026-11-22): no title bar on any system. The window's keys are drawn
+// by the page itself at its top right, its top bar's icon keys (web/src/winkey.tsx, the picker's
+// in web/src/appwin); a Mac's own three buttons are hidden. Two keys, no minimise: full screen and
+// close. Full screen is each system's own: a Mac's full screen (its green button), Windows'
+// maximise (kumo, 2026-11-22). The page's top bar drags the window (chromeJS); on Windows and Linux, where the
 // window has no frame of its own, its edges resize it.
 
 // bare is o with no title bar: on a Mac a titled window whose bar and buttons are hidden (a
@@ -31,17 +32,18 @@ func bare(o application.WebviewWindowOptions) application.WebviewWindowOptions {
 	return o
 }
 
-// winKey is a window key pressed in a page: min, max (maximised or back), close, reload.
+// winKey is a window key pressed in a page: full (a Mac's full screen), max (maximised or back),
+// close, reload.
 func (u *ui) winKey(w application.Window, key string) {
 	ww, ok := w.(*application.WebviewWindow)
 	if !ok {
 		return
 	}
 	switch key {
-	case "min":
-		ww.Minimise()
 	case "max":
 		ww.ToggleMaximise()
+	case "full":
+		ww.ToggleFullscreen()
 	case "close":
 		if ww == u.picker {
 			ww.Hide()
@@ -53,12 +55,20 @@ func (u *ui) winKey(w application.Window, key string) {
 	}
 }
 
-// followMax tells w's page whether w is maximised, as it changes: its key is drawn as it is.
+// followMax tells w's page whether w is full screen (a Mac) or maximised, as it changes: its key
+// is drawn as it is.
 func followMax(w *application.WebviewWindow) {
 	tell := func(*application.WindowEvent) {
-		go reply(w, map[string]any{"max": w.IsMaximised()})
+		go func() {
+			full := w.IsMaximised()
+			if runtime.GOOS == "darwin" {
+				full = w.IsFullscreen()
+			}
+			reply(w, map[string]any{"max": full})
+		}()
 	}
-	for _, e := range []events.WindowEventType{events.Common.WindowMaximise, events.Common.WindowUnMaximise, events.Common.WindowRestore} {
+	for _, e := range []events.WindowEventType{events.Common.WindowMaximise, events.Common.WindowUnMaximise, events.Common.WindowRestore,
+		events.Common.WindowFullscreen, events.Common.WindowUnFullscreen} {
 		w.OnWindowEvent(e, tell)
 	}
 }
@@ -134,7 +144,8 @@ func windowTitle(title string) string {
 }
 
 // chromeJS is put in every Iridium's page a window shows: its top bar drags the window, a double
-// click there maximises it; on Windows and Linux its edges resize it. The top bar is what the page
+// click there does as the system's title bar does (a Mac: its setting, zoom or minimise; elsewhere
+// maximise); on Windows and Linux its edges resize it. The top bar is what the page
 // marks data-app-drag (the keys, fields and links in it excepted); a page with none marked (an
 // Iridium from before) has its top 40 pixels. Such a page draws no window keys either: they are
 // put at its top right here, plainer, till the page has its own (data-win-keys).
@@ -150,13 +161,13 @@ addEventListener("mousemove",function(e){var r=edge(e);document.documentElement.
 addEventListener("mousedown",function(e){if(e.button!==0)return;var r=edge(e);
 if(r){e.preventDefault();e.stopPropagation();inv("wails:resize:"+r);return}
 if(e.detail===1&&zone(e)){inv("wails:drag")}},true);
-addEventListener("dblclick",function(e){if(zone(e))inv("ir:win:max")},true);
+addEventListener("dblclick",function(e){if(zone(e))inv(mac?"wails:drag:doubleclick":"ir:win:max")},true);
 function plain(){var have=document.querySelector("[data-win-keys]:not([data-win-keys=app])"),ours=document.querySelector("[data-win-keys=app]");
 if(have){if(ours)ours.remove();return}if(ours||!document.body)return;
 var d=document.createElement("div");d.setAttribute("data-win-keys","app");
-d.style.cssText="position:fixed;top:10px;right:10px;z-index:2147483647;display:flex;gap:8px";
-[["min","#febc2e"],["max","#28c840"],["close","#ff5f57"]].forEach(function(k){var b=document.createElement("button");b.type="button";b.setAttribute("aria-label",k[0]);
-b.style.cssText="width:12px;height:12px;border-radius:50%%;border:0;padding:0;cursor:default;background:"+k[1];b.onclick=function(){inv("ir:win:"+k[0])};d.appendChild(b)});
+d.style.cssText="position:fixed;top:8px;right:8px;z-index:2147483647;display:flex;gap:2px";
+[[mac?"full":"max",mac?"\u2922":"\u25a1"],["close","\u2715"]].forEach(function(k){var b=document.createElement("button");b.type="button";b.setAttribute("aria-label",k[0]);b.textContent=k[1];
+b.style.cssText="width:32px;height:32px;border-radius:6px;border:0;padding:0;cursor:default;background:none;color:inherit;opacity:.7;font:15px system-ui";b.onclick=function(){inv("ir:win:"+k[0])};d.appendChild(b)});
 document.body.appendChild(d)}
 setInterval(plain,2000);
 })();

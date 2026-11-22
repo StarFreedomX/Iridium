@@ -14,7 +14,6 @@ import {
   FolderPlus,
   Globe,
   LoaderCircle,
-  Minus,
   Monitor,
   Pause,
   Play,
@@ -39,7 +38,6 @@ import {
   SureKey,
   Switch,
 } from "../ui";
-import { WinKey } from "../winkey";
 import {
   ask,
   clipboardKeys,
@@ -138,19 +136,17 @@ export function Login() {
   return (
     <div className="h-full bg-paper text-ink select-none [&_*:focus-visible]:outline-none">
       {/* The window's top strip, no title bar on any system (kumo, 2026-11-22): the mark and
-          the name at the left, its keys at the right, the window dragged by it. */}
+          the name at the left, its close key at the right, the window dragged by it. */}
       <header
         onMouseDown={drag}
         className="fixed inset-x-0 top-0 z-10 flex h-9 items-center gap-1.5 bg-paper pr-1.5 pl-3.5 text-[13px] font-semibold tracking-tight"
       >
         <IrMark size={15} className="text-ink" />
         <span className="flex-1">Iridium</span>
-        <WinKey label="最小化" onClick={() => ask("ir:win:min")}>
-          <Minus size={8} strokeWidth={3} />
-        </WinKey>
-        <WinKey label="关闭" onClick={() => ask("ir:win:close")} close>
-          <X size={8} strokeWidth={3} />
-        </WinKey>
+        {/* Close alone: it is never full screen (kumo, 2026-11-22: no minimise). */}
+        <IconKey label="关闭" onClick={() => ask("ir:win:close")} className="size-7">
+          <X size={15} />
+        </IconKey>
       </header>
       <main
         className={cn(
