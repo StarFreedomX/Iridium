@@ -1,6 +1,7 @@
-// The desktop app's key at the top bar's right (irapp.ts): in the app only. Pressed, the window
-// goes to the app's own control page (internal/desktop, web/src/appwin): this computer, the
-// servers, each one's 授权操作 (kumo, 2026-11-22: a page of its own, not a popover).
+// The desktop app's key at the top bar's right (irapp.ts): in the app only. Pressed, the app's
+// control pops up under it (internal/desktop/control.go, web/src/appwin): first the Iridium this
+// window shows with its 授权操作, then this computer and the others; the app's own window, so
+// this page cannot press its switches.
 import { MonitorSmartphone } from "lucide-react";
 import { useEffect } from "react";
 import { useMe } from "./data";
@@ -16,7 +17,14 @@ export function AppKey() {
     <IconKey
       label={t("app.title")}
       tipSide="bottom"
-      onClick={() => ask("home")}
+      onClick={(e) => {
+        // Where the key is: the control opens under it (internal/desktop/control.go).
+        const r = e.currentTarget.getBoundingClientRect();
+        ask(
+          "home",
+          JSON.stringify({ X: r.x, Y: r.y, W: r.width, H: r.height }),
+        );
+      }}
     >
       <MonitorSmartphone size={16} />
     </IconKey>

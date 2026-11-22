@@ -4,15 +4,21 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "../styles.css";
 import { AskPanel } from "./ask";
-import { Login } from "./login";
+import { Control, Login } from "./login";
 
 // The request panel is a window of its own, see-through round its rounded panel.
-if (location.hash === "#ask")
+if (location.hash === "#ask" || location.hash === "#control")
   for (const el of [document.documentElement, document.body])
     el.style.background = "transparent";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    {location.hash === "#ask" ? <AskPanel /> : <Login />}
+    {location.hash === "#ask" ? (
+      <AskPanel />
+    ) : location.hash === "#control" ? (
+      <Control />
+    ) : (
+      <Login />
+    )}
   </StrictMode>,
 );

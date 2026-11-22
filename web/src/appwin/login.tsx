@@ -62,6 +62,7 @@ type Pub = {
 };
 type State = {
   servers: Server[];
+  current?: string; // the Iridium the window in front shows
   me?: Me;
   sysName?: string;
   agents?: string[];
@@ -447,7 +448,8 @@ function Servers({
   back?: () => void;
 }) {
   const local = st.servers.find((s) => s.local);
-  const others = st.servers.filter((s) => !s.local);
+  const cur = st.servers.find((s) => !s.local && s.url === st.current);
+  const others = st.servers.filter((s) => !s.local && s.url !== cur?.url);
   const rows = useFolding(others, (s) => s.url);
   const on = !!local && st.server !== false;
   const p = st.publicState;
@@ -468,6 +470,42 @@ function Servers({
           <ChevronLeft size={16} />
           返回
         </button>
+      )}
+
+      {/* The Iridium this window shows, first, with its 授权操作 at hand (kumo, 2026-11-22: the
+          key is there to control this). */}
+      {cur && (
+        <>
+          <Row
+            icon={<Face s={cur} />}
+            title={cur.loggedIn && cur.name ? cur.name : cur.host}
+            sub={
+              <>
+                <Lamp color={linkOf(cur).dot} />
+                {linkOf(cur).text}
+              </>
+            }
+            end={
+              <IconKey label={cur.host} onClick={() => open(cur)}>
+                <ChevronRight size={16} />
+              </IconKey>
+            }
+          />
+          <Row
+            icon={<span />}
+            title="授权操作"
+            end={
+              <Switch
+                label="授权操作"
+                on={!!cur.joined}
+                onChange={(v) =>
+                  ask("ir:terms:" + JSON.stringify({ url: cur.url, joined: v }))
+                }
+              />
+            }
+          />
+          <div className="h-4" />
+        </>
       )}
 
       {/* 此电脑: this computer's own Iridium, and 公网访问 under it while it runs. */}
@@ -621,15 +659,17 @@ function Servers({
   );
 }
 
-/** One server's own page: 授权操作, then what it may do here; 移除. */
+/** One server's own page: 授权操作, then what it may do here; 在新窗口打开 (in the control); 移除. */
 function ServerPage({
   s,
   agents,
   back,
+  newWindow,
 }: {
   s?: Server;
   agents: string[];
   back: () => void;
+  newWindow?: () => void;
 }) {
   if (!s) return null;
   const terms = (t: object) =>
@@ -731,6 +771,14 @@ function ServerPage({
         ))}
       </Fold>
       <div className="mt-4" />
+      {newWindow && (
+        <Row
+          icon={<Plus size={15} className="text-ink-3" />}
+          title="在新窗口打开"
+          tone="font-normal text-ink-2"
+          onClick={newWindow}
+        />
+      )}
       <RemoveRow onRemove={() => (ask("ir:remove:" + s.url), back())} />
     </>
   );
@@ -751,5 +799,80 @@ function RemoveRow({ onRemove }: { onRemove: () => void }) {
       tone={sure ? "text-err" : "font-normal text-ink-2"}
       onClick={() => (sure ? onRemove() : setSure(true))}
     />
+  );
+}
+
+/** The control (internal/desktop/control.go): a popover under the key at an Iridium page's top
+ *  right, the app's own window. Its servers, one's own page sliding in (g-slide, as a popover's
+ *  pages do) with 返回; its height told to the app as it changes; Esc closes it. */
+export function Control() {
+  const [st, setSt] = useState<State | null>(null);
+  const [at, setAt] = useState<string | null>(null); // a server's page, else the list
+  const [busy, setBusy] = useState("");
+  const [note, setNote] = useState<Note | null>(null);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const stop = onAnswer((d) => {
+      followTheme(d);
+      if (Array.isArray(d.servers)) setSt(d as unknown as State);
+      const server = typeof d.server === "string" ? d.server : undefined;
+      if (typeof d.code === "string")
+        setNote({ text: `在浏览器中核对代码 ${d.code} 后允许`, server });
+      if (typeof d.error === "string")
+        (setBusy(""), setNote({ text: d.error, error: true, server }));
+    });
+    whenReady(() => ask("ir:hello"));
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && ask("ir:close");
+    addEventListener("keydown", esc);
+    return () => (stop(), removeEventListener("keydown", esc));
+  }, []);
+  // The window as tall as the panel (and its shadow's margin).
+  const ready = st !== null;
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const tell = () =>
+      ask("ir:size:" + Math.ceil(el.getBoundingClientRect().height + 16));
+    const ro = new ResizeObserver(tell);
+    ro.observe(el);
+    tell();
+    return () => ro.disconnect();
+  }, [ready]);
+  const login = (to: string, key: string) => {
+    if (busy || !to) return;
+    setBusy(key);
+    setNote(null);
+    ask("ir:login:" + to);
+  };
+  if (!st) return null;
+  return (
+    <div className="p-2 select-none [&_*:focus-visible]:outline-none">
+      <div
+        ref={box}
+        className="g-unfold flex max-h-[664px] flex-col overflow-y-auto rounded-lg bg-(--glass-thick-solid) p-2 text-ink shadow-[var(--shadow-float)]"
+      >
+        <div
+          key={at ?? "list"}
+          className={cn("flex flex-col", at !== null && "g-slide")}
+        >
+          {at === null ? (
+            <Servers
+              st={st}
+              busy={busy}
+              note={note}
+              login={login}
+              open={(s) => setAt(s.url)}
+            />
+          ) : (
+            <ServerPage
+              s={st.servers.find((s) => s.url === at)}
+              agents={st.agents ?? []}
+              back={() => setAt(null)}
+              newWindow={() => ask("ir:newwin:" + at)}
+            />
+          )}
+        </div>
+      </div>
+    </div>
   );
 }

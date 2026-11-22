@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -45,6 +46,9 @@ type ui struct {
 	waiting bool                       // the window waits on the app's page for this computer's Iridium to start
 	atApp   bool                       // the window is on the app's own page (its last word came from there)
 	control *application.WebviewWindow // the control page's window while open
+	wins    []*application.WebviewWindow // the windows on Iridiums, the one in front (win) among them
+	shows   map[string]string           // each window's (by name) Iridium, as its page says
+	nwin    int
 }
 
 func gui(o Options) int {
@@ -134,10 +138,7 @@ func gui(o Options) int {
 	}
 	u.zoomKeys()
 	// Closing the window keeps the app (and this computer joined) in the tray.
-	u.win.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
-		e.Cancel()
-		u.win.Hide()
-	})
+	u.watch(u.win)
 
 	// macOS gives a web view ⌘C, ⌘V, ⌘A, ⌘Z only through the menu bar's Edit menu: without one,
 	// nothing pastes. Elsewhere the keys work without, and a menu would be a bar in the window.
@@ -149,7 +150,7 @@ func gui(o Options) int {
 		app := bar.AddSubmenu("Iridium")
 		app.AddRole(application.About)
 		app.AddSeparator()
-		app.Add("设置…").SetAccelerator("CmdOrCtrl+,").OnClick(func(*application.Context) { u.openControl() })
+		app.Add("设置…").SetAccelerator("CmdOrCtrl+,").OnClick(func(*application.Context) { u.openControl("") })
 		app.AddSeparator()
 		app.AddRole(application.Hide)
 		app.AddRole(application.HideOthers)
@@ -157,6 +158,7 @@ func gui(o Options) int {
 		app.AddSeparator()
 		app.AddRole(application.Quit)
 		file := bar.AddSubmenu("文件")
+		file.Add("新建窗口").SetAccelerator("CmdOrCtrl+N").OnClick(func(*application.Context) { u.newWindow("") })
 		file.AddRole(application.CloseWindow)
 		bar.AddRole(application.EditMenu)
 		view := bar.AddSubmenu("显示")
@@ -327,9 +329,17 @@ func (u *ui) message(w application.Window, msg string, o *application.OriginInfo
 		return
 	}
 	logf("message %s from %q", verb, origin)
-	if w.Name() == "main" { // the control window's words say nothing of the main window's page
+	if w.Name() != "control" && w.Name() != "ask" { // the control's words say nothing of a page
 		u.mu.Lock()
-		u.atApp = server == ""
+		if w.Name() == u.win.Name() {
+			u.atApp = server == ""
+		}
+		if server != "" {
+			if u.shows == nil {
+				u.shows = map[string]string{}
+			}
+			u.shows[w.Name()] = server
+		}
 		u.mu.Unlock()
 	}
 	if server == "" {
@@ -359,7 +369,7 @@ func (u *ui) message(w application.Window, msg string, o *application.OriginInfo
 	case "home":
 		// The app's control page, a window of its own over this page (kumo, 2026-11-22: not the
 		// window's page taken away).
-		application.InvokeAsync(u.openControl)
+		application.InvokeAsync(func() { u.openControl(arg) })
 	case "needlogin":
 		// The Iridium's login page, in the app: the app's own instead (its passkey is in the browser).
 		if _, err := updateConfig(func(c *Config) { c.Current = server; c.server(server).LoggedIn = false }); err == nil {
@@ -473,6 +483,18 @@ func (u *ui) local(w application.Window, verb, arg string) {
 			u.closeControl()
 			u.show()
 		}
+	case "newwin":
+		// The control's 在新窗口打开 (kumo, 2026-11-22: several windows, each on its Iridium).
+		if c, _ := loadConfig(); c.server(arg) != nil {
+			u.closeControl()
+			application.InvokeAsync(func() { u.newWindow(arg) })
+		}
+	case "size":
+		if h, err := strconv.Atoi(arg); err == nil {
+			application.InvokeAsync(func() { u.sizeControl(h) })
+		}
+	case "close":
+		u.closeControl()
 	case "local":
 		if err := u.useLocal(appLog()); err != nil {
 			reply(w, map[string]string{"error": err.Error()})
@@ -976,7 +998,8 @@ func (u *ui) redraw() {
 			}
 		})
 	}
-	m.Add("添加服务器…").OnClick(func(*application.Context) { u.openControl() })
+	m.Add("添加服务器…").OnClick(func(*application.Context) { u.show(); u.openControl("") })
+	m.Add("新建窗口").OnClick(func(*application.Context) { u.newWindow("") })
 	m.AddSeparator()
 	m.Add("打开窗口").OnClick(func(*application.Context) { u.show() })
 	if on, err := u.app.Autostart.IsEnabled(); err == nil {
