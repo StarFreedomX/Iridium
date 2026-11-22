@@ -30,7 +30,6 @@ export function Login() {
   const [servers, setServers] = useState<Server[] | null>(null);
   const [hasLocal, setHasLocal] = useState(true);
   const rows = useFolding(servers, (s) => s.url);
-  const [adding, setAdding] = useState(false);
   const [address, setAddress] = useState("");
   const [busy, setBusy] = useState(""); // the server being logged in to; "+" one typed
   const [note, setNote] = useState<Note | null>(null);
@@ -42,7 +41,7 @@ export function Login() {
       if (Array.isArray(d.servers)) {
         setServers(d.servers as Server[]);
         setHasLocal(d.hasLocal === true);
-        if (d.added) (setAdding(false), setAddress(""));
+        if (d.added) setAddress("");
       }
       const server = typeof d.server === "string" ? d.server : undefined;
       if (typeof d.code === "string")
@@ -55,10 +54,9 @@ export function Login() {
   }, []);
 
   const none = servers !== null && servers.length === 0;
-  const typing = adding || none;
   useEffect(() => {
-    if (typing) field.current?.focus();
-  }, [typing]);
+    if (none) field.current?.focus();
+  }, [none]);
 
   const login = (to: string, key: string) => {
     if (busy) return;
@@ -117,51 +115,46 @@ export function Login() {
               在本机运行 Iridium
             </button>
           </Fold>
-          {typing ? (
-            <form
-              className="g-fade mt-1 flex flex-col gap-2"
-              onSubmit={(e) => {
-                e.preventDefault();
-                login(address.trim(), "+");
+          {/* Adding one is a row of the same list (kumo, 2026-11-22: choosing and typing an
+              address on one page, not two): the address typed in place, Enter or the arrow logs
+              in from the browser. */}
+          <form
+            className="flex items-center gap-3 rounded-lg px-2 py-2 focus-within:bg-fill hover:bg-fill"
+            onSubmit={(e) => {
+              e.preventDefault();
+              login(address.trim(), "+");
+            }}
+          >
+            <span className="grid size-9 shrink-0 place-items-center text-ink-2">
+              <Plus size={16} />
+            </span>
+            <input
+              ref={field}
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              onKeyDown={(e) => {
+                clipboardKeys(e, setAddress);
+                if (e.key === "Escape") (setAddress(""), field.current?.blur());
               }}
-            >
-              <input
-                ref={field}
-                value={address}
-                onChange={(e) => setAddress(e.target.value)}
-                onKeyDown={(e) => {
-                  clipboardKeys(e, setAddress);
-                  if (e.key === "Escape" && !none) setAdding(false);
-                }}
-                placeholder="服务器地址，如 ir.example.com"
-                spellCheck={false}
-                autoCapitalize="off"
-                autoComplete="url"
-                className="h-10 rounded-lg bg-fill px-3 text-sm outline-none select-text placeholder:text-ink-3"
-              />
-              <button
-                type="submit"
-                disabled={busy === "+"}
-                className="g-press flex h-10 items-center justify-center gap-2 rounded-lg bg-ink text-sm font-medium text-paper disabled:opacity-80"
-              >
-                {busy === "+" && (
-                  <LoaderCircle size={15} className="animate-spin" />
-                )}
-                使用浏览器登录
-              </button>
-            </form>
-          ) : (
+              placeholder="添加服务器：ir.example.com"
+              spellCheck={false}
+              autoCapitalize="off"
+              autoComplete="url"
+              className="min-w-0 flex-1 bg-transparent text-sm outline-none select-text placeholder:text-ink-3"
+            />
             <button
-              type="button"
-              onClick={() => (setAdding(true), setNote(null))}
-              className="g-press flex items-center gap-3 rounded-lg px-2 py-2 text-sm text-ink-2 hover:bg-fill hover:text-ink"
+              type="submit"
+              aria-label="使用浏览器登录"
+              disabled={busy === "+" || !address.trim()}
+              className="g-press grid size-7 shrink-0 place-items-center rounded-md text-ink-3 enabled:hover:text-ink disabled:opacity-40"
             >
-              <span className="grid size-9 place-items-center">
-                <Plus size={16} />
-              </span>
-              添加服务器
+              {busy === "+" ? (
+                <LoaderCircle size={16} className="animate-spin" />
+              ) : (
+                <ChevronRight size={16} />
+              )}
             </button>
-          )}
+          </form>
           {note && !note.server && (
             <p
               className={cn(
