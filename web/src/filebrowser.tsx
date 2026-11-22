@@ -1,6 +1,6 @@
 import { Dialog } from "@base-ui/react/dialog";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, ArrowUp, Download, ExternalLink, FileText, Folder, House, Link2, LoaderCircle, RefreshCw } from "lucide-react";
+import { ArrowLeft, ArrowUp, ChevronRight, Download, ExternalLink, FileText, Folder, House, Link2, LoaderCircle, RefreshCw } from "lucide-react";
 import { lazy, Suspense, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError, queryClient } from "./api/client";
 import type { DirEntry } from "./api/types.gen";
@@ -32,8 +32,15 @@ function parent(dir: string) {
   return /^[A-Za-z]:$/.test(up) ? up + "/" : up;
 }
 
+function pathTrail(dir: string) {
+  const folders: string[] = [];
+  for (let folder = dir; folder; folder = parent(folder)) folders.push(folder);
+  return folders.reverse();
+}
+
 const row = "flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-sm pointer-coarse:h-11";
 const action = "g-press grid size-8 shrink-0 place-items-center rounded-md text-ink-2 hover:bg-fill hover:text-ink pointer-coarse:size-10";
+const pathBar = "h-8 min-w-0 flex-1 rounded-md bg-fill pointer-coarse:h-10";
 
 function Loading() {
   return <div className="grid min-h-32 place-items-center text-ink-3" role="status" aria-label={t("msg.loading")}><LoaderCircle size={18} className="animate-spin" /></div>;
@@ -46,12 +53,18 @@ export default function FileBrowser({ machine: initialMachine, path: initialPath
   const [typed, setTyped] = useState<string | null>(null);
   const [file, setFile] = useState<DirEntry | null>(null);
   const folders = useQuery(filesQ(machine, path));
-  const dir = folders.data?.path ?? path;
-  const start = startAt(machines.find((m) => m.id === machine));
+  const computer = machines.find((m) => m.id === machine);
+  const here = folders.data?.path ?? path;
+  const dir = computer?.sep === "\\" ? here.replaceAll("\\", "/") : here;
+  const start = startAt(computer);
   const up = parent(dir);
   const list = useRef<HTMLDivElement>(null);
   const title = useRef<HTMLHeadingElement>(null);
   const returnTo = useRef<HTMLButtonElement | null>(null);
+  const trail = useRef<HTMLElement>(null);
+  const editKey = useRef<HTMLButtonElement>(null);
+  const returnToEdit = useRef(false);
+  const editing = typed !== null;
 
   const visit = (next: string, at = machine) => {
     setTyped(null);
@@ -67,6 +80,14 @@ export default function FileBrowser({ machine: initialMachine, path: initialPath
       if (key.isConnected) key.focus();
     }
   }, [file]);
+  useLayoutEffect(() => {
+    if (editing) return;
+    if (trail.current) trail.current.scrollLeft = trail.current.scrollWidth;
+    if (returnToEdit.current) {
+      returnToEdit.current = false;
+      editKey.current?.focus({ preventScroll: true });
+    }
+  }, [dir, editing]);
 
   const entries = useMemo(() => {
     const byName = new Intl.Collator(undefined, { numeric: true });
@@ -99,9 +120,61 @@ export default function FileBrowser({ machine: initialMachine, path: initialPath
       <div className={cn("shrink-0 items-center gap-1 border-b border-edge px-2 py-1", file ? "hidden @min-[620px]:flex" : "flex")}>
         <IconKey label={t("browse.up")} aria-disabled={!up} className="aria-disabled:opacity-40 aria-disabled:hover:bg-transparent" onClick={() => up && visit(up)}><ArrowUp size={16} /></IconKey>
         <IconKey label={t(start === "~" ? "pick.home" : "browse.start")} onClick={() => visit(start)}><House size={15} /></IconKey>
-        <form className="min-w-0 flex-1" onSubmit={(e) => { e.preventDefault(); visit(typed || dir); }}>
-          <input aria-label={t("pick.path")} value={typed ?? dir} onChange={(e) => setTyped(e.currentTarget.value)} onBlur={() => setTyped(null)} spellCheck={false} autoComplete="off" className="h-8 w-full rounded-md bg-fill px-2 font-mono text-xs text-ink pointer-coarse:h-10" />
-        </form>
+        {editing ? (
+          <form className={pathBar} onSubmit={(e) => {
+            e.preventDefault();
+            returnToEdit.current = true;
+            visit(typed || dir);
+          }}>
+            <input
+              autoFocus
+              aria-label={t("pick.path")}
+              value={typed}
+              onFocus={(e) => e.currentTarget.select()}
+              onChange={(e) => setTyped(e.currentTarget.value)}
+              onBlur={() => setTyped(null)}
+              onKeyDown={(e) => {
+                if (e.key !== "Escape" || e.nativeEvent.isComposing || e.keyCode === 229) return;
+                e.preventDefault();
+                e.stopPropagation();
+                returnToEdit.current = true;
+                setTyped(null);
+              }}
+              spellCheck={false}
+              autoComplete="off"
+              className="g-fade size-full rounded-md px-2 font-mono text-xs text-ink"
+            />
+          </form>
+        ) : (
+          <div className={cn(pathBar, "flex items-center px-1")}>
+            <nav ref={trail} aria-label={t("pick.path")} className="no-bar min-w-0 overflow-x-auto overscroll-x-contain">
+              <ol className="m-0 flex w-max list-none items-center p-0">
+                {pathTrail(dir).map((folder, i) => {
+                  const current = folder === dir;
+                  const label = folder.replace(/(.)\/+$/, "$1");
+                  const warm = () => !current && void prefetchDirectory(machine, folder);
+                  return (
+                    <li key={folder} className="flex shrink-0 items-center">
+                      {i > 0 && <ChevronRight aria-hidden size={12} className="text-ink-3" />}
+                      <button
+                        type="button"
+                        aria-current={current ? "location" : undefined}
+                        onPointerEnter={warm}
+                        onPointerDown={warm}
+                        onFocus={warm}
+                        onClick={() => !current && visit(folder)}
+                        className={cn("g-press flex h-7 items-center rounded-sm px-1.5 text-sm whitespace-nowrap hover:bg-fill-2 focus-visible:-outline-offset-2 pointer-coarse:h-9", current ? "font-semibold text-ink" : "text-ink-2")}
+                      >
+                        {i === 0 ? label : label.slice(label.lastIndexOf("/") + 1)}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ol>
+            </nav>
+            <button ref={editKey} type="button" aria-label={t("pick.typePath")} onClick={() => setTyped(dir)} className="h-full min-w-8 flex-1 cursor-text rounded-md focus-visible:-outline-offset-2 pointer-coarse:min-w-10" />
+          </div>
+        )}
         <IconKey label={t("top.reload")} onClick={() => void folders.refetch()}><RefreshCw size={15} /></IconKey>
       </div>
       <div className="flex min-h-0 flex-1">
