@@ -13,6 +13,13 @@ describe("place mentions", () => {
     expect(mentions("看 [ir](ir:folder//home/otae/ir) 吧")).toEqual(["看 ", { kind: "place", name: "ir", path: "/home/otae/ir", text: "[ir](ir:folder//home/otae/ir)" }, " 吧"]);
     expect(mentions("[Ds_Benchmark](ir:folder/otae-2:C:\\Code\\Ds_Benchmark)")).toEqual([{ kind: "place", name: "Ds_Benchmark", machine: "otae-2", path: "C:\\Code\\Ds_Benchmark", text: "[Ds_Benchmark](ir:folder/otae-2:C:\\Code\\Ds_Benchmark)" }]);
   });
+  test("Windows paths and the host prefix name local folders", () => {
+    expect(placesIn("[code](ir:folder/C:/Code) [share](ir:folder/\\\\pc\\share) [work](ir:folder/host:/work)")).toEqual([
+      { kind: "local", path: "C:/Code", name: "code" },
+      { kind: "local", path: "\\\\pc\\share", name: "share" },
+      { kind: "local", path: "/work", name: "work" },
+    ]);
+  });
   test("a path with spaces or brackets in <>, links side by side, words after", () => {
     expect(mentions("[a (copy)](<ir:folder//x/a (copy)>)")[0]).toMatchObject({ path: "/x/a (copy)" });
     const two = mentions("[a](ir:folder//x)[b](ir:folder//y)，然后（看看）");

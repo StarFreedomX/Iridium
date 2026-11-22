@@ -7,7 +7,7 @@
 import { cjk } from "@streamdown/cjk";
 import { Check, Copy } from "lucide-react";
 import { isValidElement, memo, useState, type ComponentProps, type ReactNode } from "react";
-import { defaultComponents, defaultUrlTransform, Streamdown, type ExtraProps, type StreamdownProps } from "streamdown";
+import { defaultComponents, defaultRemarkPlugins, defaultUrlTransform, Streamdown, type ExtraProps, type StreamdownProps } from "streamdown";
 import type { FileRef } from "../api/types.gen";
 import { t } from "../i18n";
 import { cn } from "../ui";
@@ -44,6 +44,39 @@ function CodeBlock({ className, children }: ComponentProps<"code"> & ExtraProps)
   );
 }
 
+type LinkNode = {
+  url?: string;
+  position?: { start: { offset?: number }; end: { offset?: number } };
+  children?: LinkNode[];
+};
+
+/** Remark plugin that keeps ir:folder/ paths literal across CommonMark unescaping (UNC
+ *  backslashes) and URI encoding (literal percent signs). */
+function literalFolderPaths() {
+  return (tree: LinkNode, file: { value: unknown }) => {
+    const text = String(file.value);
+    if (!text.includes("ir:folder/")) return;
+    const escape = (node: LinkNode) => {
+      if (node.url?.startsWith("ir:folder/")) {
+        // CommonMark may have already unescaped a pair of backslashes in the parsed URL.
+        const from = node.position?.start.offset, to = node.position?.end.offset;
+        const raw = from !== undefined && to !== undefined ? /\]\((?:<(ir:folder\/[^<>\n]+)>|(ir:folder\/[^\s()<>]+))\)$/.exec(text.slice(from, to)) : null;
+        node.url = (raw?.[1] ?? raw?.[2] ?? node.url).replaceAll("%", "%25");
+      }
+      node.children?.forEach(escape);
+    };
+    escape(tree);
+  };
+}
+
+/** Decode Markdown's URI encoding on ir:folder/ links before parsing them into a Mention. */
+function markdownRef(url: string, label: string) {
+  if (url.startsWith("ir:folder/")) {
+    try { url = decodeURI(url); } catch {}
+  }
+  return refOf(url, label);
+}
+
 export const MARKDOWN: Partial<StreamdownProps> = {
   plugins: { cjk },
   controls: false,
@@ -56,16 +89,17 @@ export const MARKDOWN: Partial<StreamdownProps> = {
       // An agent of the channel called by its nick (chat/channel: lib.ts linkNicks).
       const nick = nickOfURL(p.href);
       if (nick) return <NickLink nick={nick} />;
-      const r = typeof p.href === "string" ? refOf(p.href, textOf(p.children)) : undefined;
+      const r = typeof p.href === "string" ? markdownRef(p.href, textOf(p.children)) : undefined;
       return r ? <NamedLink m={r} /> : <defaultComponents.a {...p} />;
     },
   },
   lineNumbers: false,
   linkSafety: { enabled: false },
   className: "prose-ir min-w-0",
+  remarkPlugins: [...Object.values(defaultRemarkPlugins), literalFolderPaths],
   rehypePlugins: [],
   tableMaxHeight: 0,
-  urlTransform: (url, key, node) => (linkID(url) || refOf(url, "") || nickOfURL(url) ? url : defaultUrlTransform(url, key, node)),
+  urlTransform: (url, key, node) => (linkID(url) || markdownRef(url, "") || nickOfURL(url) ? url : defaultUrlTransform(url, key, node)),
   allowElement: (e) => e.tagName !== "a" || /^(https?|ir):/i.test(String(e.properties.href ?? "")),
   unwrapDisallowed: true,
 };
