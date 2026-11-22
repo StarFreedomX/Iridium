@@ -42,12 +42,11 @@ func (u *ui) askEach(ctx context.Context, server, by string, items []executor.It
 	asks.now = a
 	asks.mu.Unlock()
 	application.InvokeSync(func() {
+		// An ordinary window, in front of the others: no frameless, see-through one (kumo, 2026-11-22).
 		asks.win = u.app.Window.NewWithOptions(application.WebviewWindowOptions{
-			Name: "ask", Title: "Iridium", URL: "/#ask",
-			Width: 360, Height: 132 + 44*len(items), DisableResize: true, AlwaysOnTop: true,
-			Frameless: true, BackgroundType: application.BackgroundTypeTransparent,
-			InitialPosition: application.WindowCentered,
-			Mac:             application.MacWindow{Backdrop: application.MacBackdropTransparent, WindowLevel: application.MacWindowLevelFloating, CornerType: application.MacWindowCornerTypeSquare},
+			Name: "ask", Title: "Iridium", URL: themed("/#ask"),
+			Width: 360, Height: 150 + 44*len(items), DisableResize: true, AlwaysOnTop: true,
+			InitialPosition: application.WindowCentered, MaximiseButtonState: application.ButtonHidden, MinimiseButtonState: application.ButtonHidden,
 		})
 		asks.win.Show()
 		asks.win.Focus()

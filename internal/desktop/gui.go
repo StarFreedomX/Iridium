@@ -41,17 +41,13 @@ type ui struct {
 	here localState  // this computer's own Iridium (local.go)
 	pub  publicState // its 公网访问 (public.go)
 
-	mu          sync.Mutex
-	ready       string                     // a downloaded update's version, waiting for a restart
-	waiting     bool                       // this computer's Iridium is waited for: shown once it runs
-	probeHold   bool                       // IRIDIUM_APP_PROBE keeps the control open (probe)
-	picker      *application.WebviewWindow // the small window of the Iridiums (picker.go)
-	control     *application.WebviewWindow // the control's window, made once the app has started (control.go)
-	controlOpen bool
-	controlShut time.Time                    // when it was put away last
-	wins        []*application.WebviewWindow // the windows on Iridiums, the one in front (win) among them
-	shows       map[string]string            // each window's (by name) Iridium, as its page says
-	nwin        int
+	mu      sync.Mutex
+	ready   string                       // a downloaded update's version, waiting for a restart
+	waiting bool                         // this computer's Iridium is waited for: shown once it runs
+	picker  *application.WebviewWindow   // the small window of the Iridiums (picker.go)
+	wins    []*application.WebviewWindow // the windows on Iridiums, the one in front (win) among them
+	shows   map[string]string            // each window's (by name) Iridium, as its page says
+	nwin    int
 }
 
 func gui(o Options) int {
@@ -125,31 +121,12 @@ func gui(o Options) int {
 			c = c2
 		}
 	}
-	// Each start shows the picker alone (kumo, 2026-11-22): the window on an Iridium is made
-	// hidden and empty, and comes once one is picked; it shows an Iridium's page and nothing else.
-	const empty = true
-	start := blankPage
-	opts := application.WebviewWindowOptions{
-		Name: "main", Title: "Iridium", Width: 1200, Height: 800, MinWidth: 360, MinHeight: 480,
-		URL: themed(start), CSS: pageCSS, JS: pageJS, Hidden: empty,
-		// No title bar of its own on macOS (kumo, 2026-11-20: no line under it): the page goes up to
-		// the window's top, the window dragged by that strip (pageCSS keeps it clear).
-		Mac: application.MacWindow{TitleBar: application.MacTitleBarHidden, InvisibleTitleBarHeight: macBar},
-	}
-	// Where it was last (keepFrame), given as it is made: before app.Run a window's SetSize waits on
-	// the main thread, which is not running yet, and the app hung at start.
-	if f := c.Frame; f.W >= 360 && f.H >= 480 {
-		opts.Width, opts.Height = f.W, f.H
-		opts.InitialPosition, opts.X, opts.Y = application.WindowXY, f.X, f.Y
-	}
-	u.win = u.app.Window.NewWithOptions(opts)
-	if c.Zoom > 0 {
-		u.win.SetZoom(c.Zoom)
-	}
+	// Each start shows the picker alone (kumo, 2026-11-22). Only ordinary windows, each made as
+	// it is first shown (kumo, 2026-11-22: Wails with what it supports and no more): none made
+	// hidden ahead, none without a frame, none see-through. A window on an Iridium is made once
+	// one is picked (newWindow).
 	u.zoomKeys()
-	// Closing the window keeps the app (and this computer joined) in the tray.
-	u.watch(u.win)
-	u.makePicker(false)
+	u.makePicker()
 
 	// macOS gives a web view ⌘C, ⌘V, ⌘A, ⌘Z only through the menu bar's Edit menu: without one,
 	// nothing pastes. Elsewhere the keys work without, and a menu would be a bar in the window.
@@ -161,7 +138,7 @@ func gui(o Options) int {
 		app := bar.AddSubmenu("Iridium")
 		app.AddRole(application.About)
 		app.AddSeparator()
-		app.Add("设置…").SetAccelerator("CmdOrCtrl+,").OnClick(func(*application.Context) { u.openControl("") })
+		app.Add("设置…").SetAccelerator("CmdOrCtrl+,").OnClick(func(*application.Context) { u.showPicker() })
 		app.AddSeparator()
 		app.AddRole(application.Hide)
 		app.AddRole(application.HideOthers)
@@ -181,8 +158,6 @@ func gui(o Options) int {
 			application.InvokeAsync(u.show)
 		})
 	}
-	u.keepFrame()
-
 	u.menu = u.app.Menu.New()
 	u.tray = u.app.SystemTray.New().SetIcon(trayIcon).SetMenu(u.menu)
 	if runtime.GOOS == "darwin" {
@@ -204,11 +179,6 @@ func gui(o Options) int {
 		_ = SetServer(false)
 	}
 	go u.binaryUpdates()
-	// The control's window made ahead, hidden, its page loaded: whole as it opens.
-	u.app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
-		application.InvokeAsync(func() { u.makeControl() })
-	})
-
 	go u.probe()
 	if err := u.app.Run(); err != nil {
 		logf("%v", err)
@@ -308,13 +278,13 @@ func (u *ui) localStatus() string {
 	return st
 }
 
-// show brings the app forward: the window in front, or the picker when no window shows an Iridium.
+// show brings the app forward: the window in front; with none, the picker (not the Iridium used
+// last: a Mac asks for this as the app is opened too, and a large window came beside the picker).
 func (u *ui) show() {
 	u.mu.Lock()
 	w := u.win
-	at := u.shows[w.Name()]
 	u.mu.Unlock()
-	if at == "" {
+	if w == nil {
 		u.showPicker()
 		return
 	}
@@ -382,9 +352,8 @@ func (u *ui) message(w application.Window, msg string, o *application.OriginInfo
 			})
 		}
 	case "home":
-		// The app's control page, a window of its own over this page (kumo, 2026-11-22: not the
-		// window's page taken away).
-		application.InvokeAsync(func() { u.openControl(arg) })
+		// The key at the page's top right: the app's own window (the picker), 服务器 and 授权操作.
+		u.showPicker()
 	case "needlogin":
 		// The Iridium's login page, in the app: the app's own instead (its passkey is in the browser).
 		// Its window is given up (a window shows an Iridium's page only); the picker logs in.
@@ -498,16 +467,8 @@ func (u *ui) local(w application.Window, verb, arg string) {
 	case "open":
 		// The picker's row pressed: that Iridium's window (kumo, 2026-11-22).
 		u.switchTo(arg)
-	case "picker":
-		// The control's 服务器: the picker, to open another or add one.
-		u.closeControl()
-		u.showPicker()
 	case "close":
-		if w.Name() == "picker" {
-			u.picker.Hide()
-		} else {
-			u.closeControl()
-		}
+		u.picker.Hide()
 	case "local":
 		if err := u.useLocal(appLog()); err != nil {
 			reply(w, map[string]string{"error": err.Error()})
@@ -970,7 +931,6 @@ func (u *ui) redraw() {
 		t0 := time.Now()
 		c, _ := loadConfig()
 		st := u.pageState(c)
-		u.tellControlState(st)
 		u.tellPicker(st)
 		t1 := time.Now()
 		auto, autoErr := u.app.Autostart.IsEnabled()
@@ -1140,20 +1100,29 @@ addEventListener("load",function(){setTimeout(function(){var r=document.getEleme
 // zoomKeys: the window's zoom by the browser's keys (⌘= or ⌘+ larger, ⌘- smaller, ⌘0 as it was;
 // Ctrl on Windows and Linux), kept for the next start (kumo, 2026-11-20).
 func (u *ui) zoomKeys() {
-	keep := func() {
-		z := u.win.GetZoom()
-		_, _ = updateConfig(func(c *Config) { c.Zoom = z })
+	zoom := func(f func(*application.WebviewWindow)) func(application.Window) {
+		return func(application.Window) {
+			u.mu.Lock()
+			w := u.win
+			u.mu.Unlock()
+			if w == nil {
+				return
+			}
+			f(w)
+			z := w.GetZoom()
+			_, _ = updateConfig(func(c *Config) { c.Zoom = z })
+		}
 	}
-	in := func(application.Window) { u.win.ZoomIn(); keep() }
+	in := zoom(func(w *application.WebviewWindow) { w.ZoomIn() })
 	for _, k := range []string{"CmdOrCtrl+=", "CmdOrCtrl+Shift+=", "CmdOrCtrl+Plus"} {
 		u.app.KeyBinding.Add(k, in)
 	}
-	u.app.KeyBinding.Add("CmdOrCtrl+-", func(application.Window) { u.win.ZoomOut(); keep() })
-	u.app.KeyBinding.Add("CmdOrCtrl+0", func(application.Window) { u.win.ZoomReset(); keep() })
+	u.app.KeyBinding.Add("CmdOrCtrl+-", zoom(func(w *application.WebviewWindow) { w.ZoomOut() }))
+	u.app.KeyBinding.Add("CmdOrCtrl+0", zoom(func(w *application.WebviewWindow) { w.ZoomReset() }))
 }
 
 // probe does what IRIDIUM_APP_PROBE lists, 3 seconds apart, for looking at the app's windows from
-// outside (a screenshot): control, picker, open (the Iridium used last), closecontrol.
+// outside (a screenshot): picker, open (the Iridium used last).
 func (u *ui) probe() {
 	steps := os.Getenv("IRIDIUM_APP_PROBE")
 	if steps == "" {
@@ -1162,18 +1131,6 @@ func (u *ui) probe() {
 	for _, step := range strings.Split(steps, ",") {
 		time.Sleep(3 * time.Second)
 		switch step {
-		case "control":
-			application.InvokeAsync(func() { u.openControl("") })
-		case "controlhold": // open, and kept open whatever takes the focus, till release
-			u.mu.Lock()
-			u.probeHold = true
-			u.mu.Unlock()
-			application.InvokeAsync(func() { u.openControl("") })
-		case "release", "closecontrol":
-			u.mu.Lock()
-			u.probeHold = false
-			u.mu.Unlock()
-			u.closeControl()
 		case "picker":
 			u.showPicker()
 		case "open":

@@ -40,8 +40,8 @@ export function AskPanel() {
   }, [req, on, always]);
   if (!req) return null;
   return (
-    <div className="h-full p-2 select-none">
-      <div className="g-unfold flex h-full flex-col rounded-lg bg-(--glass-thick-solid) p-3 text-ink shadow-[var(--shadow-float)]">
+    <div className="h-full bg-paper select-none">
+      <div className="flex h-full flex-col p-4 text-ink">
         <h1 className="m-0 truncate text-sm font-medium">
           {req.by ? `${req.by} 请求` : `${req.server} 请求`}
         </h1>

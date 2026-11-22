@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -133,9 +134,9 @@ func (u *ui) syncRuntime(logf func(string, ...any)) {
 	}
 }
 
-// keepFrame: the window opens where and as large as it was last (Config.Frame, given as gui makes it),
-// and that is kept as it moves and resizes (a Mac's or Windows' window does).
-func (u *ui) keepFrame() {
+// keepFrame: a window on an Iridium opens where and as large as one was last (Config.Frame, given
+// as it is made), and that is kept as w moves and resizes.
+func (u *ui) keepFrame(w *application.WebviewWindow) {
 	var mu sync.Mutex
 	var t *time.Timer
 	save := func(*application.WindowEvent) {
@@ -145,14 +146,17 @@ func (u *ui) keepFrame() {
 			t.Stop()
 		}
 		t = time.AfterFunc(700*time.Millisecond, func() {
-			if u.win.IsMaximised() || u.win.IsFullscreen() || u.win.IsMinimised() {
+			u.mu.Lock()
+			here := slices.Contains(u.wins, w)
+			u.mu.Unlock()
+			if !here || w.IsMaximised() || w.IsFullscreen() || w.IsMinimised() {
 				return
 			}
-			x, y := u.win.Position()
-			w, h := u.win.Size()
-			_, _ = updateConfig(func(c *Config) { c.Frame = Frame{X: x, Y: y, W: w, H: h} })
+			x, y := w.Position()
+			ww, h := w.Size()
+			_, _ = updateConfig(func(c *Config) { c.Frame = Frame{X: x, Y: y, W: ww, H: h} })
 		})
 	}
-	u.win.OnWindowEvent(events.Common.WindowDidMove, save)
-	u.win.OnWindowEvent(events.Common.WindowDidResize, save)
+	w.OnWindowEvent(events.Common.WindowDidMove, save)
+	w.OnWindowEvent(events.Common.WindowDidResize, save)
 }

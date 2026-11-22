@@ -1,11 +1,11 @@
-// The app's own pages (docs/app.md "应用页面"; kumo, 2026-11-22: two things, two places).
-//  - Login, the picker: a small upright window with the Iridiums. First, who (a face, a name,
-//    开始: this computer's own Iridium); then 服务器: 此电脑 (its switch runs it and no more;
-//    公网访问 under it), each Iridium (pressed, its window comes and the picker goes; the one
-//    used last ticked, as the web app's lists tick theirs), 添加服务器 (pressed, a field).
-//  - Control, the popover under the key at an Iridium page's top right: 授权操作 alone, the same
-//    from every window: each Iridium logged in to, its link and switch, › to what it may do here;
-//    服务器 opens the picker.
+// The app's own page (docs/app.md "应用页面"; kumo, 2026-11-22), a small upright window, an
+// ordinary one. One part shown at a time; the one leaving fades out, then the one coming fades in.
+//  - who (the first start): a face, a name, 开始: this computer's own Iridium.
+//  - the list: 服务器 above (此电脑, its switch runs it and no more, 公网访问 under it; each
+//    Iridium: pressed, its window comes and this one goes; the one used last ticked; 添加服务器,
+//    a field once pressed), 授权操作 under (each Iridium logged in to: its link, its switch, › to
+//    what it may do here).
+//  - one Iridium's 授权操作: 命令行, each agent, 文件夹.
 // A part is drawn once its state is there, never before.
 import {
   Check,
@@ -18,13 +18,7 @@ import {
   Trash2,
   UserRound,
 } from "lucide-react";
-import {
-  type ReactNode,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import type { Agent } from "../api/types.gen";
 import { Crop } from "../profile";
 import {
@@ -78,7 +72,7 @@ type State = {
   publicAddress?: string;
 };
 type Note = { text: string; error?: boolean; server?: string };
-type Part = "who" | "servers";
+type Part = "who" | "servers" | { server: string };
 
 const FADE = 160; // ms, out then in
 
@@ -139,7 +133,7 @@ export function Login() {
         )}
       >
         {st && part && (
-          <Swap id={part}>
+          <Swap id={typeof part === "object" ? "s:" + part.server : part}>
             <div
               className={cn(
                 "flex w-[min(380px,calc(100vw-24px))] flex-col",
@@ -173,13 +167,22 @@ export function Login() {
                     go("servers")
                   )}
                 />
+              ) : part === "servers" ? (
+                <>
+                  <Servers
+                    st={st}
+                    busy={busy}
+                    note={note}
+                    login={login}
+                    back={st.servers.length === 0 ? () => go("who") : undefined}
+                  />
+                  <Grants st={st} open={(s) => go({ server: s.url })} />
+                </>
               ) : (
-                <Servers
-                  st={st}
-                  busy={busy}
-                  note={note}
-                  login={login}
-                  back={st.servers.length === 0 ? () => go("who") : undefined}
+                <ServerPage
+                  s={st.servers.find((s) => s.url === part.server)}
+                  agents={st.agents ?? []}
+                  back={() => go("servers")}
                 />
               )}
             </div>
@@ -674,20 +677,17 @@ function Servers({
   );
 }
 
-/** The control's list, 授权操作: the Iridiums this computer lets work here, as many as wanted,
- *  each with its link and its switch; › to what it may do here. Those not logged in to are not
- *  here: nothing can be granted to them yet. Last, 服务器: the picker. */
+/** 授权操作: the Iridiums this computer lets work here, as many as wanted, each with its link and
+ *  its switch; › to what it may do here. Those not logged in to are not here: nothing can be
+ *  granted to them yet; with none, the part is not there. */
 function Grants({ st, open }: { st: State; open: (s: Server) => void }) {
   const rows = useFolding(
     st.servers.filter((s) => !s.local && s.loggedIn),
     (s) => s.url,
   );
   return (
-    <>
-      <Heading>授权操作</Heading>
-      {rows.length === 0 && (
-        <p className="m-0 px-2.5 py-3 text-sm text-ink-3">无已登录的服务器</p>
-      )}
+    <Fold state={rows.length ? "in" : "out"}>
+      <Heading className="mt-3">授权操作</Heading>
       {rows.map(({ item: s, key, state }) => {
         const l = linkOf(s);
         return (
@@ -721,14 +721,7 @@ function Grants({ st, open }: { st: State; open: (s: Server) => void }) {
           </Fold>
         );
       })}
-      <div className="mx-2.5 my-1 h-px bg-edge" />
-      <Row
-        icon={<Monitor size={16} className="text-ink-2" />}
-        title={<span className="font-normal">服务器</span>}
-        onClick={() => ask("ir:picker")}
-        end={<ChevronRight size={16} className="mr-2 text-ink-3" />}
-      />
-    </>
+    </Fold>
   );
 }
 
@@ -857,106 +850,5 @@ function ServerPage({
         ))}
       </Fold>
     </>
-  );
-}
-
-/** The control (internal/desktop/control.go): the popover under the key at an Iridium page's top
- *  right, in the app's own window, made ahead and hidden, its state kept: opened, it unfolds whole
- *  out of the key's corner (g-unfold, as PopSurface's), folds back as it is put away. Drawn as the
- *  web app's popovers (glass thick float rounded-lg), the glass solid: there is no page under it in
- *  this window to blur. Its height glides (Tall) as a server's page slides in (g-slide) and back.
- *  Esc or a press outside the panel puts it away. */
-export function Control() {
-  const [st, setSt] = useState<State | null>(null);
-  const [at, setAt] = useState<string | null>(null); // a server's page, else the list
-  const [shown, setShown] = useState<"in" | "out" | "gone">("gone");
-  const back = useRef(false);
-  const [moved, setMoved] = useState(false); // gone to a page since it opened: that one slides in
-  useEffect(() => {
-    const stop = onAnswer((d) => {
-      followTheme(d);
-      if (Array.isArray(d.servers)) setSt(d as unknown as State);
-      if (d.open === true) {
-        setAt(null);
-        setMoved(false);
-        setShown("gone");
-        requestAnimationFrame(() =>
-          requestAnimationFrame(() => setShown("in")),
-        );
-      }
-      if (d.close === true) setShown("out");
-    });
-    whenReady(() => ask("ir:hello"));
-    const esc = (e: KeyboardEvent) => e.key === "Escape" && ask("ir:close");
-    addEventListener("keydown", esc);
-    return () => (stop(), removeEventListener("keydown", esc));
-  }, []);
-  const go = (to: string | null) => {
-    back.current = to === null;
-    setMoved(true);
-    setAt(to);
-  };
-  return (
-    <div
-      className="h-full px-8 pt-2 select-none [&_*:focus-visible]:outline-none"
-      onPointerDown={(e) => e.target === e.currentTarget && ask("ir:close")}
-    >
-      <div
-        data-starting-style={shown === "gone" || undefined}
-        data-ending-style={shown === "out" || undefined}
-        className="g-unfold glass thick float rounded-lg p-1.5 text-ink"
-        style={
-          {
-            "--transform-origin": "100% 0",
-            background: "var(--glass-thick-solid)",
-            backdropFilter: "none",
-            WebkitBackdropFilter: "none",
-          } as React.CSSProperties
-        }
-      >
-        {st && (
-          <Tall>
-            <div
-              key={at ?? "list"}
-              data-dir={back.current ? "back" : undefined}
-              className={cn("flex flex-col", moved && "g-slide")}
-            >
-              {at === null ? (
-                <Grants st={st} open={(s) => go(s.url)} />
-              ) : (
-                <ServerPage
-                  s={st.servers.find((s) => s.url === at)}
-                  agents={st.agents ?? []}
-                  back={() => go(null)}
-                />
-              )}
-            </div>
-          </Tall>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/** As tall as what is in it, gliding to it (create.tsx Tall); at most the control's room, the
- *  rest scrolled. */
-function Tall({ children }: { children: ReactNode }) {
-  const inner = useRef<HTMLDivElement>(null);
-  const [h, setH] = useState<number>();
-  useLayoutEffect(() => {
-    const el = inner.current;
-    if (!el) return;
-    const ro = new ResizeObserver(() => setH(el.offsetHeight));
-    ro.observe(el);
-    setH(el.offsetHeight);
-    return () => ro.disconnect();
-  }, []);
-  return (
-    <div
-      className="no-bar max-h-[628px] overflow-x-hidden overflow-y-auto transition-[height] duration-(--dur-3) ease-(--ease-out) motion-reduce:transition-none"
-      style={{ height: h }}
-    >
-      <div ref={inner}>{children}</div>
-    </div>
   );
 }
