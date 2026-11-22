@@ -25,7 +25,7 @@ if [ ! -f internal/desktop/assets/ui/index.html ]; then
 	echo "release: no build of the desktop app's pages (run npm run build:app in web/)" >&2
 	exit 1
 fi
-ldflags="-s -w -X github.com/kumoSleeping/iridium/internal/version.Version=$version"
+ldflags="-s -w -X github.com/kumoSleeping/iridium/internal/version.Version=$version -X github.com/egoist/mygo.production=1"
 mkdir -p "$out"
 out=$(cd "$out" && pwd)
 size() { wc -c <"$1" | tr -d ' '; }

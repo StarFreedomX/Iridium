@@ -19,11 +19,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/egoist/mygo"
 	"github.com/kumoSleeping/iridium/internal/join"
 	"github.com/kumoSleeping/iridium/internal/remote/executor"
 	"github.com/kumoSleeping/iridium/internal/version"
-	"github.com/wailsapp/wails/v3/pkg/application"
-	"github.com/wailsapp/wails/v3/pkg/events"
 )
 
 //go:embed assets
@@ -32,22 +31,23 @@ var assets embed.FS
 // ui is the windowed app: one window on the Iridium shown, a tray icon with the joins' states and
 // the app's own controls.
 type ui struct {
-	app   *application.App
-	win   *application.WebviewWindow
-	tray  *application.SystemTray
-	menu  *application.Menu
+	win   *mygo.Window
+	tray  *mygo.Tray
 	joins *Joins
+	icon  []byte // the windows' own (Linux, Windows; a Mac's is its bundle's)
 
 	here localState  // this computer's own Iridium (local.go)
 	pub  publicState // its 公网访问 (public.go)
 
-	mu      sync.Mutex
-	ready   string                       // a downloaded update's version, waiting for a restart
-	waiting bool                         // this computer's Iridium is waited for: shown once it runs
-	picker  *application.WebviewWindow   // the small window of the Iridiums (picker.go)
-	wins    []*application.WebviewWindow // the windows on Iridiums, the one in front (win) among them
-	shows   map[string]string            // each window's (by name) Iridium, as its page says
-	nwin    int
+	mu       sync.Mutex
+	ready    string                  // a downloaded update's version, waiting for a restart
+	waiting  bool                    // this computer's Iridium is waited for: shown once it runs
+	picker   *mygo.Window            // the small window of the Iridiums (picker.go)
+	wins     []*mygo.Window          // the windows on Iridiums, the one in front (win) among them
+	shows    map[string]string       // each window's (by name) Iridium, as its page says
+	names    map[*mygo.Window]string // each window's name (picker, ask, w1…): mygo's windows have none
+	nwin     int
+	quitting bool // the app quits: the picker closes then, not only hides
 }
 
 func gui(o Options) int {
@@ -57,7 +57,7 @@ func gui(o Options) int {
 	page, _ := fs.Sub(assets, "assets/ui")
 	icon, _ := assets.ReadFile("assets/icon.png")
 	trayIcon, _ := assets.ReadFile("assets/tray.png")
-	u := &ui{}
+	u := &ui{icon: icon}
 	u.joins = &Joins{Logf: logf, View: true, Record: &Record{Kind: "window"}}
 	u.joins.Record.save(nil)
 	// What the runtime is asked for more of this computer comes here to be answered (askfile.go).
@@ -68,22 +68,31 @@ func gui(o Options) int {
 		return u.askEach(ctx, server, by, items)
 	})
 	go u.follow()
-	u.app = application.New(application.Options{
-		Name:        "Iridium",
-		Description: "Iridium",
-		Icon:        icon,
-		Assets:      application.AssetOptions{Handler: application.AssetFileServerFS(page)},
-		// A second start (the app opened again) shows this one's window.
-		SingleInstance: &application.SingleInstanceOptions{
-			UniqueID:               "ltd.kumo.iridium.app",
-			OnSecondInstanceLaunch: func(application.SecondInstanceData) { application.InvokeAsync(u.show) },
-		},
-		Mac:               application.MacOptions{ApplicationShouldTerminateAfterLastWindowClosed: false},
-		Windows:           application.WindowsOptions{DisableQuitOnLastWindowClosed: true},
-		Linux:             application.LinuxOptions{DisableQuitOnLastWindowClosed: true, ProgramName: "ir-app"},
-		RawMessageHandler: func(w application.Window, msg string, o *application.OriginInfo) { u.message(w, msg, o, logf) },
-		OnShutdown:        func() { u.joins.Stop() }, // the window's record; the runtime runs on
+	// The name keys the single-instance lock, as Wails's UniqueID did.
+	mygo.App.SetName("Iridium")
+	mygo.App.SetVersion(version.Short(version.Version))
+	mygo.SetFrontend(page)
+	// What a page sends (window._wails.invoke, kept by the preload: bridge.go) comes as one bound
+	// method; mygo answers only the app's own pages and each window's own Iridium (TrustedOrigins).
+	mygo.BindAs("IRApp", &bridge{u: u, logf: logf})
+	// A second start (the app opened again) shows this one's window.
+	if !mygo.App.RequestSingleInstanceLock() {
+		return 0
+	}
+	mygo.App.OnSecondInstance(func([]string, string) { go u.show() })
+	// The last window closed: the app stays, in the tray (a listener keeps it from quitting).
+	mygo.App.OnWindowAllClosed(func() {})
+	mygo.App.OnBeforeQuit(func(*mygo.QuitEvent) {
+		u.mu.Lock()
+		u.quitting = true
+		u.mu.Unlock()
 	})
+	mygo.App.OnQuitCanceled(func() {
+		u.mu.Lock()
+		u.quitting = false
+		u.mu.Unlock()
+	})
+	mygo.App.OnQuit(func() { u.joins.Stop() }) // the window's record; the runtime runs on
 
 	c, err := loadConfig()
 	if err != nil {
@@ -125,51 +134,37 @@ func gui(o Options) int {
 	// it is first shown (kumo, 2026-11-22: Wails with what it supports and no more): none made
 	// hidden ahead, none without a frame, none see-through. A window on an Iridium is made once
 	// one is picked (newWindow).
-	u.zoomKeys()
-	u.makePicker()
-
-	// macOS gives a web view ⌘C, ⌘V, ⌘A, ⌘Z only through the menu bar's Edit menu: without one,
-	// nothing pastes. Elsewhere the keys work without, and a menu would be a bar in the window.
-	if runtime.GOOS == "darwin" {
-		// A Mac app's menu bar and keys (kumo, 2026-11-22): ⌘, the control page, ⌘W closes the
-		// window (the app stays in the menu bar), ⌘Q quits, ⌘H hides, ⌘M minimises, ⌃⌘F full
-		// screen; Edit's for ⌘C ⌘V ⌘A ⌘Z in the pages.
-		bar := u.app.Menu.New()
-		app := bar.AddSubmenu("Iridium")
-		app.AddRole(application.About)
-		app.AddSeparator()
-		app.Add("设置…").SetAccelerator("CmdOrCtrl+,").OnClick(func(*application.Context) { u.showPicker() })
-		app.AddSeparator()
-		app.AddRole(application.Hide)
-		app.AddRole(application.HideOthers)
-		app.AddRole(application.UnHide)
-		app.AddSeparator()
-		app.AddRole(application.Quit)
-		file := bar.AddSubmenu("文件")
-		file.Add("打开服务器…").SetAccelerator("CmdOrCtrl+N").OnClick(func(*application.Context) { u.showPicker() })
-		file.AddRole(application.CloseWindow)
-		bar.AddRole(application.EditMenu)
-		view := bar.AddSubmenu("显示")
-		view.AddRole(application.ToggleFullscreen)
-		bar.AddRole(application.WindowMenu)
-		u.app.Menu.SetApplicationMenu(bar)
-		// The Dock's icon pressed with the window closed: the window again.
-		u.app.Event.OnApplicationEvent(events.Mac.ApplicationShouldHandleReopen, func(*application.ApplicationEvent) {
-			application.InvokeAsync(u.show)
-		})
-	}
-	u.menu = u.app.Menu.New()
-	u.tray = u.app.SystemTray.New().SetIcon(trayIcon).SetMenu(u.menu)
-	if runtime.GOOS == "darwin" {
-		// The menu bar's own kind of icon: the mark's shape alone, the bar tinting it, at its size
-		// (kumo, 2026-11-20: the coloured one stood out too large).
-		mark, _ := assets.ReadFile("assets/tray-mac.png")
-		u.tray.SetTemplateIcon(mark)
-	}
-	u.tray.SetTooltip("Iridium")
-	u.tray.OnClick(u.show)
-	auto, autoErr := u.app.Autostart.IsEnabled()
-	u.drawMenu(c, auto, autoErr)
+	// The menu bar, with the zoom keys (⌘= or ⌘+ larger, ⌘- smaller, ⌘0 as it was; Ctrl on
+	// Windows and Linux), kept for the next start (kumo, 2026-11-20). A Mac's is the app's (kumo,
+	// 2026-11-22): ⌘, the control page, ⌘W closes the window (the app stays in the menu bar), ⌘Q
+	// quits, ⌘H hides, ⌘M minimises, ⌃⌘F full screen; Edit's for ⌘C ⌘V ⌘A ⌘Z in the pages, which a
+	// Mac's web view gets only through it. On Windows and Linux the menu is a window's, kept out of
+	// sight (WindowOptions.AutoHideMenuBar): only its keys are wanted there.
+	mygo.App.SetMenu(u.menuBar())
+	// The Dock's icon pressed with no window shown: the window again.
+	mygo.App.OnActivate(func(visible bool) {
+		if !visible {
+			go u.show()
+		}
+	})
+	mygo.App.WhenReady(func() {
+		u.makePicker()
+		icon, tmpl := trayIcon, false
+		if runtime.GOOS == "darwin" {
+			// The menu bar's own kind of icon: the mark's shape alone, the bar tinting it, at its
+			// size (kumo, 2026-11-20: the coloured one stood out too large).
+			icon, _ = assets.ReadFile("assets/tray-mac.png")
+			tmpl = true
+		}
+		t, err := mygo.NewTray(mygo.TrayOptions{ID: "iridium", Icon: icon, IconIsTemplate: tmpl, ToolTip: "Iridium"})
+		if err != nil {
+			logf("tray: %v", err)
+		}
+		u.mu.Lock()
+		u.tray = t
+		u.mu.Unlock()
+		u.drawMenu(c, mygo.App.OpenAtLogin(), nil)
+	})
 	u.joins.Sync(c)
 	if l := c.local(); l != nil && c.serverOn() && !o.NoServer {
 		go u.startLocal(l.URL, logf)
@@ -180,7 +175,7 @@ func gui(o Options) int {
 	}
 	go u.binaryUpdates()
 	go u.probe()
-	if err := u.app.Run(); err != nil {
+	if err := mygo.App.Run(); err != nil {
 		logf("%v", err)
 		return 1
 	}
@@ -225,7 +220,7 @@ func loopback(address string) bool {
 // startLocal has this computer's Iridium running (localState.ensure) and, the window waiting for
 // it, shows it.
 func (u *ui) startLocal(address string, logf func(string, ...any)) {
-	application.InvokeAsync(u.redraw)
+	u.redraw()
 	err := u.here.ensure(context.Background(), address, logf)
 	if errors.Is(err, errBusy) {
 		// Already being started (the app's own start): that one, as it ends, shows it if waited
@@ -235,7 +230,7 @@ func (u *ui) startLocal(address string, logf func(string, ...any)) {
 	if err != nil {
 		logf("local: %v", err)
 	}
-	application.InvokeAsync(u.redraw)
+	u.redraw()
 	u.mu.Lock()
 	waiting := u.waiting
 	if err == nil {
@@ -297,11 +292,7 @@ func (u *ui) show() {
 // another in the list, add one (with a dialog of this computer's: joining is this computer's
 // to allow), and log in from the browser. Anything else, from any other origin, is dropped: a
 // page is never trusted for what only a person here allows.
-func (u *ui) message(w application.Window, msg string, o *application.OriginInfo, logf func(string, ...any)) {
-	origin := ""
-	if o != nil {
-		origin = o.Origin
-	}
+func (u *ui) message(w *mygo.Window, msg, origin string, logf func(string, ...any)) {
 	c, _ := loadConfig()
 	server := serverOf(c, origin)
 	verb, arg, _ := strings.Cut(strings.TrimPrefix(msg, "ir:"), ":")
@@ -317,19 +308,19 @@ func (u *ui) message(w application.Window, msg string, o *application.OriginInfo
 		return
 	}
 	logf("message %s from %q", verb, origin)
-	if server != "" && w.Name() != "control" && w.Name() != "ask" && w.Name() != "picker" {
+	if name := u.nameOf(w); server != "" && name != "control" && name != "ask" && name != "picker" {
 		u.mu.Lock()
 		{
 			if u.shows == nil {
 				u.shows = map[string]string{}
 			}
-			u.shows[w.Name()] = server
+			u.shows[name] = server
 		}
 		u.mu.Unlock()
 	}
 	if server == "" {
 		// Not an Iridium's page: the app's own login page (assets), or nothing.
-		if strings.HasPrefix(origin, "wails:") || strings.HasPrefix(origin, "http://wails.localhost") {
+		if ownPage(origin) {
 			u.local(w, verb, arg)
 		}
 		return
@@ -363,7 +354,7 @@ func (u *ui) message(w application.Window, msg string, o *application.OriginInfo
 		// The Iridium's login page, in the app: the app's own instead (its passkey is in the browser).
 		// Its window is given up (a window shows an Iridium's page only); the picker logs in.
 		if _, err := updateConfig(func(c *Config) { c.Current = server; c.server(server).LoggedIn = false }); err == nil {
-			u.vacate(w.Name())
+			u.vacate(u.nameOf(w))
 			u.showPicker()
 		}
 	case "hello":
@@ -390,7 +381,7 @@ func (u *ui) message(w application.Window, msg string, o *application.OriginInfo
 		if c, err := updateConfig(func(c *Config) { c.remove(arg) }); err == nil {
 			u.joins.Sync(c)
 			u.gone(arg)
-			application.InvokeAsync(u.redraw)
+			u.redraw()
 			reply(w, u.hello(c, server))
 		}
 	case "set":
@@ -403,11 +394,11 @@ func (u *ui) message(w application.Window, msg string, o *application.OriginInfo
 		go u.pickRoot(w, to, server)
 	case "autostart":
 		if arg == "on" {
-			_ = u.app.Autostart.Enable()
+			_ = mygo.App.SetOpenAtLogin(true)
 		} else {
-			_ = u.app.Autostart.Disable()
+			_ = mygo.App.SetOpenAtLogin(false)
 		}
-		application.InvokeAsync(u.redraw)
+		u.redraw()
 		reply(w, u.hello(c, server))
 	case "update":
 		if arg == "restart" {
@@ -444,7 +435,7 @@ func (u *ui) message(w application.Window, msg string, o *application.OriginInfo
 // local answers the app's own page (web/src/appwin): the Iridiums in the list, with who the
 // window is at those logged in to; opening one, logging in to one from the browser (an address
 // typed is checked to be an Iridium and put in the list first), removing one.
-func (u *ui) local(w application.Window, verb, arg string) {
+func (u *ui) local(w *mygo.Window, verb, arg string) {
 	state := u.pageState
 	switch verb {
 	case "askstate":
@@ -456,10 +447,10 @@ func (u *ui) local(w application.Window, verb, arg string) {
 		answerAsk(arg)
 	case "clipboard":
 		// Its text field's ⌘V (web/src/appwin/bridge.ts): this page only, the app's own.
-		text, _ := u.app.Clipboard.Text()
+		text := mygo.Clipboard.ReadText()
 		reply(w, map[string]string{"clipboard": text})
 	case "copy":
-		u.app.Clipboard.SetText(arg)
+		mygo.Clipboard.WriteText(arg)
 	case "hello":
 		c, _ := loadConfig()
 		reply(w, state(c))
@@ -485,7 +476,7 @@ func (u *ui) local(w application.Window, verb, arg string) {
 		if c, err := updateConfig(func(c *Config) { c.remove(arg) }); err == nil {
 			u.joins.Sync(c)
 			u.gone(arg)
-			application.InvokeAsync(u.redraw)
+			u.redraw()
 			reply(w, state(c))
 		}
 	case "terms":
@@ -523,8 +514,7 @@ func (u *ui) local(w application.Window, verb, arg string) {
 		reply(w, state(c))
 	case "pickroot":
 		go func() {
-			dir, err := u.app.Dialog.OpenFile().CanChooseDirectories(true).CanChooseFiles(false).
-				SetTitle("允许 " + hostOf(arg) + " 访问的文件夹").PromptForSingleSelection()
+			dir, err := pickFolder("允许 " + hostOf(arg) + " 访问的文件夹")
 			if err == nil && dir != "" {
 				_, _ = updateConfig(func(c *Config) {
 					if s := c.server(arg); s != nil && !slices.Contains(s.Roots, dir) {
@@ -550,7 +540,7 @@ func (u *ui) local(w application.Window, verb, arg string) {
 		}
 		c, _ := loadConfig()
 		reply(w, state(c))
-		application.InvokeAsync(u.redraw)
+		u.redraw()
 	case "public":
 		go u.pub.set(arg == "on", func() {
 			c, _ := loadConfig()
@@ -603,7 +593,7 @@ func (u *ui) local(w application.Window, verb, arg string) {
 					return
 				}
 				u.joins.Sync(c)
-				application.InvokeAsync(u.redraw)
+				u.redraw()
 				st := state(c)
 				st["added"] = true
 				reply(w, st)
@@ -612,14 +602,14 @@ func (u *ui) local(w application.Window, verb, arg string) {
 			if name == "" {
 				name = join.MachineName()
 			}
-			open := u.app.Browser.OpenURL
+			open := mygo.Shell.OpenExternal
 			if invite != "" {
 				me := c.Me.Name
 				if me == "" {
 					cu, _ := user.Current()
 					me = ownName(cu)
 				}
-				open = func(appURL string) error { return u.app.Browser.OpenURL(inviteFor(invite, appURL, me)) }
+				open = func(appURL string) error { return mygo.Shell.OpenExternal(inviteFor(invite, appURL, me)) }
 			}
 			browserLogin(a, name, open, func(m map[string]string) {
 				m["server"] = a
@@ -700,7 +690,7 @@ func (u *ui) hello(c Config, server string) map[string]any {
 		list = append(list, map[string]any{"url": s.URL, "host": hostOf(s.URL), "current": s.URL == server, "local": s.Local,
 			"joined": !s.Off && !s.Local, "status": status, "shell": !s.NoShell, "roots": roots, "agents": agents})
 	}
-	auto, _ := u.app.Autostart.IsEnabled()
+	auto := mygo.App.OpenAtLogin()
 	u.mu.Lock()
 	ready := u.ready
 	u.mu.Unlock()
@@ -721,7 +711,7 @@ type terms struct {
 	All    bool            `json:"all"`   // every folder again
 }
 
-func (u *ui) set(w application.Window, server, arg string) {
+func (u *ui) set(w *mygo.Window, server, arg string) {
 	var t terms
 	if json.Unmarshal([]byte(arg), &t) != nil {
 		return
@@ -798,15 +788,14 @@ func (u *ui) set(w application.Window, server, arg string) {
 		return
 	}
 	u.joins.Sync(c)
-	application.InvokeAsync(u.redraw)
+	u.redraw()
 	reply(w, u.hello(c, page))
 }
 
 // pickRoot: a folder for server, chosen by the person here in this computer's own picker (the
 // choosing is the allowing): one more, or, with all of them open, the only one from now on.
-func (u *ui) pickRoot(w application.Window, server, page string) {
-	dir, err := u.app.Dialog.OpenFile().CanChooseDirectories(true).CanChooseFiles(false).
-		SetTitle("允许 " + hostOf(server) + " 访问的文件夹").PromptForSingleSelection()
+func (u *ui) pickRoot(w *mygo.Window, server, page string) {
+	dir, err := pickFolder("允许 " + hostOf(server) + " 访问的文件夹")
 	if err != nil || dir == "" {
 		return
 	}
@@ -824,7 +813,7 @@ func (u *ui) pickRoot(w application.Window, server, page string) {
 
 // add checks that address is an Iridium, then (asked by a page, with this computer's dialog)
 // puts it in the list, joins it and shows it.
-func (u *ui) add(w application.Window, address string, ask bool) {
+func (u *ui) add(w *mygo.Window, address string, ask bool) {
 	a, err := normalize(address)
 	if err != nil {
 		reply(w, map[string]string{"error": "地址无效"})
@@ -846,7 +835,7 @@ func (u *ui) add(w application.Window, address string, ask bool) {
 		return
 	}
 	u.joins.Sync(c)
-	application.InvokeAsync(u.redraw)
+	u.redraw()
 	u.switchTo(c.current())
 }
 
@@ -895,12 +884,6 @@ func serverOf(c Config, origin string) string {
 
 func isServer(c Config, origin string) bool { return serverOf(c, origin) != "" }
 
-// reply hands the page an "ir-app" event with v as its detail.
-func reply(w application.Window, v any) {
-	b, _ := json.Marshal(v)
-	w.ExecJS(fmt.Sprintf(`window.dispatchEvent(new CustomEvent("ir-app",{detail:%s}))`, b))
-}
-
 // ask asks the person here, in a dialog of this computer's, never on a page: an Iridium asking
 // for more than it was given (docs/exec.md "放开").
 func (u *ui) ask(ctx context.Context, q string) bool { return u.confirm(ctx, q+"。允许？") }
@@ -908,16 +891,11 @@ func (u *ui) ask(ctx context.Context, q string) bool { return u.confirm(ctx, q+"
 // confirm is a question to the person here, in a dialog of this computer's: allowed or not.
 func (u *ui) confirm(ctx context.Context, q string) bool {
 	answer := make(chan bool, 1)
-	application.InvokeAsync(func() {
-		d := u.app.Dialog.Question().SetTitle("Iridium").SetMessage(q)
-		yes := d.AddButton("允许")
-		yes.OnClick(func() { answer <- true })
-		no := d.AddButton("拒绝")
-		no.OnClick(func() { answer <- false })
-		d.SetDefaultButton(yes)
-		d.SetCancelButton(no)
-		d.Show()
-	})
+	go func() {
+		r, err := mygo.Dialog.Message(mygo.MessageOptions{Type: mygo.MessageQuestion, Title: "Iridium", Message: q,
+			Buttons: []string{"允许", "拒绝"}, DefaultButton: 0, CancelButton: 1})
+		answer <- err == nil && r.Button == 0
+	}()
 	select {
 	case a := <-answer:
 		return a
@@ -938,50 +916,60 @@ func (u *ui) redraw() {
 		st := u.pageState(c)
 		u.tellPicker(st)
 		t1 := time.Now()
-		auto, autoErr := u.app.Autostart.IsEnabled()
+		auto := mygo.App.OpenAtLogin()
 		t2 := time.Now()
-		application.InvokeAsync(func() {
-			u.drawMenu(c, auto, autoErr)
-			if d := time.Since(t2); d > 30*time.Millisecond {
-				appLog()("redraw: the menu took %v (state %v, autostart %v off the main thread)", d, t1.Sub(t0), t2.Sub(t1))
-			}
-		})
+		u.drawMenu(c, auto, nil)
+		if d := time.Since(t2); d > 30*time.Millisecond {
+			appLog()("redraw: the menu took %v (state %v, autostart %v)", d, t1.Sub(t0), t2.Sub(t1))
+		}
 	}()
 }
 
-// drawMenu builds the tray's menu. On the main thread.
+// drawMenu builds the tray's menu and gives it to the tray: mygo's menus are made whole, not
+// cleared and added to.
 func (u *ui) drawMenu(c Config, auto bool, autoErr error) {
-	m := u.menu
-	m.Clear()
+	u.mu.Lock()
+	t := u.tray
+	u.mu.Unlock()
+	if t == nil {
+		return // the app not ready yet: WhenReady draws it
+	}
+	type item = mygo.MenuItem
+	click := func(f func()) func(*mygo.MenuItem, *mygo.Window) {
+		return func(*mygo.MenuItem, *mygo.Window) { f() }
+	}
+	check := func(label string, on bool, f func()) *item {
+		return &item{Label: label, Type: mygo.MenuItemCheckbox, Checked: on, Click: click(f)}
+	}
 	cur := c.current()
 	// The same two kinds as the app's pages (kumo, 2026-11-22): 服务器 (此电脑 and each Iridium:
 	// pressed, its window; the picker to add one), then 授权操作 (each Iridium logged in to, ticked
 	// when it may work on this computer).
-	m.Add("服务器").SetEnabled(false)
+	m := []*item{{Label: "服务器", Disabled: true}}
 	if l := c.local(); l != nil {
 		state := u.localStatus()
 		if c.NoServer {
 			state = "已停止"
 		}
-		sub := m.AddSubmenu("此电脑  " + state)
-		sub.AddCheckbox("在窗口中显示", l.URL == cur).SetEnabled(!c.NoServer).OnClick(func(*application.Context) { u.switchTo(l.URL) })
-		sub.AddCheckbox("运行", !c.NoServer).OnClick(func(*application.Context) {
-			on := c.NoServer
-			if SetServer(on) == nil && on {
-				go u.startLocal(l.URL, appLog())
-			}
-			application.InvokeAsync(u.redraw)
-		})
+		show := check("在窗口中显示", l.URL == cur, func() { u.switchTo(l.URL) })
+		show.Disabled = c.NoServer
+		m = append(m, &item{Label: "此电脑  " + state, Submenu: []*item{show,
+			check("运行", !c.NoServer, func() {
+				on := c.NoServer
+				if SetServer(on) == nil && on {
+					go u.startLocal(l.URL, appLog())
+				}
+				u.redraw()
+			})}})
 	} else {
-		sub := m.AddSubmenu("此电脑  已停止")
-		sub.AddCheckbox("运行", false).OnClick(func(*application.Context) {
+		m = append(m, &item{Label: "此电脑  已停止", Submenu: []*item{check("运行", false, func() {
 			if SetServer(true) == nil {
 				if c, _ := loadConfig(); c.local() != nil {
 					go u.startLocal(c.local().URL, appLog())
 				}
 			}
-			application.InvokeAsync(u.redraw)
-		})
+			u.redraw()
+		})}})
 	}
 	for _, s := range c.Servers {
 		if s.Local {
@@ -991,11 +979,9 @@ func (u *ui) drawMenu(c Config, auto bool, autoErr error) {
 		if !s.LoggedIn {
 			name += "  未登录"
 		}
-		m.AddCheckbox(name, s.URL == cur).OnClick(func(*application.Context) { u.switchTo(s.URL) })
+		m = append(m, check(name, s.URL == cur, func() { u.switchTo(s.URL) }))
 	}
-	m.Add("添加服务器…").OnClick(func(*application.Context) { u.showPicker() })
-	m.AddSeparator()
-	m.Add("授权操作").SetEnabled(false)
+	m = append(m, &item{Label: "添加服务器…", Click: click(u.showPicker)}, mygo.Separator(), &item{Label: "授权操作", Disabled: true})
 	for _, s := range c.Servers {
 		if s.Local || !s.LoggedIn {
 			continue
@@ -1004,33 +990,27 @@ func (u *ui) drawMenu(c Config, auto bool, autoErr error) {
 		if !s.Off {
 			state = brief(u.joins.Status(s.URL))
 		}
-		m.AddCheckbox(fmt.Sprintf("%s  %s", hostOf(s.URL), state), !s.Off).OnClick(func(*application.Context) {
+		m = append(m, check(fmt.Sprintf("%s  %s", hostOf(s.URL), state), !s.Off, func() {
 			_, _ = updateConfig(func(c *Config) { c.setOff(s.URL, !s.Off) })
-			application.InvokeAsync(u.redraw)
-		})
+			u.redraw()
+		}))
 	}
-	m.AddSeparator()
-	m.Add("打开窗口").OnClick(func(*application.Context) { u.show() })
+	m = append(m, mygo.Separator(), &item{Label: "打开窗口", Click: click(func() { go u.show() })})
 	if on, err := auto, autoErr; err == nil {
-		m.AddCheckbox("登录时打开", on).OnClick(func(*application.Context) {
-			if on {
-				_ = u.app.Autostart.Disable()
-			} else {
-				_ = u.app.Autostart.Enable()
-			}
-			application.InvokeAsync(u.redraw)
-		})
+		m = append(m, check("登录时打开", on, func() {
+			_ = mygo.App.SetOpenAtLogin(!on)
+			u.redraw()
+		}))
 	}
 	u.mu.Lock()
 	ready := u.ready
 	u.mu.Unlock()
 	if ready != "" {
-		m.Add("重启以更新到 " + version.Short(ready)).OnClick(func(*application.Context) { u.restartApp() })
+		m = append(m, &item{Label: "重启以更新到 " + version.Short(ready), Click: click(u.restartApp)})
 	}
-	m.AddSeparator()
-	m.Add("Iridium " + version.Short(version.Version)).SetEnabled(false)
-	m.Add("退出").OnClick(func(*application.Context) { u.app.Quit() })
-	m.Update()
+	m = append(m, mygo.Separator(), &item{Label: "Iridium " + version.Short(version.Version), Disabled: true},
+		&item{Label: "退出", Click: click(mygo.App.Quit)})
+	t.SetMenu(mygo.NewMenu(m))
 }
 
 func hostOf(address string) string {
@@ -1101,30 +1081,6 @@ addEventListener("unhandledrejection",function(e){var r=e.reason;send("unhandled
 var ce=console.error;console.error=function(){try{send("console.error: "+Array.prototype.map.call(arguments,String).join(" "))}catch(e){}return ce.apply(console,arguments)};
 addEventListener("load",function(){setTimeout(function(){var r=document.getElementById("root");if(r&&!r.children.length)send("empty page: "+location.href)},6000)});
 })();`
-
-// zoomKeys: the window's zoom by the browser's keys (⌘= or ⌘+ larger, ⌘- smaller, ⌘0 as it was;
-// Ctrl on Windows and Linux), kept for the next start (kumo, 2026-11-20).
-func (u *ui) zoomKeys() {
-	zoom := func(f func(*application.WebviewWindow)) func(application.Window) {
-		return func(application.Window) {
-			u.mu.Lock()
-			w := u.win
-			u.mu.Unlock()
-			if w == nil {
-				return
-			}
-			f(w)
-			z := w.GetZoom()
-			_, _ = updateConfig(func(c *Config) { c.Zoom = z })
-		}
-	}
-	in := zoom(func(w *application.WebviewWindow) { w.ZoomIn() })
-	for _, k := range []string{"CmdOrCtrl+=", "CmdOrCtrl+Shift+=", "CmdOrCtrl+Plus"} {
-		u.app.KeyBinding.Add(k, in)
-	}
-	u.app.KeyBinding.Add("CmdOrCtrl+-", zoom(func(w *application.WebviewWindow) { w.ZoomOut() }))
-	u.app.KeyBinding.Add("CmdOrCtrl+0", zoom(func(w *application.WebviewWindow) { w.ZoomReset() }))
-}
 
 // probe does what IRIDIUM_APP_PROBE lists, 3 seconds apart, for looking at the app's windows from
 // outside (a screenshot): picker, open (the Iridium used last).

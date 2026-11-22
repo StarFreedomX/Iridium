@@ -1,8 +1,9 @@
 package desktop
 
 import (
-	"github.com/wailsapp/wails/v3/pkg/application"
-	"github.com/wailsapp/wails/v3/pkg/events"
+	"runtime"
+
+	"github.com/egoist/mygo"
 )
 
 // The picker (docs/app.md "小窗口"; kumo, 2026-11-22): a small upright window of the app's own,
@@ -20,31 +21,45 @@ const (
 // makePicker makes the picker's window, shown. Closed, it hides: its page keeps its state and is
 // whole as it shows again.
 func (u *ui) makePicker() {
-	w := u.app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Name: "picker", Title: "Iridium", Width: pickerW, Height: pickerH, DisableResize: true,
-		URL: themed("/"), InitialPosition: application.WindowCentered,
-		MaximiseButtonState: application.ButtonHidden,
-		Mac:                 application.MacWindow{TitleBar: application.MacTitleBarHidden, InvisibleTitleBarHeight: macBar},
-	})
-	w.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
-		e.Cancel()
-		w.Hide()
-	})
+	opts := mygo.WindowOptions{
+		Title: "Iridium", Width: pickerW, Height: pickerH, DisableResize: true, DisableMaximize: true,
+		URL: themed("/"), Page: pageOptions("", "", 0),
+	}
+	if runtime.GOOS == "darwin" {
+		opts.TitleBarStyle = mygo.TitleBarHidden
+	}
+	w := mygo.NewWindow(opts)
+	if runtime.GOOS != "darwin" && len(u.icon) > 0 {
+		_ = w.SetIcon(u.icon)
+	}
+	u.named(w, "picker")
+	u.hideOnClose(w)
+	u.mu.Lock()
 	u.picker = w
+	u.mu.Unlock()
 }
 
 // showPicker shows the picker with the state as it is now.
 func (u *ui) showPicker() {
+	u.mu.Lock()
+	p := u.picker
+	u.mu.Unlock()
+	if p == nil {
+		return
+	}
 	c, _ := loadConfig()
-	reply(u.picker, u.pageState(c))
-	u.picker.Show()
-	u.picker.Focus()
+	reply(p, u.pageState(c))
+	p.Show()
+	p.Focus()
 }
 
 // tellPicker gives the picker a state, shown or not: it is whole as it shows.
 func (u *ui) tellPicker(st map[string]any) {
-	if u.picker != nil {
-		reply(u.picker, st)
+	u.mu.Lock()
+	p := u.picker
+	u.mu.Unlock()
+	if p != nil {
+		reply(p, st)
 	}
 }
 
@@ -56,42 +71,42 @@ func (u *ui) openIn(address, link string) {
 		link = address + "/"
 	}
 	u.mu.Lock()
-	var w *application.WebviewWindow
+	var w *mygo.Window
 	for _, x := range u.wins {
-		if u.shows[x.Name()] == address {
+		if u.shows[u.names[x]] == address {
 			w = x
 			break
 		}
 	}
 	u.mu.Unlock()
 	_, _ = updateConfig(func(c *Config) { c.Current = address })
-	application.InvokeAsync(func() {
+	go func() {
 		if w == nil {
 			u.newWindow(address, link)
 		} else {
 			if !home {
-				w.SetURL(themed(link))
+				_ = w.Page().LoadURL(themed(link))
 			}
 			w.Show()
 			w.Focus()
 		}
 		u.picker.Hide()
-	})
+	}()
 	u.redraw()
 }
 
 // vacate closes the window named: its Iridium is left (logged out there, removed).
 func (u *ui) vacate(name string) {
 	u.mu.Lock()
-	var w *application.WebviewWindow
+	var w *mygo.Window
 	for _, x := range u.wins {
-		if x.Name() == name {
+		if u.names[x] == name {
 			w = x
 		}
 	}
 	u.mu.Unlock()
 	if w != nil {
-		application.InvokeAsync(w.Close)
+		w.Close()
 	}
 }
 
@@ -102,8 +117,8 @@ func (u *ui) gone(address string) {
 	var names []string
 	left := 0
 	for _, x := range u.wins {
-		if u.shows[x.Name()] == address {
-			names = append(names, x.Name())
+		if n := u.names[x]; u.shows[n] == address {
+			names = append(names, n)
 		} else {
 			left++
 		}

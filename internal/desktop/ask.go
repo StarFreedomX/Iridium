@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"sync"
 
+	"github.com/egoist/mygo"
 	"github.com/kumoSleeping/iridium/internal/remote/executor"
-	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 // A request from an Iridium for more of this computer (docs/app.md "请求"): the Iridium may only
@@ -30,7 +30,7 @@ var asks struct {
 	one sync.Mutex // one panel at a time
 	mu  sync.Mutex
 	now *asking
-	win *application.WebviewWindow
+	win *mygo.Window
 }
 
 // askEach shows the panel for a request from server and waits for its answer.
@@ -41,16 +41,17 @@ func (u *ui) askEach(ctx context.Context, server, by string, items []executor.It
 	asks.mu.Lock()
 	asks.now = a
 	asks.mu.Unlock()
-	application.InvokeSync(func() {
-		// An ordinary window, in front of the others: no frameless, see-through one (kumo, 2026-11-22).
-		asks.win = u.app.Window.NewWithOptions(application.WebviewWindowOptions{
-			Name: "ask", Title: "Iridium", URL: themed("/#ask"),
-			Width: 360, Height: 150 + 44*len(items), DisableResize: true, AlwaysOnTop: true,
-			InitialPosition: application.WindowCentered, MaximiseButtonState: application.ButtonHidden, MinimiseButtonState: application.ButtonHidden,
-		})
-		asks.win.Show()
-		asks.win.Focus()
+	// An ordinary window, in front of the others: no frameless, see-through one (kumo, 2026-11-22).
+	win := mygo.NewWindow(mygo.WindowOptions{
+		Title: "Iridium", URL: themed("/#ask"), Page: pageOptions("", "", 0),
+		Width: 360, Height: 150 + 44*len(items), DisableResize: true, AlwaysOnTop: true,
+		DisableMaximize: true, DisableMinimize: true,
 	})
+	u.named(win, "ask")
+	asks.mu.Lock()
+	asks.win = win
+	asks.mu.Unlock()
+	win.Focus()
 	var r askReply
 	select {
 	case r = <-a.answer:
@@ -70,7 +71,7 @@ func (u *ui) askEach(ctx context.Context, server, by string, items []executor.It
 	asks.win = nil
 	asks.mu.Unlock()
 	if w != nil {
-		application.InvokeAsync(w.Close)
+		w.Close()
 	}
 	if len(yes) != len(items) {
 		return make([]bool, len(items))

@@ -13,9 +13,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/egoist/mygo"
 	"github.com/kumoSleeping/iridium/internal/version"
-	"github.com/wailsapp/wails/v3/pkg/application"
-	"github.com/wailsapp/wails/v3/pkg/events"
 )
 
 // follow draws the tray again when what the runtime says changes (its joins' states, this
@@ -37,9 +36,7 @@ func (u *ui) follow() {
 		}
 		if s := b.String(); s != last {
 			last = s
-			if u.app != nil {
-				application.InvokeAsync(u.redraw)
-			}
+			u.redraw()
 		}
 	}
 }
@@ -78,28 +75,16 @@ func (u *ui) checkBinary() {
 		u.ready = v
 	}
 	u.mu.Unlock()
-	if changed && u.app != nil {
-		application.InvokeAsync(u.redraw)
+	if changed {
+		u.redraw()
 	}
 }
 
 // restartApp starts the window again on the binary on disk and quits this one; the runtime is
-// another process and runs on.
-func (u *ui) restartApp() {
-	self, err := os.Executable()
-	if err != nil {
-		return
-	}
-	cmd := exec.Command(self, "app")
-	// The new one waits for this one to end first: one window runs at a time (SingleInstance).
-	cmd.Env = append(os.Environ(), fmt.Sprintf("IRIDIUM_WAIT_PID=%d", os.Getpid()))
-	Detach(cmd)
-	if cmd.Start() != nil {
-		return
-	}
-	_ = cmd.Process.Release()
-	u.app.Quit()
-}
+// another process and runs on. mygo's Relaunch starts the new one once this one has ended (its
+// single-instance lock), as IRIDIUM_WAIT_PID did; on a Mac through Launch Services, the app's
+// bundle as updated.
+func (u *ui) restartApp() { mygo.App.Relaunch() }
 
 // syncRuntime keeps ir's service as the settings need it (kumo, 2026-11-22): started once
 // something needs it (an Iridium joined here; this computer's own is started by startLocal),
@@ -136,10 +121,10 @@ func (u *ui) syncRuntime(logf func(string, ...any)) {
 
 // keepFrame: a window on an Iridium opens where and as large as one was last (Config.Frame, given
 // as it is made), and that is kept as w moves and resizes.
-func (u *ui) keepFrame(w *application.WebviewWindow) {
+func (u *ui) keepFrame(w *mygo.Window) {
 	var mu sync.Mutex
 	var t *time.Timer
-	save := func(*application.WindowEvent) {
+	save := func() {
 		mu.Lock()
 		defer mu.Unlock()
 		if t != nil {
@@ -149,7 +134,7 @@ func (u *ui) keepFrame(w *application.WebviewWindow) {
 			u.mu.Lock()
 			here := slices.Contains(u.wins, w)
 			u.mu.Unlock()
-			if !here || w.IsMaximised() || w.IsFullscreen() || w.IsMinimised() {
+			if !here || w.IsMaximized() || w.IsFullScreen() || w.IsMinimized() {
 				return
 			}
 			x, y := w.Position()
@@ -157,6 +142,6 @@ func (u *ui) keepFrame(w *application.WebviewWindow) {
 			_, _ = updateConfig(func(c *Config) { c.Frame = Frame{X: x, Y: y, W: ww, H: h} })
 		})
 	}
-	w.OnWindowEvent(events.Common.WindowDidMove, save)
-	w.OnWindowEvent(events.Common.WindowDidResize, save)
+	w.OnMove(save)
+	w.OnResize(save)
 }

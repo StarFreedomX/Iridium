@@ -2,10 +2,10 @@ package desktop
 
 import (
 	"fmt"
+	"runtime"
 	"slices"
 
-	"github.com/wailsapp/wails/v3/pkg/application"
-	"github.com/wailsapp/wails/v3/pkg/events"
+	"github.com/egoist/mygo"
 )
 
 // Windows on Iridiums (kumo, 2026-11-22): as many as wanted, each on its own Iridium, opened from
@@ -14,31 +14,33 @@ import (
 // it is closed: none is kept hidden. With none left the app stays in the tray.
 
 // watch takes w among the windows: in front as it is focused, its Iridium then the last used.
-func (u *ui) watch(w *application.WebviewWindow) {
+func (u *ui) watch(w *mygo.Window, name string) {
+	u.named(w, name)
 	u.mu.Lock()
 	u.wins = append(u.wins, w)
 	u.win = w
 	u.mu.Unlock()
-	w.OnWindowEvent(events.Common.WindowFocus, func(*application.WindowEvent) {
+	w.OnFocus(func() {
 		u.mu.Lock()
 		if slices.Contains(u.wins, w) {
 			u.win = w
 		}
-		at := u.shows[w.Name()]
+		at := u.shows[name]
 		u.mu.Unlock()
 		if at != "" {
-			_, _ = updateConfig(func(c *Config) {
+			go updateConfig(func(c *Config) {
 				if c.server(at) != nil {
 					c.Current = at
 				}
 			})
 		}
 	})
-	w.RegisterHook(events.Common.WindowClosing, func(*application.WindowEvent) {
+	w.OnClosed(func() {
 		u.mu.Lock()
 		defer u.mu.Unlock()
-		u.wins = slices.DeleteFunc(u.wins, func(x *application.WebviewWindow) bool { return x == w })
-		delete(u.shows, w.Name())
+		u.wins = slices.DeleteFunc(u.wins, func(x *mygo.Window) bool { return x == w })
+		delete(u.shows, name)
+		delete(u.names, w)
 		if u.win == w {
 			u.win = nil
 			if n := len(u.wins); n > 0 {
@@ -50,7 +52,7 @@ func (u *ui) watch(w *application.WebviewWindow) {
 }
 
 // newWindow opens a window on address, at link: where and as large as one was last, a little off
-// the one in front if there is one. On the main thread.
+// the one in front if there is one.
 func (u *ui) newWindow(address, link string) {
 	c, _ := loadConfig()
 	u.mu.Lock()
@@ -62,28 +64,31 @@ func (u *ui) newWindow(address, link string) {
 	}
 	u.shows[name] = address
 	u.mu.Unlock()
-	opts := application.WebviewWindowOptions{
-		Name: name, Title: "Iridium", Width: 1200, Height: 800, MinWidth: 360, MinHeight: 480,
-		URL: themed(link), CSS: pageCSS, JS: pageJS,
-		// No title bar of its own on macOS (kumo, 2026-11-20: no line under it): the page goes up to
-		// the window's top, the window dragged by that strip (pageCSS keeps it clear).
-		Mac: application.MacWindow{TitleBar: application.MacTitleBarHidden, InvisibleTitleBarHeight: macBar},
+	opts := mygo.WindowOptions{
+		Title: "Iridium", Width: 1200, Height: 800, MinWidth: 360, MinHeight: 480,
+		URL: themed(link),
+		// Trusted: this window's Iridium, no other (Wails took any origin's message and looked).
+		Page: pageOptions(originOf(address), css(pageCSS)+pageJS, c.Zoom),
 	}
-	// Given as it is made: nothing of it is set after (set before the app ran, that hung it).
+	if runtime.GOOS == "darwin" {
+		// No title bar of its own on macOS (kumo, 2026-11-20: no line under it): the page goes up
+		// to the window's top, the window dragged by that strip (pageCSS keeps it clear).
+		opts.TitleBarStyle = mygo.TitleBarHidden
+	} else {
+		opts.AutoHideMenuBar = true // the menu only for its keys (gui)
+	}
 	if f := c.Frame; f.W >= 360 && f.H >= 480 {
-		opts.Width, opts.Height = f.W, f.H
-		opts.InitialPosition, opts.X, opts.Y = application.WindowXY, f.X, f.Y
+		opts.Width, opts.Height, opts.X, opts.Y = f.W, f.H, f.X, f.Y
 	}
 	if front != nil {
 		x, y := front.Position()
 		opts.Width, opts.Height = front.Size()
-		opts.InitialPosition, opts.X, opts.Y = application.WindowXY, x+28, y+28
+		opts.X, opts.Y = x+28, y+28
 	}
-	w := u.app.Window.NewWithOptions(opts)
-	if c.Zoom > 0 {
-		w.SetZoom(c.Zoom)
+	w := mygo.NewWindow(opts)
+	if runtime.GOOS != "darwin" && len(u.icon) > 0 {
+		_ = w.SetIcon(u.icon)
 	}
-	u.watch(w)
-	w.Show()
+	u.watch(w, name)
 	w.Focus()
 }
