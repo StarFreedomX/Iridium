@@ -152,7 +152,8 @@ export default function FileBrowser({ machine: initialMachine, path: initialPath
         <IconKey label={t("browse.copyChatLink")} disabled={!folders.data?.path} onClick={() => copyChatLink(dir)}><Link2 size={15} /></IconKey>
       </div>
       <div className="flex min-h-0 flex-1">
-        <div ref={list} tabIndex={-1} className={cn("min-w-0 flex-1 flex-col @min-[620px]:flex @min-[620px]:w-72 @min-[620px]:flex-none @min-[620px]:border-r @min-[620px]:border-edge", file ? "hidden" : "flex")}>
+        {/* Pull the focus ring inside the pane so the dialog's overflow-hidden rounded edge does not clip it. */}
+        <div ref={list} tabIndex={-1} className={cn("min-w-0 flex-1 flex-col focus-visible:-outline-offset-6 @min-[620px]:flex @min-[620px]:w-72 @min-[620px]:flex-none @min-[620px]:border-r @min-[620px]:border-edge", file ? "hidden" : "flex")}>
           <div ref={scroll} className="min-h-0 flex-1 overflow-auto overscroll-contain p-1.5">
             {/* Outside the keyed contents so Enter on .. climbs repeatedly; move focus to the list once .. disappears at a root. */}
             {up && <ParentFolderRow machine={machine} path={up} onOpen={(keyed) => openFolder(up, keyed && !parent(up))} />}
