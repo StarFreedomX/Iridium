@@ -931,17 +931,16 @@ export function CreatePopover({ trigger }: { trigger: ReactElement }) {
   const [open, setOpen] = useState(false);
   const [page, setPage] = useState<"folder" | "session">("folder");
   const [folder, setFolder] = useState("~");
-  // Another machine's folders (docs/exec.md): picked above the folders; its agents alone then.
-  const all = useMachines();
-  const machines = all.filter((m) => m.agents.length > 0);
+  // A computer can hold the folder even if it cannot run an agent.
+  const machines = useMachines();
   const [at, setAt] = useState<Machine | undefined>(undefined);
   const { busy, start } = useStart((id) => (setOpen(false), openChat(id)));
   // The folder as NewSession has it; a subfolder made there, the folder then.
   const here = at ? atMachine(at, folder) : folder;
   const sub = useSubfolder(here, (f) => setFolder(at ? f.slice(at.id.length + 1) : f), open);
   // Any paired machine, its agents or none (NewSession says so): only one not paired is gone.
-  const ms = useRef(all);
-  ms.current = all;
+  const ms = useRef(machines);
+  ms.current = machines;
   useEffect(
     () =>
       onCreateAt((p) => {
