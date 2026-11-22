@@ -630,9 +630,6 @@ type MacWindow struct {
 	Appearance MacAppearanceType
 	// InvisibleTitleBarHeight defines the height of an invisible titlebar which responds to dragging
 	InvisibleTitleBarHeight int
-	// InvisibleTitleBarClearRight (Iridium's patch) is a width at that strip's right end that does
-	// not drag the window: a press there goes to the page (a key drawn in the strip).
-	InvisibleTitleBarClearRight int
 	// Maps events from platform specific to common event types
 	EventMapping map[events.WindowEventType]events.WindowEventType
 

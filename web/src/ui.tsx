@@ -170,8 +170,13 @@ export function usePointAnchor(at: { x: number; y: number } | null) {
 /** The last pointer pressed was a finger: a phone, or a tablet or an unfolded phone in the
  *  computer's layout. */
 let touched = false;
+/** The last thing pressed was a key: only then does the focus coming to a key show its tip. A
+ *  card opened with the mouse had the focus put on its first key, and that key's tip came up with
+ *  no pointer near it (kumo, 2026-11-22: 换头像 over the card, in the desktop app). */
+let keyed = false;
 if (typeof window !== "undefined") {
-  addEventListener("pointerdown", (e) => (touched = e.pointerType === "touch"), { capture: true, passive: true });
+  addEventListener("pointerdown", (e) => ((touched = e.pointerType === "touch"), (keyed = false)), { capture: true, passive: true });
+  addEventListener("keydown", () => (keyed = true), { capture: true, passive: true });
   // A finger's long press is ours (a row's menu) or nothing: never the browser's own download,
   // print, share, anywhere on the page (the user's unfolded phone in the computer's layout,
   // 2026-11-08). The browser keeps it only where it is of use: words being typed, words to choose
@@ -223,7 +228,14 @@ export function Tip({ label, children, side = "top", align = "center" }: { label
     return () => (window.clearTimeout(id), removeEventListener("pointerdown", close));
   }, [open]);
   return (
-    <Tooltip.Root open={open} onOpenChange={(o) => setOpen(o && !touched)}>
+    <Tooltip.Root
+      open={open}
+      onOpenChange={(o, d) => {
+        const how = d as { reason?: string; event?: Event } | undefined;
+        const byFocus = String(how?.reason ?? "").includes("focus") || !!how?.event?.type.startsWith("focus");
+        setOpen(o && !touched && !(byFocus && !keyed));
+      }}
+    >
       <Tooltip.Trigger render={children} />
       <Tooltip.Portal>
         <Tooltip.Positioner side={side} align={align} sideOffset={6} collisionPadding={8} className="z-70">
