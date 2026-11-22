@@ -1,15 +1,14 @@
-// The app's own page (docs/app.md "应用页面"), three parts, one shown at a time; the one leaving
-// fades out, then the one coming fades in (kumo, 2026-11-22: no folding, no rising; timed):
-//  - who (the first start): a face (a grey figure till chosen; pressed, choose and crop), a name,
-//    开始: this computer's own Iridium, its host given that name and face; under them 添加服务器.
-//  - servers, the app's control page (its key at an Iridium's top right): 此电脑 (on or off,
-//    pressed to go in) and 公网访问; then 服务器, each a row with its link (已连接 32 ms, 断开 3 分钟,
-//    未授权), pressed to go in, its › to its own page; last, a field to paste an address or an
-//    invite link into, handled as it lands.
-//  - one server's page: 授权操作, then (granted) 命令行, each agent, 文件夹; 移除.
-// The page is drawn once its state is there (it fades in then), never before.
+// The app's own pages (docs/app.md "应用页面"; kumo, 2026-11-22: two things, two places).
+//  - Login, the picker: a small upright window with the Iridiums. First, who (a face, a name,
+//    开始: this computer's own Iridium); then 服务器: 此电脑 (its switch runs it and no more;
+//    公网访问 under it), each Iridium (pressed, its window comes and the picker goes; the one
+//    used last ticked, as the web app's lists tick theirs), 添加服务器 (pressed, a field).
+//  - Control, the popover under the key at an Iridium page's top right: 授权操作 alone, the same
+//    from every window: each Iridium logged in to, its link and switch, › to what it may do here;
+//    服务器 opens the picker.
+// A part is drawn once its state is there, never before.
 import {
-  AppWindow,
+  Check,
   ChevronLeft,
   ChevronRight,
   FolderPlus,
@@ -79,7 +78,7 @@ type State = {
   publicAddress?: string;
 };
 type Note = { text: string; error?: boolean; server?: string };
-type Part = "who" | "servers" | { server: string };
+type Part = "who" | "servers";
 
 const FADE = 160; // ms, out then in
 
@@ -121,8 +120,6 @@ export function Login() {
   };
   const keepMe = (m: Me) => (setMe(m), ask("ir:me:" + JSON.stringify(m)));
 
-  const key =
-    typeof part === "object" && part ? "server:" + part.server : (part ?? "");
   return (
     <div className="h-full bg-paper text-ink select-none [&_*:focus-visible]:outline-none">
       {/* The mark and the name at the page's top left (kumo, 2026-11-20). */}
@@ -135,10 +132,20 @@ export function Login() {
         <IrMark size={28} className="text-ink" />
         Iridium
       </header>
-      <main className="grid h-full place-items-center overflow-y-auto">
+      <main
+        className={cn(
+          "no-bar flex h-full flex-col items-center overflow-y-auto",
+          part === "who" && "justify-center",
+        )}
+      >
         {st && part && (
-          <Swap id={key}>
-            <div className="flex w-[min(380px,calc(100vw-32px))] flex-col py-16">
+          <Swap id={part}>
+            <div
+              className={cn(
+                "flex w-[min(380px,calc(100vw-24px))] flex-col",
+                part === "who" ? "py-16" : "pt-24 pb-6",
+              )}
+            >
               {part === "who" ? (
                 <Who
                   me={me}
@@ -166,20 +173,13 @@ export function Login() {
                     go("servers")
                   )}
                 />
-              ) : part === "servers" ? (
+              ) : (
                 <Servers
                   st={st}
                   busy={busy}
                   note={note}
                   login={login}
-                  open={(s) => go({ server: s.url })}
                   back={st.servers.length === 0 ? () => go("who") : undefined}
-                />
-              ) : (
-                <ServerPage
-                  s={st.servers.find((s) => s.url === part.server)}
-                  agents={st.agents ?? []}
-                  back={() => go("servers")}
                 />
               )}
             </div>
@@ -350,7 +350,6 @@ function Row({
   end,
   onClick,
   tone,
-  chosen,
 }: {
   icon: ReactNode;
   title: ReactNode;
@@ -358,7 +357,6 @@ function Row({
   end?: ReactNode;
   onClick?: () => void;
   tone?: string;
-  chosen?: boolean; // the one the window shows
 }) {
   const body = (
     <>
@@ -375,10 +373,9 @@ function Row({
   );
   return (
     <div
-      aria-current={chosen || undefined}
       className={cn(
-        "flex min-h-13 items-center gap-1 rounded-md pr-2 hover:bg-fill",
-        chosen && "bg-fill",
+        "group flex min-h-13 items-center gap-1 rounded-md pr-2",
+        onClick && "hover:bg-fill",
       )}
     >
       {onClick ? (
@@ -412,8 +409,10 @@ function linkOf(s: Server): { dot: string; text: string } {
   const l = s.link;
   if (l?.up)
     return { dot: DOT.on, text: l.rtt ? `已连接 ${l.rtt} ms` : "已连接" };
-  const mins = l ? Math.floor((Date.now() - Date.parse(l.since)) / 60000) : 0;
-  if (!l || mins < 1) return { dot: DOT.slow, text: "连接中" };
+  // No record of it yet (just granted, the runtime starting), or one without a time: 连接中.
+  const since = l ? Date.parse(l.since) : NaN;
+  const mins = since > 0 ? Math.floor((Date.now() - since) / 60000) : 0;
+  if (mins < 1) return { dot: DOT.slow, text: "连接中" };
   return {
     dot: DOT.away,
     text:
@@ -447,19 +446,21 @@ function Face({ s }: { s: Server }) {
   );
 }
 
+/** The one ticked: the Iridium used last, as the web app's lists tick theirs. */
+const Tick = () => <Check size={15} className="mr-1.5 shrink-0 text-ink-2" />;
+
+/** The picker's list: 此电脑, each Iridium, 添加服务器. */
 function Servers({
   st,
   busy,
   note,
   login,
-  open,
   back,
 }: {
   st: State;
   busy: string;
   note: Note | null;
   login: (to: string, key: string) => void;
-  open: (s: Server) => void;
   back?: () => void;
 }) {
   const local = st.servers.find((s) => s.local);
@@ -467,11 +468,15 @@ function Servers({
   const rows = useFolding(remote, (s) => s.url);
   const on = !!local && st.server !== false;
   const p = st.publicState;
+  const [adding, setAdding] = useState(false);
   const [address, setAddress] = useState("");
   const field = useRef<HTMLInputElement>(null);
   useEffect(() => {
-    if (busy === "" && !note?.error) setAddress("");
+    if (busy === "" && !note?.error) (setAddress(""), setAdding(false));
   }, [busy]); // eslint-disable-line react-hooks/exhaustive-deps
+  const mineOf = (url?: string) =>
+    note && url && note.server === url ? note : null;
+  const localNote = mineOf(local?.url);
 
   return (
     <>
@@ -486,9 +491,6 @@ function Servers({
         </button>
       )}
 
-      {/* 服务器 (kumo, 2026-11-22): the Iridiums to look at, this computer's own among them; the
-          one the window shows chosen; pressed, the window goes there; each one's key opens it in a
-          window of its own. */}
       <Heading>服务器</Heading>
       <Row
         icon={
@@ -497,15 +499,27 @@ function Servers({
           </span>
         }
         title="此电脑"
-        sub={on ? (local?.status ?? "运行中") : "已停止"}
-        chosen={!!local && st.current === local.url}
+        sub={
+          localNote ? (
+            <span className={localNote.error ? "text-err" : undefined}>
+              {localNote.text}
+            </span>
+          ) : on ? (
+            (local?.status ?? "运行中")
+          ) : (
+            "已停止"
+          )
+        }
         onClick={local && on ? () => ask("ir:open:" + local.url) : undefined}
         end={
-          <Switch
-            label="此电脑"
-            on={on}
-            onChange={(v) => ask("ir:server:" + (v ? "on" : "off"))}
-          />
+          <>
+            {on && st.current === local?.url && <Tick />}
+            <Switch
+              label="此电脑"
+              on={on}
+              onChange={(v) => ask("ir:server:" + (v ? "on" : "off"))}
+            />
+          </>
         }
       />
       <Fold state={on ? "in" : "out"}>
@@ -548,7 +562,7 @@ function Servers({
         </Fold>
       </Fold>
       {rows.map(({ item: s, key, state }) => {
-        const mine = note && note.server === s.url ? note : null;
+        const mine = mineOf(s.url);
         return (
           <Fold key={key} state={state}>
             <Row
@@ -565,25 +579,30 @@ function Servers({
                   "未登录"
                 )
               }
-              chosen={st.current === s.url}
               onClick={() =>
                 s.loggedIn ? ask("ir:open:" + s.url) : login(s.url, s.url)
               }
               end={
                 busy === s.url ? (
-                  <span className="grid size-8 place-items-center">
-                    <LoaderCircle
-                      size={16}
-                      className="animate-spin text-ink-3"
-                    />
-                  </span>
+                  <LoaderCircle
+                    size={16}
+                    className="mr-1.5 animate-spin text-ink-3"
+                  />
                 ) : (
-                  <IconKey
-                    label="在新窗口打开"
-                    onClick={() => ask("ir:newwin:" + s.url)}
-                  >
-                    <AppWindow size={16} />
-                  </IconKey>
+                  <>
+                    {/* 移除: there as the row is pointed at (the app's window is a computer's). */}
+                    <span className="opacity-0 transition-opacity duration-(--dur-1) group-hover:opacity-100 focus-within:opacity-100">
+                      <SureKey
+                        label="移除"
+                        sure="确认移除"
+                        run={() => ask("ir:remove:" + s.url)}
+                        className="size-7"
+                      >
+                        <Trash2 size={14} />
+                      </SureKey>
+                    </span>
+                    {st.current === s.url && <Tick />}
+                  </>
                 )
               }
             />
@@ -591,45 +610,56 @@ function Servers({
         );
       })}
 
-      {/* An address or an invite link, typed or pasted: a paste is handled as it lands. */}
-      <form
-        className="flex min-h-13 items-center gap-3 rounded-md px-2 focus-within:bg-fill hover:bg-fill"
-        onSubmit={(e) => (e.preventDefault(), login(address.trim(), "+"))}
-      >
-        <span className="grid size-9 shrink-0 place-items-center text-ink-2">
-          <Plus size={16} />
-        </span>
-        <input
-          ref={field}
-          value={address}
-          onChange={(e) => setAddress(e.target.value)}
-          onPaste={(e) => {
-            const v = e.clipboardData.getData("text").trim();
-            if (!v) return;
-            e.preventDefault();
-            setAddress(v);
-            login(v, "+");
-          }}
-          onKeyDown={(e) => {
-            clipboardKeys(
-              e,
-              (v) => (setAddress(v), v.trim() && login(v.trim(), "+")),
-            );
-            if (e.key === "Escape") (setAddress(""), field.current?.blur());
-          }}
-          placeholder="粘贴服务器地址或邀请链接"
-          spellCheck={false}
-          autoCapitalize="off"
-          autoComplete="url"
-          className="min-w-0 flex-1 bg-transparent text-sm outline-none select-text placeholder:text-ink-3"
-        />
-        {busy === "+" && (
-          <LoaderCircle
-            size={16}
-            className="shrink-0 animate-spin text-ink-3"
+      {/* 添加服务器: pressed, a field in its place for an address or an invite link; a paste is
+          handled as it lands. No field waits with the focus in it (kumo, 2026-11-22). */}
+      {adding ? (
+        <form
+          className="flex min-h-13 items-center gap-3 rounded-md pr-2 pl-2"
+          onSubmit={(e) => (e.preventDefault(), login(address.trim(), "+"))}
+        >
+          <span className="grid size-9 shrink-0 place-items-center text-ink-2">
+            <Plus size={16} />
+          </span>
+          <input
+            ref={field}
+            autoFocus
+            value={address}
+            onChange={(e) => setAddress(e.target.value)}
+            onBlur={() => !address.trim() && busy !== "+" && setAdding(false)}
+            onPaste={(e) => {
+              const v = e.clipboardData.getData("text").trim();
+              if (!v) return;
+              e.preventDefault();
+              setAddress(v);
+              login(v, "+");
+            }}
+            onKeyDown={(e) => {
+              clipboardKeys(
+                e,
+                (v) => (setAddress(v), v.trim() && login(v.trim(), "+")),
+              );
+              if (e.key === "Escape") (setAddress(""), setAdding(false));
+            }}
+            placeholder="服务器地址或邀请链接"
+            spellCheck={false}
+            autoCapitalize="off"
+            autoComplete="url"
+            className="h-9 min-w-0 flex-1 rounded-md bg-fill px-2.5 text-sm outline-none select-text placeholder:text-ink-3"
           />
-        )}
-      </form>
+          {busy === "+" && (
+            <LoaderCircle
+              size={16}
+              className="shrink-0 animate-spin text-ink-3"
+            />
+          )}
+        </form>
+      ) : (
+        <Row
+          icon={<Plus size={16} className="text-ink-2" />}
+          title={<span className="font-normal text-ink-2">添加服务器</span>}
+          onClick={() => setAdding(true)}
+        />
+      )}
       <Fold state={note && !note.server ? "in" : "out"}>
         <p
           className={cn(
@@ -640,46 +670,64 @@ function Servers({
           {note?.text}
         </p>
       </Fold>
+    </>
+  );
+}
 
-      {/* 授权操作 (kumo, 2026-11-22): the Iridiums this computer lets work here, as many as wanted,
-          each with its link; pressed, its own page (命令行, agents, 文件夹, 移除). */}
-      <Fold state={remote.length ? "in" : "out"}>
-        <Heading className="mt-2">授权操作</Heading>
-        {rows.map(({ item: s, key, state }) => {
-          const l = linkOf(s);
-          return (
-            <Fold key={key} state={state}>
-              <Row
-                icon={<Face s={s} />}
-                title={s.loggedIn && s.name ? s.name : s.host}
-                sub={
-                  s.loggedIn ? (
-                    <>
-                      <Lamp color={l.dot} />
-                      {l.text}
-                    </>
-                  ) : (
-                    "未登录"
-                  )
-                }
-                onClick={() => open(s)}
-                end={
+/** The control's list, 授权操作: the Iridiums this computer lets work here, as many as wanted,
+ *  each with its link and its switch; › to what it may do here. Those not logged in to are not
+ *  here: nothing can be granted to them yet. Last, 服务器: the picker. */
+function Grants({ st, open }: { st: State; open: (s: Server) => void }) {
+  const rows = useFolding(
+    st.servers.filter((s) => !s.local && s.loggedIn),
+    (s) => s.url,
+  );
+  return (
+    <>
+      <Heading>授权操作</Heading>
+      {rows.length === 0 && (
+        <p className="m-0 px-2.5 py-3 text-sm text-ink-3">无已登录的服务器</p>
+      )}
+      {rows.map(({ item: s, key, state }) => {
+        const l = linkOf(s);
+        return (
+          <Fold key={key} state={state}>
+            <Row
+              icon={<Face s={s} />}
+              title={s.name || s.host}
+              sub={
+                <>
+                  <Lamp color={l.dot} />
+                  {l.text}
+                </>
+              }
+              end={
+                <>
                   <Switch
                     label={"授权操作 " + s.host}
                     on={!!s.joined}
-                    disabled={!s.loggedIn}
                     onChange={(v) =>
                       ask(
                         "ir:terms:" + JSON.stringify({ url: s.url, joined: v }),
                       )
                     }
                   />
-                }
-              />
-            </Fold>
-          );
-        })}
-      </Fold>
+                  <IconKey label={s.host} onClick={() => open(s)}>
+                    <ChevronRight size={16} />
+                  </IconKey>
+                </>
+              }
+            />
+          </Fold>
+        );
+      })}
+      <div className="mx-2.5 my-1 h-px bg-edge" />
+      <Row
+        icon={<Monitor size={16} className="text-ink-2" />}
+        title={<span className="font-normal">服务器</span>}
+        onClick={() => ask("ir:picker")}
+        end={<ChevronRight size={16} className="mr-2 text-ink-3" />}
+      />
     </>
   );
 }
@@ -808,27 +856,7 @@ function ServerPage({
           />
         ))}
       </Fold>
-      <div className="mt-4" />
-      <RemoveRow onRemove={() => (ask("ir:remove:" + s.url), back())} />
     </>
-  );
-}
-
-/** 移除, pressed twice: the first press turns it red, 确认移除 (docs/前端设计规范.md "确认在原处"). */
-function RemoveRow({ onRemove }: { onRemove: () => void }) {
-  const [sure, setSure] = useState(false);
-  useEffect(() => {
-    if (!sure) return;
-    const t = setTimeout(() => setSure(false), 3000);
-    return () => clearTimeout(t);
-  }, [sure]);
-  return (
-    <Row
-      icon={<Trash2 size={15} className={sure ? "text-err" : "text-ink-3"} />}
-      title={sure ? "确认移除" : "移除"}
-      tone={sure ? "text-err" : "font-normal text-ink-2"}
-      onClick={() => (sure ? onRemove() : setSure(true))}
-    />
   );
 }
 
@@ -841,8 +869,6 @@ function RemoveRow({ onRemove }: { onRemove: () => void }) {
 export function Control() {
   const [st, setSt] = useState<State | null>(null);
   const [at, setAt] = useState<string | null>(null); // a server's page, else the list
-  const [busy, setBusy] = useState("");
-  const [note, setNote] = useState<Note | null>(null);
   const [shown, setShown] = useState<"in" | "out" | "gone">("gone");
   const back = useRef(false);
   const [moved, setMoved] = useState(false); // gone to a page since it opened: that one slides in
@@ -859,23 +885,12 @@ export function Control() {
         );
       }
       if (d.close === true) setShown("out");
-      const server = typeof d.server === "string" ? d.server : undefined;
-      if (typeof d.code === "string")
-        setNote({ text: `在浏览器中核对代码 ${d.code} 后允许`, server });
-      if (typeof d.error === "string")
-        (setBusy(""), setNote({ text: d.error, error: true, server }));
     });
     whenReady(() => ask("ir:hello"));
     const esc = (e: KeyboardEvent) => e.key === "Escape" && ask("ir:close");
     addEventListener("keydown", esc);
     return () => (stop(), removeEventListener("keydown", esc));
   }, []);
-  const login = (to: string, key: string) => {
-    if (busy || !to) return;
-    setBusy(key);
-    setNote(null);
-    ask("ir:login:" + to);
-  };
   const go = (to: string | null) => {
     back.current = to === null;
     setMoved(true);
@@ -907,13 +922,7 @@ export function Control() {
               className={cn("flex flex-col", moved && "g-slide")}
             >
               {at === null ? (
-                <Servers
-                  st={st}
-                  busy={busy}
-                  note={note}
-                  login={login}
-                  open={(s) => go(s.url)}
-                />
+                <Grants st={st} open={(s) => go(s.url)} />
               ) : (
                 <ServerPage
                   s={st.servers.find((s) => s.url === at)}

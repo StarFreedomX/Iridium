@@ -41,8 +41,10 @@ func (u *ui) makeControl() *application.WebviewWindow {
 		Width: controlW + 2*controlSide, Height: controlTop + controlMaxH + controlFoot,
 		URL: themed("/#control"), Frameless: true, DisableResize: true, AlwaysOnTop: true,
 		BackgroundType: application.BackgroundTypeTransparent, Hidden: true,
-		// No shadow of the system's: the panel draws the web app's own.
-		Mac: application.MacWindow{Backdrop: application.MacBackdropTransparent, WindowLevel: application.MacWindowLevelFloating, DisableShadow: true},
+		// No shadow of the system's: the panel draws the web app's own. Square corners: without
+		// them a frameless window keeps AppKit's own frame, drawn as a white slab behind the panel
+		// (kumo, 2026-11-22).
+		Mac: application.MacWindow{Backdrop: application.MacBackdropTransparent, WindowLevel: application.MacWindowLevelFloating, DisableShadow: true, CornerType: application.MacWindowCornerTypeSquare},
 	})
 	w.OnWindowEvent(events.Common.WindowLostFocus, func(*application.WindowEvent) { u.closeControl() })
 	u.mu.Lock()
@@ -66,6 +68,10 @@ func (u *ui) openControl(arg string) {
 		return
 	}
 	front := u.win
+	if u.shows[front.Name()] == "" {
+		u.mu.Unlock()
+		return // no window on an Iridium to open it over
+	}
 	u.controlOpen = true
 	u.mu.Unlock()
 	if front != nil {

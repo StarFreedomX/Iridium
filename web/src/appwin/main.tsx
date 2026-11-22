@@ -13,7 +13,7 @@ if (location.hash === "#ask" || location.hash === "#control")
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    {location.hash === "#ask" ? (
+    {location.hash === "#blank" ? null : location.hash === "#ask" ? (
       <AskPanel />
     ) : location.hash === "#control" ? (
       <Control />

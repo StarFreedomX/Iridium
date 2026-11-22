@@ -115,6 +115,14 @@ func (l *localState) ensure(ctx context.Context, address string, logf func(strin
 	// ir started as the user's service (ir start --headless): its runtime starts this
 	// computer's Iridium, as the settings have it on.
 	_ = SetServer(true)
+	// The runtime already runs (an Iridium is joined): it reads the settings every 2 seconds and
+	// starts this computer's Iridium itself. ir start would start the runtime again, and every
+	// join's connection with it (kumo, 2026-11-22: 此电脑 turned on, the others were cut off).
+	if _, running := RuntimeRecord(); running && waitAnswer(ctx, address, startWait) {
+		l.set(localRunning, nil)
+		nameHost(logf)
+		return nil
+	}
 	cmd := exec.CommandContext(ctx, self, "start", "--headless", "--as-is", "-config", localPath())
 	quiet(cmd)
 	out, err := cmd.CombinedOutput()

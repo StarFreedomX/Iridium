@@ -47,7 +47,7 @@ func (u *ui) askEach(ctx context.Context, server, by string, items []executor.It
 			Width: 360, Height: 132 + 44*len(items), DisableResize: true, AlwaysOnTop: true,
 			Frameless: true, BackgroundType: application.BackgroundTypeTransparent,
 			InitialPosition: application.WindowCentered,
-			Mac:             application.MacWindow{Backdrop: application.MacBackdropTransparent, WindowLevel: application.MacWindowLevelFloating},
+			Mac:             application.MacWindow{Backdrop: application.MacBackdropTransparent, WindowLevel: application.MacWindowLevelFloating, CornerType: application.MacWindowCornerTypeSquare},
 		})
 		asks.win.Show()
 		asks.win.Focus()

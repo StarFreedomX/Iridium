@@ -42,8 +42,8 @@ type ui struct {
 
 	mu          sync.Mutex
 	ready       string                     // a downloaded update's version, waiting for a restart
-	waiting     bool                       // the window waits on the app's page for this computer's Iridium to start
-	atApp       bool                       // the window is on the app's own page (its last word came from there)
+	waiting     bool                       // this computer's Iridium is waited for: shown once it runs
+	picker      *application.WebviewWindow // the small window of the Iridiums (picker.go)
 	control     *application.WebviewWindow // the control's window, made once the app has started (control.go)
 	controlOpen bool
 	controlShut time.Time                    // when it was put away last
@@ -123,13 +123,22 @@ func gui(o Options) int {
 			c = c2
 		}
 	}
+	// A window shows an Iridium's page and nothing else (kumo, 2026-11-22): with none to show yet
+	// (a first start, not logged in, this computer's own not running) it stays hidden and empty,
+	// and the picker is shown.
 	start := pageOf(c)
+	empty := start == "/"
 	if s := c.server(c.current()); s != nil && s.Local && !answers(context.Background(), s.URL) {
-		start, u.waiting = "/", true // the app's page till it answers (startLocal)
+		empty, u.waiting = true, true // shown once it answers (startLocal)
+	}
+	if empty {
+		start = blankPage
+	} else {
+		u.shows = map[string]string{"main": c.current()}
 	}
 	opts := application.WebviewWindowOptions{
 		Name: "main", Title: "Iridium", Width: 1200, Height: 800, MinWidth: 360, MinHeight: 480,
-		URL: themed(start), CSS: pageCSS, JS: pageJS,
+		URL: themed(start), CSS: pageCSS, JS: pageJS, Hidden: empty,
 		// No title bar of its own on macOS (kumo, 2026-11-20: no line under it): the page goes up to
 		// the window's top, the window dragged by that strip (pageCSS keeps it clear).
 		Mac: application.MacWindow{TitleBar: application.MacTitleBarHidden, InvisibleTitleBarHeight: macBar},
@@ -147,6 +156,7 @@ func gui(o Options) int {
 	u.zoomKeys()
 	// Closing the window keeps the app (and this computer joined) in the tray.
 	u.watch(u.win)
+	u.makePicker(!empty)
 
 	// macOS gives a web view ⌘C, ⌘V, ⌘A, ⌘Z only through the menu bar's Edit menu: without one,
 	// nothing pastes. Elsewhere the keys work without, and a menu would be a bar in the window.
@@ -166,7 +176,7 @@ func gui(o Options) int {
 		app.AddSeparator()
 		app.AddRole(application.Quit)
 		file := bar.AddSubmenu("文件")
-		file.Add("新建窗口").SetAccelerator("CmdOrCtrl+N").OnClick(func(*application.Context) { u.newWindow("") })
+		file.Add("打开服务器…").SetAccelerator("CmdOrCtrl+N").OnClick(func(*application.Context) { u.showPicker() })
 		file.AddRole(application.CloseWindow)
 		bar.AddRole(application.EditMenu)
 		view := bar.AddSubmenu("显示")
@@ -211,9 +221,6 @@ func gui(o Options) int {
 	}
 	return 0
 }
-
-// nav shows address in the window, in the day or night chosen (themed).
-func (u *ui) nav(address string) { u.win.SetURL(themed(address)) }
 
 // themed is address with the theme chosen on an Iridium's page (Config.Theme) for its first
 // paint (theme.js ?theme=, which keeps it there too); none chosen: auto, the system's.
@@ -275,17 +282,16 @@ func (u *ui) startLocal(address string, logf func(string, ...any)) {
 	}
 	u.mu.Unlock()
 	c, _ := loadConfig()
-	switch {
-	case err == nil && waiting && c.current() == address:
-		u.nav(pageOf(c))
-	case waiting:
-		// The window is on the app's page: its row says why.
-		st := u.pageState(c)
-		if err != nil {
-			st["error"], st["server"] = "未能启动："+err.Error(), address
-		}
-		reply(u.win, st)
+	if err == nil && waiting && c.current() == address {
+		u.switchTo(address)
+		return
 	}
+	// The picker's row says how it went.
+	st := u.pageState(c)
+	if err != nil {
+		st["error"], st["server"] = "未能启动："+err.Error(), address
+	}
+	u.tellPicker(st)
 }
 
 // useLocal puts this computer's Iridium in the list (asked from a page: kumo, 2026-11-22, the
@@ -311,9 +317,18 @@ func (u *ui) localStatus() string {
 	return st
 }
 
+// show brings the app forward: the window in front, or the picker when no window shows an Iridium.
 func (u *ui) show() {
-	u.win.Show()
-	u.win.Focus()
+	u.mu.Lock()
+	w := u.win
+	at := u.shows[w.Name()]
+	u.mu.Unlock()
+	if at == "" {
+		u.showPicker()
+		return
+	}
+	w.Show()
+	w.Focus()
 }
 
 // message is what a page sends (window._wails.invoke). The address page (the app's own) adds an
@@ -341,12 +356,9 @@ func (u *ui) message(w application.Window, msg string, o *application.OriginInfo
 		return
 	}
 	logf("message %s from %q", verb, origin)
-	if w.Name() != "control" && w.Name() != "ask" { // the control's words say nothing of a page
+	if server != "" && w.Name() != "control" && w.Name() != "ask" && w.Name() != "picker" {
 		u.mu.Lock()
-		if w.Name() == u.win.Name() {
-			u.atApp = server == ""
-		}
-		if server != "" {
+		{
 			if u.shows == nil {
 				u.shows = map[string]string{}
 			}
@@ -384,8 +396,10 @@ func (u *ui) message(w application.Window, msg string, o *application.OriginInfo
 		application.InvokeAsync(func() { u.openControl(arg) })
 	case "needlogin":
 		// The Iridium's login page, in the app: the app's own instead (its passkey is in the browser).
+		// Its window is given up (a window shows an Iridium's page only); the picker logs in.
 		if _, err := updateConfig(func(c *Config) { c.Current = server; c.server(server).LoggedIn = false }); err == nil {
-			u.nav("/#servers")
+			u.vacate(w.Name())
+			u.showPicker()
 		}
 	case "hello":
 		reply(w, u.hello(c, server))
@@ -410,6 +424,7 @@ func (u *ui) message(w application.Window, msg string, o *application.OriginInfo
 		}
 		if c, err := updateConfig(func(c *Config) { c.remove(arg) }); err == nil {
 			u.joins.Sync(c)
+			u.gone(arg)
 			application.InvokeAsync(u.redraw)
 			reply(w, u.hello(c, server))
 		}
@@ -490,19 +505,18 @@ func (u *ui) local(w application.Window, verb, arg string) {
 			}
 		}()
 	case "open":
-		if c, _ := loadConfig(); c.server(arg) != nil {
-			u.switchTo(arg)
-			u.closeControl()
-			u.show()
-		}
-	case "newwin":
-		// The control's 在新窗口打开 (kumo, 2026-11-22: several windows, each on its Iridium).
-		if c, _ := loadConfig(); c.server(arg) != nil {
-			u.closeControl()
-			application.InvokeAsync(func() { u.newWindow(arg) })
-		}
-	case "close":
+		// The picker's row pressed: that Iridium's window (kumo, 2026-11-22).
+		u.switchTo(arg)
+	case "picker":
+		// The control's 服务器: the picker, to open another or add one.
 		u.closeControl()
+		u.showPicker()
+	case "close":
+		if w.Name() == "picker" {
+			u.picker.Hide()
+		} else {
+			u.closeControl()
+		}
 	case "local":
 		if err := u.useLocal(appLog()); err != nil {
 			reply(w, map[string]string{"error": err.Error()})
@@ -513,6 +527,7 @@ func (u *ui) local(w application.Window, verb, arg string) {
 	case "remove":
 		if c, err := updateConfig(func(c *Config) { c.remove(arg) }); err == nil {
 			u.joins.Sync(c)
+			u.gone(arg)
 			application.InvokeAsync(u.redraw)
 			reply(w, state(c))
 		}
@@ -564,15 +579,21 @@ func (u *ui) local(w application.Window, verb, arg string) {
 			reply(w, state(c))
 		}()
 	case "server":
-		if arg == "on" {
-			if err := u.useLocal(appLog()); err != nil {
-				reply(w, map[string]string{"error": err.Error()})
+		// 此电脑's switch: this computer's Iridium started or stopped, and no more (kumo,
+		// 2026-11-22: it took the window away); its row pressed shows it.
+		if err := SetServer(arg == "on"); err != nil {
+			reply(w, map[string]string{"error": err.Error()})
+		} else if arg == "on" {
+			if c, _ := loadConfig(); c.local() != nil {
+				if st, _ := u.here.get(); st != localRunning {
+					u.here.set(localStarting, nil)
+				}
+				go u.startLocal(c.local().URL, appLog())
 			}
-		} else {
-			_ = SetServer(false)
 		}
 		c, _ := loadConfig()
 		reply(w, state(c))
+		application.InvokeAsync(u.redraw)
 	case "public":
 		go u.pub.set(arg == "on", func() {
 			c, _ := loadConfig()
@@ -656,10 +677,7 @@ func (u *ui) local(w application.Window, verb, arg string) {
 					}
 					c.Current = a
 				})
-				application.InvokeAsync(u.redraw)
-				u.nav(link)
-				u.closeControl()
-				u.show()
+				u.openIn(a, link)
 			})
 		}()
 	}
@@ -680,7 +698,10 @@ func (u *ui) pageState(c Config) map[string]any {
 			roots = []string{}
 		}
 		e := map[string]any{"url": s.URL, "host": hostOf(s.URL), "loggedIn": s.LoggedIn, "name": s.Name, "avatar": s.Avatar, "face": s.Face,
-			"joined": !s.Off && !s.Local, "shell": !s.NoShell, "roots": roots, "agentsOff": s.AgentsOff, "link": rec.Links[s.URL], "said": rec.Joins[s.URL]}
+			"joined": !s.Off && !s.Local, "shell": !s.NoShell, "roots": roots, "agentsOff": s.AgentsOff, "said": rec.Joins[s.URL]}
+		if l, ok := rec.Links[s.URL]; ok {
+			e["link"] = l // none: not joined yet, or no runtime; the row says 连接中
+		}
 		if s.Local {
 			e["local"], e["status"] = true, u.localStatus()
 			if loopback(s.URL) {
@@ -869,31 +890,33 @@ func (u *ui) add(w application.Window, address string, ask bool) {
 	}
 	u.joins.Sync(c)
 	application.InvokeAsync(u.redraw)
-	u.nav(pageOf(c))
+	u.switchTo(c.current())
 }
 
 func (u *ui) switchTo(address string) {
-	c, err := updateConfig(func(c *Config) { c.Current = address })
-	if err != nil {
+	c, _ := loadConfig()
+	s := c.server(address)
+	if s == nil {
 		return
 	}
-	if s := c.server(address); s != nil && s.Local {
+	if s.Local {
 		if st, _ := u.here.get(); st != localRunning {
-			// Not running yet: the app's page till it does (left as it is when there already: the
-			// first page's 进入 turns there, no page drawn anew).
+			// Not running yet: the picker says so, and its window comes once it runs.
+			_, _ = updateConfig(func(c *Config) { c.Current = address; c.NoServer = false })
 			u.mu.Lock()
 			u.waiting = true
-			at := u.atApp
 			u.mu.Unlock()
-			if !at {
-				u.nav("/#servers")
-			}
+			u.here.set(localStarting, nil)
+			u.showPicker()
 			go u.startLocal(address, appLog())
 			return
 		}
 	}
-	u.nav(pageOf(c))
-	application.InvokeAsync(u.redraw)
+	if !s.LoggedIn && !(s.Local && loopback(s.URL)) {
+		u.showPicker() // logged in to there
+		return
+	}
+	u.openIn(address, "")
 }
 
 // serverOf is the Iridium in the list whose origin (scheme://host[:port]) origin is; "": none.
@@ -950,25 +973,21 @@ func (u *ui) confirm(ctx context.Context, q string) bool {
 func (u *ui) redraw() {
 	c, _ := loadConfig()
 	u.tellControl(c)
+	u.tellPicker(u.pageState(c))
 	m := u.menu
 	m.Clear()
 	cur := c.current()
-	show := func(sub *application.Menu, s Server) {
-		sub.AddCheckbox("在窗口中显示", s.URL == cur).OnClick(func(*application.Context) {
-			u.switchTo(s.URL)
-			u.show()
-		})
-	}
-	// Two kinds (kumo, 2026-11-22): this computer's own Iridium (the server), then each Iridium
-	// this computer joins or shows. The window itself is no third: the app is built on it.
-	m.Add("此电脑").SetEnabled(false)
+	// The same two kinds as the app's pages (kumo, 2026-11-22): 服务器 (此电脑 and each Iridium:
+	// pressed, its window; the picker to add one), then 授权操作 (each Iridium logged in to, ticked
+	// when it may work on this computer).
+	m.Add("服务器").SetEnabled(false)
 	if l := c.local(); l != nil {
 		state := u.localStatus()
 		if c.NoServer {
-			state = "已关闭"
+			state = "已停止"
 		}
 		sub := m.AddSubmenu("此电脑  " + state)
-		show(sub, *l)
+		sub.AddCheckbox("在窗口中显示", l.URL == cur).SetEnabled(!c.NoServer).OnClick(func(*application.Context) { u.switchTo(l.URL) })
 		sub.AddCheckbox("运行", !c.NoServer).OnClick(func(*application.Context) {
 			on := c.NoServer
 			if SetServer(on) == nil && on {
@@ -979,36 +998,40 @@ func (u *ui) redraw() {
 	} else {
 		sub := m.AddSubmenu("此电脑  已停止")
 		sub.AddCheckbox("运行", false).OnClick(func(*application.Context) {
-			_ = u.useLocal(appLog())
-			u.show()
+			if SetServer(true) == nil {
+				if c, _ := loadConfig(); c.local() != nil {
+					go u.startLocal(c.local().URL, appLog())
+				}
+			}
+			application.InvokeAsync(u.redraw)
 		})
 	}
-	m.AddSeparator()
-	m.Add("服务器").SetEnabled(false)
 	for _, s := range c.Servers {
 		if s.Local {
+			continue
+		}
+		name := hostOf(s.URL)
+		if !s.LoggedIn {
+			name += "  未登录"
+		}
+		m.AddCheckbox(name, s.URL == cur).OnClick(func(*application.Context) { u.switchTo(s.URL) })
+	}
+	m.Add("添加服务器…").OnClick(func(*application.Context) { u.showPicker() })
+	m.AddSeparator()
+	m.Add("授权操作").SetEnabled(false)
+	for _, s := range c.Servers {
+		if s.Local || !s.LoggedIn {
 			continue
 		}
 		state := "未授权"
 		if !s.Off {
 			state = brief(u.joins.Status(s.URL))
 		}
-		sub := m.AddSubmenu(fmt.Sprintf("%s  %s", hostOf(s.URL), state))
-		show(sub, s)
-		sub.AddCheckbox("授权操作", !s.Off).OnClick(func(*application.Context) {
+		m.AddCheckbox(fmt.Sprintf("%s  %s", hostOf(s.URL), state), !s.Off).OnClick(func(*application.Context) {
 			_, _ = updateConfig(func(c *Config) { c.setOff(s.URL, !s.Off) })
 			application.InvokeAsync(u.redraw)
 		})
-		sub.AddSeparator()
-		sub.Add("移除").OnClick(func(*application.Context) {
-			if c, err := updateConfig(func(c *Config) { c.remove(s.URL) }); err == nil {
-				u.nav(pageOf(c))
-				application.InvokeAsync(u.redraw)
-			}
-		})
 	}
-	m.Add("添加服务器…").OnClick(func(*application.Context) { u.show(); u.openControl("") })
-	m.Add("新建窗口").OnClick(func(*application.Context) { u.newWindow("") })
 	m.AddSeparator()
 	m.Add("打开窗口").OnClick(func(*application.Context) { u.show() })
 	if on, err := u.app.Autostart.IsEnabled(); err == nil {

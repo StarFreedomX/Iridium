@@ -9,7 +9,7 @@ import (
 )
 
 // Windows on Iridiums (kumo, 2026-11-22): as many as wanted, each on its own Iridium, opened from
-// the control (在新窗口打开) or ⌘N; the one in front is the one the control and the tray act on
+// the picker (picker.go); the one in front is the one the control and the tray act on
 // (u.win), and the app's next start opens the one used last (Config.Current). Closing one closes
 // it; closing the last hides it, the app staying in the tray.
 
@@ -48,27 +48,21 @@ func (u *ui) watch(w *application.WebviewWindow) {
 	})
 }
 
-// newWindow opens another window on address (the one in front's Iridium if ""), a little off the
-// one in front. On the main thread.
-func (u *ui) newWindow(address string) {
-	c, _ := loadConfig()
-	if address == "" {
-		u.mu.Lock()
-		address = u.shows[u.win.Name()]
-		u.mu.Unlock()
-	}
-	page := "/#servers"
-	if s := c.server(address); s != nil && (s.LoggedIn || (s.Local && loopback(s.URL))) {
-		page = s.URL + "/"
-	}
+// newWindow opens another window on address, at link, a little off the one in front. On the main
+// thread.
+func (u *ui) newWindow(address, link string) {
 	u.mu.Lock()
 	u.nwin++
 	name := fmt.Sprintf("w%d", u.nwin)
 	front := u.win
+	if u.shows == nil {
+		u.shows = map[string]string{}
+	}
+	u.shows[name] = address
 	u.mu.Unlock()
 	w := u.app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name: name, Title: "Iridium", Width: 1200, Height: 800, MinWidth: 360, MinHeight: 480,
-		URL: themed(page), CSS: pageCSS, JS: pageJS,
+		URL: themed(link), CSS: pageCSS, JS: pageJS,
 		Mac: application.MacWindow{TitleBar: application.MacTitleBarHidden, InvisibleTitleBarHeight: macBar},
 	})
 	if front != nil {

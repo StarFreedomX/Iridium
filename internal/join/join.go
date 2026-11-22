@@ -124,6 +124,9 @@ func (p Program) Main(args []string, stdout, stderr io.Writer) int {
 	_ = fs.Bool("shell", false, "") // the default since 2026-11-18; still taken
 	noShell := fs.Bool("no-shell", false, "")
 	base := fs.String("state", "", "") // where joins keep their state (tests)
+	// As given, for the restart after an update: the loop below takes the address out of args, and
+	// the new one, started without it, only printed its usage.
+	given := append([]string(nil), args...)
 	var pos []string
 	for {
 		if err := fs.Parse(args); err != nil {
@@ -182,7 +185,7 @@ func (p Program) Main(args []string, stdout, stderr io.Writer) int {
 	if errors.Is(err, ErrRestart) {
 		stop()
 		o.say("重启")
-		return reexec(selfExe(), args)
+		return reexec(selfExe(), given)
 	}
 	if err != nil && ctx.Err() == nil {
 		fmt.Fprintf(stderr, "%s: %v\n", p.Name, err)
