@@ -50,7 +50,6 @@ export default function FileBrowser({ machine: initialMachine, path: initialPath
   const start = startAt(machines.find((m) => m.id === machine));
   const up = parent(dir);
   const list = useRef<HTMLDivElement>(null);
-  const address = useRef<HTMLInputElement>(null);
   const title = useRef<HTMLHeadingElement>(null);
   const returnTo = useRef<HTMLButtonElement | null>(null);
 
@@ -98,15 +97,15 @@ export default function FileBrowser({ machine: initialMachine, path: initialPath
         </select>
       </header>
       <div className={cn("shrink-0 items-center gap-1 border-b border-edge px-2 py-1", file ? "hidden @min-[620px]:flex" : "flex")}>
-        <IconKey label={t("browse.up")} disabled={!up} onClick={() => { visit(up); address.current?.focus(); }}><ArrowUp size={16} /></IconKey>
+        <IconKey label={t("browse.up")} aria-disabled={!up} className="aria-disabled:opacity-40 aria-disabled:hover:bg-transparent" onClick={() => up && visit(up)}><ArrowUp size={16} /></IconKey>
         <IconKey label={t(start === "~" ? "pick.home" : "browse.start")} onClick={() => visit(start)}><House size={15} /></IconKey>
         <form className="min-w-0 flex-1" onSubmit={(e) => { e.preventDefault(); visit(typed || dir); }}>
-          <input ref={address} aria-label={t("pick.path")} value={typed ?? dir} onChange={(e) => setTyped(e.currentTarget.value)} onBlur={() => setTyped(null)} spellCheck={false} autoComplete="off" className="h-8 w-full rounded-md bg-fill px-2 font-mono text-xs text-ink pointer-coarse:h-10" />
+          <input aria-label={t("pick.path")} value={typed ?? dir} onChange={(e) => setTyped(e.currentTarget.value)} onBlur={() => setTyped(null)} spellCheck={false} autoComplete="off" className="h-8 w-full rounded-md bg-fill px-2 font-mono text-xs text-ink pointer-coarse:h-10" />
         </form>
         <IconKey label={t("top.reload")} onClick={() => void folders.refetch()}><RefreshCw size={15} /></IconKey>
       </div>
       <div className="flex min-h-0 flex-1">
-        <div ref={list} className={cn("min-w-0 flex-1 flex-col @min-[620px]:flex @min-[620px]:w-72 @min-[620px]:flex-none @min-[620px]:border-r @min-[620px]:border-edge", file ? "hidden" : "flex")}>
+        <div ref={list} tabIndex={-1} className={cn("min-w-0 flex-1 flex-col @min-[620px]:flex @min-[620px]:w-72 @min-[620px]:flex-none @min-[620px]:border-r @min-[620px]:border-edge", file ? "hidden" : "flex")}>
           <div key={dir} className="min-h-0 flex-1 overflow-auto overscroll-contain p-1.5">
             {folders.isPending ? <Loading /> : folders.isError ? (
               <p role="status" className="mx-2.5 my-3 text-sm text-ink-2">{error}</p>
@@ -125,8 +124,9 @@ export default function FileBrowser({ machine: initialMachine, path: initialPath
                       {directory || entry.type === "file" ? (
                         <button type="button" aria-current={file?.name === entry.name || undefined} className={cn(row, "hover:bg-fill aria-[current=true]:bg-fill aria-[current=true]:font-medium")} onPointerEnter={warm} onPointerDown={warm} onFocus={warm} onClick={(e) => {
                           if (directory) {
+                            // Keep keyboard focus in the list as the folder's row is replaced.
+                            if (e.detail === 0) list.current?.focus({ preventScroll: true });
                             visit(target);
-                            address.current?.focus();
                           } else {
                             returnTo.current = e.currentTarget;
                             setFile(entry);
