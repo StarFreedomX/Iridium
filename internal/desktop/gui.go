@@ -37,7 +37,7 @@ type ui struct {
 	menu  *application.Menu
 	joins *Joins
 
-	here localState // this computer's own Iridium (local.go)
+	here localState  // this computer's own Iridium (local.go)
 	pub  publicState // its 公网访问 (public.go)
 
 	mu      sync.Mutex
