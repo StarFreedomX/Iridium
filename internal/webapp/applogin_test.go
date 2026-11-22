@@ -86,8 +86,8 @@ func TestAppLogin(t *testing.T) {
 	if !strings.Contains(w.Body.String(), `http-equiv="refresh" content="0;url=/"`) || h.cookie == "" || h.cookie == browser {
 		t.Fatalf("finish: %q, cookie set %v", w.Body.String(), h.cookie != "")
 	}
-	if c := w.Result().Cookies()[0]; c.MaxAge != int(AppTimeout/time.Second) {
-		t.Fatalf("the app's cookie lasts %ds", c.MaxAge)
+	if c := w.Result().Cookies()[0]; c.MaxAge != int(AppTimeout/time.Second) || c.SameSite != http.SameSiteLaxMode {
+		t.Fatalf("the app's cookie lasts %ds, SameSite %v (Lax: sent as the app's own page opens this site)", c.MaxAge, c.SameSite)
 	}
 	// Long: unused for days past the browser's idle limit, still in.
 	h.clock.Advance(3 * 24 * time.Hour)

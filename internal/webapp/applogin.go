@@ -192,7 +192,13 @@ func (w *Web) appFinish(rw http.ResponseWriter, r *http.Request) {
 	}
 	w.core.Seen(found.login)
 	w.log.Info("webapp: app logged in", "endpoint", found.login, "name", info.Name, "computer", found.name)
-	http.SetCookie(rw, cookieFor(token, AppTimeout))
+	// Lax, not Strict: the app's window goes to this site from its own page (another site) each
+	// time it is opened or switched to, and a Strict cookie is not sent then: logged out each time
+	// (kumo, 2026-11-22). The cookie lives in the app's web view alone; unsafe requests are still
+	// checked for their origin (originOK).
+	c := cookieFor(token, AppTimeout)
+	c.SameSite = http.SameSiteLaxMode
+	http.SetCookie(rw, c)
 	// On to the page from a page of this site, not by a redirect: the app's window came here from
 	// its own page, another site, and a redirect of that navigation is still that site's, which
 	// a SameSite=Strict cookie is not sent with: the page would have found itself logged out.

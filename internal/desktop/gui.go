@@ -44,6 +44,7 @@ type ui struct {
 	ready   string // a downloaded update's version, waiting for a restart
 	waiting bool   // the window waits on the app's page for this computer's Iridium to start
 	atApp   bool   // the window is on the app's own page (its last word came from there)
+	control *application.WebviewWindow // the control page's window while open
 }
 
 func gui(o Options) int {
@@ -303,9 +304,11 @@ func (u *ui) message(w application.Window, msg string, o *application.OriginInfo
 		return
 	}
 	logf("message %s from %q", verb, origin)
-	u.mu.Lock()
-	u.atApp = server == ""
-	u.mu.Unlock()
+	if w.Name() == "main" { // the control window's words say nothing of the main window's page
+		u.mu.Lock()
+		u.atApp = server == ""
+		u.mu.Unlock()
+	}
 	if server == "" {
 		// Not an Iridium's page: the app's own login page (assets), or nothing.
 		if strings.HasPrefix(origin, "wails:") || strings.HasPrefix(origin, "http://wails.localhost") {
@@ -331,8 +334,9 @@ func (u *ui) message(w application.Window, msg string, o *application.OriginInfo
 			})
 		}
 	case "home":
-		// The app's own page, at its servers.
-		u.nav("/#servers")
+		// The app's control page, a window of its own over this page (kumo, 2026-11-22: not the
+		// window's page taken away).
+		application.InvokeAsync(u.openControl)
 	case "needlogin":
 		// The Iridium's login page, in the app: the app's own instead (its passkey is in the browser).
 		if _, err := updateConfig(func(c *Config) { c.Current = server; c.server(server).LoggedIn = false }); err == nil {
@@ -443,6 +447,8 @@ func (u *ui) local(w application.Window, verb, arg string) {
 	case "open":
 		if c, _ := loadConfig(); c.server(arg) != nil {
 			u.switchTo(arg)
+			u.closeControl()
+			u.show()
 		}
 	case "local":
 		if err := u.useLocal(appLog()); err != nil {
@@ -599,6 +605,7 @@ func (u *ui) local(w application.Window, verb, arg string) {
 				})
 				application.InvokeAsync(u.redraw)
 				u.nav(link)
+				u.closeControl()
 				u.show()
 			})
 		}()
@@ -946,10 +953,7 @@ func (u *ui) redraw() {
 			}
 		})
 	}
-	m.Add("添加服务器…").OnClick(func(*application.Context) {
-		u.nav("/#servers")
-		u.show()
-	})
+	m.Add("添加服务器…").OnClick(func(*application.Context) { u.openControl() })
 	m.AddSeparator()
 	m.Add("打开窗口").OnClick(func(*application.Context) { u.show() })
 	if on, err := u.app.Autostart.IsEnabled(); err == nil {
