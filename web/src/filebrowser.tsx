@@ -1,9 +1,9 @@
-// Read-only file browser: a computer switcher, path bar, single-level folder list and inline
-// preview (reusing chat/preview.tsx). Desktop shows both panes side by side; a narrow container
-// (<620px) shows one pane at a time.
+// Read-only file browser: a computer switcher, editable breadcrumb bar, single-level folder list
+// and inline preview (reusing chat/preview.tsx). Desktop shows both panes side by side; a narrow
+// container (<620px) shows one pane at a time.
 import { Dialog } from "@base-ui/react/dialog";
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
-import { ArrowLeft, ArrowUp, Download, ExternalLink, FileText, Folder, House, Link2, LoaderCircle, RefreshCw } from "lucide-react";
+import { ArrowLeft, ArrowUp, ChevronRight, Download, ExternalLink, FileText, Folder, House, Link2, LoaderCircle, RefreshCw } from "lucide-react";
 import { lazy, Suspense, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { api, ApiError, queryClient } from "./api/client";
 import type { DirEntry, DirListing } from "./api/types.gen";
@@ -35,6 +35,13 @@ function parent(dir: string) {
   if (!path || /^[A-Za-z]:$/.test(path) || /^\/\/[^/]+\/[^/]+$/.test(path)) return "";
   const up = path.slice(0, path.lastIndexOf("/")) || "/";
   return /^[A-Za-z]:$/.test(up) ? up + "/" : up;
+}
+
+/** Ancestor paths from root to dir for the breadcrumb buttons, stopping at parent()'s root. */
+function pathTrail(dir: string) {
+  const parts: string[] = [];
+  for (let folder = dir; folder; folder = parent(folder)) parts.push(folder);
+  return parts.reverse();
 }
 
 /** Split-pane folder list and file preview; below 620px only one pane shows at a time. */
@@ -112,9 +119,7 @@ export default function FileBrowser({ machine: initialMachine, path: initialPath
       <div className={cn("shrink-0 items-center gap-1 border-b border-edge px-2 py-1", file ? "hidden @min-[620px]:flex" : "flex")}>
         <IconKey label={t("browse.up")} aria-disabled={!up} className="aria-disabled:opacity-40 aria-disabled:hover:bg-transparent" onClick={() => up && visit(up)}><ArrowUp size={16} /></IconKey>
         <IconKey label={t("browse.start")} onClick={() => visit("")}><House size={15} /></IconKey>
-        <form className="min-w-0 flex-1" onSubmit={(e) => { e.preventDefault(); visit(typed || dir); }}>
-          <input aria-label={t("pick.path")} value={typed ?? dir} onChange={(e) => setTyped(e.currentTarget.value)} onBlur={() => setTyped(null)} spellCheck={false} autoComplete="off" className="h-8 w-full rounded-md bg-fill px-2 font-mono text-xs text-ink pointer-coarse:h-10" />
-        </form>
+        <PathBar dir={dir} machine={machine} typed={typed} onType={setTyped} onVisit={visit} />
         <IconKey label={t("top.reload")} onClick={() => void folders.refetch()}><RefreshCw size={15} /></IconKey>
       </div>
       <div className="flex min-h-0 flex-1">
@@ -129,6 +134,95 @@ export default function FileBrowser({ machine: initialMachine, path: initialPath
         </div>
       </div>
     </>
+  );
+}
+
+/** Editable breadcrumb bar: clickable ancestor segments, with trailing space opening a path input
+ *  (Enter visits, Escape cancels without closing the dialog). */
+function PathBar({ dir, machine, typed, onType, onVisit }: {
+  dir: string;
+  machine: string;
+  typed: string | null;
+  onType: (path: string | null) => void;
+  onVisit: (path: string) => void;
+}) {
+  const trail = useRef<HTMLElement>(null);
+  const editKey = useRef<HTMLButtonElement>(null);
+  const returnToEdit = useRef(false);
+  const editing = typed !== null;
+  const bar = "h-8 min-w-0 flex-1 rounded-md bg-fill pointer-coarse:h-10";
+
+  useLayoutEffect(() => {
+    if (editing) return;
+    // Keep the current segment scrolled into view when the trail overflows the bar.
+    if (trail.current) trail.current.scrollLeft = trail.current.scrollWidth;
+    if (returnToEdit.current) {
+      returnToEdit.current = false;
+      editKey.current?.focus({ preventScroll: true });
+    }
+  }, [dir, machine, editing]);
+
+  if (editing) return (
+    <input
+      autoFocus
+      aria-label={t("pick.typePath")}
+      value={typed}
+      onFocus={(e) => e.currentTarget.select()}
+      onChange={(e) => onType(e.currentTarget.value)}
+      onBlur={() => onType(null)}
+      onKeyDown={(e) => {
+        if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+        if (e.key !== "Enter" && e.key !== "Escape") return;
+        e.preventDefault();
+        // Stop propagation so Escape cancels editing rather than closing the dialog.
+        e.stopPropagation();
+        returnToEdit.current = true;
+        if (e.key === "Enter") onVisit(typed || dir);
+        else onType(null);
+      }}
+      spellCheck={false}
+      autoComplete="off"
+      enterKeyHint="go"
+      className={cn(bar, "g-fade px-2 font-mono text-xs text-ink")}
+    />
+  );
+
+  return (
+    <div className={cn(bar, "flex items-center px-1")}>
+      <nav ref={trail} aria-label={t("pick.path")} className="no-bar min-w-0 overflow-x-auto overscroll-x-contain">
+        <ol role="list" className="m-0 flex w-max list-none items-center p-0">
+          {pathTrail(dir).map((folder, i) => {
+            const current = folder === dir;
+            const label = folder.replace(/(.)\/+$/, "$1");
+            const warm = () => !current && void prefetchDirectory(machine, folder);
+            return (
+              <li key={folder} className="flex shrink-0 items-center">
+                {i > 0 && <ChevronRight aria-hidden size={12} className="mx-0.5 text-ink-4" />}
+                <button
+                  type="button"
+                  aria-current={current ? "location" : undefined}
+                  aria-disabled={current || undefined}
+                  onPointerEnter={warm}
+                  onPointerDown={warm}
+                  onFocus={warm}
+                  onClick={() => !current && onVisit(folder)}
+                  className={cn("g-press flex h-7 items-center rounded-sm px-1.5 text-sm whitespace-nowrap focus-visible:-outline-offset-2 pointer-coarse:h-9", current ? "font-semibold text-ink" : "text-ink-2 hover:bg-fill-2")}
+                >
+                  {i === 0 ? label : label.slice(label.lastIndexOf("/") + 1)}
+                </button>
+              </li>
+            );
+          })}
+        </ol>
+      </nav>
+      <button
+        ref={editKey}
+        type="button"
+        aria-label={t("pick.typePath")}
+        onClick={() => onType(dir)}
+        className="h-full min-w-8 flex-1 cursor-text rounded-md focus-visible:-outline-offset-2 pointer-coarse:min-w-10"
+      />
+    </div>
   );
 }
 
