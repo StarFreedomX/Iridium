@@ -42,6 +42,9 @@ const BUSY = new Set(["running", "compacting", "starting"]);
 /** While its agent works, an approval awaited too: then it may be stopped (the user, 2026-11-06). */
 const WORKING = new Set([...BUSY, "waiting"]);
 
+/** How many of 归档's sessions are drawn at a time. */
+const ARCHIVE_STEP = 50;
+
 type Props = {
   tree: Tree;
   expanded: (key: string) => boolean;
@@ -160,7 +163,12 @@ export function Sidebar(p: Props) {
     const f = fold(ss, key);
     return `${f.list.map((s) => s.id)}${f.rest ? `+${f.all}` : ""}`;
   };
-  const shape = [loose.map((c) => c.id).join(","), ...p.tree.workspaces.map((w) => `${w.key}:${p.expanded(w.key)}:${foldShape(roots(w), w.key)}:${allFolders(tops(w)).map((f) => `${f.key}${p.expanded(f.key)}${foldShape(f.sessions, f.key)}`).join(",")}`), p.expanded("archive"), p.tree.archived.length].join("|");
+  // 归档 drawn ARCHIVE_STEP at a time, more as asked: all of it at once (some hundreds) held the
+  // page for most of a second as it opened (kumo, 2026-11-23). Folded, it starts again from the first.
+  const [archShown, setArchShown] = useState(ARCHIVE_STEP);
+  const archOpen = p.expanded("archive");
+  useEffect(() => void (!archOpen && setArchShown(ARCHIVE_STEP)), [archOpen]);
+  const shape = [loose.map((c) => c.id).join(","), ...p.tree.workspaces.map((w) => `${w.key}:${p.expanded(w.key)}:${foldShape(roots(w), w.key)}:${allFolders(tops(w)).map((f) => `${f.key}${p.expanded(f.key)}${foldShape(f.sessions, f.key)}`).join(",")}`), archOpen, p.tree.archived.length, archShown].join("|");
   useMoves(list, true)(shape);
   // Dragged to a new place (reorder.ts): the sessions beside each other, by the key of their
   // group's root or folder, and the groups, as last drawn. The page shows the new order at once.
@@ -244,6 +252,20 @@ export function Sidebar(p: Props) {
       }),
     [],
   );
+  // The open session's row in sight as it is opened, or first listed (one just started, say): its
+  // group and folders opened, the list scrolled to it. A session in a group far down was opened
+  // and nowhere to be seen (kumo, 2026-11-23). A row already in sight stays where it is.
+  const selListed = listed.has(p.selected) && !hungAt.has(p.selected);
+  useEffect(() => {
+    if (!selListed || p.searching) return;
+    const { tree, expanded, toggle } = now.current;
+    const w = tree.workspaces.find((x) => x.rows.some((r) => (r.kind === "session" ? r.s.id === p.selected : folderSessions(r.f).some((s) => s.id === p.selected))));
+    if (!w) return;
+    if (!expanded(w.key)) toggle(w.key);
+    const fs = allFolders(w.rows.flatMap((r) => (r.kind === "folder" ? [r.f] : []))).filter((f) => folderSessions(f).some((s) => s.id === p.selected));
+    for (const f of fs) if (!expanded(f.key)) toggle(f.key);
+    requestAnimationFrame(() => list.current?.querySelector(`[data-flip="${CSS.escape(`s:${p.selected}`)}"]`)?.scrollIntoView({ block: "nearest", behavior: "smooth" }));
+  }, [p.selected, selListed, p.searching]);
   // A session's row (its subagents have none: kumo, 2026-11-15). The sessions it started (ir new)
   // are not rows (kumo, 2026-11-15), nor the agents of its channel: those in its members key.
   // shown: its machine is said by the group above it (no cloud on its logo, no face after its name).
@@ -447,7 +469,17 @@ export function Sidebar(p: Props) {
         {p.tree.archived.length > 0 && (
           <div className={lastOpen ? "mt-4" : "mt-1"} role="group">
             <Row depth={0} flip="archive" head expanded={p.expanded("archive")} onClick={() => p.toggle("archive")} icon={<TrashLid open={p.expanded("archive")} />} label={<span className="text-ink-2">{t("nav.archive")}</span>} end={<Count n={p.tree.archived.length} faint />} />
-            {p.expanded("archive") && p.tree.archived.map((s) => row(s, 0))}
+            {archOpen && p.tree.archived.slice(0, archShown).map((s) => row(s, 0))}
+            {archOpen && p.tree.archived.length > archShown && (
+              <Row
+                key="more:archive"
+                depth={0}
+                flip="more:archive"
+                onClick={() => setArchShown((n) => n + ARCHIVE_STEP)}
+                icon={<Ellipsis size={15} className="text-ink-3" />}
+                label={<span className="text-ink-3">{t("nav.more", { n: p.tree.archived.length - archShown })}</span>}
+              />
+            )}
           </div>
         )}
         {!p.tree.workspaces.length && !loose.length && <Empty />}
