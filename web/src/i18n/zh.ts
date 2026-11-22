@@ -203,6 +203,7 @@ export const zh = {
   "composer.attach": "添加文件",
   "composer.uploading": "正在上传",
   "composer.goneSession": "会话已不在",
+  "composer.original": "原图",
   "composer.remove": "移除",
   "composer.send": "发送",
   "chat.stopEsc": "停止 · Esc",

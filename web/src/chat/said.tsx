@@ -29,7 +29,7 @@ import { agentName, Avatar, Badge, cn, IconKey, IrMark, Logo, own, PopSurface, t
 import { useHome, useMachines } from "../data";
 import { LocalMark } from "../me";
 import { go } from "../route";
-import { Files, isLink, Picture, previews, SentFile } from "./files";
+import { Files, isLink, Picture, previews, SentFile, shownAs } from "./files";
 import { Pictures } from "./pictures";
 import { cmdOfCall, cpOfCall, isShell, newOfCall, type Cmd, type CpSide } from "./cmd";
 import { argOf, diffSum, foldLine, foldSaid, kindOf, runCmds, type Diff, type Kind, type Shown, type Step, type Tool } from "./fold";
@@ -284,7 +284,7 @@ function Sent({ left, going, children }: { left?: boolean; going?: Going; childr
  *  thumbnail has come), opening the original; any other its card. */
 export function Attached({ session, f }: { session: string; f: FileRef }) {
   const url = api.fileURL(session, f.ref, false, f.mtime);
-  if (f.kind === "image") return <Picture src={f.thumb ? api.thumbURL(session, f.ref, 1024, f.mtime) : url} full={url} name={f.name} under={previews.get(f.path)} w={f.w} h={f.h} />;
+  if (f.kind === "image") return <Picture src={shownAs(session, f, url)} full={url} name={f.name} under={previews.get(f.path)} w={f.w} h={f.h} />;
   return <SentFile name={f.name} bytes={f.size} href={api.fileURL(session, f.ref, true, f.mtime)} view={url} mime={f.mime} />;
 }
 

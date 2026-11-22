@@ -12,7 +12,7 @@
 // granted. Shift+Tab cycles the approval mode; Esc stops the turn. The draft is kept on
 // this device; files pasted, dropped or attached go up in chunks while you type, a picture in its
 // own shape under a veil drawn back as it goes; nothing is sent till all are up.
-import { ArrowUp, Box, Brain, ChartPie, Eraser, FileCode2, FileText, FoldVertical, Gauge, LoaderCircle, Paperclip, Reply, ShieldCheck, X, type LucideIcon } from "lucide-react";
+import { ArrowUp, Box, Brain, ChartPie, Circle, CircleCheck, Eraser, FileCode2, FileText, FoldVertical, Gauge, LoaderCircle, Paperclip, Reply, ShieldCheck, X, type LucideIcon } from "lucide-react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { forwardRef, Fragment, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import type { Agent, Command, Script, SessionState as LiveSession } from "../api/types.gen";
@@ -34,6 +34,8 @@ import { MachineFace, MachineLink, type Machine } from "../machines";
 import { foldersQ } from "../create";
 import { CODE, previews, size, Zoom } from "./files";
 import { giveUp, upload } from "./upload";
+import { squeeze } from "./squeeze";
+import { squeezable } from "./squeeze-fit";
 import { findSecretish } from "./secretish";
 import { ALL_AGENTS, ALL_MEMBERS, insertNick, insertWords, matchAgents, startsAt, type AgentRow } from "./channel/lib";
 import { NickList } from "./channel/nicklist";
@@ -70,7 +72,10 @@ export function commandsOf(s: LiveSession): Command[] {
   return COMMON.filter((n) => n !== "effort" && (n !== "usage" || (s.agent !== "pi" && s.agent !== "agy"))).map((name) => describe({ name }));
 }
 
-type Att = { key: string; file: File; sent: number; ref?: string; path?: string; error?: string; url?: string; stop: AbortController };
+/** A file attached. file: what goes (orig, or small where it is sent smaller); small: undefined
+ *  while it is being made smaller, null where it goes as it is (squeeze.ts); stop: its upload's,
+ *  none till it has begun. */
+type Att = { key: string; orig: File; small?: File | null; file: File; sent: number; ref?: string; path?: string; error?: string; url?: string; stop?: AbortController };
 
 /** Each chat's files not yet sent, kept on this page while another chat is open (kumo,
  *  2026-11-17: a picture attached was gone on coming back); an upload under way goes on into it. */
@@ -84,6 +89,31 @@ const setUnsent = (id: string, f: (a: Att[]) => Att[]) => {
   else unsent.delete(id);
   for (const x of unsentSubs) x();
 };
+/** The chats whose pictures go as they are (原图), till their message is sent. */
+const whole = new Set<string>();
+const setWhole = (id: string, on: boolean) => {
+  if (on) whole.add(id);
+  else whole.delete(id);
+  for (const x of unsentSubs) x();
+};
+
+/** Starts att key's upload in chat id with what it is to send now (its original under 原图, else
+ *  its smaller copy once made), unless that is what goes already; one going with the other is
+ *  stopped, kept to go on with if it is chosen again (upload.ts). */
+function begin(id: string, key: string) {
+  const a = unsent.get(id)?.find((x) => x.key === key);
+  if (!a) return;
+  const file = whole.has(id) || a.small === null ? a.orig : a.small;
+  if (!file || (a.stop && a.file === file)) return;
+  a.stop?.abort();
+  const stop = new AbortController();
+  const set = (p: Partial<Att>) => setUnsent(id, (all) => all.map((x) => (x.key === key && x.stop === stop ? { ...x, ...p } : x)));
+  setUnsent(id, (all) => all.map((x) => (x.key === key ? { ...x, file, stop, sent: 0, ref: undefined, path: undefined, error: undefined } : x)));
+  upload(id, file, (sent) => set({ sent }), stop.signal).then(
+    (d) => set({ ref: d.ref, path: d.path, sent: file.size }),
+    (e) => stop.signal.aborted || set({ error: missing(e) ? t("err.notYet") : errText(e) }),
+  );
+}
 
 /** insert: words at the caret, a space either side; atStart: @name at the words' start, unless
  *  they begin with it (a quote's, as QQ does; kumo, 2026-11-21), the caret at their end; name:
@@ -186,24 +216,38 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
   // Every chat takes files, a channel with no agent too (kumo, 2026-11-16: uploaded to the
   // channel, kept with its message).
   const noFiles = false;
+  // A still picture is made smaller first (squeeze.ts) and goes so, unless 原图 is on: then its
+  // original goes at once, the smaller one made all the same for if it is turned off.
   const attach = (files: File[]) => {
     if (noFiles) return;
-    const add = files.map((file): Att => ({ key: crypto.randomUUID(), file, sent: 0, url: file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined, stop: new AbortController() }));
+    const add = files.map((file): Att => ({ key: crypto.randomUUID(), orig: file, file, small: squeezable(file) ? undefined : null, sent: 0, url: file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined }));
     setAtts((a) => [...a, ...add]);
     for (const a of add) {
-      const set = (p: Partial<Att>) => setAtts((all) => all.map((x) => (x.key === a.key ? { ...x, ...p } : x)));
-      upload(s.id, a.file, (sent) => set({ sent }), a.stop.signal).then(
-        (d) => set({ ref: d.ref, path: d.path, sent: a.file.size }),
-        (e) => a.stop.signal.aborted || set({ error: missing(e) ? t("err.notYet") : errText(e) }),
-      );
+      begin(sid, a.key);
+      if (a.small === null) continue;
+      squeeze(a.orig).catch(() => null).then((small) => {
+        setUnsent(sid, (all) => all.map((x) => (x.key === a.key ? { ...x, small } : x)));
+        begin(sid, a.key);
+      });
     }
+  };
+  /** The upload of what att does not send (its original, or its smaller copy) let go. */
+  const other = (a: Att) => {
+    const no = a.file === a.orig ? a.small : a.orig;
+    if (no) giveUp(sid, no);
+  };
+  const original = useSyncExternalStore(subscribeUnsent, () => whole.has(sid));
+  const setOriginal = (on: boolean) => {
+    setWhole(sid, on);
+    for (const a of atts) begin(sid, a.key);
   };
   const remove = (key: string) =>
     setAtts((all) =>
       all.filter((a) => {
         if (a.key !== key) return true;
-        a.stop.abort();
+        a.stop?.abort();
         if (!a.ref) giveUp(s.id, a.file);
+        other(a);
         // After the row has shut: the last one is drawn as it does.
         if (a.url) setTimeout(() => URL.revokeObjectURL(a.url!), 1000);
         return false;
@@ -253,6 +297,9 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
   const row = atts.length > 0;
   if (row) lastAtts.current = atts;
   const shownAtts = row ? atts : lastAtts.current;
+  // 原图 shows while a picture that may go smaller is attached.
+  const sizable = shownAtts.some((a) => a.small !== null);
+  const wholeSize = shownAtts.reduce((n, a) => n + (a.small !== null ? a.orig.size : 0), 0);
 
   const commands = commandsOf(s);
   // The commands of the channel's scripts (docs/channels.md "脚本"): "/name" goes to the script,
@@ -374,8 +421,10 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
     const files = atts.map((a) => ({ ref: a.ref!, name: a.file.name, type: a.file.type, size: a.file.size, url: a.url }));
     // Its id chosen here: the transcript's block is found by it as it comes, whenever the answer does.
     const sent: Sent = { key: crypto.randomUUID(), text: words, files, from: 0, input: crypto.randomUUID(), ...(quote ? { quote: quote.n } : {}) };
+    for (const a of atts) other(a);
     type("");
     setAtts(() => []);
+    setWhole(sid, false);
     unquote?.();
     // In a turn it joins the turn. What the server keeps for the turn's end (a command) or for the
     // quota stays your bubble, a clock by it (chats.ts waiting).
@@ -428,8 +477,8 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
         </div>
       </div>
       <div aria-hidden={!row || undefined} className={cn("grid transition-[grid-template-rows,opacity] duration-(--dur-3) ease-(--ease-out)", row ? "grid-rows-[1fr]" : "grid-rows-[0fr] opacity-0")}>
-        <div className="min-h-0 overflow-hidden">
-        <ul data-attachments className="m-0 flex list-none gap-2 overflow-x-auto px-3.5 pt-3 pb-0">
+        <div className="flex min-h-0 items-end overflow-hidden">
+        <ul data-attachments className="m-0 flex min-w-0 flex-1 list-none gap-2 overflow-x-auto px-3.5 pt-3 pb-0">
           {shownAtts.map((a) => {
             // Its part sent, 0..1; a picture keeps its own shape, its height the row's.
             const part = a.ref ? 1 : a.file.size ? a.sent / a.file.size : 0;
@@ -473,6 +522,14 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
             );
           })}
         </ul>
+        {/* 原图 (as QQ has it): the pictures go as they are, their size by it; off, smaller. */}
+        {sizable && (
+          <button type="button" aria-pressed={original} onClick={() => setOriginal(!original)} className={cn("g-press mr-2.5 mb-0.5 flex h-7 shrink-0 items-center gap-1 rounded-full px-2 text-xs select-none", original ? "text-ink" : "text-ink-3 hover:text-ink-2")}>
+            {original ? <CircleCheck size={14} /> : <Circle size={14} />}
+            <span>{t("composer.original")}</span>
+            {original && <span className="text-ink-3 tabular-nums">{size(wholeSize)}</span>}
+          </button>
+        )}
         </div>
       </div>
       {/* One row (kumo, 2026-11-16: no keys under it any more, the box smaller): attach, the

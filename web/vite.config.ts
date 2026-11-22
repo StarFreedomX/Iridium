@@ -72,6 +72,8 @@ const api = process.env.IR_API ?? "http://127.0.0.1:7810";
 
 export default defineConfig({
   plugins: [react(), tailwindcss(), precompress(), later()],
+  // A module worker (chat/squeeze.worker.ts): it loads its encoder as it is first asked.
+  worker: { format: "es" },
   build: {
     outDir: "../internal/webui/dist",
     emptyOutDir: true,
