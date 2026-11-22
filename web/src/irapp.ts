@@ -71,21 +71,12 @@ function greet() {
 window.addEventListener("wails:runtime-config-ready", greet);
 greet();
 
-/** The page's day or night (data-theme, me.tsx applyTheme) told to the app as it is and as it
- *  changes: the app's own pages follow it (kumo, 2026-11-20). */
-let themeTold = "";
-function tellTheme() {
-  const theme = document.documentElement.dataset.theme ?? "";
-  if (!greeted || !theme || theme === themeTold) return;
-  themeTold = theme;
-  ask("theme", theme);
+/** The day or night chosen here (me.tsx keepTheme; auto: the system's) told to the app: its own
+ *  pages, and every Iridium it shows, open in it (kumo, 2026-11-22). Only a choice made is told:
+ *  the page as it opens follows what the app gave it. */
+export function tellTheme(pref: "auto" | "light" | "dark") {
+  if (greeted) ask("theme", pref);
 }
-new MutationObserver(tellTheme).observe(document.documentElement, {
-  attributes: true,
-  attributeFilter: ["data-theme"],
-});
-window.addEventListener("wails:runtime-config-ready", tellTheme);
-tellTheme();
 
 /** The app's state; null: not in the app. */
 export const useApp = () =>

@@ -1021,3 +1021,16 @@ func exitOf(ps *os.ProcessState, err error) wire.Exit {
 	}
 	return wire.Exit{From: "agent", Code: ptr(ps.ExitCode())}
 }
+
+// Link is the connection to the Iridium as it is now: up or not, its last round trip (0 before
+// the first ping), for the desktop app's list (kumo, 2026-11-22: connection and its steadiness
+// are what matter of a join).
+func (e *Executor) Link() (up bool, rtt time.Duration) {
+	e.mu.Lock()
+	c := e.conn
+	e.mu.Unlock()
+	if c == nil {
+		return false, 0
+	}
+	return true, c.RTT()
+}

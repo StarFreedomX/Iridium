@@ -9,6 +9,7 @@ import type { Me } from "./api/types.gen";
 import { api, queryClient } from "./api/client";
 import { LOCAL_ME, useMe, useSettings } from "./data";
 import { setLang, t, useLang, type Lang } from "./i18n";
+import { tellTheme } from "./irapp";
 import { Avatar, cn, IrMark, keep, kept, Tip } from "./ui";
 
 export type ThemePref = "light" | "dark" | "auto";
@@ -95,7 +96,7 @@ export function applyTheme(v: ThemePref, systemDark: boolean) {
     m.content = theme === "dark" ? "#121212" : "#fdfdfd";
   }
 }
-export const keepTheme = (v: ThemePref) => keep("theme", v === "auto" ? null : v);
+export const keepTheme = (v: ThemePref) => (keep("theme", v === "auto" ? null : v), tellTheme(v));
 
 export function ThemeSwitch({ theme, setTheme }: { theme: ThemePref; setTheme: (v: ThemePref) => void }) {
   return (

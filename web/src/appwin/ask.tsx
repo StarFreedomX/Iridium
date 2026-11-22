@@ -23,7 +23,12 @@ export function AskPanel() {
     whenReady(() => ask("ir:askstate"));
     return stop;
   }, []);
-  const answer = (yes: boolean[]) => ask("ir:answer:" + JSON.stringify(yes));
+  const [always, setAlways] = useState(false);
+  const answer = (yes: boolean[]) =>
+    ask(
+      "ir:answer:" +
+        JSON.stringify({ yes, always: always && yes.some(Boolean) }),
+    );
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       if (!req) return;
@@ -32,7 +37,7 @@ export function AskPanel() {
     };
     addEventListener("keydown", key);
     return () => removeEventListener("keydown", key);
-  }, [req, on]);
+  }, [req, on, always]);
   if (!req) return null;
   return (
     <div className="h-full p-2 select-none">
@@ -63,6 +68,13 @@ export function AskPanel() {
               />
             </div>
           ))}
+        </div>
+        {/* This Iridium asks no more here: what it asks for after is allowed (kumo, 2026-11-22). */}
+        <div className="flex h-11 items-center gap-2.5 text-sm text-ink-2">
+          <span className="min-w-0 flex-1 truncate">
+            以后都允许 {req.server}
+          </span>
+          <Switch label="以后都允许" on={always} onChange={setAlways} />
         </div>
         <div className="mt-2 flex gap-2">
           <button

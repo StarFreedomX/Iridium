@@ -5,6 +5,9 @@
   var q = new URLSearchParams(location.search).get("theme");
   var s = null;
   try {
+    // From the desktop app (?theme=): what was chosen there, kept here as this device's choice.
+    if (q === "auto") localStorage.removeItem("theme");
+    else if (q === "dark" || q === "light") localStorage.setItem("theme", q);
     s = localStorage.getItem("theme");
   } catch (e) {}
   var pick = q || s || "auto";

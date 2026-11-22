@@ -37,7 +37,8 @@ const S = {
   appCheck: ['核对应用里显示的代码', 'Check it against the code the app shows'],
   allow: ['允许', 'Allow'],
   deny: ['拒绝', 'Deny'],
-  appAllowed: ['已允许，可以关闭此页', 'Allowed. You can close this page.'],
+  appAllowed: ['已登录', 'Logged in'],
+  appBack: ['回到 Iridium 应用', 'Back to the Iridium app'],
   appDenied: ['已拒绝', 'Denied'],
   appExpired: ['请求无效或已过期，请在应用里重新登录', 'This request is invalid or expired. Sign in again from the app.'],
 };
@@ -103,7 +104,7 @@ function encodeCredential(c) {
 const decodeIds = (list) => (list || []).map((c) => ({ ...c, id: b64uToBuf(c.id) }));
 
 function view(name) {
-  for (const v of ['wait', 'login', 'join', 'app', 'bad']) $('v-' + v).hidden = v !== name;
+  for (const v of ['wait', 'login', 'join', 'app', 'bad', 'done']) $('v-' + v).hidden = v !== name;
   status('');
 }
 
@@ -324,12 +325,23 @@ async function showApp(id) {
   $('app-code').textContent = r.data.code;
   const answer = (allow) => async () => {
     const a = await api('/_ir/api/app/answer', { id, allow });
-    if (a.status === 200) done(t(allow ? 'appAllowed' : 'appDenied'));
+    if (a.status === 200 && allow) allowed();
+    else if (a.status === 200) done(t('appDenied'));
     else if (a.status === 404 || a.status === 409) done(t('appExpired'));
     else status(requestError(a), true);
   };
   $('app-allow').onclick = () => busy($('app-allow'), answer(true));
   $('app-deny').onclick = () => busy($('app-deny'), answer(false));
+}
+
+/** Allowed: the app comes to the front by itself (applogin.go); this tab closes if the browser lets
+ *  a page close its tab (kumo, 2026-11-22: no small "close this page" line), else it says so,
+ *  large. */
+function allowed() {
+  view('done');
+  document.querySelector('#v-done .done-title').textContent = t('appAllowed');
+  document.querySelector('#v-done .note').textContent = t('appBack');
+  setTimeout(() => window.close(), 600);
 }
 
 function done(msg) {

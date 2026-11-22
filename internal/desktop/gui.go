@@ -123,7 +123,7 @@ func gui(o Options) int {
 	}
 	u.win = u.app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name: "main", Title: "Iridium", Width: 1200, Height: 800, MinWidth: 360, MinHeight: 480,
-		URL: start, CSS: pageCSS, JS: pageJS,
+		URL: themed(start), CSS: pageCSS, JS: pageJS,
 		// No title bar of its own on macOS (kumo, 2026-11-20: no line under it): the page goes up to
 		// the window's top, the window dragged by that strip (pageCSS keeps it clear).
 		Mac: application.MacWindow{TitleBar: application.MacTitleBarHidden, InvisibleTitleBarHeight: macBar},
@@ -176,6 +176,28 @@ func gui(o Options) int {
 	return 0
 }
 
+// nav shows address in the window, in the day or night chosen (themed).
+func (u *ui) nav(address string) { u.win.SetURL(themed(address)) }
+
+// themed is address with the theme chosen on an Iridium's page (Config.Theme) for its first
+// paint (theme.js ?theme=, which keeps it there too); none chosen: as it is, the system's.
+func themed(address string) string {
+	c, _ := loadConfig()
+	if c.Theme != "dark" && c.Theme != "light" && c.Theme != "auto" {
+		return address
+	}
+	base, frag, _ := strings.Cut(address, "#")
+	sep := "?"
+	if strings.Contains(base, "?") {
+		sep = "&"
+	}
+	out := base + sep + "theme=" + c.Theme
+	if frag != "" {
+		out += "#" + frag
+	}
+	return out
+}
+
 // pageOf is the window's address: the Iridium shown once logged in to (this computer's on
 // loopback needs no login), else the app's own login page (assets/index.html).
 func pageOf(c Config) string {
@@ -217,7 +239,7 @@ func (u *ui) startLocal(address string, logf func(string, ...any)) {
 	c, _ := loadConfig()
 	switch {
 	case err == nil && waiting && c.current() == address:
-		u.win.SetURL(pageOf(c))
+		u.nav(pageOf(c))
 	case waiting:
 		// The window is on the app's page: its row says why.
 		st := u.pageState(c)
@@ -293,8 +315,9 @@ func (u *ui) message(w application.Window, msg string, o *application.OriginInfo
 	}
 	switch verb {
 	case "theme":
-		// The page's day or night, for the app's own pages too.
-		if arg == "dark" || arg == "light" {
+		// The day or night chosen on an Iridium's page (auto: the system's), the app's own pages
+		// and every Iridium's after it the same (kumo, 2026-11-22).
+		if arg == "dark" || arg == "light" || arg == "auto" {
 			_, _ = updateConfig(func(c *Config) { c.Theme = arg })
 		}
 	case "me":
@@ -309,11 +332,11 @@ func (u *ui) message(w application.Window, msg string, o *application.OriginInfo
 		}
 	case "home":
 		// The app's own page, at its servers.
-		u.win.SetURL("/#servers")
+		u.nav("/#servers")
 	case "needlogin":
 		// The Iridium's login page, in the app: the app's own instead (its passkey is in the browser).
 		if _, err := updateConfig(func(c *Config) { c.Current = server; c.server(server).LoggedIn = false }); err == nil {
-			u.win.SetURL("/#servers")
+			u.nav("/#servers")
 		}
 	case "hello":
 		reply(w, u.hello(c, server))
@@ -434,6 +457,68 @@ func (u *ui) local(w application.Window, verb, arg string) {
 			application.InvokeAsync(u.redraw)
 			reply(w, state(c))
 		}
+	case "terms":
+		// This computer for one Iridium, from the app's own page: the person's own hand, so
+		// widening needs no dialog here (kumo, 2026-11-22); the page shows it again.
+		var t terms
+		if json.Unmarshal([]byte(arg), &t) != nil || t.URL == "" {
+			return
+		}
+		_, _ = updateConfig(func(c *Config) {
+			s := c.server(t.URL)
+			if s == nil || s.Local {
+				return
+			}
+			if t.Joined != nil {
+				s.Off = !*t.Joined
+			}
+			if t.Shell != nil {
+				s.NoShell = !*t.Shell
+			}
+			if t.Roots != nil {
+				s.Roots = t.Roots
+			}
+			if t.All {
+				s.Roots = nil
+			}
+			for a, on := range t.Agents {
+				s.AgentsOff = slices.DeleteFunc(s.AgentsOff, func(x string) bool { return x == a })
+				if !on {
+					s.AgentsOff = append(s.AgentsOff, a)
+				}
+			}
+		})
+		c, _ := loadConfig()
+		reply(w, state(c))
+	case "pickroot":
+		go func() {
+			dir, err := u.app.Dialog.OpenFile().CanChooseDirectories(true).CanChooseFiles(false).
+				SetTitle("允许 " + hostOf(arg) + " 访问的文件夹").PromptForSingleSelection()
+			if err == nil && dir != "" {
+				_, _ = updateConfig(func(c *Config) {
+					if s := c.server(arg); s != nil && !slices.Contains(s.Roots, dir) {
+						s.Roots = append(s.Roots, dir)
+					}
+				})
+			}
+			c, _ := loadConfig()
+			reply(w, state(c))
+		}()
+	case "server":
+		if arg == "on" {
+			if err := u.useLocal(appLog()); err != nil {
+				reply(w, map[string]string{"error": err.Error()})
+			}
+		} else {
+			_ = SetServer(false)
+		}
+		c, _ := loadConfig()
+		reply(w, state(c))
+	case "public":
+		go u.pub.set(arg == "on", func() {
+			c, _ := loadConfig()
+			reply(w, state(c))
+		}, appLog())
 	case "enter":
 		// The first page's 进入: who this is, then this computer's own Iridium, started and shown.
 		var me Me
@@ -513,7 +598,7 @@ func (u *ui) local(w application.Window, verb, arg string) {
 					c.Current = a
 				})
 				application.InvokeAsync(u.redraw)
-				u.win.SetURL(link)
+				u.nav(link)
 				u.show()
 			})
 		}()
@@ -524,8 +609,18 @@ func (u *ui) local(w application.Window, verb, arg string) {
 // each, this computer's own with its state.
 func (u *ui) pageState(c Config) map[string]any {
 	list := []map[string]any{}
+	rec, _ := RuntimeRecord()
+	agents := []string{}
+	for _, a := range u.joins.Agents() {
+		agents = append(agents, a.Agent)
+	}
 	for _, s := range c.Servers {
-		e := map[string]any{"url": s.URL, "host": hostOf(s.URL), "loggedIn": s.LoggedIn, "name": s.Name, "avatar": s.Avatar, "face": s.Face}
+		roots := s.Roots
+		if roots == nil {
+			roots = []string{}
+		}
+		e := map[string]any{"url": s.URL, "host": hostOf(s.URL), "loggedIn": s.LoggedIn, "name": s.Name, "avatar": s.Avatar, "face": s.Face,
+			"joined": !s.Off && !s.Local, "shell": !s.NoShell, "roots": roots, "agentsOff": s.AgentsOff, "link": rec.Links[s.URL], "said": rec.Joins[s.URL]}
 		if s.Local {
 			e["local"], e["status"] = true, u.localStatus()
 			if loopback(s.URL) {
@@ -536,7 +631,8 @@ func (u *ui) pageState(c Config) map[string]any {
 	}
 	cu, _ := user.Current()
 	return map[string]any{"servers": list, "current": c.current(), "theme": c.Theme, "hasLocal": c.local() != nil,
-		"me": c.Me, "sysName": ownName(cu)}
+		"me": c.Me, "sysName": ownName(cu), "agents": agents, "server": c.serverOn(), "public": publicOn(), "publicState": u.pub.view(),
+		"publicAddress": publicAddress()}
 }
 
 // hello is what an Iridium's page learns of the app: that it is in it, and the Iridiums in its
@@ -713,7 +809,7 @@ func (u *ui) add(w application.Window, address string, ask bool) {
 	}
 	u.joins.Sync(c)
 	application.InvokeAsync(u.redraw)
-	u.win.SetURL(pageOf(c))
+	u.nav(pageOf(c))
 }
 
 func (u *ui) switchTo(address string) {
@@ -730,13 +826,13 @@ func (u *ui) switchTo(address string) {
 			at := u.atApp
 			u.mu.Unlock()
 			if !at {
-				u.win.SetURL("/#servers")
+				u.nav("/#servers")
 			}
 			go u.startLocal(address, appLog())
 			return
 		}
 	}
-	u.win.SetURL(pageOf(c))
+	u.nav(pageOf(c))
 	application.InvokeAsync(u.redraw)
 }
 
@@ -778,7 +874,7 @@ func (u *ui) confirm(ctx context.Context, q string) bool {
 		yes.OnClick(func() { answer <- true })
 		no := d.AddButton("拒绝")
 		no.OnClick(func() { answer <- false })
-		d.SetDefaultButton(no)
+		d.SetDefaultButton(yes)
 		d.SetCancelButton(no)
 		d.Show()
 	})
@@ -804,13 +900,13 @@ func (u *ui) redraw() {
 	}
 	// Two kinds (kumo, 2026-11-22): this computer's own Iridium (the server), then each Iridium
 	// this computer joins or shows. The window itself is no third: the app is built on it.
-	m.Add("服务端").SetEnabled(false)
+	m.Add("此电脑").SetEnabled(false)
 	if l := c.local(); l != nil {
 		state := u.localStatus()
 		if c.NoServer {
 			state = "已关闭"
 		}
-		sub := m.AddSubmenu("本机 · " + state)
+		sub := m.AddSubmenu("此电脑  " + state)
 		show(sub, *l)
 		sub.AddCheckbox("运行", !c.NoServer).OnClick(func(*application.Context) {
 			on := c.NoServer
@@ -820,37 +916,38 @@ func (u *ui) redraw() {
 			application.InvokeAsync(u.redraw)
 		})
 	} else {
-		m.Add("在本机运行 Iridium").OnClick(func(*application.Context) {
+		sub := m.AddSubmenu("此电脑  已停止")
+		sub.AddCheckbox("运行", false).OnClick(func(*application.Context) {
 			_ = u.useLocal(appLog())
 			u.show()
 		})
 	}
 	m.AddSeparator()
-	m.Add("接入").SetEnabled(false)
+	m.Add("服务器").SetEnabled(false)
 	for _, s := range c.Servers {
 		if s.Local {
 			continue
 		}
-		state := "未接入"
+		state := "未授权"
 		if !s.Off {
 			state = brief(u.joins.Status(s.URL))
 		}
-		sub := m.AddSubmenu(fmt.Sprintf("%s · %s", hostOf(s.URL), state))
+		sub := m.AddSubmenu(fmt.Sprintf("%s  %s", hostOf(s.URL), state))
 		show(sub, s)
-		sub.AddCheckbox("接入这台电脑", !s.Off).OnClick(func(*application.Context) {
+		sub.AddCheckbox("授权操作", !s.Off).OnClick(func(*application.Context) {
 			_, _ = updateConfig(func(c *Config) { c.setOff(s.URL, !s.Off) })
 			application.InvokeAsync(u.redraw)
 		})
 		sub.AddSeparator()
 		sub.Add("移除").OnClick(func(*application.Context) {
 			if c, err := updateConfig(func(c *Config) { c.remove(s.URL) }); err == nil {
-				u.win.SetURL(pageOf(c))
+				u.nav(pageOf(c))
 				application.InvokeAsync(u.redraw)
 			}
 		})
 	}
 	m.Add("添加服务器…").OnClick(func(*application.Context) {
-		u.win.SetURL("/#servers")
+		u.nav("/#servers")
 		u.show()
 	})
 	m.AddSeparator()

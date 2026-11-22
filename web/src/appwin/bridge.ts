@@ -81,6 +81,9 @@ export function clipboardKeys(
 
 /** The day or night the Iridium's page was last in (app/gui.go "theme"), on this page too. */
 export function followTheme(d: Record<string, unknown>) {
-  if (d.theme === "dark" || d.theme === "light")
-    document.documentElement.dataset.theme = d.theme;
+  const dark =
+    d.theme === "dark" ||
+    (d.theme !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
+  if (d.theme === "dark" || d.theme === "light" || d.theme === "auto")
+    document.documentElement.dataset.theme = dark ? "dark" : "light";
 }

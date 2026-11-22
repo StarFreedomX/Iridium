@@ -45,6 +45,8 @@ type Joins struct {
 	live    map[string]*executor.Executor
 	status  map[string]string
 
+	links map[string]Link // each join's connection, as last looked at (saveLocked)
+
 	agentsOnce sync.Once
 	agents     []wire.AgentInfo
 }
@@ -133,7 +135,7 @@ func (j *Joins) run(ctx context.Context, s Server, name string, agents []wire.Ag
 	}
 	o := join.Options{
 		URL: address, Name: name, Roots: s.Roots, Shell: !s.NoShell, Base: base, Prog: j.prog(), Agents: agents, Proxy: s.Proxy,
-		Out: lineWriter(func(l string) { j.set(address, l) }), Logf: j.Logf, Ask: j.Ask,
+		Out: lineWriter(func(l string) { j.set(address, l) }), Logf: j.Logf, Ask: j.askFor(address),
 		Widened: func(shell bool, roots, off []string) {
 			j.mu.Lock()
 			t := j.terms[address]
@@ -157,6 +159,13 @@ func (j *Joins) run(ctx context.Context, s Server, name string, agents []wire.Ag
 	}
 	if j.AskEach != nil {
 		o.AskEach = func(ctx context.Context, by string, items []executor.Item) []bool {
+			if c, _ := loadConfig(); c.server(address) != nil && c.server(address).AlwaysAllow {
+				yes := make([]bool, len(items))
+				for i := range yes {
+					yes[i] = true
+				}
+				return yes
+			}
 			return j.AskEach(ctx, address, by, items)
 		}
 	}
@@ -191,9 +200,7 @@ func (j *Joins) set(address, line string) {
 	line, _, _ = strings.Cut(line, "：关闭此窗口即断开")
 	j.mu.Lock()
 	j.status[address] = line
-	if j.Record != nil {
-		j.Record.save(j.status)
-	}
+	j.saveLocked()
 	j.mu.Unlock()
 	if j.Logf != nil {
 		j.Logf("%s: %s", address, line)
@@ -213,4 +220,54 @@ func (f lineWriter) Write(p []byte) (int, error) {
 		}
 	}
 	return len(p), nil
+}
+
+// saveLocked writes the record (Record), with each join's connection as it is now.
+func (j *Joins) saveLocked() {
+	if j.Record == nil {
+		return
+	}
+	if j.links == nil {
+		j.links = map[string]Link{}
+	}
+	now := time.Now()
+	for u := range j.running {
+		up, rtt := false, time.Duration(0)
+		if ex := j.live[u]; ex != nil {
+			up, rtt = ex.Link()
+		}
+		l, had := j.links[u]
+		if !had || l.Up != up {
+			l.Since = now
+		}
+		l.Up, l.RTT = up, rtt.Milliseconds()
+		j.links[u] = l
+	}
+	for u := range j.links {
+		if j.running[u] == nil {
+			delete(j.links, u)
+		}
+	}
+	j.Record.Links = j.links
+	j.Record.save(j.status)
+}
+
+// Save writes the record now (the runtime, every few seconds: round trips change unsaid).
+func (j *Joins) Save() {
+	j.mu.Lock()
+	j.saveLocked()
+	j.mu.Unlock()
+}
+
+// askFor is Ask for the join to address: none asked when it may have it all (AlwaysAllow).
+func (j *Joins) askFor(address string) func(context.Context, string) bool {
+	if j.Ask == nil {
+		return nil
+	}
+	return func(ctx context.Context, q string) bool {
+		if c, _ := loadConfig(); c.server(address) != nil && c.server(address).AlwaysAllow {
+			return true
+		}
+		return j.Ask(ctx, q)
+	}
 }

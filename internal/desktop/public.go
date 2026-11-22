@@ -94,3 +94,12 @@ func (p *publicState) set(on bool, changed func(), logf func(string, ...any)) {
 	p.mu.Unlock()
 	changed()
 }
+
+// publicAddress is this computer's Iridium's public address; "": none.
+func publicAddress() string {
+	cfg, err := config.Load(localPath())
+	if err != nil {
+		return ""
+	}
+	return cfg.Public.Origin
+}

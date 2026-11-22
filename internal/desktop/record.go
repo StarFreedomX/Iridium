@@ -18,6 +18,15 @@ type Record struct {
 	PID    int               `json:"pid"`
 	Since  time.Time         `json:"since"`
 	Joins  map[string]string `json:"joins"` // each Iridium joined: what it said last
+	// Links: each Iridium joined, its connection: up, the round trip, since when it is as it is.
+	Links map[string]Link `json:"links,omitempty"`
+}
+
+// Link is a join's connection as the list shows it.
+type Link struct {
+	Up    bool      `json:"up"`
+	RTT   int64     `json:"rtt,omitempty"` // ms
+	Since time.Time `json:"since"`
 }
 
 func runDir() (string, error) {

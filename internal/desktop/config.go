@@ -35,6 +35,8 @@ type Server struct {
 	// Proxy: this computer's iridium is fetched through this Iridium when it follows its release
 	// (ir join --proxy), not from GitHub.
 	Proxy bool `json:"proxy,omitempty"`
+	// AlwaysAllow: what this Iridium asks for here is allowed, not asked (the panel's 以后都允许).
+	AlwaysAllow bool `json:"alwaysAllow,omitempty"`
 }
 
 // Config is the app's own, kept on this computer: what it joins and how. What an Iridium may do

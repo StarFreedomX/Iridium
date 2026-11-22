@@ -17,7 +17,13 @@ import (
 type asking struct {
 	server, by string
 	items      []executor.Item
-	answer     chan []bool
+	answer     chan askReply
+}
+
+// askReply is the panel's answer: one yes or no an item; always, this Iridium is not asked again.
+type askReply struct {
+	Yes    []bool `json:"yes"`
+	Always bool   `json:"always"`
 }
 
 var asks struct {
@@ -31,7 +37,7 @@ var asks struct {
 func (u *ui) askEach(ctx context.Context, server, by string, items []executor.Item) []bool {
 	asks.one.Lock()
 	defer asks.one.Unlock()
-	a := &asking{server: server, by: by, items: items, answer: make(chan []bool, 1)}
+	a := &asking{server: server, by: by, items: items, answer: make(chan askReply, 1)}
 	asks.mu.Lock()
 	asks.now = a
 	asks.mu.Unlock()
@@ -46,10 +52,18 @@ func (u *ui) askEach(ctx context.Context, server, by string, items []executor.It
 		asks.win.Show()
 		asks.win.Focus()
 	})
-	var yes []bool
+	var r askReply
 	select {
-	case yes = <-a.answer:
+	case r = <-a.answer:
 	case <-ctx.Done():
+	}
+	yes := r.Yes
+	if r.Always && server != "" {
+		_, _ = updateConfig(func(c *Config) {
+			if s := c.server(server); s != nil {
+				s.AlwaysAllow = true
+			}
+		})
 	}
 	asks.mu.Lock()
 	asks.now = nil
@@ -80,16 +94,18 @@ func askState() map[string]any {
 	return map[string]any{"ask": map[string]any{"server": hostOf(a.server), "by": a.by, "items": items}}
 }
 
-// answerAsk is the panel's answer (a JSON array of bools, one an item).
+// answerAsk is the panel's answer (reply as JSON, or a JSON array of bools, one an item).
 func answerAsk(arg string) {
-	var yes []bool
-	_ = json.Unmarshal([]byte(arg), &yes)
+	var r askReply
+	if json.Unmarshal([]byte(arg), &r) != nil {
+		_ = json.Unmarshal([]byte(arg), &r.Yes)
+	}
 	asks.mu.Lock()
 	a := asks.now
 	asks.mu.Unlock()
 	if a != nil {
 		select {
-		case a.answer <- yes:
+		case a.answer <- r:
 		default:
 		}
 	}

@@ -77,12 +77,10 @@ func Runtime(ctx context.Context, o RuntimeOptions) int {
 			reexec(self)
 			exeTime = t
 		}
-		if st := srv.state(); st != j.Record.Server {
-			j.mu.Lock()
-			j.Record.Server = st
-			j.Record.save(j.status)
-			j.mu.Unlock()
-		}
+		j.mu.Lock()
+		j.Record.Server = srv.state()
+		j.mu.Unlock()
+		j.Save()
 		select {
 		case <-ctx.Done():
 			return 0
