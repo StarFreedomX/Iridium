@@ -161,12 +161,13 @@ func (c *counted) Read(p []byte) (int, error) {
 }
 
 // List is one level of the directory at path: name, size, time and type of each entry.
-func (s *Service) List(path string) (api.DirListing, error) {
+// When scope is given, the resolved path must also lie inside one of those roots.
+func (s *Service) List(path string, scope ...string) (api.DirListing, error) {
 	if !filepath.IsAbs(path) {
 		return api.DirListing{}, fmt.Errorf("%w: the path must be absolute", ErrBad)
 	}
 	path = filepath.Clean(path)
-	real, err := s.o.Guard.Check(path)
+	real, err := s.Guarded(path, scope...)
 	if err != nil {
 		return api.DirListing{}, err
 	}
@@ -199,10 +200,11 @@ func (s *Service) List(path string) (api.DirListing, error) {
 }
 
 // Guarded is path, absolute, as the guard lets it be read or written here (the copies across
-// machines' side on this one); an error if it may not.
-func (s *Service) Guarded(path string) (string, error) {
+// machines' side on this one); when scope is given, the resolved path must also lie inside one of
+// those roots.
+func (s *Service) Guarded(path string, scope ...string) (string, error) {
 	if !filepath.IsAbs(path) {
 		return "", fmt.Errorf("%w: paths must be absolute", ErrBad)
 	}
-	return s.o.Guard.Check(filepath.Clean(path))
+	return s.o.Guard.Check(filepath.Clean(path), scope...)
 }

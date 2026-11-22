@@ -28,6 +28,7 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/kumoSleeping/iridium/internal/machineid"
+	"github.com/kumoSleeping/iridium/internal/pathsafe"
 	"github.com/kumoSleeping/iridium/internal/remote/wire"
 )
 
@@ -398,13 +399,17 @@ func (e *Executor) handle(ctx context.Context, method string, params json.RawMes
 		Hold, Path, Line, Cwd, SHA256 string
 		Seq, From, Offset, Length     int64
 		Head                          int
-		Argv, Env                     []string
+		Argv, Env, Scope              []string
 		StopGraceMS                   int `json:"stopGraceMs"`
 		Data                          []byte
 		Replace                       bool
 	}
 	if err := json.Unmarshal(params, &p); err != nil {
 		return nil, bad("%v", err)
+	}
+	// ".scoped" calls must carry at least one root; empty scope would otherwise mean unrestricted.
+	if strings.HasSuffix(method, ".scoped") && len(p.Scope) == 0 {
+		return nil, bad("missing file scope")
 	}
 	switch method {
 	case "run":
@@ -453,12 +458,12 @@ func (e *Executor) handle(ctx context.Context, method string, params json.RawMes
 			}
 		}
 		return struct{}{}, nil
-	case "fs.stat":
-		return e.stat(p.Path, p.Head)
-	case "fs.list":
-		return e.list(p.Path)
-	case "fs.read":
-		return e.read(p.Path, p.Offset, p.Length)
+	case "fs.stat", "fs.stat.scoped":
+		return e.stat(p.Path, p.Head, p.Scope...)
+	case "fs.list", "fs.list.scoped":
+		return e.list(p.Path, p.Scope...)
+	case "fs.read", "fs.read.scoped":
+		return e.read(p.Path, p.Offset, p.Length, p.Scope...)
 	case "fs.write":
 		return struct{}{}, e.write(p.Path, p.Data, p.SHA256, p.Replace)
 	case "fs.mkdir":
@@ -794,15 +799,19 @@ func (e *Executor) allowed(path string) (string, error) { return e.allowedIn(pat
 // agent's Scope: dsh's packages, which the Iridium reads its presets from to start it). They
 // are the programs this computer offered to run, not a person's files, and often outside the
 // folders it serves (kumo, 2026-11-18: dsh under /opt/homebrew would not start, home alone
-// served).
-func (e *Executor) readable(path string) (string, error) {
+// served). When scope is given, the resolved path must also lie inside one of those roots.
+func (e *Executor) readable(path string, scope ...string) (string, error) {
 	var more []string
 	for _, a := range e.o.Agents {
 		if a.Scope != "" {
 			more = append(more, a.Scope)
 		}
 	}
-	return e.allowedIn(path, more)
+	real, err := e.allowedIn(path, more)
+	if err == nil && len(scope) > 0 && !pathsafe.InRoots(real, scope) {
+		return "", &wire.Error{Code: wire.CodeDenied, Message: path + " is out of this login's scope"}
+	}
+	return real, err
 }
 
 // allowedIn is allowed, the folders in more served beside the roots.
@@ -867,8 +876,8 @@ func notFound(err error) error {
 	return err
 }
 
-func (e *Executor) stat(path string, head int) (any, error) {
-	p, err := e.readable(path)
+func (e *Executor) stat(path string, head int, scope ...string) (any, error) {
+	p, err := e.readable(path, scope...)
 	if err != nil {
 		return nil, err
 	}
@@ -890,8 +899,8 @@ func (e *Executor) stat(path string, head int) (any, error) {
 	return out, nil
 }
 
-func (e *Executor) list(path string) (any, error) {
-	p, err := e.readable(path)
+func (e *Executor) list(path string, scope ...string) (any, error) {
+	p, err := e.readable(path, scope...)
 	if err != nil {
 		return nil, err
 	}
@@ -910,8 +919,8 @@ func (e *Executor) list(path string) (any, error) {
 	return map[string]any{"entries": out}, nil
 }
 
-func (e *Executor) read(path string, off, n int64) (any, error) {
-	p, err := e.readable(path)
+func (e *Executor) read(path string, off, n int64, scope ...string) (any, error) {
+	p, err := e.readable(path, scope...)
 	if err != nil {
 		return nil, err
 	}

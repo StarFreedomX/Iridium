@@ -232,12 +232,14 @@ type Entry struct {
 }
 
 type StatParams struct {
-	Path string `json:"path"`
-	Head int    `json:"head,omitempty"`
+	Path  string   `json:"path"`
+	Head  int      `json:"head,omitempty"`
+	Scope []string `json:"scope,omitempty"` // with fs.stat.scoped: allowed roots there
 }
 
 type PathParams struct {
-	Path string `json:"path"`
+	Path  string   `json:"path"`
+	Scope []string `json:"scope,omitempty"` // with fs.list.scoped: allowed roots there
 }
 
 type ListReply struct {
@@ -245,9 +247,10 @@ type ListReply struct {
 }
 
 type ReadParams struct {
-	Path   string `json:"path"`
-	Offset int64  `json:"offset"`
-	Length int64  `json:"length"`
+	Path   string   `json:"path"`
+	Offset int64    `json:"offset"`
+	Length int64    `json:"length"`
+	Scope  []string `json:"scope,omitempty"` // with fs.read.scoped: allowed roots there
 }
 
 type ReadReply struct {

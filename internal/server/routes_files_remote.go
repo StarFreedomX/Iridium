@@ -39,9 +39,9 @@ func (s *Server) listAt(w http.ResponseWriter, r *http.Request, machine, path st
 	reply(w, http.StatusOK, l)
 }
 
-// listRemoteDir reads one level of path at mc in API form.
-func listRemoteDir(ctx context.Context, mc *remote.Machine, path string) (api.DirListing, error) {
-	ents, err := mc.List(ctx, path)
+// listRemoteDir reads one level of path at mc in API form, bounded by scope when given.
+func listRemoteDir(ctx context.Context, mc *remote.Machine, path string, scope ...string) (api.DirListing, error) {
+	ents, err := mc.List(ctx, path, scope...)
 	if err != nil {
 		return api.DirListing{}, err
 	}

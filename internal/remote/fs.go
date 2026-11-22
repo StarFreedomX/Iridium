@@ -71,22 +71,31 @@ func GroupPath(machine, cwd string) string {
 	return machine + ":" + strings.ReplaceAll(cwd, `\`, "/")
 }
 
-func (m *Machine) Stat(ctx context.Context, path string) (wire.Stat, error) {
+// fileMethod picks the ".scoped" variant when scope is set, so an older executor rejects the call
+// with CodeUnsupported rather than ignoring the scope.
+func fileMethod(method string, scope []string) string {
+	if len(scope) > 0 {
+		return method + ".scoped"
+	}
+	return method
+}
+
+func (m *Machine) Stat(ctx context.Context, path string, scope ...string) (wire.Stat, error) {
 	var st wire.Stat
-	err := m.Call(ctx, "fs.stat", wire.StatParams{Path: path}, &st)
+	err := m.Call(ctx, fileMethod("fs.stat", scope), wire.StatParams{Path: path, Scope: scope}, &st)
 	return st, err
 }
 
-func (m *Machine) List(ctx context.Context, path string) ([]wire.Entry, error) {
+func (m *Machine) List(ctx context.Context, path string, scope ...string) ([]wire.Entry, error) {
 	var r wire.ListReply
-	err := m.Call(ctx, "fs.list", wire.PathParams{Path: path}, &r)
+	err := m.Call(ctx, fileMethod("fs.list", scope), wire.PathParams{Path: path, Scope: scope}, &r)
 	return r.Entries, err
 }
 
 // ReadAt reads up to length bytes from offset (at most wire.MaxRead a call).
-func (m *Machine) ReadAt(ctx context.Context, path string, offset, length int64) ([]byte, error) {
+func (m *Machine) ReadAt(ctx context.Context, path string, offset, length int64, scope ...string) ([]byte, error) {
 	var r wire.ReadReply
-	err := m.Call(ctx, "fs.read", wire.ReadParams{Path: path, Offset: offset, Length: min(length, wire.MaxRead)}, &r)
+	err := m.Call(ctx, fileMethod("fs.read", scope), wire.ReadParams{Path: path, Offset: offset, Length: min(length, wire.MaxRead), Scope: scope}, &r)
 	return r.Data, err
 }
 

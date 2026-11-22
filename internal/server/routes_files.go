@@ -47,7 +47,7 @@ func (a sessionsOf) After(id string, at int64) (api.MessagePage, error) {
 }
 
 // fileRoutes are the files a session names, uploads, and (local: the unix socket only)
-// attaching, listing and copying by path; on HTTP, read-only browsing for approvers.
+// attaching, listing and copying by path; on HTTP, read-only browsing within a login's scope.
 func (s *Server) fileRoutes(mux *http.ServeMux, local bool) {
 	// Every terminal reads every session's files; one goes into a session only from a terminal
 	// that may use it (access.go: Claude's, the owner's own). The files service guards the paths.
@@ -65,8 +65,8 @@ func (s *Server) fileRoutes(mux *http.ServeMux, local bool) {
 		mux.HandleFunc("GET /v1/internal/files", s.listDir)
 		mux.HandleFunc("POST /v1/internal/files/copy", s.copyFile)
 	} else {
-		mux.HandleFunc("GET /v1/internal/web/files", s.approver(s.browseFiles))
-		mux.HandleFunc("GET /v1/internal/web/files/content", s.approver(s.browseFile))
+		mux.HandleFunc("GET /v1/internal/web/files", s.panelOnly(s.browseFiles))
+		mux.HandleFunc("GET /v1/internal/web/files/content", s.panelOnly(s.browseFile))
 	}
 }
 

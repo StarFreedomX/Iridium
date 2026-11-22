@@ -290,9 +290,9 @@ func (s *Server) stateFilter(c caller) func(key string, v []byte) []byte {
 		}
 		switch {
 		case key == "guilds":
-			// Its groups, and the marks of the folders in its scope.
-			var g api.Guilds
-			if json.Unmarshal(v, &g) != nil {
+			// Its groups, and the marks of the folders in its scope (null before loaded stays null).
+			var g *api.Guilds
+			if json.Unmarshal(v, &g) != nil || g == nil {
 				return v
 			}
 			g.Guilds = s.scopeWorkspaces(p, g.Guilds)
