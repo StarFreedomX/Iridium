@@ -582,6 +582,8 @@ export const en: Dict = {
   "new.notInstalled": "{name} is not installed",
   "new.offline": "{name} is not connected",
   "new.machine": "App",
+  "new.scrollMachinesLeft": "Scroll left",
+  "new.scrollMachinesRight": "Scroll right",
   "new.folder": "Folder",
   "new.local": "Iridium",
   "new.gone": "Removed app",
