@@ -4,6 +4,15 @@
 type Wails = { invoke: (msg: string) => void };
 const wails = () => (window as unknown as { _wails?: Wails })._wails;
 
+/** The window dragged by e's place (a pointer pressed there, not on a key or a field): the app's
+ *  windows have no title bar (internal/desktop/chrome.go). */
+export function drag(e: React.MouseEvent) {
+  if (e.button !== 0 || e.detail > 1) return;
+  const t = e.target as Element;
+  if (t.closest("button,a,input,textarea,select,label,[role=button],[role=switch]")) return;
+  ask("wails:drag");
+}
+
 /** Asks the app: false when its bridge is not here. */
 export function ask(msg: string): boolean {
   const w = wails();

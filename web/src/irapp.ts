@@ -33,6 +33,8 @@ export type AppState = {
     invite: string; // the first invite, once there
     error: string;
   };
+  title?: string; // this Iridium's name in the app (its windows' titles); "": Iridium
+  os?: string; // the app's system: darwin, windows, linux
   error?: string; // what the last ask came to
   notice?: string;
   code?: string; // a browser login's code to check
@@ -51,7 +53,13 @@ export function ask(verb: string, arg = "") {
 }
 
 window.addEventListener("ir-app", (e) => {
-  const d = (e as CustomEvent).detail as Partial<AppState>;
+  const d = (e as CustomEvent).detail as Partial<AppState> & { max?: boolean };
+  // The window maximised or not (chrome.go followMax): its key's look alone.
+  if (typeof d.max === "boolean") {
+    max = d.max;
+    for (const f of told) f();
+    return;
+  }
   // A full state, or only what an ask came to.
   state = d.app
     ? (d as AppState)
@@ -77,6 +85,15 @@ greet();
 export function tellTheme(pref: "auto" | "light" | "dark") {
   if (greeted) ask("theme", pref);
 }
+
+let max = false;
+/** Is the window maximised? */
+export const useWinMax = () =>
+  useSyncExternalStore(
+    (f) => (told.add(f), () => void told.delete(f)),
+    () => max,
+    () => false,
+  );
 
 /** The app's state; null: not in the app. */
 export const useApp = () =>

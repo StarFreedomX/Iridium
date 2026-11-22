@@ -14,6 +14,7 @@ import {
   FolderPlus,
   Globe,
   LoaderCircle,
+  Minus,
   Monitor,
   Pause,
   Play,
@@ -22,6 +23,7 @@ import {
   SquareTerminal,
   Trash2,
   UserRound,
+  X,
 } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import type { Agent } from "../api/types.gen";
@@ -34,11 +36,18 @@ import {
   IconKey,
   IrMark,
   Logo,
-  MAC,
   SureKey,
   Switch,
 } from "../ui";
-import { ask, clipboardKeys, followTheme, onAnswer, whenReady } from "./bridge";
+import { WinKey } from "../winkey";
+import {
+  ask,
+  clipboardKeys,
+  drag,
+  followTheme,
+  onAnswer,
+  whenReady,
+} from "./bridge";
 import { Fold, useFolding } from "./fold";
 
 type Link = { up: boolean; rtt?: number; since: string };
@@ -47,6 +56,7 @@ type Server = {
   host: string;
   loggedIn: boolean;
   name?: string;
+  title?: string; // its name in the app, given on its page
   avatar?: string;
   local?: boolean;
   status?: string; // this computer's own: 运行中, 启动中…
@@ -100,8 +110,14 @@ export function Login() {
         setPart((p) => p ?? (s.servers.length === 0 ? "who" : "servers"));
       }
       const server = typeof d.server === "string" ? d.server : undefined;
-      if (typeof d.code === "string")
+      if (typeof d.code === "string") {
         setNote({ text: `在浏览器中核对代码 ${d.code} 后允许`, server });
+        // An address typed is in the list now: its wait is its row's, the field put away.
+        if (server) setBusy((b) => (b === "+" ? server : b));
+      }
+      // Logged in (gui.go "done"): the wait over, its spinner and its code gone (kumo,
+      // 2026-11-22: it spun on, and the next 添加服务器 spun before anything was typed).
+      if (typeof d.done === "string") (setBusy(""), setNote(null));
       if (typeof d.error === "string")
         (setBusy(""), setNote({ text: d.error, error: true, server }));
     });
@@ -121,15 +137,21 @@ export function Login() {
 
   return (
     <div className="h-full bg-paper text-ink select-none [&_*:focus-visible]:outline-none">
-      {/* The mark and the name in the window's top strip (kumo, 2026-11-22): on a Mac beside
-          its three buttons, in the strip the window is dragged by. Windows and Linux have the
-          system's own title bar, which says Iridium itself: nothing is drawn there. */}
-      {MAC && (
-        <header className="pointer-events-none fixed top-0 left-[76px] flex h-8 items-center gap-1.5 text-[13px] font-semibold tracking-tight">
-          <IrMark size={15} className="text-ink" />
-          Iridium
-        </header>
-      )}
+      {/* The window's top strip, no title bar on any system (kumo, 2026-11-22): the mark and
+          the name at the left, its keys at the right, the window dragged by it. */}
+      <header
+        onMouseDown={drag}
+        className="fixed inset-x-0 top-0 z-10 flex h-9 items-center gap-1.5 bg-paper pr-1.5 pl-3.5 text-[13px] font-semibold tracking-tight"
+      >
+        <IrMark size={15} className="text-ink" />
+        <span className="flex-1">Iridium</span>
+        <WinKey label="最小化" onClick={() => ask("ir:win:min")}>
+          <Minus size={8} strokeWidth={3} />
+        </WinKey>
+        <WinKey label="关闭" onClick={() => ask("ir:win:close")} close>
+          <X size={8} strokeWidth={3} />
+        </WinKey>
+      </header>
       <main
         className={cn(
           "no-bar flex h-full flex-col items-center overflow-y-auto",
@@ -141,7 +163,7 @@ export function Login() {
             <div
               className={cn(
                 "flex w-[min(380px,calc(100vw-24px))] flex-col",
-                part === "who" ? "py-16" : MAC ? "pt-11 pb-6" : "pt-4 pb-6",
+                part === "who" ? "py-16" : "pt-11 pb-6",
               )}
             >
               {part === "who" ? (
@@ -476,7 +498,7 @@ function Servers({
   const [address, setAddress] = useState("");
   const field = useRef<HTMLInputElement>(null);
   useEffect(() => {
-    if (busy === "" && !note?.error) (setAddress(""), setAdding(false));
+    if (busy !== "+" && !note?.error) (setAddress(""), setAdding(false));
   }, [busy]); // eslint-disable-line react-hooks/exhaustive-deps
   const mineOf = (url?: string) =>
     note && url && note.server === url ? note : null;
@@ -600,7 +622,7 @@ function Servers({
           <Fold key={key} state={state}>
             <Row
               icon={<Face s={s} />}
-              title={s.loggedIn && s.name ? s.name : s.host}
+              title={s.title || (s.loggedIn && s.name ? s.name : s.host)}
               sub={
                 mine ? (
                   <span className={mine.error ? "text-err" : undefined}>
@@ -726,7 +748,7 @@ function Grants({ st, open }: { st: State; open: (s: Server) => void }) {
           <Fold key={key} state={state}>
             <Row
               icon={<Face s={s} />}
-              title={s.name || s.host}
+              title={s.title || s.host}
               sub={
                 <>
                   <Lamp color={l.dot} />
@@ -800,7 +822,7 @@ function ServerPage({
       </button>
       <Row
         icon={<Face s={s} />}
-        title={s.loggedIn && s.name ? s.name : s.host}
+        title={s.title || s.host}
         sub={
           <>
             <Lamp color={l.dot} />

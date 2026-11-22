@@ -3,6 +3,7 @@
 //
 //	go run ./internal/desktop/sign bundle <binary> <dir> <ver>  Iridium.app around a macOS binary, in dir
 //	go run ./internal/desktop/sign zip <app> <zip>              a bundle zipped as it is (signed, its signature kept)
+//	go run ./internal/desktop/sign icons                         the Mac and Windows icons from assets/icon.png (icons.go)
 package main
 
 import (
@@ -25,6 +26,8 @@ func main() {
 			fail("usage: sign bundle <binary> <dir> <version>")
 		}
 		err = bundle(a[0], a[1], a[2])
+	case "icons":
+		err = icons()
 	case "zip":
 		if len(a) != 2 {
 			fail("usage: sign zip <app> <zip>")
@@ -70,7 +73,7 @@ func bundle(bin, dir, version string) error {
 	if err != nil {
 		return err
 	}
-	png, err := os.ReadFile("internal/desktop/assets/icon.png") // run from the root
+	png, err := os.ReadFile("internal/desktop/assets/icon-mac.png") // run from the root; on the Mac grid (icons.go)
 	if err != nil {
 		return err
 	}
@@ -142,12 +145,12 @@ func zipDir(app, out string) error {
 	return z.Close()
 }
 
-// icns is an icon file of one 512-pixel PNG (ic09).
+// icns is an icon file of one 1024-pixel PNG (ic10).
 func icns(png []byte) []byte {
 	var b bytes.Buffer
 	b.WriteString("icns")
 	binary.Write(&b, binary.BigEndian, uint32(8+8+len(png)))
-	b.WriteString("ic09")
+	b.WriteString("ic10")
 	binary.Write(&b, binary.BigEndian, uint32(8+len(png)))
 	b.Write(png)
 	return b.Bytes()

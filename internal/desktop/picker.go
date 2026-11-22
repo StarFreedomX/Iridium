@@ -20,12 +20,12 @@ const (
 // makePicker makes the picker's window, shown. Closed, it hides: its page keeps its state and is
 // whole as it shows again.
 func (u *ui) makePicker() {
-	w := u.app.Window.NewWithOptions(application.WebviewWindowOptions{
+	// No title bar (chrome.go): its own strip at the top, the mark and the name at the left, its
+	// keys at the right, a Mac as Windows.
+	w := u.app.Window.NewWithOptions(bare(application.WebviewWindowOptions{
 		Name: "picker", Title: "Iridium", Width: pickerW, Height: pickerH, DisableResize: true,
 		URL: themed("/"), InitialPosition: application.WindowCentered,
-		MaximiseButtonState: application.ButtonHidden,
-		Mac:                 application.MacWindow{TitleBar: application.MacTitleBarHidden, InvisibleTitleBarHeight: macBar},
-	})
+	}))
 	w.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
 		e.Cancel()
 		w.Hide()
@@ -33,10 +33,21 @@ func (u *ui) makePicker() {
 	u.picker = w
 }
 
-// showPicker shows the picker with the state as it is now.
+// showPicker shows the picker with the state as it is now, on the screen of the window used last
+// (kumo, 2026-11-22: it came back on the screen it was last on, away from where one works).
 func (u *ui) showPicker() {
 	c, _ := loadConfig()
 	reply(u.picker, u.pageState(c))
+	u.mu.Lock()
+	front := u.win
+	u.mu.Unlock()
+	if front != nil && !u.picker.IsVisible() {
+		if to, err := front.GetScreen(); err == nil && to != nil {
+			if at, err := u.picker.GetScreen(); err != nil || at == nil || at.ID != to.ID {
+				u.picker.SetScreen(to)
+			}
+		}
+	}
 	u.picker.Show()
 	u.picker.Focus()
 }

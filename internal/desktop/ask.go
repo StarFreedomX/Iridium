@@ -43,11 +43,12 @@ func (u *ui) askEach(ctx context.Context, server, by string, items []executor.It
 	asks.mu.Unlock()
 	application.InvokeSync(func() {
 		// An ordinary window, in front of the others: no frameless, see-through one (kumo, 2026-11-22).
-		asks.win = u.app.Window.NewWithOptions(application.WebviewWindowOptions{
+		// No title bar (chrome.go): 拒绝 and 允许 are its keys, Esc 拒绝.
+		asks.win = u.app.Window.NewWithOptions(bare(application.WebviewWindowOptions{
 			Name: "ask", Title: "Iridium", URL: themed("/#ask"),
 			Width: 360, Height: 150 + 44*len(items), DisableResize: true, AlwaysOnTop: true,
-			InitialPosition: application.WindowCentered, MaximiseButtonState: application.ButtonHidden, MinimiseButtonState: application.ButtonHidden,
-		})
+			InitialPosition: application.WindowCentered,
+		}))
 		asks.win.Show()
 		asks.win.Focus()
 	})

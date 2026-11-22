@@ -4,7 +4,7 @@
 import { useEffect, useState } from "react";
 import type { Agent } from "../api/types.gen";
 import { agentName, Logo, Switch } from "../ui";
-import { ask, followTheme, onAnswer, whenReady } from "./bridge";
+import { ask, drag, followTheme, onAnswer, whenReady } from "./bridge";
 
 type Item = { kind: "shell" | "folder" | "agent"; value?: string };
 type Asking = { server: string; by: string; items: Item[] };
@@ -40,7 +40,7 @@ export function AskPanel() {
   }, [req, on, always]);
   if (!req) return null;
   return (
-    <div className="h-full bg-paper select-none">
+    <div className="h-full bg-paper select-none" onMouseDown={drag}>
       <div className="flex h-full flex-col p-4 text-ink">
         <h1 className="m-0 truncate text-sm font-medium">
           {req.by ? `${req.by} 请求` : `${req.server} 请求`}

@@ -62,13 +62,16 @@ func (u *ui) newWindow(address, link string) {
 	}
 	u.shows[name] = address
 	u.mu.Unlock()
-	opts := application.WebviewWindowOptions{
-		Name: name, Title: "Iridium", Width: 1200, Height: 800, MinWidth: 360, MinHeight: 480,
-		URL: themed(link), CSS: pageCSS, JS: pageJS,
-		// No title bar of its own on macOS (kumo, 2026-11-20: no line under it): the page goes up to
-		// the window's top, the window dragged by that strip (pageCSS keeps it clear).
-		Mac: application.MacWindow{TitleBar: application.MacTitleBarHidden, InvisibleTitleBarHeight: macBar},
+	title := "Iridium"
+	if s := c.server(address); s != nil {
+		title = windowTitle(s.Title)
 	}
+	// No title bar on any system (chrome.go): the page goes up to the window's top, its own keys
+	// at its top right.
+	opts := bare(application.WebviewWindowOptions{
+		Name: name, Title: title, Width: 1200, Height: 800, MinWidth: 360, MinHeight: 480,
+		URL: themed(link), CSS: pageCSS, JS: pageJS,
+	})
 	// Given as it is made: nothing of it is set after (set before the app ran, that hung it).
 	if f := c.Frame; f.W >= 360 && f.H >= 480 {
 		opts.Width, opts.Height = f.W, f.H
@@ -84,6 +87,7 @@ func (u *ui) newWindow(address, link string) {
 		w.SetZoom(c.Zoom)
 	}
 	u.watch(w)
+	followMax(w)
 	w.Show()
 	w.Focus()
 }

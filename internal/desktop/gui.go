@@ -56,6 +56,10 @@ func gui(o Options) int {
 	// The app's own pages: web/src/appwin, built into assets/ui (npm run build:app).
 	page, _ := fs.Sub(assets, "assets/ui")
 	icon, _ := assets.ReadFile("assets/icon.png")
+	if runtime.GOOS == "darwin" {
+		// On a Mac icon's grid, room around the square (sign/icons.go): the Dock's is this one.
+		icon, _ = assets.ReadFile("assets/icon-mac.png")
+	}
 	trayIcon, _ := assets.ReadFile("assets/tray.png")
 	u := &ui{}
 	u.joins = &Joins{Logf: logf, View: true, Record: &Record{Kind: "window"}}
@@ -126,6 +130,7 @@ func gui(o Options) int {
 	// hidden ahead, none without a frame, none see-through. A window on an Iridium is made once
 	// one is picked (newWindow).
 	u.zoomKeys()
+	u.pageKeys()
 	u.makePicker()
 
 	// macOS gives a web view ⌘C, ⌘V, ⌘A, ⌘Z only through the menu bar's Edit menu: without one,
@@ -147,9 +152,11 @@ func gui(o Options) int {
 		app.AddRole(application.Quit)
 		file := bar.AddSubmenu("文件")
 		file.Add("打开服务器…").SetAccelerator("CmdOrCtrl+N").OnClick(func(*application.Context) { u.showPicker() })
-		file.AddRole(application.CloseWindow)
+		// ⌘W closes the page in front, the window only from its first page (pageKeys).
+		file.Add("关闭").SetAccelerator("CmdOrCtrl+W").OnClick(func(*application.Context) { u.closePage(u.app.Window.Current()) })
 		bar.AddRole(application.EditMenu)
 		view := bar.AddSubmenu("显示")
+		view.Add("重新载入").SetAccelerator("CmdOrCtrl+R").OnClick(func(*application.Context) { u.reload(u.app.Window.Current()) })
 		view.AddRole(application.ToggleFullscreen)
 		bar.AddRole(application.WindowMenu)
 		u.app.Menu.SetApplicationMenu(bar)
@@ -335,6 +342,14 @@ func (u *ui) message(w application.Window, msg string, o *application.OriginInfo
 		return
 	}
 	switch verb {
+	case "win":
+		u.winKey(w, arg)
+	case "title":
+		// The name this window's Iridium goes by here, the app's alone (kumo, 2026-11-22): the
+		// windows' titles (the task bar's), the picker's row. "": Iridium again.
+		u.retitle(server, arg)
+		c, _ := loadConfig()
+		reply(w, u.hello(c, server))
 	case "theme":
 		// The day or night chosen on an Iridium's page (auto: the system's), the app's own pages
 		// and every Iridium's after it the same (kumo, 2026-11-22).
@@ -454,6 +469,8 @@ func (u *ui) local(w application.Window, verb, arg string) {
 		reply(w, st)
 	case "answer":
 		answerAsk(arg)
+	case "win":
+		u.winKey(w, arg)
 	case "clipboard":
 		// Its text field's ⌘V (web/src/appwin/bridge.ts): this page only, the app's own.
 		text, _ := u.app.Clipboard.Text()
@@ -634,6 +651,12 @@ func (u *ui) local(w application.Window, verb, arg string) {
 					}
 					c.Current = a
 				})
+				// The picker's wait is over: its spinner and its code go (kumo, 2026-11-22: it spun
+				// on after the login, and the next 添加服务器 began spinning at once).
+				c, _ := loadConfig()
+				st := state(c)
+				st["done"] = a
+				reply(w, st)
 				u.openIn(a, link)
 			})
 		}()
@@ -654,7 +677,7 @@ func (u *ui) pageState(c Config) map[string]any {
 		if roots == nil {
 			roots = []string{}
 		}
-		e := map[string]any{"url": s.URL, "host": hostOf(s.URL), "loggedIn": s.LoggedIn, "name": s.Name, "avatar": s.Avatar, "face": s.Face,
+		e := map[string]any{"url": s.URL, "host": hostOf(s.URL), "loggedIn": s.LoggedIn, "name": s.Name, "title": s.Title, "avatar": s.Avatar, "face": s.Face,
 			"joined": !s.Off && !s.Local, "shell": !s.NoShell, "roots": roots, "agentsOff": s.AgentsOff, "said": rec.Joins[s.URL]}
 		if l, ok := rec.Links[s.URL]; ok {
 			e["link"] = l // none: not joined yet, or no runtime; the row says 连接中
@@ -668,7 +691,7 @@ func (u *ui) pageState(c Config) map[string]any {
 		list = append(list, e)
 	}
 	cu, _ := user.Current()
-	return map[string]any{"servers": list, "current": c.current(), "theme": c.Theme, "hasLocal": c.local() != nil,
+	return map[string]any{"os": runtime.GOOS, "servers": list, "current": c.current(), "theme": c.Theme, "hasLocal": c.local() != nil,
 		"me": c.Me, "sysName": ownName(cu), "agents": agents, "server": c.serverOn(), "public": publicOn(), "publicState": u.pub.view(),
 		"publicAddress": publicAddress()}
 }
@@ -704,8 +727,12 @@ func (u *ui) hello(c Config, server string) map[string]any {
 	u.mu.Lock()
 	ready := u.ready
 	u.mu.Unlock()
+	title := ""
+	if s := c.server(server); s != nil {
+		title = s.Title
+	}
 	return map[string]any{"app": "ir-app", "version": version.Short(version.Version), "name": name, "servers": list, "autostart": auto, "update": ready, "hasLocal": c.local() != nil, "server": !c.NoServer,
-		"public": publicOn(), "publicState": u.pub.view()}
+		"public": publicOn(), "publicState": u.pub.view(), "title": title, "os": runtime.GOOS}
 }
 
 // terms are what a page may ask to change of this computer for its Iridium: narrowing is done at
@@ -987,7 +1014,7 @@ func (u *ui) drawMenu(c Config, auto bool, autoErr error) {
 		if s.Local {
 			continue
 		}
-		name := hostOf(s.URL)
+		name := s.label()
 		if !s.LoggedIn {
 			name += "  未登录"
 		}
@@ -1004,7 +1031,7 @@ func (u *ui) drawMenu(c Config, auto bool, autoErr error) {
 		if !s.Off {
 			state = brief(u.joins.Status(s.URL))
 		}
-		m.AddCheckbox(fmt.Sprintf("%s  %s", hostOf(s.URL), state), !s.Off).OnClick(func(*application.Context) {
+		m.AddCheckbox(fmt.Sprintf("%s  %s", s.label(), state), !s.Off).OnClick(func(*application.Context) {
 			_, _ = updateConfig(func(c *Config) { c.setOff(s.URL, !s.Off) })
 			application.InvokeAsync(u.redraw)
 		})
@@ -1077,23 +1104,15 @@ func brief(line string) string {
 	return line
 }
 
-// macBar is the strip at a macOS window's top where its buttons are, the page kept clear of it.
-const macBar = 28
-
 // pageCSS is put in every page the window shows: the page itself never scrolls or bounces (only
-// what is in it: kumo, 2026-11-20, the whole page went with the wheel), and on macOS it stands
-// below the window's buttons.
-var pageCSS = func() string {
-	css := "html,body{overflow:hidden!important;overscroll-behavior:none!important}"
-	if runtime.GOOS == "darwin" {
-		css += fmt.Sprintf("#root{box-sizing:border-box;padding-top:%dpx}", macBar)
-	}
-	return css
-}()
+// what is in it: kumo, 2026-11-20, the whole page went with the wheel). No title bar above it on
+// any system (kumo, 2026-11-22): the window's keys are the page's own (chrome.go).
+const pageCSS = "html,body{overflow:hidden!important;overscroll-behavior:none!important}"
 
 // pageJS is put in every page the window shows: its errors, and a page still empty some seconds
-// after it loaded, go to the app's log (ir:jserror), there being no console to read in the app.
-const pageJS = `(function(){
+// after it loaded, go to the app's log (ir:jserror), there being no console to read in the app;
+// and the window's frame (chromeJS).
+var pageJS = chromeJS + `(function(){
 var q=[];function send(m){m=String(m).slice(0,2000);var w=window._wails;if(w&&w.invoke){try{w.invoke("ir:jserror:"+m)}catch(e){}}else{q.push(m)}}
 setInterval(function(){var w=window._wails;while(q.length&&w&&w.invoke){w.invoke("ir:jserror:"+q.shift())}},1000);
 addEventListener("error",function(e){send((e.message||"error")+" @ "+(e.filename||"")+":"+(e.lineno||"")+(e.error&&e.error.stack?"\n"+e.error.stack:""))},true);

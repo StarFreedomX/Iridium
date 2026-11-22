@@ -30,6 +30,10 @@ type Server struct {
 	// data: URL).
 	Name   string `json:"name,omitempty"`
 	Avatar string `json:"avatar,omitempty"`
+	// Title: the name it goes by in this app (kumo, 2026-11-22: one person, several Iridiums, a
+	// window each), given at the top left of its page; its windows' titles, the picker's row, the
+	// tray's. The app's alone: the Iridium knows nothing of it. "": its address.
+	Title string `json:"title,omitempty"`
 	// Face: the Iridium's own (GET /v1/internal/face, a data: URL), what stands for it in the list.
 	Face string `json:"face,omitempty"`
 	// Proxy: this computer's iridium is fetched through this Iridium when it follows its release
@@ -178,6 +182,14 @@ func (c *Config) current() string {
 
 // normalize is an address as join takes it.
 func normalize(s string) (string, error) { return join.Address(s) }
+
+// label is s as the app's lists say it: its name here, else its address.
+func (s Server) label() string {
+	if s.Title != "" {
+		return s.Title
+	}
+	return hostOf(s.URL)
+}
 
 func (c *Config) setOff(address string, off bool) {
 	for i := range c.Servers {

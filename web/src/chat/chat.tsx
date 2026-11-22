@@ -15,7 +15,7 @@ import { lazy, memo, Suspense, useContext, useEffect, useLayoutEffect, useMemo, 
 import { flushSync } from "react-dom";
 import type { SessionState as LiveSession } from "../api/types.gen";
 import { api, queryClient } from "../api/client";
-import { AppKey } from "../appkey";
+import { AppKey, WinKeys } from "../appkey";
 import { LinkDot } from "../link";
 import type { Session } from "../api/types.gen";
 import { WsPlus } from "../create";
@@ -1048,7 +1048,7 @@ const Bar = memo(function Bar({ s, onSheet, onMe, spots, asked }: { s?: Session;
   const lead = [...where, { icon: <Plus size={15} />, label: t("menu.new"), run: () => requestAnimationFrame(() => setMaking(true)) }, ...(onSheet ? [{ icon: <ListTree size={15} />, label: t("nav.sidebar"), run: onSheet }] : []), ...(onMe ? [{ icon: <Settings size={15} />, label: t("nav.me"), run: onMe }] : []), { icon: <BarChart3 size={15} />, label: t("usage.title"), run: usageHere }];
   const acts = s ? [...sessionActions(s, () => setRenaming(true)), { icon: <Globe size={15} />, label: t("public.menu"), run: () => void Promise.race([queryClient.prefetchQuery(publicLinkQ(s.id)), new Promise((r) => setTimeout(r, 300))]).then(() => setPublicOpen(true)) }] : [];
   return (
-    <header className="g-turn-stay vt-bar glass absolute inset-x-0 top-0 z-20 shadow-[0_0.5px_0_var(--edge)]">
+    <header data-app-drag className="g-turn-stay vt-bar glass absolute inset-x-0 top-0 z-20 shadow-[0_0.5px_0_var(--edge)]">
       <div className="flex h-12 items-center gap-1 pr-2 pl-2 pointer-coarse:h-13">
         <div className="flex min-w-0 flex-1 items-center gap-2.5 pl-2">
           {s && (
@@ -1126,6 +1126,8 @@ const Bar = memo(function Bar({ s, onSheet, onMe, spots, asked }: { s?: Session;
             <EditAt id={s.id} anchor={more} />
           </span>
         )}
+        {/* The window's keys, in the app (appkey.tsx): at the bar's far right. */}
+        <WinKeys />
       </div>
     </header>
   );

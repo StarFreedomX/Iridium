@@ -6,7 +6,7 @@
 // the chat staying under it; on a phone a sheet too, by a swipe up from the left quarter or ⋯. The jump box
 // (⌘K) opens in the sidebar, not over the page. The chat, the settings and the jump box come only as
 // they are opened, or the page is idle: the first screen stays light.
-import { AppKey, AppTell } from "./appkey";
+import { AppKey, AppTell, WinKeys } from "./appkey";
 import { Dialog } from "@base-ui/react/dialog";
 import { Toast } from "@base-ui/react/toast";
 import { Tooltip } from "@base-ui/react/tooltip";
@@ -493,10 +493,12 @@ function Empty({ below }: { below: number }) {
   return (
     <div className="relative grid h-full place-items-center transition-[padding] duration-(--dur-3) ease-(--ease-out)" style={{ paddingBottom: below }}>
       <IrMark size={44} className="text-fill-2" aria-hidden />
-      {/* The desktop app's key where a chat's top bar has it (appkey.tsx); nothing in a browser. */}
-      <span className="absolute top-2 right-2">
+      {/* The desktop app's keys where a chat's top bar has them (appkey.tsx); nothing in a browser.
+          The strip they are in drags the window. */}
+      <div data-app-drag className="absolute inset-x-0 top-0 flex h-12 items-center justify-end pr-2">
         <AppKey />
-      </span>
+        <WinKeys />
+      </div>
     </div>
   );
 }
