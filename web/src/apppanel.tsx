@@ -1,12 +1,12 @@
 // The desktop app's panel (appkey.tsx): this computer as joined to each Iridium in the app's list
 // (its state; command lines, folders, each agent, switched at once), and the app itself. Turning
 // one off is done at once; turning one on the app asks of the person in a dialog of its own.
-import { FolderPlus, Plus, Trash2 } from "lucide-react";
+import { FolderPlus, LoaderCircle, Plus, Trash2 } from "lucide-react";
 import type { Agent } from "./api/types.gen";
 import { t } from "./i18n";
 import { ask, type AppServer, type AppState } from "./irapp";
 import { Group, Item } from "./settings";
-import { agentName, cn, IconKey, Logo, SureKey, Switch } from "./ui";
+import { agentName, cn, CopyKey, IconKey, Logo, SureKey, Switch } from "./ui";
 
 export default function AppPanel({ app }: { app: AppState }) {
   return (
@@ -21,13 +21,16 @@ export default function AppPanel({ app }: { app: AppState }) {
               <ServerBox key={s.url} s={s} />
             ))}
           {app.hasLocal ? (
-            <Item label={t("app.server")}>
-              <Switch
-                label={t("app.server")}
-                on={app.server !== false}
-                onChange={(v) => ask("server", v ? "on" : "off")}
-              />
-            </Item>
+            <>
+              <Item label={t("app.server")}>
+                <Switch
+                  label={t("app.server")}
+                  on={app.server !== false}
+                  onChange={(v) => ask("server", v ? "on" : "off")}
+                />
+              </Item>
+              <PublicRows app={app} />
+            </>
           ) : (
             // This computer's own Iridium, started and shown (internal/desktop/local.go).
             <Item label={t("app.runLocal")}>
@@ -214,5 +217,88 @@ function ServerBox({ s }: { s: AppServer }) {
         </div>
       </div>
     </div>
+  );
+}
+
+/** 公网访问 (internal/desktop/public.go): the switch, then what it is at, each a row: the step,
+ *  Cloudflare's login link while it waits for it, the first invite once there, or what stopped
+ *  it. Rows fold open and shut (docs/前端设计规范.md "出现、消失都要动画"). */
+function PublicRows({ app }: { app: AppState }) {
+  const p = app.publicState;
+  const busy = !!p?.busy;
+  const rows: {
+    key: string;
+    label: string;
+    value?: string;
+    copy?: string;
+    err?: boolean;
+  }[] = [];
+  if (busy && p?.note) rows.push({ key: "note", label: p.note });
+  if (p?.link)
+    rows.push({
+      key: "link",
+      label: t("app.cfLogin"),
+      value: p.link,
+      copy: p.link,
+    });
+  if (p?.invite)
+    rows.push({
+      key: "invite",
+      label: t("app.invite"),
+      value: p.invite,
+      copy: p.invite,
+    });
+  if (p?.error) rows.push({ key: "err", label: p.error, err: true });
+  return (
+    <>
+      <Item label={t("app.public")}>
+        <span className="flex items-center gap-2">
+          {busy && (
+            <LoaderCircle size={14} className="animate-spin text-ink-3" />
+          )}
+          <Switch
+            label={t("app.public")}
+            on={!!app.public}
+            disabled={busy}
+            onChange={(v) => ask("public", v ? "on" : "off")}
+          />
+        </span>
+      </Item>
+      {["note", "link", "invite", "err"].map((k) => {
+        const r = rows.find((x) => x.key === k);
+        return (
+          <div
+            key={k}
+            aria-hidden={!r || undefined}
+            className={cn(
+              "grid transition-[grid-template-rows,opacity] duration-(--dur-3) ease-(--ease-out)",
+              r ? "grid-rows-[1fr]" : "grid-rows-[0fr] opacity-0",
+            )}
+          >
+            <div className="min-h-0 overflow-hidden">
+              {r && (
+                <Item
+                  label={
+                    <span
+                      className={cn(
+                        "block truncate",
+                        r.err ? "text-err" : "text-ink-2",
+                      )}
+                    >
+                      {r.label}
+                      {r.value && (
+                        <span className="ml-2 text-ink-3">{r.value}</span>
+                      )}
+                    </span>
+                  }
+                >
+                  {r.copy && <CopyKey text={r.copy} />}
+                </Item>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </>
   );
 }

@@ -41,7 +41,9 @@ func localAddress() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if cfg.Public.Origin != "" {
+	// The window stays on loopback when its Iridium lets it (public.localWindow, set as the app
+	// turns 公网访问 on): no login for it there.
+	if cfg.Public.Origin != "" && !cfg.Public.LocalWindow {
 		return normalize(cfg.Public.Origin)
 	}
 	host, port, err := net.SplitHostPort(cfg.Listen)

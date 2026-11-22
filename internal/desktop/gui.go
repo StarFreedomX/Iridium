@@ -38,6 +38,7 @@ type ui struct {
 	joins *Joins
 
 	here localState // this computer's own Iridium (local.go)
+	pub  publicState // its 公网访问 (public.go)
 
 	mu      sync.Mutex
 	ready   string // a downloaded update's version, waiting for a restart
@@ -370,6 +371,12 @@ func (u *ui) message(w application.Window, msg string, o *application.OriginInfo
 			}
 			reply(w, h)
 		}()
+	case "public":
+		// 公网访问 on or off: the steps go to the page as they come.
+		go u.pub.set(arg == "on", func() {
+			c, _ := loadConfig()
+			reply(w, u.hello(c, server))
+		}, logf)
 	case "server":
 		// This computer's own Iridium on or off (ir server): the runtime follows the settings.
 		if err := SetServer(arg == "on"); err == nil && arg == "on" {
@@ -563,7 +570,8 @@ func (u *ui) hello(c Config, server string) map[string]any {
 	u.mu.Lock()
 	ready := u.ready
 	u.mu.Unlock()
-	return map[string]any{"app": "ir-app", "version": version.Short(version.Version), "name": name, "servers": list, "autostart": auto, "update": ready, "hasLocal": c.local() != nil, "server": !c.NoServer}
+	return map[string]any{"app": "ir-app", "version": version.Short(version.Version), "name": name, "servers": list, "autostart": auto, "update": ready, "hasLocal": c.local() != nil, "server": !c.NoServer,
+		"public": publicOn(), "publicState": u.pub.view()}
 }
 
 // terms are what a page may ask to change of this computer for its Iridium: narrowing is done at

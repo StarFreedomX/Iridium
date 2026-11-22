@@ -25,6 +25,14 @@ export type AppState = {
   update: string; // a new version downloaded, waiting for a restart; "": none
   hasLocal?: boolean; // this computer's own Iridium is in the list
   server?: boolean; // this computer's own Iridium is on (ir server on|off)
+  public?: boolean; // it is on the internet (公网访问)
+  publicState?: {
+    busy: boolean;
+    note: string; // the last step, short
+    link: string; // Cloudflare's login link, while waiting for it
+    invite: string; // the first invite, once there
+    error: string;
+  };
   error?: string; // what the last ask came to
   notice?: string;
   code?: string; // a browser login's code to check
