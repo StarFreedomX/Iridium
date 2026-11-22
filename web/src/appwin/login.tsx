@@ -8,13 +8,15 @@
 //  - one Iridium's 授权操作: 命令行, each agent, 文件夹.
 // A part is drawn once its state is there, never before.
 import {
-  Check,
   ChevronLeft,
   ChevronRight,
   FolderPlus,
+  Globe,
   LoaderCircle,
   Monitor,
+  Play,
   Plus,
+  Square,
   Trash2,
   UserRound,
 } from "lucide-react";
@@ -449,9 +451,6 @@ function Face({ s }: { s: Server }) {
   );
 }
 
-/** The one ticked: the Iridium used last, as the web app's lists tick theirs. */
-const Tick = () => <Check size={15} className="mr-1.5 shrink-0 text-ink-2" />;
-
 /** The picker's list: 此电脑, each Iridium, 添加服务器. */
 function Servers({
   st,
@@ -495,6 +494,9 @@ function Servers({
       )}
 
       <Heading>服务器</Heading>
+      {/* 此电脑 (kumo, 2026-11-22): one row. Its lamp and state, the public address after it; at
+          its right two keys, no switches: 公网访问 (lit when on) and run or stop. Stopping, and
+          closing the public address, are pressed twice (docs/前端设计规范.md "确认在原处"). */}
       <Row
         icon={
           <span className="grid size-9 place-items-center rounded-full bg-fill text-ink-2">
@@ -507,43 +509,69 @@ function Servers({
             <span className={localNote.error ? "text-err" : undefined}>
               {localNote.text}
             </span>
-          ) : on ? (
-            (local?.status ?? "运行中")
           ) : (
-            "已停止"
+            <>
+              <Lamp
+                color={
+                  !on
+                    ? DOT.none
+                    : (local?.status ?? "运行中") === "运行中"
+                      ? DOT.on
+                      : DOT.slow
+                }
+              />
+              {on ? (local?.status ?? "运行中") : "已停止"}
+              {on && p?.busy && p.note
+                ? " · " + p.note
+                : on && st.public && st.publicAddress
+                  ? " · " + st.publicAddress.replace(/^https?:\/\//, "")
+                  : ""}
+            </>
           )
         }
         onClick={local && on ? () => ask("ir:open:" + local.url) : undefined}
         end={
           <>
-            {on && st.current === local?.url && <Tick />}
-            <Switch
-              label="此电脑"
-              on={on}
-              onChange={(v) => ask("ir:server:" + (v ? "on" : "off"))}
-            />
+            {on &&
+              (p?.busy ? (
+                <span className="grid size-8 place-items-center">
+                  <LoaderCircle size={15} className="animate-spin text-ink-3" />
+                </span>
+              ) : st.public ? (
+                <SureKey
+                  label="公网访问：已开启"
+                  sure="确认关闭公网访问"
+                  run={() => ask("ir:public:off")}
+                  className="text-plus hover:text-plus"
+                >
+                  <Globe size={16} />
+                </SureKey>
+              ) : (
+                <IconKey
+                  label="开启公网访问"
+                  onClick={() => ask("ir:public:on")}
+                  className="text-ink-4"
+                >
+                  <Globe size={16} />
+                </IconKey>
+              ))}
+            {on ? (
+              <SureKey
+                label="停止"
+                sure="确认停止"
+                run={() => ask("ir:server:off")}
+              >
+                <Square size={14} />
+              </SureKey>
+            ) : (
+              <IconKey label="启动" onClick={() => ask("ir:server:on")}>
+                <Play size={15} />
+              </IconKey>
+            )}
           </>
         }
       />
       <Fold state={on ? "in" : "out"}>
-        <Row
-          icon={<span />}
-          title="公网访问"
-          sub={p?.busy && p.note ? p.note : st.publicAddress || "未开启"}
-          end={
-            <>
-              {p?.busy && (
-                <LoaderCircle size={14} className="animate-spin text-ink-3" />
-              )}
-              <Switch
-                label="公网访问"
-                on={!!st.public}
-                disabled={!!p?.busy}
-                onChange={(v) => ask("ir:public:" + (v ? "on" : "off"))}
-              />
-            </>
-          }
-        />
         <Fold state={p?.link ? "in" : "out"}>
           <Row
             icon={<span />}
@@ -576,10 +604,11 @@ function Servers({
                   <span className={mine.error ? "text-err" : undefined}>
                     {mine.text}
                   </span>
-                ) : s.loggedIn ? (
-                  s.host
                 ) : (
-                  "未登录"
+                  <>
+                    <Lamp color={s.loggedIn ? DOT.on : DOT.none} />
+                    {s.loggedIn ? s.host : "未登录"}
+                  </>
                 )
               }
               onClick={() =>
@@ -604,7 +633,6 @@ function Servers({
                         <Trash2 size={14} />
                       </SureKey>
                     </span>
-                    {st.current === s.url && <Tick />}
                   </>
                 )
               }
