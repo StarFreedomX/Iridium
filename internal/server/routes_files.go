@@ -64,6 +64,8 @@ func (s *Server) fileRoutes(mux *http.ServeMux, local bool) {
 		mux.HandleFunc("POST /v1/internal/links", s.linkPath)
 		mux.HandleFunc("GET /v1/internal/files", s.listDir)
 		mux.HandleFunc("POST /v1/internal/files/copy", s.copyFile)
+	} else {
+		s.fileBrowserRoutes(mux)
 	}
 }
 

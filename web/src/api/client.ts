@@ -4,6 +4,7 @@ import { QueryClient } from "@tanstack/react-query";
 import { blockOf, type SatoriMessage } from "../satori";
 import type {
   DshWorkspace,
+  DirListing,
   AgentInfo,
   AllowRule,
   ApplyUpdate,
@@ -415,6 +416,8 @@ export const api = {
   patch: (id: string, p: SessionPatch) => sat<object>("channel.update", channelPatch(id, p), true),
 
   // --- files in messages, uploads ---
+  browseFiles: (path: string, machine: string, signal: AbortSignal) => get<DirListing>(`/v1/internal/web/files?${new URLSearchParams({ path, machine })}`, { signal }),
+  browseFileURL: (path: string, machine: string, download = false) => `/v1/internal/web/files/content?${new URLSearchParams({ path, machine, ...(download ? { download: "1" } : {}) })}`,
   // v: the file's version (its mtime): a file written again at its path is another address, not
   // the picture the browser has of it (the user, 2026-11-09: a shot redone showed the old one).
   fileURL: (id: string, ref: string, download = false, v?: number) => {

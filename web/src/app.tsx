@@ -54,6 +54,7 @@ const AppsPage = part(() => import("./apps").then((m) => m.AppsPage));
 const SecretsPage = part(() => import("./credentials").then((m) => m.SecretsPage));
 const RolesPage = part(() => import("./rolespage").then((m) => m.RolesPage));
 const UsagePage = part(() => import("./usage").then((m) => m.UsagePage));
+const FileBrowserKey = part(() => import("./filebrowser-key").then((m) => m.FileBrowserKey));
 /** The page of the settings' dialog a route is: the settings, or one of their own pages. */
 type SetsPage = "settings" | "apps" | "secrets" | "roles" | "usage";
 const setsPageOf = (r: Route): SetsPage => (r.name === "apps" || r.name === "secrets" || r.name === "roles" || r.name === "usage" ? r.name : "settings");
@@ -151,7 +152,7 @@ export function App() {
   useTellLang(); // hosted agents are told the user's language
   useHome(); // paths show ~ for it
   useMe();
-  useApps(); // a message's source shows its app's or login's avatar
+  const apps = useApps(); // a message's source shows its app's or login's avatar
   const confirms = useConfirms();
   const { expanded, toggle } = useExpanded();
   // Each minute too: a subagent long quiet is let go.
@@ -273,6 +274,14 @@ export function App() {
 
   const onSettings = () => (over(r) ? close(under) : go({ name: "settings" }));
   const me = <MeKey open={over(r)} onOpen={onSettings} dot={!!update.data?.available} code={loadPanels} />;
+  const session = open ? list?.find((s) => s.id === open) : undefined;
+  const loginPerms = apps.data?.logins.find((l) => l.id === meNow?.id)?.perms;
+  const filesAllowed = meNow?.host || (meNow?.web && meNow.rules.claudeOwner && apps.data?.full && (!loginPerms || (loginPerms.agents?.includes("*") && loginPerms.scope?.includes("*"))));
+  const filesKey = filesAllowed ? (
+    <Suspense fallback={<span className="size-8 pointer-coarse:size-10" />}>
+      <FileBrowserKey path={session?.cwd || "~"} machine={session?.machine ?? ""} />
+    </Suspense>
+  ) : undefined;
   const sidebar = (
     <Sidebar
       tree={tree}
@@ -294,6 +303,7 @@ export function App() {
       chatCode={chatCode}
       panelsCode={loadPanels}
       createKey={(trigger) => <CreatePopover trigger={trigger} />}
+      filesKey={filesKey}
       wsPlus={(w, trigger, o, setO) => <WsPlus key={w.key} w={{ id: w.id, name: w.name, path: w.root }} trigger={trigger} open={o} setOpen={setO} opened={(id) => openChat(id)} />}
       me={me}
       reveal={phone ? onSheet : undefined}
@@ -420,7 +430,7 @@ export function App() {
               <Pager
                 // The tabs' bar is px-3, the list's rows end 4px further right: its "+" in line with
                 // theirs (the user, 2026-11-08).
-                ends={[null, null, <span key="s" className="-mr-1 flex"><HeadKeys createKey={(trigger) => <CreatePopover trigger={trigger} />} /></span>]}
+                ends={[null, null, <span key="s" className="-mr-1 flex"><HeadKeys filesKey={filesKey} createKey={(trigger) => <CreatePopover trigger={trigger} />} /></span>]}
                 page={sheetPage}
                 still={turnStill}
                 onPage={toPage}
