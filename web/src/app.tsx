@@ -15,6 +15,7 @@ import { firstScreen, watchTurns } from "./chats";
 import { CreatePopover, WsPlus } from "./create";
 import { agentsQ, LOCAL_ME, pushQ, useApps, useHome, useMe, useSettings, useUpdate, useWorkspaces } from "./data";
 import { t, useLang } from "./i18n";
+import { FileBrowserOpen, type OpenFileBrowser, type Place } from "./places";
 import { applyTheme, initialTheme, keepTheme, MeKey, useTellLang, type ThemePref } from "./me";
 import { motion, movesAhead, pageTurn, usePaced } from "./motion";
 import { prefetch, settled } from "./prefetch";
@@ -55,6 +56,7 @@ const SecretsPage = part(() => import("./credentials").then((m) => m.SecretsPage
 const RolesPage = part(() => import("./rolespage").then((m) => m.RolesPage));
 const UsagePage = part(() => import("./usage").then((m) => m.UsagePage));
 const FileBrowserKey = part(() => import("./filebrowser-key").then((m) => m.FileBrowserKey));
+const FileBrowserDialog = part(() => import("./filebrowser-key").then((m) => m.FileBrowserDialog));
 /** The page of the settings' dialog a route is: the settings, or one of their own pages. */
 type SetsPage = "settings" | "apps" | "secrets" | "roles" | "usage";
 const setsPageOf = (r: Route): SetsPage => (r.name === "apps" || r.name === "secrets" || r.name === "roles" || r.name === "usage" ? r.name : "settings");
@@ -277,9 +279,15 @@ export function App() {
   const session = open ? list?.find((s) => s.id === open) : undefined;
   const loginPerms = apps.data?.logins.find((l) => l.id === meNow?.id)?.perms;
   const filesAllowed = meNow?.host || (meNow?.web && meNow.rules.claudeOwner && apps.data?.full && (!loginPerms || (loginPerms.agents?.includes("*") && loginPerms.scope?.includes("*"))));
+  const [filesAt, setFilesAt] = useState<{ place: Place; opener: HTMLButtonElement; round: number }>();
+  const [filesOpen, setFilesOpen] = useState(false);
+  const openFiles = useCallback<OpenFileBrowser>((place, opener) => {
+    setFilesAt((was) => ({ place, opener, round: (was?.round ?? 0) + 1 }));
+    setFilesOpen(true);
+  }, []);
   const filesKey = filesAllowed ? (
     <Suspense fallback={<span className="size-8 pointer-coarse:size-10" />}>
-      <FileBrowserKey path={session?.cwd || "~"} machine={session?.machine ?? ""} />
+      <FileBrowserKey path={session?.cwd || "~"} machine={session?.machine ?? ""} onOpen={openFiles} />
     </Suspense>
   ) : undefined;
   const sidebar = (
@@ -314,13 +322,15 @@ export function App() {
     // On a phone a tap on the chat puts the sheet away, the composer back (the user, 2026-11-06);
     // not one on its top bar: its ⋯ opens over the sheet (the user, 2026-11-06).
     <main className={cn("relative h-full min-w-0 flex-1 bg-paper", !phone && "g-turn")} onClickCapture={phone && ((sheetOut && open) || setsOut) ? (e) => !(e.target as Element).closest?.("header") && setSheet(false) : undefined}>
-      <Suspense fallback={<Waiting />}>
-        {under.name === "chat" ? (
-          <ChatPage key={under.id} id={under.id} sheet={below} onSheet={phone ? onSheet : undefined} onMe={phone ? onMe : undefined} />
-        ) : (
-          <Empty below={below} />
-        )}
-      </Suspense>
+      <FileBrowserOpen.Provider value={filesAllowed ? openFiles : null}>
+        <Suspense fallback={<Waiting />}>
+          {under.name === "chat" ? (
+            <ChatPage key={under.id} id={under.id} sheet={below} onSheet={phone ? onSheet : undefined} onMe={phone ? onMe : undefined} />
+          ) : (
+            <Empty below={below} />
+          )}
+        </Suspense>
+      </FileBrowserOpen.Provider>
     </main>
   );
 
@@ -450,6 +460,7 @@ export function App() {
           )}
         </div>
         {settings}
+        {filesAllowed && filesAt && <Suspense><FileBrowserDialog {...filesAt} open={filesOpen} onOpenChange={setFilesOpen} /></Suspense>}
         <Toast.Portal>
           <Toast.Viewport className={cn("fixed top-[60px] left-1/2 z-60 flex w-[min(400px,calc(100vw-24px))] -translate-x-1/2 flex-col items-center gap-2 outline-none")}>
             <ToastList onJump={(id) => openChat(id)} />

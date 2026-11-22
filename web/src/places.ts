@@ -2,8 +2,13 @@
 // card in a chat, the chat's 在哪干活), it is shown in the list: its group opened and scrolled to, as
 // a listed group holds it (sidebar.tsx); else the top "+" opens there (create.tsx). Nothing is kept.
 
+import { createContext } from "react";
+
 /** machine: its ID, none for this machine; path: '/'-separated, as the page writes paths. */
 export type Place = { machine?: string; path: string };
+
+export type OpenFileBrowser = (place: Place, opener: HTMLButtonElement) => void;
+export const FileBrowserOpen = createContext<OpenFileBrowser | null>(null);
 
 const opens = new Set<(p: Place) => void>();
 const creates = new Set<(p: Place) => void>();

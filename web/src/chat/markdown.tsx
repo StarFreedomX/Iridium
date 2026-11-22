@@ -7,7 +7,7 @@
 import { cjk } from "@streamdown/cjk";
 import { Check, Copy } from "lucide-react";
 import { isValidElement, memo, useState, type ComponentProps, type ReactNode } from "react";
-import { defaultComponents, defaultUrlTransform, Streamdown, type ExtraProps, type StreamdownProps } from "streamdown";
+import { defaultComponents, defaultRemarkPlugins, defaultUrlTransform, Streamdown, type ExtraProps, type StreamdownProps } from "streamdown";
 import type { FileRef } from "../api/types.gen";
 import { t } from "../i18n";
 import { cn } from "../ui";
@@ -44,6 +44,19 @@ function CodeBlock({ className, children }: ComponentProps<"code"> & ExtraProps)
   );
 }
 
+type MarkdownNode = { type: string; url?: string; children?: MarkdownNode[] };
+
+/** Folder mentions carry literal paths. Keep their percent signs distinct from URI escapes. */
+function literalFolderPaths() {
+  const escape = (node: MarkdownNode) => {
+    if (node.url?.startsWith("ir:folder/")) node.url = node.url.replaceAll("%", "%25");
+    node.children?.forEach(escape);
+  };
+  return (tree: MarkdownNode, file: { value: unknown }) => {
+    if (String(file.value).includes("ir:folder/")) escape(tree);
+  };
+}
+
 export const MARKDOWN: Partial<StreamdownProps> = {
   plugins: { cjk },
   controls: false,
@@ -57,12 +70,16 @@ export const MARKDOWN: Partial<StreamdownProps> = {
       const nick = nickOfURL(p.href);
       if (nick) return <NickLink nick={nick} />;
       const r = typeof p.href === "string" ? refOf(p.href, textOf(p.children)) : undefined;
+      if (r?.kind === "place") {
+        try { r.path = decodeURI(r.path); } catch {}
+      }
       return r ? <NamedLink m={r} /> : <defaultComponents.a {...p} />;
     },
   },
   lineNumbers: false,
   linkSafety: { enabled: false },
   className: "prose-ir min-w-0",
+  remarkPlugins: [...Object.values(defaultRemarkPlugins), literalFolderPaths],
   rehypePlugins: [],
   tableMaxHeight: 0,
   urlTransform: (url, key, node) => (linkID(url) || refOf(url, "") || nickOfURL(url) ? url : defaultUrlTransform(url, key, node)),
