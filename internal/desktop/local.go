@@ -112,7 +112,7 @@ func (l *localState) ensure(ctx context.Context, address string, logf func(strin
 	// ir started as the user's service (ir start --headless): its runtime starts this
 	// computer's Iridium, as the settings have it on.
 	_ = SetServer(true)
-	cmd := exec.CommandContext(ctx, self, "start", "--headless", "-config", localPath())
+	cmd := exec.CommandContext(ctx, self, "start", "--headless", "--as-is", "-config", localPath())
 	quiet(cmd)
 	out, err := cmd.CombinedOutput()
 	logf("local: ir start --headless: %v\n%s", err, out)

@@ -85,11 +85,13 @@ func gui(o Options) int {
 	// This computer's own Iridium: put in the list and shown at the app's first start (kumo,
 	// 2026-11-22); on later starts the one shown last is, and the local one is kept at its address
 	// (its public one turned on or off).
+	// A first start runs nothing (kumo, 2026-11-22): the app's page offers this computer's own
+	// Iridium and adding another; nothing runs till one is chosen.
 	first := !configExists()
 	if addr, err := localAddress(); err != nil {
 		logf("local: %v", err)
-	} else if !o.NoServer && (first || c.local() != nil) {
-		if c2, err := updateConfig(func(c *Config) { c.setLocal(addr, first) }); err == nil {
+	} else if c.local() != nil {
+		if c2, err := updateConfig(func(c *Config) { c.setLocal(addr, false) }); err == nil {
 			c = c2
 		}
 	}
@@ -155,9 +157,10 @@ func gui(o Options) int {
 	u.tray.OnClick(u.show)
 	u.redraw()
 	u.joins.Sync(c)
-	if l := c.local(); l != nil && !o.NoServer {
+	if l := c.local(); l != nil && c.serverOn() && !o.NoServer {
 		go u.startLocal(l.URL, logf)
 	}
+	go u.syncRuntime(logf)
 	if o.NoServer {
 		_ = SetServer(false)
 	}
@@ -229,7 +232,7 @@ func (u *ui) useLocal(logf func(string, ...any)) error {
 	if err != nil {
 		return err
 	}
-	if _, err := updateConfig(func(c *Config) { c.setLocal(addr, true) }); err != nil {
+	if _, err := updateConfig(func(c *Config) { c.setLocal(addr, true); c.NoServer = false }); err != nil {
 		return err
 	}
 	u.switchTo(addr)
@@ -435,7 +438,7 @@ func (u *ui) local(w application.Window, verb, arg string) {
 					reply(w, map[string]string{"error": err.Error()})
 					return
 				}
-				// Typed here by the person: in the list, and this computer joined to it.
+				// Typed here by the person: in the list, shown; joined only by its switch.
 				if c, err = updateConfig(func(c *Config) { c.add(a) }); err != nil {
 					reply(w, map[string]string{"error": err.Error()})
 					return
@@ -650,7 +653,7 @@ func (u *ui) add(w application.Window, address string, ask bool) {
 		reply(w, map[string]string{"error": err.Error()})
 		return
 	}
-	if ask && !u.confirm(ctx, fmt.Sprintf("添加 %s，并让这台电脑接入它？", hostOf(a))) {
+	if ask && !u.confirm(ctx, fmt.Sprintf("添加 %s？", hostOf(a))) {
 		reply(w, map[string]string{"error": "已取消"})
 		return
 	}

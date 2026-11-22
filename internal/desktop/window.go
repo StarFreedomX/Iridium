@@ -97,3 +97,36 @@ func (u *ui) restartApp() {
 	_ = cmd.Process.Release()
 	u.app.Quit()
 }
+
+// syncRuntime keeps ir's service as the settings need it (kumo, 2026-11-22): started once
+// something needs it (an Iridium joined here; this computer's own is started by startLocal),
+// taken away once nothing does, the window then only showing others. Looked at as the settings
+// change.
+func (u *ui) syncRuntime(logf func(string, ...any)) {
+	var seen time.Time
+	for {
+		if p, err := configPath(); err == nil {
+			if t := modTime(p); !t.Equal(seen) {
+				seen = t
+				_, running := RuntimeRecord()
+				c, _ := loadConfig()
+				need := Needed()
+				self, err := os.Executable()
+				switch {
+				case err != nil:
+				case need && !running && !c.serverOn():
+					cmd := exec.Command(self, "start", "--headless", "--as-is")
+					quiet(cmd)
+					out, err := cmd.CombinedOutput()
+					logf("runtime: ir start --headless --as-is: %v\n%s", err, out)
+				case !need && running:
+					cmd := exec.Command(self, "stop")
+					quiet(cmd)
+					out, err := cmd.CombinedOutput()
+					logf("runtime: ir stop: %v\n%s", err, out)
+				}
+			}
+		}
+		time.Sleep(2 * time.Second)
+	}
+}

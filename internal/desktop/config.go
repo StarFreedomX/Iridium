@@ -143,10 +143,12 @@ func (c *Config) local() *Server {
 	return nil
 }
 
-// add puts address in the list (once) and makes it the one shown.
+// add puts address in the list (once), not joined, and makes it the one shown.
 func (c *Config) add(address string) {
 	if !slices.ContainsFunc(c.Servers, func(s Server) bool { return s.URL == address }) {
-		c.Servers = append(c.Servers, Server{URL: address})
+		// Shown, not joined: joining is its own switch (kumo, 2026-11-22: only looking at others
+		// runs nothing here).
+		c.Servers = append(c.Servers, Server{URL: address, Off: true})
 	}
 	c.Current = address
 }

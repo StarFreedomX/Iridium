@@ -63,7 +63,7 @@ func Runtime(ctx context.Context, o RuntimeOptions) int {
 				if err != nil {
 					logf("runtime: settings: %v", err)
 				} else {
-					srv.want(!c.NoServer)
+					srv.want(c.serverOn())
 					j.Record.Server = srv.state()
 					j.Sync(joinsOf(c))
 				}

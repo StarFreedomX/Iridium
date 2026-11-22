@@ -13,16 +13,40 @@ import (
 // Fresh: no settings yet (ir has never been started or opened here).
 func Fresh() bool { return !configExists() }
 
-// SetServer turns this computer's own Iridium on or off.
+// SetServer turns this computer's own Iridium on (put in the list first, if it is not: it runs
+// only once asked for, kumo 2026-11-22) or off.
 func SetServer(on bool) error {
-	_, err := updateConfig(func(c *Config) { c.NoServer = !on })
+	addr := ""
+	if on {
+		a, err := localAddress()
+		if err != nil {
+			return err
+		}
+		addr = a
+	}
+	_, err := updateConfig(func(c *Config) {
+		c.NoServer = !on
+		if on && c.local() == nil {
+			c.setLocal(addr, c.current() == "")
+		}
+	})
 	return err
 }
 
 // ServerOn: is this computer's own Iridium on in the settings?
 func ServerOn() bool {
 	c, _ := loadConfig()
-	return !c.NoServer
+	return c.serverOn()
+}
+
+// serverOn: this computer's own Iridium is in the list and not turned off.
+func (c Config) serverOn() bool { return c.local() != nil && !c.NoServer }
+
+// Needed: does anything here need the runtime (ir as a service): this computer's own Iridium on,
+// or an Iridium joined? Only showing others in the window needs none.
+func Needed() bool {
+	c, _ := loadConfig()
+	return c.serverOn() || len(Joined()) > 0
 }
 
 // Join puts t's Iridiums in the settings, joined under t's terms (this computer's name too, when

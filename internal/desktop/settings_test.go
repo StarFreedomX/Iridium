@@ -13,11 +13,23 @@ import (
 
 func TestSettings(t *testing.T) {
 	t.Setenv("IR_APP_CONFIG", filepath.Join(t.TempDir(), "app.json"))
-	if !Fresh() || !ServerOn() {
-		t.Fatal("fresh settings: server on")
+	t.Setenv("IRIDIUM_CONFIG", filepath.Join(t.TempDir(), "config.json"))
+	// Nothing runs till asked for: no Iridium of its own, nothing joined.
+	if !Fresh() || ServerOn() || Needed() {
+		t.Fatal("fresh settings: something on")
+	}
+	if err := SetServer(true); err != nil || !ServerOn() || !Needed() {
+		t.Fatalf("server on: %v", err)
+	}
+	if c, _ := loadConfig(); c.local() == nil || c.current() != c.local().URL {
+		t.Fatalf("server on: not in the list, shown: %+v", c)
+	}
+	SetServer(false)
+	if Needed() {
+		t.Fatal("server off, nothing joined: still needed")
 	}
 	tm, _ := ParseTerms([]string{"a.example", "https://b.example"}, "nas", "", true, "")
-	if err := Join(tm); err != nil {
+	if err := Join(tm); err != nil || !Needed() {
 		t.Fatal(err)
 	}
 	if got := Joined(); len(got) != 2 || got[0] != "https://a.example" {
@@ -38,8 +50,7 @@ func TestSettings(t *testing.T) {
 		t.Fatalf("settings %+v", c)
 	}
 	// The runtime joins neither this computer's own nor those left.
-	c.setLocal("http://127.0.0.1:7810", false)
-	if j := joinsOf(c); len(j.Servers) != 2 || j.Servers[0].URL == "http://127.0.0.1:7810" {
+	if j := joinsOf(c); len(j.Servers) != 2 || j.Servers[0].Local {
 		t.Fatalf("joinsOf %+v", j.Servers)
 	}
 }

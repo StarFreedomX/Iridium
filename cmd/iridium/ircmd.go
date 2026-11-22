@@ -93,6 +93,7 @@ func startCmd(args []string) int {
 	var rf runFlags
 	rf.register(fs)
 	headless := fs.Bool("headless", false, "no window")
+	asIs := fs.Bool("as-is", false, "the settings as they are (the window's start: this computer's Iridium not turned on)")
 	proxy := fs.Bool("proxy", false, "fetch iridium through the Iridiums joined, not from GitHub")
 	unit := fs.String("unit", "iridium", "the service's name")
 	prefix, bin := placeFlags(fs)
@@ -106,8 +107,9 @@ func startCmd(args []string) int {
 		return 2
 	}
 	t.Proxy = *proxy
-	if rf.noServer {
-		if err := desktop.SetServer(false); err != nil {
+	if !*asIs {
+		// ir start runs this computer's own Iridium unless --no-server: asked for here, in words.
+		if err := desktop.SetServer(!rf.noServer); err != nil {
 			return failedCmd("start", err)
 		}
 	}
@@ -115,6 +117,10 @@ func startCmd(args []string) int {
 		if err := desktop.Join(t); err != nil {
 			return failedCmd("start", err)
 		}
+	}
+	if !desktop.Needed() {
+		fmt.Fprintln(os.Stderr, "ir start: nothing to run: --no-server with no Iridium joined")
+		return 2
 	}
 	if err := startRuntime(rf.config, *unit, *prefix, *bin); err != nil {
 		return failedCmd("start", err)
@@ -209,12 +215,8 @@ func joinCmd(args []string) int {
 		return failedCmd("join", err)
 	}
 	t.Proxy = *proxy
-	fresh := desktop.Fresh()
 	if err := desktop.Join(t); err != nil {
 		return failedCmd("join", err)
-	}
-	if fresh {
-		_ = desktop.SetServer(false)
 	}
 	return applied("join", rf.config)
 }
@@ -234,8 +236,18 @@ func leaveCmd(args []string) int {
 	return applied("leave", config.DefaultPath())
 }
 
-// applied: the runtime takes the settings at once; one not running is started.
+// applied: the runtime takes the settings at once; one not running is started; with nothing left
+// for it (no Iridium of this computer's own, none joined) the service is taken away.
 func applied(cmd, cfg string) int {
+	if !desktop.Needed() {
+		if install.Look("iridium").File != "" {
+			if err := install.Uninstall("iridium", func(string, ...any) {}); err != nil {
+				return failedCmd(cmd, err)
+			}
+		}
+		printStatus(cfg, "iridium")
+		return 0
+	}
 	if _, ok := desktop.RuntimeRecord(); !ok {
 		home, _ := os.UserHomeDir()
 		prefix := filepath.Join(home, ".local", "opt", "iridium")
