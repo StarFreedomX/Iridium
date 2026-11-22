@@ -9,10 +9,10 @@
 // Changed is saved at once (GET/PUT /v1/internal/settings). Reaping idle agents and going on after a crash
 // or a quota are not here: as the config file says, by default 1h and on (the user, 2026-11-07).
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, ChevronLeft, ChevronRight, LoaderCircle, LogOut, MonitorDown, RefreshCw, Share, SquarePlus } from "lucide-react";
+import { ChevronLeft, ChevronRight, LoaderCircle, LogOut, MonitorDown, RefreshCw, Share, SquarePlus } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
-import { api, ApiError } from "./api/client";
-import type { PushEvents, PushState, Settings, SettingsPatch } from "./api/types.gen";
+import { api } from "./api/client";
+import type { PushEvents, PushState, Settings, SettingsPatch, UpdateState } from "./api/types.gen";
 import { manages as managesApps, pushQ, useApps, useMe, useSettings, useUpdate } from "./data";
 import { t, useLang } from "./i18n";
 import { install, useInstall } from "./install";
@@ -23,7 +23,7 @@ import { go } from "./route";
 import { useConfirms } from "./store";
 import { errText, toast } from "./toast";
 import { cn, IconKey, Switch, Tip } from "./ui";
-import { expectUpgrade } from "./upgrade";
+import { UpdateAsk } from "./updateask";
 
 /** The panel's own pages: the avatar's crop. */
 export type Page = "main" | "crop";
@@ -245,41 +245,35 @@ function InstallItem() {
   );
 }
 
-/** A download's size: "9.8 MB". */
-const mb = (n: number) => (n >= 1 << 20 ? `${(n / (1 << 20)).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
 
 /** Looking again on its own: a page that opens the settings with the last look over an hour ago
  *  asks for one (the daemon looks once a day by itself). */
 const STALE = 3_600_000;
 
 /** 检查更新, the update in one row (the user, 2026-11-09: no notice above the profile). Up to date,
- *  检查更新 with the version now (the user, 2026-11-12: not 已是最新; when it last looked in its tip) and a key that looks and, finding a newer release, downloads it,
- *  puts it in place and restarts, asking nothing more; the page then loads the new build (the user,
- *  2026-11-08). A newer one out, 版本 with its version and the 更新 key, or how far its
- *  download is, a hairline along the row's foot; pressing the title opens its notes, the current
- *  version and the size under it. Those who do not manage see the versions, no key. Release builds download a newer one ahead
+ *  检查更新 with the version now (the user, 2026-11-12: not 已是最新; when it last looked in its tip) and a key that looks; a newer
+ *  release found, it asks first (otae, 2026-11-22: never updated by the look alone): a popup out of
+ *  the row (over the list, taking no room in it) with the version, what is in it, the version now
+ *  and its size, 取消 or 更新, the one 更新 there is, which downloads it, puts it in place and
+ *  restarts; the page then loads the new build (the user, 2026-11-08). A newer one out, the row is
+ *  版本 with its version, pressed the same popup (no key of its own: two 更新 were one too many,
+ *  otae), or how far its download is, a hairline along the row's foot. Those who do not manage see the versions, no key. Release builds download a newer one ahead
  *  by themselves unless 自动更新 is off (u.manual); then the page does not look on opening either. */
 function UpdateItem({ manages }: { manages: boolean }) {
   const lang = useLang();
   const u = useUpdate().data;
   const [busy, setBusy] = useState(false);
-  const [open, setOpen] = useState(false);
+  // Asking whether to update to the newer one found.
+  const [ask, setAsk] = useState(false);
+  // The 更新 key, which the ask pops out of.
+  const [keyEl, setKeyEl] = useState<HTMLButtonElement | null>(null);
   const working = u?.phase === "checking" || u?.phase === "downloading" || u?.phase === "restarting";
-  const look = () => {
+  // asking: a newer one found is asked about (the key; not the look on opening).
+  const look = (asking = false) => {
     setBusy(true);
     void api.checkUpdate().then(
-      () => setBusy(false),
+      (st: UpdateState) => (setBusy(false), asking && st.available && setAsk(true)),
       () => setBusy(false), // quiet: the status says it failed
-    );
-  };
-  const update = () => {
-    setBusy(true);
-    expectUpgrade();
-    void api.applyUpdate().then(
-      () => setBusy(false),
-      // The daemon's answers (409 nothing newer, a failed download) the status says; only a request
-      // that got no answer is told.
-      (e) => (setBusy(false), expectUpgrade(false), !(e instanceof ApiError) && toast(t("err.update"), { error: true, description: errText(e) })),
     );
   };
   // Opened with the last look stale: look now, saying nothing if it fails.
@@ -298,50 +292,33 @@ function UpdateItem({ manages }: { manages: boolean }) {
   const failed = u.phase === "failed" && u.error;
 
   if (newer) {
-    // The release's notes start with its own version ("- v0.1.31: …"): the row says it already.
-    const notes = u.notes?.replace(/^\s*-?\s*v?\d+\.\d+\.\d+:\s*/, "").trim();
-    const label = (
-      <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} className="g-press -ml-1 flex items-center gap-1.5 rounded-md px-1 py-0.5 whitespace-nowrap hover:bg-fill">
-        <span className="size-1.5 shrink-0 rounded-full bg-err" aria-hidden />
-        {t("settings.version")}
-        <ChevronDown size={14} className={cn("text-ink-3 transition-transform duration-(--dur-2)", open && "rotate-180")} />
-      </button>
-    );
+    const state = pct !== null ? `${pct}%` : u.phase === "restarting" ? t("settings.restarting") : failed ? t("settings.failedShort") : "";
     return (
       <div className="relative">
-        <Item label={label}>
-          <span className="flex items-center gap-2">
-            <span className="text-xs font-medium text-ink tabular-nums">{u.latest}</span>
-            {pct !== null ? (
-              <span className="w-9 text-right text-xs text-ink-3 tabular-nums">{pct}%</span>
-            ) : manages ? (
-              <Tip label={failed ? t("settings.updateFailed", { e: u.error ?? "" }) : t("settings.updateTo", { v: u.latest ?? "" })}>
-                <button type="button" disabled={spin} onClick={update} className="g-press flex h-7 items-center gap-1.5 rounded-md bg-ink px-2.5 text-sm font-medium text-on-ink disabled:opacity-50">
-                  {spin && <LoaderCircle size={13} className="animate-spin" />}
-                  {u.phase === "restarting" ? t("settings.restarting") : t("settings.update")}
-                </button>
-              </Tip>
-            ) : null}
+        {/* The row is the one way in: what is new and the one 更新 are in what it opens. */}
+        <button
+          ref={setKeyEl}
+          type="button"
+          disabled={pct !== null || u.phase === "restarting"}
+          onClick={() => setAsk(true)}
+          aria-haspopup="dialog"
+          className="g-press -mx-1.5 flex min-h-10 w-[calc(100%+0.75rem)] items-center gap-3 rounded-md px-1.5 py-1 text-left hover:bg-fill disabled:hover:bg-transparent"
+        >
+          <span className="flex min-w-0 flex-1 items-center gap-1.5 text-sm">
+            <span className="size-1.5 shrink-0 rounded-full bg-err" aria-hidden />
+            {t("settings.version")}
           </span>
-        </Item>
+          {state && <span className={cn("text-xs tabular-nums", failed && pct === null ? "text-err" : "text-ink-3")}>{state}</span>}
+          <span className="text-xs font-medium text-ink tabular-nums">{u.latest}</span>
+          {pct === null && u.phase !== "restarting" ? <ChevronRight size={15} className="shrink-0 text-ink-4" /> : spin && <LoaderCircle size={13} className="shrink-0 animate-spin text-ink-3" />}
+        </button>
         {/* Along the row's foot, taking no room. */}
         {pct !== null && (
           <div className="g-fade absolute inset-x-0 bottom-0 h-0.5 overflow-hidden rounded-full bg-fill" aria-hidden>
             <div className="h-full bg-ink-3 transition-[width] duration-300 ease-out" style={{ width: `${pct}%` }} />
           </div>
         )}
-        <div aria-hidden={!open || undefined} inert={!open || undefined} className={cn("grid transition-[grid-template-rows,opacity] duration-(--dur-3) ease-(--ease-out)", open ? "grid-rows-[1fr]" : "grid-rows-[0fr] opacity-0")}>
-          <div className="min-h-0 overflow-hidden">
-            <div className="flex flex-col gap-1 pb-2">
-              {notes && <p className="m-0 max-h-40 overflow-y-auto text-xs whitespace-pre-wrap text-ink-2">{notes}</p>}
-              <p className="m-0 text-xs break-all text-ink-3 tabular-nums">
-                {t("settings.current", { v: u.current })}
-                {u.size ? ` · ${mb(u.size)}` : null}
-                {failed ? <span className="text-err"> · {t("settings.updateFailed", { e: u.error ?? "" })}</span> : null}
-              </p>
-            </div>
-          </div>
-        </div>
+        <UpdateAsk u={u} anchor={keyEl} open={ask} close={() => setAsk(false)} may={manages} />
       </div>
     );
   }
@@ -354,7 +331,7 @@ function UpdateItem({ manages }: { manages: boolean }) {
         <Tip label={failed ? u.error : (status === u.current && checked) || status}>
           <span className={`max-w-40 truncate text-xs tabular-nums ${u.phase === "failed" ? "text-err" : "text-ink-3"}`}>{status}</span>
         </Tip>
-        <IconKey label={t("settings.check")} disabled={spin} onClick={update} className="size-7">
+        <IconKey label={t("settings.check")} disabled={spin} onClick={() => look(true)} className="size-7">
           <RefreshCw size={14} className={spin ? "animate-spin" : undefined} />
         </IconKey>
       </span>
