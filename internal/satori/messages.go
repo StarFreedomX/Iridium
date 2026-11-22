@@ -157,11 +157,16 @@ func (s *Service) blockGet(_ context.Context, c Caller, body []byte) (any, error
 	if err != nil {
 		return nil, err
 	}
-	i := slices.IndexFunc(p.Blocks, func(b api.Block) bool { return b.At == req.MessageID })
-	if i < 0 {
+	var b api.Block
+	if i := slices.IndexFunc(p.Blocks, func(b api.Block) bool { return b.At == req.MessageID }); i >= 0 {
+		b = p.Blocks[i]
+	} else if i := slices.IndexFunc(p.Blocks, func(b api.Block) bool { return b.Result != nil && b.Result.At == req.MessageID }); i >= 0 {
+		// A result on its call's line (Codex's): the page has it in its call's block.
+		c, r := p.Blocks[i], p.Blocks[i].Result
+		b = api.Block{At: r.At, Kind: api.BlockKindResult, ID: c.ID, Time: r.Time, Text: r.Text, Length: r.Length, Error: r.Error, Images: r.Images}
+	} else {
 		return nil, noMessage
 	}
-	b := p.Blocks[i]
 	if b.Length > len([]rune(b.Text)) {
 		if full, err := s.b.Full(st.ID, b.At); err == nil {
 			b.Text = full
