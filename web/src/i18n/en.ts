@@ -203,6 +203,7 @@ export const en: Dict = {
   "composer.attach": "Add files",
   "composer.uploading": "Uploading",
   "composer.goneSession": "Session gone",
+  "composer.original": "Original",
   "composer.remove": "Remove",
   "composer.send": "Send",
   "chat.stopEsc": "Stop · Esc",
