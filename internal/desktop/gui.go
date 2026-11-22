@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log"
@@ -43,6 +44,7 @@ type ui struct {
 	mu          sync.Mutex
 	ready       string                     // a downloaded update's version, waiting for a restart
 	waiting     bool                       // this computer's Iridium is waited for: shown once it runs
+	probeHold   bool                       // IRIDIUM_APP_PROBE keeps the control open (probe)
 	picker      *application.WebviewWindow // the small window of the Iridiums (picker.go)
 	control     *application.WebviewWindow // the control's window, made once the app has started (control.go)
 	controlOpen bool
@@ -123,19 +125,10 @@ func gui(o Options) int {
 			c = c2
 		}
 	}
-	// A window shows an Iridium's page and nothing else (kumo, 2026-11-22): with none to show yet
-	// (a first start, not logged in, this computer's own not running) it stays hidden and empty,
-	// and the picker is shown.
-	start := pageOf(c)
-	empty := start == "/"
-	if s := c.server(c.current()); s != nil && s.Local && !answers(context.Background(), s.URL) {
-		empty, u.waiting = true, true // shown once it answers (startLocal)
-	}
-	if empty {
-		start = blankPage
-	} else {
-		u.shows = map[string]string{"main": c.current()}
-	}
+	// Each start shows the picker alone (kumo, 2026-11-22): the window on an Iridium is made
+	// hidden and empty, and comes once one is picked; it shows an Iridium's page and nothing else.
+	const empty = true
+	start := blankPage
 	opts := application.WebviewWindowOptions{
 		Name: "main", Title: "Iridium", Width: 1200, Height: 800, MinWidth: 360, MinHeight: 480,
 		URL: themed(start), CSS: pageCSS, JS: pageJS, Hidden: empty,
@@ -156,7 +149,7 @@ func gui(o Options) int {
 	u.zoomKeys()
 	// Closing the window keeps the app (and this computer joined) in the tray.
 	u.watch(u.win)
-	u.makePicker(!empty)
+	u.makePicker(false)
 
 	// macOS gives a web view ⌘C, ⌘V, ⌘A, ⌘Z only through the menu bar's Edit menu: without one,
 	// nothing pastes. Elsewhere the keys work without, and a menu would be a bar in the window.
@@ -200,7 +193,8 @@ func gui(o Options) int {
 	}
 	u.tray.SetTooltip("Iridium")
 	u.tray.OnClick(u.show)
-	u.redraw()
+	auto, autoErr := u.app.Autostart.IsEnabled()
+	u.drawMenu(c, auto, autoErr)
 	u.joins.Sync(c)
 	if l := c.local(); l != nil && c.serverOn() && !o.NoServer {
 		go u.startLocal(l.URL, logf)
@@ -215,6 +209,7 @@ func gui(o Options) int {
 		application.InvokeAsync(func() { u.makeControl() })
 	})
 
+	go u.probe()
 	if err := u.app.Run(); err != nil {
 		logf("%v", err)
 		return 1
@@ -243,15 +238,6 @@ func themed(address string) string {
 	return out
 }
 
-// pageOf is the window's address: the Iridium shown once logged in to (this computer's on
-// loopback needs no login), else the app's own login page (assets/index.html).
-func pageOf(c Config) string {
-	if s := c.server(c.current()); s != nil && (s.LoggedIn || (s.Local && loopback(s.URL))) {
-		return s.URL + "/"
-	}
-	return "/"
-}
-
 // loopback: is address on this computer's loopback (no public address: no login)?
 func loopback(address string) bool {
 	u, err := url.Parse(address)
@@ -271,6 +257,11 @@ func loopback(address string) bool {
 func (u *ui) startLocal(address string, logf func(string, ...any)) {
 	application.InvokeAsync(u.redraw)
 	err := u.here.ensure(context.Background(), address, logf)
+	if errors.Is(err, errBusy) {
+		// Already being started (the app's own start): that one, as it ends, shows it if waited
+		// for. Taken as a failure, the window picked never came (2026-11-22).
+		return
+	}
 	if err != nil {
 		logf("local: %v", err)
 	}
@@ -970,10 +961,31 @@ func (u *ui) confirm(ctx context.Context, q string) bool {
 }
 
 // redraw builds the tray's menu again: each Iridium with its state, which is shown, the app's own.
+//
+// What it reads (the settings, the runtime's record, the system's word on 登录时打开) is read off
+// the main thread, and only the menu is built on it: read there, every window of the app stood
+// still for it, some 150 ms each time (kumo, 2026-11-22: 两边都同时卡一下).
 func (u *ui) redraw() {
-	c, _ := loadConfig()
-	u.tellControl(c)
-	u.tellPicker(u.pageState(c))
+	go func() {
+		t0 := time.Now()
+		c, _ := loadConfig()
+		st := u.pageState(c)
+		u.tellControlState(st)
+		u.tellPicker(st)
+		t1 := time.Now()
+		auto, autoErr := u.app.Autostart.IsEnabled()
+		t2 := time.Now()
+		application.InvokeAsync(func() {
+			u.drawMenu(c, auto, autoErr)
+			if d := time.Since(t2); d > 30*time.Millisecond {
+				appLog()("redraw: the menu took %v (state %v, autostart %v off the main thread)", d, t1.Sub(t0), t2.Sub(t1))
+			}
+		})
+	}()
+}
+
+// drawMenu builds the tray's menu. On the main thread.
+func (u *ui) drawMenu(c Config, auto bool, autoErr error) {
 	m := u.menu
 	m.Clear()
 	cur := c.current()
@@ -1034,7 +1046,7 @@ func (u *ui) redraw() {
 	}
 	m.AddSeparator()
 	m.Add("打开窗口").OnClick(func(*application.Context) { u.show() })
-	if on, err := u.app.Autostart.IsEnabled(); err == nil {
+	if on, err := auto, autoErr; err == nil {
 		m.AddCheckbox("登录时打开", on).OnClick(func(*application.Context) {
 			if on {
 				_ = u.app.Autostart.Disable()
@@ -1138,4 +1150,35 @@ func (u *ui) zoomKeys() {
 	}
 	u.app.KeyBinding.Add("CmdOrCtrl+-", func(application.Window) { u.win.ZoomOut(); keep() })
 	u.app.KeyBinding.Add("CmdOrCtrl+0", func(application.Window) { u.win.ZoomReset(); keep() })
+}
+
+// probe does what IRIDIUM_APP_PROBE lists, 3 seconds apart, for looking at the app's windows from
+// outside (a screenshot): control, picker, open (the Iridium used last), closecontrol.
+func (u *ui) probe() {
+	steps := os.Getenv("IRIDIUM_APP_PROBE")
+	if steps == "" {
+		return
+	}
+	for _, step := range strings.Split(steps, ",") {
+		time.Sleep(3 * time.Second)
+		switch step {
+		case "control":
+			application.InvokeAsync(func() { u.openControl("") })
+		case "controlhold": // open, and kept open whatever takes the focus, till release
+			u.mu.Lock()
+			u.probeHold = true
+			u.mu.Unlock()
+			application.InvokeAsync(func() { u.openControl("") })
+		case "release", "closecontrol":
+			u.mu.Lock()
+			u.probeHold = false
+			u.mu.Unlock()
+			u.closeControl()
+		case "picker":
+			u.showPicker()
+		case "open":
+			c, _ := loadConfig()
+			u.switchTo(c.current())
+		}
+	}
 }

@@ -1,4 +1,4 @@
-//go:build darwin && !wails_cgo && !ios && !server && private_mac_apis
+//go:build darwin && !wails_cgo && !ios && !server && !public_mac_apis
 
 package application
 

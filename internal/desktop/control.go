@@ -104,6 +104,10 @@ func (u *ui) openControl(arg string) {
 // does), then the window hides.
 func (u *ui) closeControl() {
 	u.mu.Lock()
+	if u.probeHold {
+		u.mu.Unlock()
+		return
+	}
 	w, open := u.control, u.controlOpen
 	u.controlOpen = false
 	if open {
@@ -126,12 +130,12 @@ func (u *ui) closeControl() {
 	})
 }
 
-// tellControl gives the control the state afresh while it is open (a link's state changed).
-func (u *ui) tellControl(c Config) {
+// tellControlState gives the control the state afresh while it is open (a link's state changed).
+func (u *ui) tellControlState(st map[string]any) {
 	u.mu.Lock()
 	w, open := u.control, u.controlOpen
 	u.mu.Unlock()
 	if w != nil && open {
-		reply(w, u.pageState(c))
+		reply(w, st)
 	}
 }

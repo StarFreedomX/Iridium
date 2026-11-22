@@ -65,6 +65,9 @@ type localState struct {
 	busy  bool
 }
 
+// errBusy: another ensure is at it; that one's end says how it went.
+var errBusy = errors.New("busy")
+
 const (
 	localStarting = "启动中"
 	localRunning  = "运行中"
@@ -89,7 +92,7 @@ func (l *localState) ensure(ctx context.Context, address string, logf func(strin
 	l.mu.Lock()
 	if l.busy {
 		l.mu.Unlock()
-		return errors.New("busy")
+		return errBusy
 	}
 	l.busy = true
 	l.mu.Unlock()
