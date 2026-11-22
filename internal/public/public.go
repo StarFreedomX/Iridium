@@ -9,6 +9,7 @@
 package public
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"encoding/pem"
@@ -59,10 +60,17 @@ type Options struct {
 	// Host is the address wanted (iridium install -public): the subdomain not asked for when it is
 	// under the domain chosen at Cloudflare. "": asked.
 	Host string
-	// Ask asks the person at the terminal; def is the answer to an empty line.
-	Ask    func(question, def string) (string, error)
-	Out    io.Writer
-	Daemon Daemon
+	// Ask asks the person at the terminal; def is the answer to an empty line. nil (the desktop
+	// app, no terminal): every question takes its default: the subdomain Host's or ir, no to any
+	// yes/no (an existing DNS record stops it, saying so).
+	Ask func(question, def string) (string, error)
+	// OnLink is given the Cloudflare login link as cloudflared says it (cloudflared tries to open a
+	// browser itself; the app shows the link in case it could not); OnInvite, the first invite once
+	// it is up. Either may be nil.
+	OnLink   func(url string)
+	OnInvite func(url string, expires time.Time)
+	Out      io.Writer
+	Daemon   Daemon
 
 	HealthWait  time.Duration // "" is 3 minutes
 	HealthEvery time.Duration // "" is 3 seconds
@@ -92,6 +100,9 @@ func (o *Options) defaults() {
 	}
 	if o.Out == nil {
 		o.Out = io.Discard
+	}
+	if o.Ask == nil {
+		o.Ask = func(_, def string) (string, error) { return def, nil }
 	}
 }
 
@@ -144,14 +155,55 @@ func (o *Options) yes(question string, def bool) (bool, error) {
 
 // run runs cloudflared, its output both shown and given back.
 func (o *Options) run(ctx context.Context, env []string, cf string, args ...string) (string, error) {
+	return o.runWatch(ctx, env, io.Discard, cf, args...)
+}
+
+// runWatch is run with its output also going to watch.
+func (o *Options) runWatch(ctx context.Context, env []string, watch io.Writer, cf string, args ...string) (string, error) {
 	var out strings.Builder
 	cmd := exec.CommandContext(ctx, cf, args...)
-	cmd.Stdout = io.MultiWriter(o.Out, &out)
-	cmd.Stderr = io.MultiWriter(o.Out, &out)
+	cmd.Stdout = io.MultiWriter(o.Out, &out, watch)
+	cmd.Stderr = io.MultiWriter(o.Out, &out, watch)
 	cmd.Env = append(os.Environ(), env...)
 	err := cmd.Run()
 	return out.String(), err
 }
+
+var linkRE = regexp.MustCompile(`https://[^\s"'<>]+`)
+
+// linkWatcher calls f with each Cloudflare link written to it (the login link), once each;
+// f nil: a writer that drops everything.
+func linkWatcher(f func(string)) io.Writer {
+	if f == nil {
+		return io.Discard
+	}
+	seen := map[string]bool{}
+	var line []byte
+	return writerFunc(func(p []byte) (int, error) {
+		line = append(line, p...)
+		for {
+			i := bytes.IndexByte(line, '\n')
+			if i < 0 {
+				break
+			}
+			for _, u := range linkRE.FindAllString(string(line[:i]), -1) {
+				if !strings.Contains(u, "cloudflare") {
+					continue
+				}
+				if !seen[u] {
+					seen[u] = true
+					f(u)
+				}
+			}
+			line = line[i+1:]
+		}
+		return len(p), nil
+	})
+}
+
+type writerFunc func([]byte) (int, error)
+
+func (f writerFunc) Write(p []byte) (int, error) { return f(p) }
 
 // quiet runs cloudflared and gives its output without showing it.
 func (o *Options) quiet(ctx context.Context, cf string, args ...string) (string, error) {
@@ -248,6 +300,9 @@ func On(ctx context.Context, o Options) error {
 	if err != nil {
 		return fmt.Errorf("邀请：%w", err)
 	}
+	if o.OnInvite != nil {
+		o.OnInvite(link, expires)
+	}
 	o.say("\n第一个网页面板：在浏览器里打开这个链接，起名、建 Passkey（%s 前有效，只能用一次）：\n\n  %s\n", expires.Format("15:04"), link)
 	o.say("过期了就在这台机器上跑 ir invite 再拿一个。关掉：ir public off")
 	return nil
@@ -276,7 +331,7 @@ func (o *Options) login(ctx context.Context, cf string) error {
 		}
 	}
 	o.say("cloudflared 会给出一个登录链接：在浏览器里打开，登录 Cloudflare，选一个域名（站点）。")
-	_, err := o.run(ctx, []string{"HOME=" + o.Dir}, cf, "tunnel", "login")
+	_, err := o.runWatch(ctx, []string{"HOME=" + o.Dir}, linkWatcher(o.OnLink), cf, "tunnel", "login")
 	if _, serr := os.Stat(o.cert()); serr != nil && homeCert != "" {
 		if _, herr := os.Stat(homeCert); herr == nil {
 			if rerr := os.Rename(homeCert, o.cert()); rerr == nil {
@@ -485,7 +540,9 @@ func (o *Options) route(ctx context.Context, cf, id, host string) error {
 	return nil
 }
 
-// Config is the tunnel's config file: host to the daemon, the rest 404.
+// Config is the tunnel's config file: host to the daemon, the rest 404. The Host it sends is the
+// public host, said outright: never a loopback name, which the desktop app's window may use as the
+// host's own (public.localWindow).
 func Config(id, creds, host string, port int) string {
 	return fmt.Sprintf(`# Written by ir public. The Cloudflare Tunnel of Iridium: %[3]s to the daemon, the rest 404.
 tunnel: %[1]s
@@ -493,6 +550,8 @@ credentials-file: %[2]s
 ingress:
   - hostname: %[3]s
     service: http://127.0.0.1:%[4]d
+    originRequest:
+      httpHostHeader: %[3]s
   - service: http_status:404
 `, id, creds, host, port)
 }

@@ -61,6 +61,12 @@ curl 只装程序，`sh -s --` 后面的交给 `ir`。见 `docs/exec.md`。
 4. 应用轮询 `POST /_ir/api/app/poll {id, secret}`，允许后拿到一次性凭证（2 分钟），窗口打开 `/_ir/app/finish?ticket=…`，这边给这个窗口一个同一登录的会话，回到首页。
 5. 请求 10 分钟过期，只在内存；同时待批最多 50 个。只看到浏览器地址栏里的 id 拿不到任何东西。
 
+邀请链接（2026-11-22）：粘贴的是邀请（路径 `/_ir/join`）时，应用照样先 `app/start`，然后在系统浏览器打开那条邀请，查询里加 `app=<请求 id>` 和 `name=<名字>`（`#` 后的邀请码不动）。邀请页把名字填好（邀请自己定了名字的以邀请为准），建好 Passkey 后直接跳到 `/_ir/app?id=…`，已经登录，照常核对代码、允许。`app`、`name` 只在这一页用，刷新也记得（本标签页）。
+
+公网下的窗口（2026-11-22）：本机开了公网地址后，`127.0.0.1` 原本也要登录。配置 `public.localWindow: true`（桌面应用写）时，Host 是回环名、来自回环地址、没有转发头（`Cf-Connecting-IP`、`X-Forwarded-For` 等）的请求仍按“只本机”处理，就是本机登录，窗口不被挡。隧道的配置写明 `httpHostHeader` 为公网主机名，经隧道来的永远不是回环 Host。
+
+公网访问（2026-11-22）：桌面应用用 `cli.PublicOptions(配置, 输出)` 拿到 `ir public` 的选项，设 `Host`、`OnLink`（Cloudflare 登录链接，cloudflared 自己也会试着开浏览器）、`OnInvite`（第一个邀请），再 `public.On`；没有终端，问题都取默认（子域名用 `Host` 或 ir，是否题一律否：已有同名 DNS 记录就停下报错）。关掉 `cli.PublicOff`。Windows 暂不支持。
+
 ## 右上角
 
 应用里的网页顶栏右上角（`web/src/appkey.tsx`，浏览器里不出现）一个键，弹出：服务器（切换、添加、移除；添加时先查 `/_ir/health`，不是 Iridium 不加）、这台电脑对这个服务器的接入/命令行/文件夹、应用自己（登录时打开、版本和更新）。网页和应用之间：`ir:hello`、`ir:switch:`、`ir:add:`、`ir:remove:`、`ir:set:{json}`、`ir:pickroot`、`ir:autostart:`、`ir:update:check|restart`、`ir:login`、`ir:local`（本机放进列表并显示），回的是事件 `ir-app`（整个状态，或 `error`、`notice`、`code`）。

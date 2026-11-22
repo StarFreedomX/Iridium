@@ -68,6 +68,10 @@ type Uploads struct {
 type Public struct {
 	// Origin is public.origin, e.g. https://ir.example.com; "" serves this machine only.
 	Origin string `json:"origin,omitempty"`
+	// LocalWindow: with an origin, a request to a loopback name from this machine (not through the
+	// tunnel) is still this machine's own, the host, as with none: the desktop app's window stays
+	// in (docs/app.md "公网"). Set by the desktop app only.
+	LocalWindow bool `json:"localWindow,omitempty"`
 }
 
 type Update struct {

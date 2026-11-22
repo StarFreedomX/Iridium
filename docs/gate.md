@@ -26,6 +26,8 @@ TCP 上的请求先过网页层（`internal/webapp`），再到核心的 `gate.W
 - 名字：1–12 个字，字母、数字、空格和 `- _ .`；全角转半角，空格合并；不分大小写查重，应用之间、网页的登录之间各自不重名（登录改名时也避开邀请占着的名字，`Config.LoginNameTaken`）。保留 `host`、`主机`、`本机`、`ir_web`、`local`、`未知`、`unknown`，单个 ASCII 字母不能用。`[ ] / : ·` 不收。
 - 名字和头像：`UpdateProfile`、`ServeProfile`。头像收 PNG/JPEG/WebP，≤2MB，居中裁方、缩到 128×128。地址 `/_ir/avatar/<id>?v=<版本>`，核心给任何认出来的人，带版本时可永久缓存（private）。
 
+- **桌面应用的窗口**（2026-11-22）：配置 `public.localWindow` 开着时，开了公网地址也把“回环 Host、回环来源、没有转发头”的请求当本机登录（同只本机模式）；经隧道、反代来的都带转发头或公网 Host，照旧要登录。见 `docs/app.md`“登录”。
+
 ## 防护
 
 - 坏 TOKEN 计失败：同一客户端 1 分钟内 10 次，它的坏 TOKEN 等 1 分钟（`ByTokenFrom` 也算）。先验 TOKEN，好的一律放行：同一地址（共用出口、ir_web 转来的浏览器）别人的失败挡不住它。客户端地址只在对端是回环时才信 `CF-Connecting-IP`；IPv6 按 /64。

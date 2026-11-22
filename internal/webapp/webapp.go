@@ -96,6 +96,11 @@ type Config struct {
 	// Open says which requests pass with no login, as no one (gate.Config.Open's).
 	Open func(*http.Request) bool
 
+	// LocalWindow: with a public origin, a request to a loopback name from a loopback peer that
+	// did not come through a proxy (no forwarding headers) is served as in the local-only mode:
+	// the host. The desktop app's window on http://127.0.0.1 (config public.localWindow).
+	LocalWindow bool
+
 	// Viewer serves a public link's read-only view (ViewerPrefix, docs/api.md "公开链接"): to
 	// anyone, with no login, only with a public origin; GET and HEAD only, never a WebSocket, the
 	// browser's cookie and any Authorization taken off, its answers private and sending no
@@ -361,6 +366,10 @@ func (w *Web) Handler(core, app http.Handler) http.Handler {
 		// An app's TOKEN is a secret no rebound page has: it may come by a loopback name (a plugin
 		// on this machine) even when the public origin is the only host.
 		token := hasBearer(r)
+		if w.public && w.cfg.LocalWindow && !token && localWindow(r) {
+			w.serveLocal(rw, r, site)
+			return
+		}
 		if !w.hostAllowed(r.Host) && !(token && loopbackName(hostOnly(r.Host))) {
 			writeJSON(rw, http.StatusMisdirectedRequest, apiError{"bad_host"})
 			return
@@ -414,6 +423,63 @@ func (w *Web) Handler(core, app http.Handler) http.Handler {
 			w.unauthenticated(rw, r)
 		}
 	})
+}
+
+// localWindow: a request to a loopback name, from a loopback peer, that no proxy passed on (the
+// tunnel's carry Cf-Connecting-IP; a reverse proxy's X-Forwarded-For): this machine's own window.
+func localWindow(r *http.Request) bool {
+	if !loopbackName(hostOnly(r.Host)) {
+		return false
+	}
+	for _, h := range []string{"Cf-Connecting-Ip", "Cf-Ray", "X-Forwarded-For", "X-Forwarded-Host", "Forwarded", "X-Real-Ip"} {
+		if r.Header.Get(h) != "" {
+			return false
+		}
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return false
+	}
+	ip, err := netip.ParseAddr(host)
+	return err == nil && ip.Unmap().IsLoopback()
+}
+
+// serveLocal serves a local window's request as the local-only mode does (Config.LocalWindow):
+// the host's page and API; of /_ir, only what that mode answers.
+func (w *Web) serveLocal(rw http.ResponseWriter, r *http.Request, site http.HandlerFunc) {
+	p := r.URL.Path
+	if (p == "/_ir" || strings.HasPrefix(p, Prefix)) && !strings.HasPrefix(p, gate.AvatarPrefix) {
+		get := r.Method == http.MethodGet || r.Method == http.MethodHead
+		w.gateHeaders(rw.Header())
+		switch {
+		case p == "/_ir/health" && get:
+			writeJSON(rw, http.StatusOK, map[string]bool{"ok": true})
+		case p == "/_ir/api/session" && get:
+			writeJSON(rw, http.StatusOK, sessionReply{Authenticated: true, Name: w.core.HostName(), Local: true})
+		case pages[p][0] != "" && get:
+			http.Redirect(rw, r, "/", http.StatusFound) // nothing to log in to
+		default:
+			writeJSON(rw, http.StatusNotFound, apiError{"not_found"})
+		}
+		return
+	}
+	if p == strings.TrimSuffix(ViewerPrefix, "/") || strings.HasPrefix(p, ViewerPrefix) {
+		writeJSON(rw, http.StatusNotFound, apiError{"not_found"})
+		return
+	}
+	// The local-only mode's origin check: a page of this same loopback address, or no browser.
+	site2 := r.Header.Get("Sec-Fetch-Site")
+	origin := r.Header.Get("Origin")
+	sameOrigin := site2 == "" || site2 == "same-origin"
+	if sameOrigin && origin != "" {
+		u, err := url.Parse(origin)
+		sameOrigin = err == nil && u.Host != "" && strings.EqualFold(u.Host, r.Host)
+	}
+	if (unsafeMethod(r.Method) || isUpgrade(r)) && !sameOrigin {
+		writeJSON(rw, http.StatusForbidden, apiError{"bad_origin"})
+		return
+	}
+	w.forward(rw, gate.AsHost(stripped(r)), "", "", site)
 }
 
 // serveViewer is a public link's view (Config.Viewer): no login, no cookie, nothing but GET.

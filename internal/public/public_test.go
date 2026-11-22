@@ -239,7 +239,7 @@ func TestOnAndOff(t *testing.T) {
 		t.Error("the user's ~/.cloudflared was written")
 	}
 	cfg, _ := os.ReadFile(filepath.Join(r.o.Dir, "config.yml"))
-	if !strings.Contains(string(cfg), "hostname: ir-test.example.com\n    service: http://127.0.0.1:7810\n  - service: http_status:404") ||
+	if !strings.Contains(string(cfg), "hostname: ir-test.example.com\n    service: http://127.0.0.1:7810\n    originRequest:\n      httpHostHeader: ir-test.example.com\n  - service: http_status:404") ||
 		!strings.Contains(string(cfg), "tunnel: 00000001-") || !strings.Contains(string(cfg), "credentials-file: "+filepath.Join(r.o.Dir, "tunnel.json")) {
 		t.Errorf("config:\n%s", cfg)
 	}
@@ -296,6 +296,35 @@ func TestOnAndOff(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(r.o.Dir, f)); !os.IsNotExist(err) {
 			t.Errorf("%s stayed", f)
 		}
+	}
+}
+
+// With no terminal (the desktop app): Host given, no question asked, the login link and the first
+// invite handed over.
+func TestNoTerminal(t *testing.T) {
+	r := newRig(t)
+	r.o.Ask, r.o.Host = nil, "panel.example.com"
+	var links, invites []string
+	r.o.OnLink = func(u string) { links = append(links, u) }
+	r.o.OnInvite = func(u string, _ time.Time) { invites = append(invites, u) }
+	if err := On(context.Background(), r.o); err != nil {
+		t.Fatalf("on: %v\n%s", err, r.out)
+	}
+	if len(links) != 1 || !strings.HasPrefix(links[0], "https://dash.cloudflare.com/argotunnel") {
+		t.Errorf("links %q", links)
+	}
+	if fmt.Sprint(invites) != "[https://ir-test.example.com/_ir/join#INVITE-SECRET]" { // the fake daemon's
+		t.Errorf("invites %q", invites)
+	}
+	if fmt.Sprint(r.daemon.origins) != "[https://panel.example.com]" {
+		t.Errorf("origins %v", r.daemon.origins)
+	}
+	// A record there already: no is the answer, said in the error.
+	r2 := newRig(t)
+	t.Setenv("FAKE_CF_DNS_EXISTS", "1")
+	r2.o.Ask = nil
+	if err := On(context.Background(), r2.o); err == nil || !strings.Contains(err.Error(), "已经有别的记录") {
+		t.Fatalf("existing record: %v", err)
 	}
 }
 

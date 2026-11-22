@@ -12,6 +12,7 @@ import (
 
 	"github.com/kumoSleeping/iridium/internal/access"
 	"github.com/kumoSleeping/iridium/internal/api"
+	"github.com/kumoSleeping/iridium/internal/config"
 	"github.com/kumoSleeping/iridium/internal/gate"
 	"github.com/kumoSleeping/iridium/internal/satori"
 	"github.com/kumoSleeping/iridium/internal/session"
@@ -179,8 +180,16 @@ func (s *Server) openGate() error {
 
 // newWeb opens ir_web for origin ("" is off: this machine only) over the store.
 func (s *Server) newWeb(origin string) (*webapp.Web, error) {
+	// public.localWindow as the file has it now: the desktop app may have set it since the start.
+	localWindow := s.cfg.Public.LocalWindow
+	if s.ConfigPath != "" {
+		if c, err := config.Load(s.ConfigPath); err == nil {
+			localWindow = c.Public.LocalWindow
+		}
+	}
 	return webapp.New(webapp.Config{
 		PublicOrigin: origin,
+		LocalWindow:  localWindow,
 		Core:         s.g,
 		Token:        s.webToken,
 		Store:        s.st.Web(),

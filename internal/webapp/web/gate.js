@@ -45,6 +45,7 @@ const t = (k) => (S[k] || [k, k])[ZH ? 0 : 1];
 
 const $ = (id) => document.getElementById(id);
 const TOKEN_KEY = 'ir-join';
+const APP_KEY = 'ir-join-app';
 
 function b64uToBuf(s) {
   const b = atob(s.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(s.length / 4) * 4, '='));
@@ -169,6 +170,9 @@ async function login(then = () => location.replace(nextUrl())) {
 // --- join ---
 
 let token = '';
+// The desktop app opens the invite with app=<its login request> and name=<its name> (docs/app.md
+// "登录"): the name is filled in, and once the passkey is made the page goes on to that request.
+let appId = '';
 let checkSeq = 0;
 let checkTimer = 0;
 
@@ -224,8 +228,8 @@ async function join() {
   status('');
   const v = await api('/_ir/api/join/verify', { flow: opt.data.flow, response: encodeCredential(cred) });
   if (v.status === 200) {
-    try { sessionStorage.removeItem(TOKEN_KEY); } catch { /* ignore */ }
-    location.replace('/');
+    try { sessionStorage.removeItem(TOKEN_KEY); sessionStorage.removeItem(APP_KEY); } catch { /* ignore */ }
+    location.replace(appId ? '/_ir/app?id=' + encodeURIComponent(appId) : '/');
   } else if (v.status === 403 && v.data.code === 'flow_expired') status(t('expired'), true);
   else if (v.status === 403) badLink();
   else if (v.status === 409 && v.data.nameError) { nameNote(v.data.nameError); status(''); }
@@ -236,9 +240,14 @@ async function initJoin() {
   // The token is in the fragment, which never reaches the server. Take it out of the
   // address bar (and history); keep it for this tab in case the page reloads.
   token = location.hash.slice(1);
+  const q = new URLSearchParams(location.search);
+  appId = q.get('app') || '';
+  const asked = (q.get('name') || '').trim();
   try {
     if (token) sessionStorage.setItem(TOKEN_KEY, token);
     else token = sessionStorage.getItem(TOKEN_KEY) || '';
+    if (appId) sessionStorage.setItem(APP_KEY, appId);
+    else appId = sessionStorage.getItem(APP_KEY) || '';
   } catch { /* storage unavailable */ }
   if (location.hash) history.replaceState(null, '', location.pathname);
   if (!token) return badLink();
@@ -274,6 +283,10 @@ async function initJoin() {
   if (r.data.name) {
     input.value = r.data.name;
     $('join').disabled = false;
+  } else if (asked) {
+    // The app's name: checked as one typed is.
+    input.value = asked;
+    checkName().catch(() => status(t('offline'), true));
   }
   input.focus();
 }
