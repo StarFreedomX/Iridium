@@ -74,14 +74,24 @@ func parentPath(hi *wire.Hello, p string) string {
 	return t[:i]
 }
 
-func (s *Server) remoteFolders(w http.ResponseWriter, r *http.Request, mid, path string) {
+// pageMachinePath is executor mid, connected, and page path as that machine writes it (~ for its
+// home, absolute); it has answered when nil.
+func (s *Server) pageMachinePath(w http.ResponseWriter, mid, path string) (*remote.Machine, *wire.Hello, string) {
 	mc, hi := s.machineAt(w, mid)
 	if mc == nil {
-		return
+		return nil, nil, ""
 	}
 	dir := nativePath(hi, path)
 	if !remote.IsAbs(hi.Sep, dir) {
 		fail(w, http.StatusBadRequest, "not an absolute path")
+		return nil, nil, ""
+	}
+	return mc, hi, dir
+}
+
+func (s *Server) remoteFolders(w http.ResponseWriter, r *http.Request, mid, path string) {
+	mc, hi, dir := s.pageMachinePath(w, mid, path)
+	if mc == nil {
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)

@@ -31,16 +31,25 @@ func (s *Server) listAt(w http.ResponseWriter, r *http.Request, machine, path st
 	if path == "" {
 		path = hi.Home
 	}
-	ents, err := mc.List(r.Context(), path)
+	l, err := listRemoteDir(r.Context(), mc, path)
 	if err != nil {
 		s.remoteFileError(w, err)
 		return
 	}
-	l := api.DirListing{Path: path, Entries: []api.DirEntry{}}
-	for _, e := range ents {
-		l.Entries = append(l.Entries, api.DirEntry{Name: e.Name, Size: e.Size, Mtime: e.Mtime, Type: e.Type})
-	}
 	reply(w, http.StatusOK, l)
+}
+
+// listRemoteDir reads one level of path at mc in API form.
+func listRemoteDir(ctx context.Context, mc *remote.Machine, path string) (api.DirListing, error) {
+	ents, err := mc.List(ctx, path)
+	if err != nil {
+		return api.DirListing{}, err
+	}
+	l := api.DirListing{Path: path, Entries: make([]api.DirEntry, 0, len(ents))}
+	for _, e := range ents {
+		l.Entries = append(l.Entries, api.DirEntry(e))
+	}
+	return l, nil
 }
 
 func (s *Server) remoteFileError(w http.ResponseWriter, err error) {
