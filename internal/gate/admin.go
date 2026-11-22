@@ -220,11 +220,11 @@ func (g *Gate) Access() Access {
 
 // Endpoint returns one app or login of ir_web by ID, including the host.
 func (g *Gate) Endpoint(id string) (EndpointInfo, bool) {
-	if id == HostID {
-		return EndpointInfo{ID: HostID, Name: HostName, Kind: KindChannel}, true
-	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if id == HostID {
+		return g.hostInfoLocked(), true
+	}
 	e, ok := g.st.endpoints[id]
 	return infoOf(e), ok
 }
@@ -288,6 +288,9 @@ func (g *Gate) Find(ref string) (EndpointInfo, bool) {
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if g.isHostNameLocked(ref) {
+		return g.hostInfoLocked(), true
+	}
 	e, ok := g.findLocked(ref)
 	return infoOf(e), ok
 }
@@ -325,11 +328,11 @@ func (g *Gate) UpdateProfile(ref string, p Profile) (EndpointInfo, error) {
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if IsHostRef(ref) || g.isHostNameLocked(ref) {
+		return g.updateHostLocked(p, avatar, version, held)
+	}
 	e, ok := g.findLocked(ref)
 	if !ok {
-		if IsHostRef(ref) {
-			return EndpointInfo{}, ErrLocal
-		}
 		return EndpointInfo{}, ErrNotFound
 	}
 	if p.Name != nil {
@@ -431,6 +434,9 @@ func (g *Gate) checkNameLocked(raw, kind, exceptEndpoint string) (string, error)
 		if e.Kind == kind && e.ID != exceptEndpoint && nameKey(e.Name) == k {
 			return "", ErrNameTaken
 		}
+	}
+	if g.isHostNameLocked(n) { // the host's own name (host.go)
+		return "", ErrNameTaken
 	}
 	return n, nil
 }

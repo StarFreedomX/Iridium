@@ -163,7 +163,7 @@ POST internal/secrets/use {names, command, session?, confirm?} -> {values}  ir r
 
 # apps (admin)
 GET internal/me - -> Me  the caller: app, login, host, web, rules
-PUT internal/me/profile {name?, avatar?, removeAvatar?} -> EndpointInfo  own name, avatar (base64); not the host
+PUT internal/me/profile {name?, avatar?, removeAvatar?} -> EndpointInfo  own name, avatar (base64); the host's too: unset it is Iridium
 PUT internal/me/device {device} -> {device}  own device: computer|laptop|phone|none
 PUT internal/me/perms {agents, scope} -> 202 {need}  an app asks for new permissions; apps only
 PUT internal/apps/{id}/profile {name?, avatar?, removeAvatar?} -> EndpointInfo  an app's name, avatar; host or web

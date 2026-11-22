@@ -14,12 +14,13 @@ export type Source =
   | { kind: "iridium" };
 
 /** What sourceOf needs to know of who sent a message: an app, a login of ir_web (web), or the host. */
-export type Who = { id: string; name: string; avatar?: string; device?: Device; host?: boolean; web?: boolean; type?: string };
+export type Who = { id: string; name: string; avatar?: string; device?: Device; host?: boolean; named?: boolean; web?: boolean; type?: string };
 
 const HOST: Who = { id: "local", name: "Iridium", host: true };
 
-/** Your words from terminal x. */
-export const yours = (x: Who): Extract<Source, { kind: "you" }> => ({ kind: "you", name: x.name, avatar: x.avatar, device: x.device ?? "computer", ...(x.host ? { local: true } : {}) });
+/** Your words from terminal x. The host is drawn as Iridium (local) unless it has a name and face
+ *  of its own (named: the desktop app's user, kumo 2026-11-22). */
+export const yours = (x: Who): Extract<Source, { kind: "you" }> => ({ kind: "you", name: x.name, avatar: x.avatar, device: x.device ?? "computer", ...(x.host && !x.named ? { local: true } : {}) });
 
 /** Who wrote a message: from, the tag Iridium wrote it with, and terminal, the sending terminal's ID
  *  (Block.from, fromTerminal). me: this panel ("local" with no gate). An agent's ir from another

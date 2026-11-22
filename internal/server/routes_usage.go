@@ -111,7 +111,7 @@ func (s *Server) usage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if info, ok := s.gate().Endpoint(id); ok {
-			out.Terminals[id] = api.UsageWho{Name: info.Name, App: info.Identity().App, Avatar: info.Avatar, Host: info.Host()}
+			out.Terminals[id] = api.UsageWho{Name: info.Name, App: info.Identity().App, Avatar: info.Avatar, Host: info.Host(), Named: info.Host() && s.gate().HostNamed()}
 		}
 	}
 	for _, u := range got {

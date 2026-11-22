@@ -13,7 +13,7 @@ import { BannerThumb, FacePick, Field } from "./facepick";
 import { t } from "./i18n";
 import { LocalMark } from "./me";
 import { errText, toast } from "./toast";
-import { AvatarKey, IconKey, Tip, tokens } from "./ui";
+import { AvatarKey, FaceChangeOver, IconKey, Tip, tokens } from "./ui";
 
 /** The devices a terminal may say it runs on, in the picker's order; none: no badge shown. */
 const DEVICES = ["computer", "laptop", "phone", "none"] as const satisfies readonly Device[];
@@ -40,7 +40,7 @@ function useSave() {
   return async (p: { name?: string; avatar?: Blob }) => {
     try {
       const next = await api.profile(p);
-      qc.setQueryData(["me"], { ...me, name: next.name, avatar: next.avatar } satisfies Me);
+      qc.setQueryData(["me"], { ...me, name: next.name, avatar: next.avatar, ...(me.host ? { named: true } : {}) } satisfies Me);
       void qc.invalidateQueries({ queryKey: ["apps"] });
       return true;
     } catch (e) {
@@ -53,7 +53,10 @@ function useSave() {
 /** Its avatar, name and today's tokens. onPicture: a picture chosen for the avatar, to be cropped. */
 export function Profile({ onPicture }: { onPicture: (url: string) => void }) {
   const me: Me = useMe().data ?? LOCAL_ME;
-  const name = me.host ? t("me.local") : me.name;
+  // The host as Iridium till it has a name and face of its own (Me.named); either way it may
+  // take one, as a login does (kumo, 2026-11-22).
+  const local = me.host && !me.named;
+  const name = local ? t("me.local") : me.name;
   const save = useSave();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(me.name);
@@ -75,8 +78,13 @@ export function Profile({ onPicture }: { onPicture: (url: string) => void }) {
           on, a key of its own: a press goes on to the next (the user, 2026-11-08). A grid, not
           inline: the face and its box one circle, no line's descent under it. */}
       <span className="relative grid shrink-0">
-        {me.host ? (
-          <LocalMark size={44} />
+        {local ? (
+          <Tip label={t("me.avatar")}>
+            <button type="button" aria-label={t("me.avatar")} onClick={() => file.current?.click()} className="group g-press relative grid shrink-0 rounded-full">
+              <LocalMark size={44} />
+              <FaceChangeOver size={44} />
+            </button>
+          </Tip>
         ) : (
           <AvatarKey label={t("me.avatar")} onClick={() => file.current?.click()} src={me.avatar} name={name} size={44} />
         )}
@@ -103,11 +111,11 @@ export function Profile({ onPicture }: { onPicture: (url: string) => void }) {
       ) : (
         <span className="min-w-0 flex-1">
           <span className="block truncate text-base font-semibold">{name}</span>
-          <span className="block truncate text-xs text-ink-3 tabular-nums">{me.host ? t("me.localHint") : t("term.today", { n: tokens(me.usedToday) })}</span>
+          <span className="block truncate text-xs text-ink-3 tabular-nums">{local ? t("me.localHint") : t("term.today", { n: tokens(me.usedToday) })}</span>
         </span>
       )}
-      {!editing && !me.host && (
-        <IconKey label={t("me.rename")} onClick={() => (setDraft(me.name), setEditing(true))} className="size-7">
+      {!editing && (
+        <IconKey label={t("me.rename")} onClick={() => (setDraft(local ? "" : me.name), setEditing(true))} className="size-7">
           <PencilLine size={15} />
         </IconKey>
       )}

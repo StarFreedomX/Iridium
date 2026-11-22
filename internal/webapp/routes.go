@@ -159,7 +159,7 @@ type sessionReply struct {
 
 func (w *Web) apiSession(rw http.ResponseWriter, r *http.Request) {
 	if !w.public {
-		writeJSON(rw, http.StatusOK, sessionReply{Authenticated: true, Name: gate.HostName, Local: true})
+		writeJSON(rw, http.StatusOK, sessionReply{Authenticated: true, Name: w.core.HostName(), Local: true})
 		return
 	}
 	sess, ok := w.identify(r, w.now())

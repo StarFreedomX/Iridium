@@ -2,6 +2,8 @@ package server
 
 import (
 	"net/http"
+
+	"github.com/kumoSleeping/iridium/internal/gate"
 )
 
 // This Iridium's face (docs/app.md "服务器头像", kumo 2026-11-20): what stands for it where it is
@@ -50,4 +52,30 @@ func (s *Server) serverFacePut(w http.ResponseWriter, r *http.Request) {
 	}
 	s.hub.Set("avatars", s.avatarsSeq.Add(1))
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// hostStore keeps the host's own name and face (gate host.go) in the store: the name under
+// host:name (meta), the face under host:face (avatars).
+type hostStore struct{ s *Server }
+
+func (h hostStore) LoadHost() (gate.HostProfile, error) {
+	p := gate.HostProfile{Name: h.s.st.Kept("host:name")}
+	img, v, ok, err := h.s.st.Avatar("host:face")
+	if err != nil {
+		return p, err
+	}
+	if ok {
+		p.Avatar, p.AvatarVersion = img, v
+	}
+	return p, nil
+}
+
+func (h hostStore) SaveHost(p gate.HostProfile) error {
+	if err := h.s.st.Keep("host:name", p.Name); err != nil {
+		return err
+	}
+	if p.AvatarVersion == "" {
+		return h.s.st.DeleteAvatar("host:face")
+	}
+	return h.s.st.PutAvatar("host:face", p.Avatar, p.AvatarVersion)
 }

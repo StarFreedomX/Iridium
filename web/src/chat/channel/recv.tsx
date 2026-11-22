@@ -51,7 +51,7 @@ export function useRecvOptions(channel: string, skip?: string): RecvOption[] {
 export function useRecvName(channel: string): (entry: string) => string {
   const members = useMembers(channel);
   const d = useApps().data;
-  const apps = (d?.apps ?? []).map((a) => (a.web ? { ...a, name: t("term.panel") } : a.host ? { ...a, name: "Iridium" } : a));
+  const apps = (d?.apps ?? []).map((a) => (a.web ? { ...a, name: t("term.panel") } : a.host && !a.named ? { ...a, name: "Iridium" } : a));
   return (entry) => {
     if (entry === "*") return t("channel.recvEveryone");
     if (entry.startsWith("agent:")) {

@@ -66,6 +66,9 @@ type Config struct {
 	// renamed may not take. nil: none. Called without the gate's lock (ir_web calls in holding its own).
 	LoginNameTaken func(name string) bool
 
+	// Host keeps the host's own name and face (host.go). nil: the host is Iridium, unchangeable.
+	Host HostStore
+
 	Logger *slog.Logger     // default slog.Default()
 	Now    func() time.Time // default time.Now; for tests
 }
@@ -78,8 +81,9 @@ type Gate struct {
 	log      *slog.Logger
 	now      func() time.Time
 
-	mu sync.Mutex // guards st; held across store.Apply
-	st *memState
+	mu   sync.Mutex // guards st and host; held across store.Apply
+	st   *memState
+	host HostProfile // the host's own name and face (host.go)
 
 
 	connMu sync.Mutex
@@ -180,6 +184,11 @@ func New(cfg Config) (*Gate, error) {
 		return nil, fmt.Errorf("gate: load: %w", err)
 	}
 	g.st = newMemState(s)
+	if cfg.Host != nil {
+		if g.host, err = cfg.Host.LoadHost(); err != nil {
+			return nil, fmt.Errorf("gate: load the host: %w", err)
+		}
+	}
 	go g.loop()
 	return g, nil
 }

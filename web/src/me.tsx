@@ -25,7 +25,8 @@ export function initialTheme(): ThemePref {
  *  2026-11-12). code: the panel's code fetched, as a pointer comes near. */
 export function MeKey({ open, onOpen, dot, code }: { open: boolean; onOpen: () => void; dot?: boolean; code?: () => void }) {
   const me: Me = useMe().data ?? LOCAL_ME;
-  const name = me.host ? t("me.local") : me.name;
+  const local = me.host && !me.named; // the host as Iridium; named, as its own (Me.named)
+  const name = local ? t("me.local") : me.name;
   return (
     <Tip label={dot ? `${t("nav.me")} · ${t("settings.updateReady")}` : t("nav.me")} align="start">
       <button
@@ -39,7 +40,7 @@ export function MeKey({ open, onOpen, dot, code }: { open: boolean; onOpen: () =
       >
         {/* A grid, not inline: no line's descent under the face, which sits centred in the key. */}
         <span className="relative grid shrink-0">
-          {me.host ? <LocalMark size={32} /> : <Avatar src={me.avatar} name={name} size={32} />}
+          {local ? <LocalMark size={32} /> : <Avatar src={me.avatar} name={name} size={32} />}
           {dot && <span className="g-pop absolute -top-0.5 -right-0.5 size-2.5 rounded-full bg-err shadow-[0_0_0_1.5px_var(--paper)]" aria-hidden />}
         </span>
         <span className="min-w-0 truncate text-md text-ink">{name}</span>

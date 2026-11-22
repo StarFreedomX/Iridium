@@ -35,4 +35,5 @@ type UsageWho struct {
 	App    string `json:"app"` // the app's ID; WebApp for a login of ir_web; HostID for the host
 	Avatar string `json:"avatar,omitempty"`
 	Host   bool   `json:"host,omitempty"`
+	Named  bool   `json:"named,omitempty"` // the host with a name and face of its own (Me.Named)
 }

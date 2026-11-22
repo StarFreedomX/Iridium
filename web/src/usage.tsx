@@ -211,7 +211,7 @@ const weekdayName = (wd: number, narrow = false) => {
  *  ones said so. The avatar takes the login's colour as a tint, not a ring. */
 function who(u: Usage | undefined, id: string): { name: string; mark: (size: number, tint?: string) => ReactNode } {
   const x = u?.terminals[id];
-  if (x) return { name: x.host ? t("me.local") : x.name, mark: (n, tint) => (x.host ? <LocalMark size={n} tint={tint} /> : <Avatar src={x.avatar} name={x.name} size={n} tint={tint} />) };
+  if (x) return { name: x.host && !x.named ? t("me.local") : x.name, mark: (n, tint) => (x.host && !x.named ? <LocalMark size={n} tint={tint} /> : <Avatar src={x.avatar} name={x.name} size={n} tint={tint} />) };
   const Icon = id ? UserX : CircleHelp;
   return {
     name: id ? t("usage.removed") : t("usage.unknown"),

@@ -341,7 +341,7 @@ Web Push，总开关在配置 `push`，默认关。VAPID 密钥存在状态目�
 | 请求 | 正文 → 回答 | 说明 |
 |---|---|---|
 | `GET /v1/internal/me` | → `Me` | 调用者：`app`、`login`、`host`、`web`、`rules`、`public` |
-| `PUT /v1/internal/me/profile`、`PUT /v1/internal/apps/{id}/profile` | 资料 → `EndpointInfo` | 改名字、头像（见 `docs/gate.md`）。名字不合法 422 `bad_name`，带 `nameError`（`empty`、`too_long`、`invalid`、`reserved`、`letter`、`taken`） |
+| `PUT /v1/internal/me/profile`、`PUT /v1/internal/apps/{id}/profile` | 资料 → `EndpointInfo` | 改名字、头像（见 `docs/gate.md`）。本机登录（`local`）也能改（2026-11-22）：没设时叫 Iridium、用 Iridium 的标；设了以后 `Me.named`、`App.named` 为真，网页照普通登录画它。名字不合法 422 `bad_name`，带 `nameError`（`empty`、`too_long`、`invalid`、`reserved`、`letter`、`taken`） |
 | `PUT /v1/internal/me/device`、`PUT /v1/internal/apps/{id}/device` | `SetDevice` | 设备 |
 | `GET /v1/internal/apps` | → `Apps` | 应用（主机在最前、网页、其余）、登录（带 `perms`）、未用的邀请。没有秘密。谁都能调：不能管理的只拿公开部分（名字、类型、头像、在线、电脑，已批准的登录；不带 `rules`、`perms`、用量、待批的登录和邀请），能管理的 `full: true`。电脑带 `computer`。主机：系统、家目录、本机可用的 agent、`shell: true`。执行端连接：系统、家目录、`sep`、上报的 agent（关闭的为 `off: true`）、`shell`、`online`、`latency`、`seenAt`、`program`；与其他连接同属一台电脑时带 `under`，值为其中最早配对的那条的应用 ID（主机为 `local`），网页据此排在一起。取代 `GET /v1/internal/machines` 和 hub 键 `machines`；电脑连上、断开、延迟变了都推 `terminals` |
 | `PUT /v1/internal/apps/{id}/agents` | `AppAgents` → `AppAgents` | `{off: [...]}`：它带的 agent 里关掉哪些，其余开（新报的默认开）。关掉的不能在那里启动（新建、接管、重启都拒，403），网页新会话里不列；在跑的不停。能批的人。`ir apps agents <应用> [agent=on\|off …]` |

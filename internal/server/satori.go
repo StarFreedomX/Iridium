@@ -123,7 +123,9 @@ func (b satoriBackend) Who(r *http.Request) (satori.Caller, bool) {
 	case !ok || id.Session != "":
 		return satori.Caller{}, false
 	case id.Host():
-		return satori.Caller{App: gate.HostID, AppName: id.Name, Login: gate.HostID, LoginName: id.Name, Only: true}, true
+		// The host's own name when it has one (gate host.go), else Iridium.
+		name := b.s.Tag(gate.HostID)
+		return satori.Caller{App: gate.HostID, AppName: name, Login: gate.HostID, LoginName: name, Only: true}, true
 	case id.Web():
 		return satori.Caller{App: gate.WebApp, AppName: gate.WebApp, Login: id.Login, LoginName: id.Name, Only: true}, true
 	case id.App == "" || id.App == gate.WebApp:

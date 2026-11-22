@@ -166,6 +166,7 @@ func (s *Server) openGate() error {
 		OnTerminals:    s.terminalsChanged,
 		Open:           openPath,
 		LoginNameTaken: func(name string) bool { w := s.web(); return w != nil && w.NameTaken(name) },
+		Host:           hostStore{s},
 		Logger:         s.gateLog(),
 	})
 	if err != nil {
@@ -437,6 +438,7 @@ func (s *Server) appOf(info gate.EndpointInfo) api.App {
 	}
 	if info.Host() {
 		a.Host, a.Rules, a.Device = true, access.Full(), s.deviceOf(info.ID)
+		a.Named = s.gate().HostNamed()
 	}
 	return a
 }
@@ -460,6 +462,7 @@ func (s *Server) meOf(c caller, info gate.EndpointInfo) api.Me {
 	if id.Host() || id.Web() {
 		m.Device = s.deviceOf(info.ID) // an app has none (k_glossary "电脑")
 	}
+	m.Named = id.Host() && s.gate().HostNamed()
 	return m
 }
 

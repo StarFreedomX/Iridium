@@ -35,7 +35,9 @@ type App struct {
 	Type   string `json:"type,omitempty"`   // computer (it paired as one, saying its system), else what it is shown as (bot…)
 	Avatar string `json:"avatar,omitempty"` // URL for <img src>
 	// Host: the host, listed with the apps but not managed. Web: ir_web, the built-in app.
-	Host       bool  `json:"host,omitempty"`
+	Host bool `json:"host,omitempty"`
+	// Named: the host has a name and face of its own (Me.Named), drawn instead of Iridium's.
+	Named      bool  `json:"named,omitempty"`
 	Web        bool  `json:"web,omitempty"`
 	Logins     int   `json:"logins,omitempty"` // ir_web: its logins
 	Online     int   `json:"online,omitempty"` // live connections
@@ -196,12 +198,15 @@ type Apps struct {
 // Me is GET /v1/internal/me: who calls. App: the app (HostID for the host, WebApp for a browser); Login:
 // the login of it, for ir_web the browser's. ID is the one its usage and rules are kept by.
 type Me struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	App       string `json:"app"`
-	Login     string `json:"login,omitempty"`
-	Avatar    string `json:"avatar,omitempty"`
-	Host      bool   `json:"host,omitempty"`
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	App    string `json:"app"`
+	Login  string `json:"login,omitempty"`
+	Avatar string `json:"avatar,omitempty"`
+	Host   bool   `json:"host,omitempty"`
+	// Named: the host has a name and face of its own (the desktop app's user), shown instead of
+	// Iridium's.
+	Named     bool   `json:"named,omitempty"`
 	Web       bool   `json:"web,omitempty"` // a login of ir_web
 	Rules     Rules  `json:"rules"`
 	UsedToday int64  `json:"usedToday"`

@@ -30,9 +30,6 @@ func (g *Gate) ServeProfile(w http.ResponseWriter, r *http.Request, id string) {
 		w.Header().Set("Allow", "PUT, POST")
 		writeJSON(w, http.StatusMethodNotAllowed, apiError{"method_not_allowed"})
 		return
-	case id == "" && caller.Host():
-		writeJSON(w, http.StatusUnprocessableEntity, apiError{"built_in"})
-		return
 	case id == "":
 		id = caller.ID()
 	case id != caller.ID() && !caller.CanManage():
@@ -156,6 +153,9 @@ func readProfile(r *http.Request) (Profile, error) {
 func (g *Gate) serveAvatar(w http.ResponseWriter, r *http.Request, id string) {
 	g.mu.Lock()
 	e, ok := g.st.endpoints[id]
+	if id == HostID {
+		e, ok = Endpoint{ID: HostID, Avatar: g.host.Avatar, AvatarVersion: g.host.AvatarVersion}, true
+	}
 	g.mu.Unlock()
 	if !ok || len(e.Avatar) == 0 {
 		writeJSON(w, http.StatusNotFound, apiError{"not_found"})

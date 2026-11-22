@@ -767,6 +767,10 @@ export interface App {
    * Host: the host, listed with the apps but not managed. Web: ir_web, the built-in app.
    */
   host?: boolean;
+  /**
+   * Named: the host has a name and face of its own (Me.Named), drawn instead of Iridium's.
+   */
+  named?: boolean;
   web?: boolean;
   logins?: number /* int */; // ir_web: its logins
   online?: number /* int */; // live connections
@@ -958,6 +962,11 @@ export interface Me {
   login?: string;
   avatar?: string;
   host?: boolean;
+  /**
+   * Named: the host has a name and face of its own (the desktop app's user), shown instead of
+   * Iridium's.
+   */
+  named?: boolean;
   web?: boolean; // a login of ir_web
   rules: Rules;
   usedToday: number /* int64 */;
@@ -2612,4 +2621,5 @@ export interface UsageWho {
   app: string; // the app's ID; WebApp for a login of ir_web; HostID for the host
   avatar?: string;
   host?: boolean;
+  named?: boolean; // the host with a name and face of its own (Me.Named)
 }

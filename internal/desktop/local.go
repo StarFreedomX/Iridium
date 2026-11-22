@@ -98,6 +98,7 @@ func (l *localState) ensure(ctx context.Context, address string, logf func(strin
 	}()
 	if answers(ctx, address) {
 		l.set(localRunning, nil)
+		nameHost(logf)
 		return nil
 	}
 	l.set(localStarting, nil)
@@ -118,6 +119,7 @@ func (l *localState) ensure(ctx context.Context, address string, logf func(strin
 	logf("local: ir start --headless: %v\n%s", err, out)
 	if err == nil && waitAnswer(ctx, address, startWait) {
 		l.set(localRunning, nil)
+		nameHost(logf)
 		return nil
 	}
 	// No user service here (no systemd for the user, say): the runtime on its own, apart from the
@@ -133,6 +135,7 @@ func (l *localState) ensure(ctx context.Context, address string, logf func(strin
 	_ = serve.Process.Release()
 	if waitAnswer(ctx, address, startWait) {
 		l.set(localRunning, nil)
+		nameHost(logf)
 		return nil
 	}
 	err = errors.New("本机 Iridium 未响应")
