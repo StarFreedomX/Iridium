@@ -118,16 +118,15 @@ export function Login() {
 
   return (
     <div className="h-full bg-paper text-ink select-none [&_*:focus-visible]:outline-none">
-      {/* The mark and the name at the page's top left (kumo, 2026-11-20). */}
-      <header
-        className={cn(
-          "fixed left-6 flex items-center gap-2.5 text-lg font-semibold tracking-tight",
-          MAC ? "top-11" : "top-5",
-        )}
-      >
-        <IrMark size={28} className="text-ink" />
-        Iridium
-      </header>
+      {/* The mark and the name in the window's top strip (kumo, 2026-11-22): on a Mac beside
+          its three buttons, in the strip the window is dragged by. Windows and Linux have the
+          system's own title bar, which says Iridium itself: nothing is drawn there. */}
+      {MAC && (
+        <header className="pointer-events-none fixed top-0 left-[76px] flex h-7 items-center gap-1.5 text-[13px] font-semibold tracking-tight">
+          <IrMark size={15} className="text-ink" />
+          Iridium
+        </header>
+      )}
       <main
         className={cn(
           "no-bar flex h-full flex-col items-center overflow-y-auto",
@@ -139,7 +138,7 @@ export function Login() {
             <div
               className={cn(
                 "flex w-[min(380px,calc(100vw-24px))] flex-col",
-                part === "who" ? "py-16" : "pt-24 pb-6",
+                part === "who" ? "py-16" : MAC ? "pt-11 pb-6" : "pt-4 pb-6",
               )}
             >
               {part === "who" ? (
