@@ -14,9 +14,9 @@ import {
   Globe,
   LoaderCircle,
   Monitor,
+  Pause,
   Play,
   Plus,
-  Square,
   Trash2,
   UserRound,
 } from "lucide-react";
@@ -122,7 +122,7 @@ export function Login() {
           its three buttons, in the strip the window is dragged by. Windows and Linux have the
           system's own title bar, which says Iridium itself: nothing is drawn there. */}
       {MAC && (
-        <header className="pointer-events-none fixed top-0 left-[76px] flex h-7 items-center gap-1.5 text-[13px] font-semibold tracking-tight">
+        <header className="pointer-events-none fixed top-0 left-[76px] flex h-8 items-center gap-1.5 text-[13px] font-semibold tracking-tight">
           <IrMark size={15} className="text-ink" />
           Iridium
         </header>
@@ -560,7 +560,7 @@ function Servers({
                 sure="确认停止"
                 run={() => ask("ir:server:off")}
               >
-                <Square size={14} />
+                <Pause size={15} />
               </SureKey>
             ) : (
               <IconKey label="启动" onClick={() => ask("ir:server:on")}>
