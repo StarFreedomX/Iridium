@@ -33,7 +33,8 @@ func ownName(u *user.User) string {
 	return ""
 }
 
-// nameHost gives this computer's Iridium's host the system account's name if it has none, over
+// nameHost gives this computer's Iridium's host the name and face chosen on the app's first page,
+// else the system account's name, if it has none, over
 // its socket (the host's own way in).
 func nameHost(logf func(string, ...any)) {
 	cfg, err := config.Load(localPath())
@@ -60,12 +61,23 @@ func nameHost(logf func(string, ...any)) {
 	if err != nil || !me.Host || me.Named {
 		return
 	}
-	u, _ := user.Current()
-	n := ownName(u)
+	c, _ := loadConfig()
+	n := ""
+	if v, err := gate.NormalizeName(c.Me.Name); err == nil && c.Me.Name != "" {
+		n = v
+	}
+	if n == "" {
+		u, _ := user.Current()
+		n = ownName(u)
+	}
 	if n == "" {
 		return
 	}
-	body, _ := json.Marshal(map[string]string{"name": n})
+	p := map[string]string{"name": n}
+	if strings.HasPrefix(c.Me.Avatar, "data:image/") {
+		p["avatar"] = c.Me.Avatar
+	}
+	body, _ := json.Marshal(p)
 	req, _ := http.NewRequest(http.MethodPut, "http://ir/v1/internal/me/profile", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	res, err = hc.Do(req)

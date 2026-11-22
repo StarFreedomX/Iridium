@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"os/user"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -41,6 +42,7 @@ type ui struct {
 	mu      sync.Mutex
 	ready   string // a downloaded update's version, waiting for a restart
 	waiting bool   // the window waits on the app's page for this computer's Iridium to start
+	atApp   bool   // the window is on the app's own page (its last word came from there)
 }
 
 func gui(o Options) int {
@@ -278,6 +280,9 @@ func (u *ui) message(w application.Window, msg string, o *application.OriginInfo
 		return
 	}
 	logf("message %s from %q", verb, origin)
+	u.mu.Lock()
+	u.atApp = server == ""
+	u.mu.Unlock()
 	if server == "" {
 		// Not an Iridium's page: the app's own login page (assets), or nothing.
 		if strings.HasPrefix(origin, "wails:") || strings.HasPrefix(origin, "http://wails.localhost") {
@@ -302,12 +307,12 @@ func (u *ui) message(w application.Window, msg string, o *application.OriginInfo
 			})
 		}
 	case "home":
-		// The app's own page, with the Iridiums in its list.
-		u.win.SetURL("/")
+		// The app's own page, at its servers.
+		u.win.SetURL("/#servers")
 	case "needlogin":
 		// The Iridium's login page, in the app: the app's own instead (its passkey is in the browser).
 		if _, err := updateConfig(func(c *Config) { c.Current = server; c.server(server).LoggedIn = false }); err == nil {
-			u.win.SetURL("/")
+			u.win.SetURL("/#servers")
 		}
 	case "hello":
 		reply(w, u.hello(c, server))
@@ -422,8 +427,33 @@ func (u *ui) local(w application.Window, verb, arg string) {
 			application.InvokeAsync(u.redraw)
 			reply(w, state(c))
 		}
+	case "enter":
+		// The first page's 进入: who this is, then this computer's own Iridium, started and shown.
+		var me Me
+		if json.Unmarshal([]byte(arg), &me) == nil && len(me.Avatar) < 1<<20 && (me.Avatar == "" || strings.HasPrefix(me.Avatar, "data:image/")) {
+			me.Name = strings.TrimSpace(me.Name)
+			_, _ = updateConfig(func(c *Config) { c.Me = me })
+		}
+		if err := u.useLocal(appLog()); err != nil {
+			reply(w, map[string]string{"error": err.Error()})
+			return
+		}
+		c, _ := loadConfig()
+		reply(w, state(c))
+	case "me":
+		// The first page's name and face, kept as typed and chosen.
+		var me Me
+		if json.Unmarshal([]byte(arg), &me) == nil && len(me.Avatar) < 1<<20 && (me.Avatar == "" || strings.HasPrefix(me.Avatar, "data:image/")) {
+			_, _ = updateConfig(func(c *Config) { c.Me = me })
+		}
 	case "login":
 		go func() {
+			// An invite link (…/_ir/join…): its Iridium's address, the invite registered in the
+			// browser on the way to the app's login (kumo, 2026-11-22: pasted, handled).
+			invite := ""
+			if o, ok := inviteOrigin(arg); ok {
+				invite, arg = strings.TrimSpace(arg), o
+			}
 			a, err := normalize(arg)
 			if err != nil {
 				reply(w, map[string]string{"error": "地址无效"})
@@ -453,7 +483,16 @@ func (u *ui) local(w application.Window, verb, arg string) {
 			if name == "" {
 				name = join.MachineName()
 			}
-			browserLogin(a, name, u.app.Browser.OpenURL, func(m map[string]string) {
+			open := u.app.Browser.OpenURL
+			if invite != "" {
+				me := c.Me.Name
+				if me == "" {
+					cu, _ := user.Current()
+					me = ownName(cu)
+				}
+				open = func(appURL string) error { return u.app.Browser.OpenURL(inviteFor(invite, appURL, me)) }
+			}
+			browserLogin(a, name, open, func(m map[string]string) {
 				m["server"] = a
 				reply(w, m)
 			}, func(link, who string) {
@@ -488,7 +527,9 @@ func (u *ui) pageState(c Config) map[string]any {
 		}
 		list = append(list, e)
 	}
-	return map[string]any{"servers": list, "current": c.current(), "theme": c.Theme, "hasLocal": c.local() != nil}
+	cu, _ := user.Current()
+	return map[string]any{"servers": list, "current": c.current(), "theme": c.Theme, "hasLocal": c.local() != nil,
+		"me": c.Me, "sysName": ownName(cu)}
 }
 
 // hello is what an Iridium's page learns of the app: that it is in it, and the Iridiums in its
@@ -674,11 +715,15 @@ func (u *ui) switchTo(address string) {
 	}
 	if s := c.server(address); s != nil && s.Local {
 		if st, _ := u.here.get(); st != localRunning {
-			// Not running yet: the app's page till it does.
+			// Not running yet: the app's page till it does (left as it is when there already: the
+			// first page's 进入 turns there, no page drawn anew).
 			u.mu.Lock()
 			u.waiting = true
+			at := u.atApp
 			u.mu.Unlock()
-			u.win.SetURL("/")
+			if !at {
+				u.win.SetURL("/#servers")
+			}
 			go u.startLocal(address, appLog())
 			return
 		}
@@ -797,7 +842,7 @@ func (u *ui) redraw() {
 		})
 	}
 	m.Add("添加服务器…").OnClick(func(*application.Context) {
-		u.win.SetURL("/")
+		u.win.SetURL("/#servers")
 		u.show()
 	})
 	m.AddSeparator()

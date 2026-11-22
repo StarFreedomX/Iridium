@@ -47,6 +47,15 @@ type Config struct {
 	Zoom    float64  `json:"zoom,omitempty"`    // the window's, as last set (⌘= ⌘- ⌘0); 0: 1
 	// NoServer: no Iridium of this computer's own (ir server off, ir start --no-server).
 	NoServer bool `json:"noServer,omitempty"`
+	// Me: who the person at the window says they are on the app's first page (kumo, 2026-11-22):
+	// this computer's Iridium's host is given it, and an invite registers under the name.
+	Me Me `json:"me,omitzero"`
+}
+
+// Me is the app's first page's: a name, a face (a data: URL of the cropped image).
+type Me struct {
+	Name   string `json:"name,omitempty"`
+	Avatar string `json:"avatar,omitempty"`
 }
 
 var cfgMu sync.Mutex
