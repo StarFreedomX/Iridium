@@ -326,6 +326,22 @@ describe("workOf", () => {
   test("a reply said for it at its turn's end: its words drawn once, under the work, not in it", () => {
     expect(workOf(bs, { session: "s", from: 10, to: 16 }, " done\n").map((b) => b.at)).toEqual(["11.0", "12.0", "13.0", "14.0"]);
   });
+  test("words said on the way end one stretch and begin the next: drawn under the one before only", () => {
+    expect(workOf(bs, { session: "s", from: 10, to: 13 }).map((b) => b.at)).toEqual(["11.0", "12.0"]);
+    expect(workOf(bs, { session: "s", from: 13, to: 15 }, "done").map((b) => b.at)).toEqual(["14.0"]);
+  });
+});
+
+describe("liveOf said", () => {
+  test("since words said on the way: not those words again", () => {
+    const bs = [
+      { at: "1.0", kind: "user", text: "go" },
+      { at: "2.0", kind: "tool" },
+      { at: "3.0", kind: "assistant", text: "first words" },
+      { at: "4.0", kind: "tool" },
+    ];
+    expect(liveOf(bs, { session: "s", from: 1, to: 3 }).map((b) => b.at)).toEqual(["4.0"]);
+  });
 });
 
 describe("liveOf spoken", () => {
@@ -357,8 +373,8 @@ describe("liveOf", () => {
   test("after its last words in the channel: said straight out, past their block", () => {
     expect(liveOf(bs, { session: "s", block: "13.0" }).map((b) => b.at)).toEqual(["13.1", "14.0"]);
   });
-  test("after its last words in the channel: with ir, from where it spoke", () => {
-    expect(liveOf(bs, { session: "s", from: 10, to: 13 }).map((b) => b.at)).toEqual(["13.0", "13.1", "14.0"]);
+  test("after its last words in the channel: from where it spoke, those words (at that line) not again", () => {
+    expect(liveOf(bs, { session: "s", from: 10, to: 13 }).map((b) => b.at)).toEqual(["13.1", "14.0"]);
   });
   test("words of an earlier turn cut nothing", () => {
     expect(liveOf(bs, { session: "s", block: "5.0" }).map((b) => b.at)).toEqual(["11.0", "12.0", "13.0", "13.1", "14.0"]);

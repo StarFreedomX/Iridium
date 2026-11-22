@@ -33,7 +33,10 @@ export function workOf<B extends { at: string; kind: string; text?: string }>(bl
   // The words said themselves are drawn under the work: not again in it (a reply said for the
   // agent at its turn's end is the last words of its stretch).
   const same = (b: B) => b.kind === "assistant" && !!said?.trim() && b.text?.trim() === said.trim();
-  if (src.from !== undefined && src.to !== undefined) return blocks.filter((b) => lineOf(b.at) >= src.from! && lineOf(b.at) < src.to! && b.kind !== "user" && b.kind !== "system" && !same(b));
+  // A stretch begins where the one before ended (its to): words said for the agent as it wrote
+  // them are at that line, the message before this one, drawn there and not again here.
+  const before = (b: B) => b.kind === "assistant" && lineOf(b.at) === src.from;
+  if (src.from !== undefined && src.to !== undefined) return blocks.filter((b) => lineOf(b.at) >= src.from! && lineOf(b.at) < src.to! && b.kind !== "user" && b.kind !== "system" && !same(b) && !before(b));
   if (!src.block) return [];
   const end = lineOf(src.block);
   const out: B[] = [];
@@ -61,7 +64,8 @@ const atAfter = (a: string, b: string) => {
  *  wrote up to them is theirs all the same, not drawn a second time under them as at work. */
 export function liveOf<B extends { at: string; kind: string; text?: string }>(blocks: B[], said?: Src, spoken?: (text: string) => boolean): B[] {
   let out = blocks.slice(blocks.findLastIndex((b) => b.kind === "user") + 1).filter((b) => b.kind !== "system");
-  if (said?.to !== undefined) out = out.filter((b) => lineOf(b.at) >= said.to!);
+  // From where its last words ended, those words not again (they are at that line: workOf).
+  if (said?.to !== undefined) out = out.filter((b) => lineOf(b.at) > said.to! || (lineOf(b.at) === said.to && b.kind !== "assistant"));
   else if (said?.block) out = out.filter((b) => atAfter(b.at, said.block!));
   if (spoken) out = out.slice(out.findLastIndex((b) => b.kind === "assistant" && !!b.text?.trim() && spoken(b.text.trim())) + 1);
   return out;
