@@ -31,7 +31,7 @@
 - 一个登录可以有几个 Passkey，一台设备一个（用户，2026-11-17）。每个 Passkey 有自己的 user handle（之前建的沿用登录那一行的）；登录时按 handle 和凭证 ID 一起找。名字按 AAGUID 认提供方（iCloud 钥匙串、Google 密码管理器、Windows Hello…），认不出写建它的浏览器（"Mac · Chrome"）。
 - 设备：每个 Passkey 可以手设（电脑、笔记本、手机、不展示），没设是“自动”，按用它的浏览器（`Sec-CH-UA-Mobile`、User-Agent：手机、平板算手机，其余电脑）。同步的 Passkey 在手机和电脑上都能用，自动时各按各的浏览器。
 - 网页会话记下用哪个 Passkey 登录的和浏览器说的设备（`web_sessions.passkey`、`device`）。人发的消息记下当时的设备（`inputs.device`、频道消息 `_data.device`），头像角标照它画；登录的角标是它最近活跃的浏览器的。之前的会话不知道 Passkey，退回登录原来设的设备。
-- Cookie `__Host-ir`：HttpOnly、Secure、SameSite=Strict、Path=/。空闲 12 小时、最长 7 天。库里只存哈希（`web_sessions`）。
+- Cookie `__Host-ir`：HttpOnly、Secure、SameSite=Strict、Path=/。180 天有效，用不用都一样（用户，2026-11-22）。库里只存哈希（`web_sessions`）。
 - 非安全方法和 WebSocket 升级：Origin 必须是公网地址，`Sec-Fetch-Site` 有的话必须是 `same-origin`；本机模式 Origin 的主机要等于 Host，都没带（curl）就放行。
 - 失败不限速、不锁定（kumo，2026-11-18）：邀请和 TOKEN 都是 256 位随机数，Passkey 是签名，猜不中；原先同一客户端 1 分钟失败 10 次锁 1 分钟，TOKEN 作废的执行端因此拿到 429 而不是 401，不知道该重新配对。失败照旧记日志。
 - 自己的响应 `no-store`，页面 CSP 只许本站脚本、样式，禁 iframe。

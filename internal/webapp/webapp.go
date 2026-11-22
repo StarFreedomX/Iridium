@@ -38,12 +38,13 @@ const (
 	Prefix          = "/_ir/"     // ir_web's own routes
 	ViewerPrefix    = "/p/"       // a public link's view (Config.Viewer)
 	CookieName      = "__Host-ir" // a login's session cookie
-	IdleTimeout     = 12 * time.Hour
-	AbsoluteTimeout = 7 * 24 * time.Hour
-	// The desktop app's sessions (applogin.go): long, as an app stays logged in (kumo, 2026-11-20);
-	// one unused for AppIdleTimeout ends.
-	AppTimeout     = 365 * 24 * time.Hour
-	AppIdleTimeout = 60 * 24 * time.Hour
+	// A login holds 180 days, in a browser and in the desktop app alike, used or not (kumo,
+	// 2026-11-22: a passkey pressed once, not again in a few days).
+	IdleTimeout     = 180 * 24 * time.Hour
+	AbsoluteTimeout = 180 * 24 * time.Hour
+	// The desktop app's sessions (applogin.go): the same.
+	AppTimeout     = AbsoluteTimeout
+	AppIdleTimeout = IdleTimeout
 	InviteTTL       = 10 * time.Minute
 
 	// Headers ir_web speaks for a login with (Satori's), set on every browser request it forwards.

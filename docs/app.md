@@ -68,7 +68,7 @@ curl 只装程序，`sh -s --` 后面的交给 `ir`。见 `docs/exec.md`。
 
 ## 登录（2026-11-20）
 
-应用的登录一年有效、60 天不用才失效，比浏览器的长。它的 Cookie 是 `SameSite=Lax`：窗口每次从应用自己的页面打开服务器都算跨站，`Strict` 的 Cookie 不会带上，就成了每次都要重新登录（2026-11-22 修）。
+应用和浏览器的登录都是 180 天有效（用户，2026-11-22）。它的 Cookie 是 `SameSite=Lax`：窗口每次从应用自己的页面打开服务器都算跨站，`Strict` 的 Cookie 不会带上，就成了每次都要重新登录（2026-11-22 修）。
 
 内嵌网页里没有 Passkey（Linux WebKitGTK、未签名的 Mac），在系统浏览器里登录（`internal/webapp/applogin.go`）：
 

@@ -373,7 +373,7 @@ func TestRegisterAndLogin(t *testing.T) {
 	w = h.join(a, setup, ptr("  Kumo   Mac "))
 	wantStatus(t, w, http.StatusOK)
 	set := w.Result().Header.Get("Set-Cookie")
-	for _, attr := range []string{CookieName + "=", "Path=/", "HttpOnly", "Secure", "SameSite=Strict", "Max-Age=604800"} {
+	for _, attr := range []string{CookieName + "=", "Path=/", "HttpOnly", "Secure", "SameSite=Strict", "Max-Age=15552000"} {
 		if !strings.Contains(set, attr) {
 			t.Fatalf("cookie %q lacks %s", set, attr)
 		}
@@ -627,31 +627,27 @@ func TestSessionTimeouts(t *testing.T) {
 	a := &authenticator{t: t, origin: testOrigin}
 	wantStatus(t, h.join(a, h.setupToken(), ptr("mac")), http.StatusOK)
 
-	// Idle: 12 hours without a request.
-	h.clock.Advance(IdleTimeout - time.Minute)
+	// 180 days, used or not (kumo, 2026-11-22).
+	h.clock.Advance(AbsoluteTimeout - time.Minute)
 	if _, code := h.whoami(); code != 200 {
-		t.Fatalf("idle 11:59: %d", code)
+		t.Fatalf("unused 179 days: %d", code)
 	}
-	h.clock.Advance(IdleTimeout - time.Second)
-	if _, code := h.whoami(); code != 200 {
-		t.Fatalf("activity did not refresh the idle timer: %d", code)
-	}
-	h.clock.Advance(IdleTimeout)
+	h.clock.Advance(2 * time.Minute)
 	if _, code := h.whoami(); code != http.StatusUnauthorized {
-		t.Fatalf("idle 12h: %d", code)
+		t.Fatalf("180 days on: %d", code)
 	}
 
-	// Absolute: 7 days, however active.
+	// However active, 180 days.
 	wantStatus(t, h.login(a, nil), http.StatusOK)
-	for i := 0; i < 15; i++ { // 15 × 11h = 6.9 days
-		h.clock.Advance(11 * time.Hour)
+	for i := 0; i < 179; i++ {
+		h.clock.Advance(24 * time.Hour)
 		if _, code := h.whoami(); code != 200 {
 			t.Fatalf("active day %d: %d", i, code)
 		}
 	}
-	h.clock.Advance(4 * time.Hour)
+	h.clock.Advance(48 * time.Hour)
 	if _, code := h.whoami(); code != http.StatusUnauthorized {
-		t.Fatalf("after 7 days: %d", code)
+		t.Fatalf("active, 181 days on: %d", code)
 	}
 }
 

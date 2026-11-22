@@ -129,7 +129,7 @@ ir run [--secret 名,…] -- 命令 …   {{名}}、{{file:名}} 换进参数，
 - 默认只听本机，不做登录。
 - 上公网可选；上公网必须开 Passkey。配了 `public.origin` 后所有网页请求都要 Passkey，回环也一样。
 - 新面板：`https://<域名>/_ir/join#<token>`（10 分钟、一次性；`#` 后不进服务器日志），打开直接起名（查重）+ 注册 Passkey。
-- Cookie `__Host-`、HttpOnly、SameSite=Strict；空闲 12 小时、最长 7 天。失败限速；POST 和 WebSocket 查 Origin；主机名白名单。
+- Cookie `__Host-`、HttpOnly、SameSite=Strict；180 天有效（2026-11-22，原来空闲 12 小时、最长 7 天）。失败限速；POST 和 WebSocket 查 Origin；主机名白名单。
 - 最后一个 Passkey 不能删；全丢了在本机 `ir invite` 重来。
 - Iridium 不自己管 HTTPS 证书。有公网 IP 的，挂在自己的反代后面（文档给 Caddy 例子）。
 - Cloudflare 只是没有公网 IP 时的 Tunnel，不用 Access。
