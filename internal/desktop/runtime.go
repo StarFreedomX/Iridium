@@ -55,6 +55,7 @@ func Runtime(ctx context.Context, o RuntimeOptions) int {
 	j.Record.save(nil)
 	var seen time.Time
 	exeTime := modTime(self)
+	held := false // replaced by one macOS has not let open: said once
 	for {
 		if p, err := configPath(); err == nil {
 			if t := modTime(p); !t.Equal(seen) || seen.IsZero() {
@@ -69,13 +70,22 @@ func Runtime(ctx context.Context, o RuntimeOptions) int {
 				}
 			}
 		}
-		// Replaced by an update: the new one takes over (the joins start again under it).
+		// Replaced by an update: the new one takes over (the joins start again under it). One
+		// macOS has not let open yet waits till the app is opened once: run now, it would only
+		// bring up Gatekeeper's warning and end, and launchd would run it again and again.
 		if t := modTime(self); !t.Equal(exeTime) && time.Since(t) > 3*time.Second {
-			logf("runtime: %s replaced: starting it again", self)
-			srv.stop()
-			j.Stop()
-			reexec(self)
-			exeTime = t
+			if unopened(self) {
+				if !held {
+					logf("runtime: %s replaced by one macOS has not let open yet: this one goes on till the app is opened", self)
+					held = true
+				}
+			} else {
+				logf("runtime: %s replaced: starting it again", self)
+				srv.stop()
+				j.Stop()
+				reexec(self)
+				exeTime, held = t, false
+			}
 		}
 		j.mu.Lock()
 		j.Record.Server = srv.state()
@@ -117,6 +127,7 @@ type child struct {
 	on   bool
 	cmd  *exec.Cmd
 	done chan struct{}
+	held bool // waiting for macOS to let the program open: said once (loop's own)
 }
 
 func (c *child) state() string {
@@ -174,6 +185,17 @@ func (c *child) loop() {
 			c.mu.Unlock()
 			return
 		}
+		if unopened(c.argv[0]) {
+			// Replaced by one macOS has not let open: started, it would only bring up the warning.
+			c.mu.Unlock()
+			if !c.held {
+				c.logf("runtime: server: %s not let open by macOS yet: waiting till the app is opened", c.argv[0])
+				c.held = true
+			}
+			time.Sleep(5 * time.Second)
+			continue
+		}
+		c.held = false
 		cmd := exec.Command(c.argv[0], c.argv[1:]...)
 		cmd.Stdout, cmd.Stderr = os.Stderr, os.Stderr
 		quiet(cmd)
