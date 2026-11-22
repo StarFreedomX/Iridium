@@ -202,11 +202,13 @@ func gui(o Options) int {
 func (u *ui) nav(address string) { u.win.SetURL(themed(address)) }
 
 // themed is address with the theme chosen on an Iridium's page (Config.Theme) for its first
-// paint (theme.js ?theme=, which keeps it there too); none chosen: as it is, the system's.
+// paint (theme.js ?theme=, which keeps it there too); none chosen: auto, the system's.
 func themed(address string) string {
 	c, _ := loadConfig()
-	if c.Theme != "dark" && c.Theme != "light" && c.Theme != "auto" {
-		return address
+	if c.Theme != "dark" && c.Theme != "light" {
+		// None chosen yet: the system's, here and on every Iridium's page (kumo, 2026-11-22: a
+		// page's own old choice on this computer gives way, so nothing flashes).
+		c.Theme = "auto"
 	}
 	base, frag, _ := strings.Cut(address, "#")
 	sep := "?"
