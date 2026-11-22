@@ -4,7 +4,7 @@
 import { Dialog } from "@base-ui/react/dialog";
 import { Menu } from "@base-ui/react/menu";
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
-import { ArrowLeft, ArrowUp, ChevronRight, Copy, Download, ExternalLink, Eye, FileText, Folder, FolderOpen, House, Link2, LoaderCircle, RefreshCw } from "lucide-react";
+import { ArrowLeft, ChevronRight, Copy, Download, ExternalLink, Eye, FileText, Folder, FolderOpen, House, Link2, LoaderCircle, RefreshCw } from "lucide-react";
 import { lazy, Suspense, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { api, ApiError, queryClient } from "./api/client";
 import type { DirEntry, DirListing } from "./api/types.gen";
@@ -91,6 +91,7 @@ export default function FileBrowser({ machine: initialMachine, path: initialPath
   const dir = computer?.sep === "\\" ? here.replaceAll("\\", "/") : here;
   const up = parent(dir);
   const list = useRef<HTMLDivElement>(null);
+  const scroll = useRef<HTMLDivElement>(null);
   const title = useRef<HTMLHeadingElement>(null);
   const returnTo = useRef<HTMLButtonElement | null>(null);
 
@@ -116,6 +117,10 @@ export default function FileBrowser({ machine: initialMachine, path: initialPath
     ...(directory ? [{ icon: <Link2 size={15} />, label: t("browse.copyChatLink"), run: () => copyChatLink(path) }] : []),
     { icon: <Copy size={15} />, label: t("browse.copyAbsolutePath"), run: () => void copyText(nativeAt(computer, path)) },
   ];
+  // Reset scroll on a new folder without remounting the list, so .. keeps focus across climbs.
+  useLayoutEffect(() => {
+    if (scroll.current) scroll.current.scrollTop = 0;
+  }, [machine, dir]);
   // On a narrow pane the preview hides the list: focus the heading, and return to the file's row
   // when going back.
   useLayoutEffect(() => {
@@ -141,7 +146,6 @@ export default function FileBrowser({ machine: initialMachine, path: initialPath
         />
       </header>
       <div className={cn("shrink-0 items-center gap-1 border-b border-edge px-2 py-1", file ? "hidden @min-[620px]:flex" : "flex")}>
-        <IconKey label={t("browse.up")} aria-disabled={!up} className="aria-disabled:opacity-40 aria-disabled:hover:bg-transparent" onClick={() => up && visit(up)}><ArrowUp size={16} /></IconKey>
         <IconKey label={t("browse.start")} onClick={() => visit("")}><House size={15} /></IconKey>
         <PathBar dir={dir} machine={machine} typed={typed} onType={setTyped} onVisit={visit} />
         <IconKey label={t("top.reload")} onClick={() => void folders.refetch()}><RefreshCw size={15} /></IconKey>
@@ -149,9 +153,10 @@ export default function FileBrowser({ machine: initialMachine, path: initialPath
       </div>
       <div className="flex min-h-0 flex-1">
         <div ref={list} tabIndex={-1} className={cn("min-w-0 flex-1 flex-col @min-[620px]:flex @min-[620px]:w-72 @min-[620px]:flex-none @min-[620px]:border-r @min-[620px]:border-edge", file ? "hidden" : "flex")}>
-          {/* Keyed by computer and path so each folder starts at scroll top while the focusable list stays mounted. */}
-          <div key={`${machine}:${dir}`} className="min-h-0 flex-1 overflow-auto overscroll-contain p-1.5">
-            <FolderContents machine={machine} dir={dir} folders={folders} selected={file?.name} onFolder={openFolder} onFile={openFile} copyActions={copyActions} />
+          <div ref={scroll} className="min-h-0 flex-1 overflow-auto overscroll-contain p-1.5">
+            {/* Outside the keyed contents so Enter on .. climbs repeatedly; move focus to the list once .. disappears at a root. */}
+            {up && <ParentFolderRow machine={machine} path={up} onOpen={(keyed) => openFolder(up, keyed && !parent(up))} />}
+            <FolderContents key={`${machine}:${dir}`} machine={machine} dir={dir} folders={folders} selected={file?.name} onFolder={openFolder} onFile={openFile} copyActions={copyActions} />
           </div>
         </div>
         <div className={cn("min-w-0 flex-1 flex-col @min-[620px]:flex", file ? "flex" : "hidden")}>
@@ -248,6 +253,27 @@ function PathBar({ dir, machine, typed, onType, onVisit }: {
         className="h-full min-w-8 flex-1 cursor-text rounded-md focus-visible:-outline-offset-2 pointer-coarse:min-w-10"
       />
     </div>
+  );
+}
+
+const folderRowClass = "flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-sm pointer-coarse:h-11";
+
+/** The .. row at the list's top: warms its parent and stays usable while the folder loads or fails. */
+function ParentFolderRow({ machine, path, onOpen }: { machine: string; path: string; onOpen: (fromKeyboard: boolean) => void }) {
+  const warm = () => void prefetchDirectory(machine, path);
+  return (
+    <button
+      type="button"
+      aria-label={t("browse.up")}
+      className={cn(folderRowClass, "hover:bg-fill")}
+      onPointerEnter={warm}
+      onPointerDown={warm}
+      onFocus={warm}
+      onClick={(e) => onOpen(e.detail === 0)}
+    >
+      <Folder size={16} aria-hidden className="shrink-0 text-ink-3" />
+      <span>..</span>
+    </button>
   );
 }
 
@@ -349,7 +375,6 @@ function FolderRow({ entry, machine, path, selected, onFolder, onFile, onMenu }:
   const lp = useLongPress((point) => key.current && onMenu(entry, key.current, point), { suppressTouchClick: true });
   const directory = entry.type === "dir";
   const Icon = directory ? Folder : entry.type === "link" ? Link2 : FileText;
-  const row = "flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-sm pointer-coarse:h-11";
   const label = (
     <>
       <Icon size={16} aria-hidden className="shrink-0 text-ink-3" />
@@ -359,7 +384,7 @@ function FolderRow({ entry, machine, path, selected, onFolder, onFile, onMenu }:
   if (!directory && entry.type !== "file") {
     return (
       <li>
-        <span className={cn(row, "text-ink-3")}>
+        <span className={cn(folderRowClass, "text-ink-3")}>
           {label}{entry.type === "link" && <span className="text-xs">{t("browse.link")}</span>}
         </span>
       </li>
@@ -373,7 +398,7 @@ function FolderRow({ entry, machine, path, selected, onFolder, onFile, onMenu }:
         type="button"
         aria-current={selected || undefined}
         aria-keyshortcuts="Shift+F10"
-        className={cn(row, "hover:bg-fill select-none aria-[current=true]:bg-fill aria-[current=true]:font-medium [-webkit-touch-callout:none]")}
+        className={cn(folderRowClass, "hover:bg-fill select-none aria-[current=true]:bg-fill aria-[current=true]:font-medium [-webkit-touch-callout:none]")}
         {...lp}
         onPointerEnter={warm}
         onPointerDown={(e) => {
