@@ -89,7 +89,6 @@ export default function FileBrowser({ machine: initialMachine, path: initialPath
   const here = folders.data?.path ?? path;
   // Normalize Windows separators to '/' so parent() and join() work uniformly.
   const dir = computer?.sep === "\\" ? here.replaceAll("\\", "/") : here;
-  const up = parent(dir);
   const list = useRef<HTMLDivElement>(null);
   const scroll = useRef<HTMLDivElement>(null);
   const title = useRef<HTMLHeadingElement>(null);
@@ -155,9 +154,7 @@ export default function FileBrowser({ machine: initialMachine, path: initialPath
         {/* Pull the focus ring inside the pane so the dialog's overflow-hidden rounded edge does not clip it. */}
         <div ref={list} tabIndex={-1} className={cn("min-w-0 flex-1 flex-col focus-visible:-outline-offset-6 @min-[620px]:flex @min-[620px]:w-72 @min-[620px]:flex-none @min-[620px]:border-r @min-[620px]:border-edge", file ? "hidden" : "flex")}>
           <div ref={scroll} className="min-h-0 flex-1 overflow-auto overscroll-contain p-1.5">
-            {/* Outside the keyed contents so Enter on .. climbs repeatedly; move focus to the list once .. disappears at a root. */}
-            {up && <ParentFolderRow machine={machine} path={up} onOpen={(keyed) => openFolder(up, keyed && !parent(up))} />}
-            <FolderContents key={`${machine}:${dir}`} machine={machine} dir={dir} folders={folders} selected={file?.name} onFolder={openFolder} onFile={openFile} copyActions={copyActions} />
+            <FolderContents machine={machine} dir={dir} folders={folders} selected={file?.name} onFolder={openFolder} onFile={openFile} copyActions={copyActions} />
           </div>
         </div>
         <div className={cn("min-w-0 flex-1 flex-col @min-[620px]:flex", file ? "flex" : "hidden")}>
@@ -259,40 +256,18 @@ function PathBar({ dir, machine, typed, onType, onVisit }: {
 
 const folderRowClass = "flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-sm pointer-coarse:h-11";
 
-/** The .. row at the list's top: warms its parent and stays usable while the folder loads or fails. */
-function ParentFolderRow({ machine, path, onOpen }: { machine: string; path: string; onOpen: (fromKeyboard: boolean) => void }) {
-  const warm = () => void prefetchDirectory(machine, path);
-  return (
-    <button
-      type="button"
-      aria-label={t("browse.up")}
-      className={cn(folderRowClass, "hover:bg-fill")}
-      onPointerEnter={warm}
-      onPointerDown={warm}
-      onFocus={warm}
-      onClick={(e) => onOpen(e.detail === 0)}
-    >
-      <Folder size={16} aria-hidden className="shrink-0 text-ink-3" />
-      <span>..</span>
-    </button>
-  );
-}
-
-type FolderRowsProps = {
+type FolderContentsProps = {
   machine: string;
   dir: string;
+  folders: UseQueryResult<DirListing>;
   selected?: string;
   onFolder: (path: string, fromKeyboard: boolean) => void;
   onFile: (name: string, from: HTMLButtonElement) => void;
   copyActions: (path: string, directory: boolean) => MenuItem[];
 };
 
-/** One folder's entries (folders first, natural order), or what stands in while it loads or fails. */
-function FolderContents({ folders, ...rows }: FolderRowsProps & { folders: UseQueryResult<DirListing> }) {
-  const entries = useMemo(() => {
-    const byName = new Intl.Collator(undefined, { numeric: true });
-    return folders.data?.entries.slice().sort((a, b) => Number(b.type === "dir") - Number(a.type === "dir") || byName.compare(a.name, b.name));
-  }, [folders.data]);
+/** What stands in for a folder's entries while it loads, fails or is empty. */
+function FolderStatus({ folders }: { folders: UseQueryResult<DirListing> }) {
   if (folders.isPending) return <Loading />;
   if (folders.isError) {
     let error = t("msg.unreadable");
@@ -303,28 +278,52 @@ function FolderContents({ folders, ...rows }: FolderRowsProps & { folders: UseQu
     }
     return <p role="status" className="mx-2.5 my-3 text-sm text-ink-2">{error}</p>;
   }
-  if (!entries?.length) return <p className="mx-2.5 my-3 text-sm text-ink-3">{t("browse.empty")}</p>;
-  return <FolderRows {...rows} entries={entries} />;
+  if (!folders.data?.entries.length) return <p className="mx-2.5 my-3 text-sm text-ink-3">{t("browse.empty")}</p>;
+  return null;
 }
 
 type Point = { x: number; y: number };
+/** One row in the folder: path is the real path it acts on (the parent itself for ..). */
+type BrowserEntry = Pick<DirEntry, "name" | "type"> & { path: string };
 
-/** The folder's rows and the one menu they share, opened at the pointer or under a row's key. */
-function FolderRows({ machine, dir, selected, onFolder, onFile, copyActions, entries }: FolderRowsProps & { entries: DirEntry[] }) {
+/** The folder's rows and the one menu they share: .. stands first with the parent's real path so
+ *  opening, copying and the menu all act on it, and stays usable while the rest loads or fails. */
+function FolderContents({ machine, dir, folders, selected, onFolder, onFile, copyActions }: FolderContentsProps) {
+  const { data, isSuccess } = folders;
+  const entries = useMemo(() => {
+    const up = parent(dir);
+    const rows: BrowserEntry[] = up ? [{ name: "..", type: "dir", path: up }] : [];
+    if (isSuccess) {
+      const byName = new Intl.Collator(undefined, { numeric: true });
+      const sorted = data.entries.slice().sort((a, b) => Number(b.type === "dir") - Number(a.type === "dir") || byName.compare(a.name, b.name));
+      for (const { name, type } of sorted) rows.push({ name, type, path: join(dir, name) });
+    }
+    return rows;
+  }, [dir, data, isSuccess]);
   const [at, setAt] = useMenuAt();
-  const [target, setTarget] = useState<{ entry: DirEntry; key: HTMLButtonElement } | null>(null);
+  const [target, setTarget] = useState<{ entry: BrowserEntry; key: HTMLButtonElement } | null>(null);
   const anchor = usePointAnchor(at);
-  const openMenu = (entry: DirEntry, key: HTMLButtonElement, point: Point) => {
+  // Shut an open menu when moving to another folder or computer, or when a refresh drops its row.
+  useLayoutEffect(() => setAt(null), [dir, machine, setAt]);
+  useLayoutEffect(() => {
+    if (target && !target.key.isConnected) setAt(null);
+  }, [entries, target, setAt]);
+  const openMenu = (entry: BrowserEntry, key: HTMLButtonElement, point: Point) => {
     setTarget({ entry, key });
     setAt(point);
+  };
+  const openDirectory = (entry: BrowserEntry, fromKeyboard: boolean) => {
+    // Keep focus on the stable .. row across repeated Enter climbs; hand focus to the list once
+    // climbing lands on a root and .. disappears, or when entering a child folder whose row leaves.
+    onFolder(entry.path, fromKeyboard && (entry.name !== ".." || !parent(entry.path)));
   };
   const items: MenuItem[] = [];
   if (target) {
     const { entry, key } = target;
-    const path = join(dir, entry.name);
+    const { path } = entry;
     const directory = entry.type === "dir";
     if (directory) {
-      items.push({ icon: <FolderOpen size={15} />, label: t("toast.open"), run: () => onFolder(path, true) });
+      items.push({ icon: <FolderOpen size={15} />, label: t("toast.open"), run: () => openDirectory(entry, true) });
     } else {
       items.push(
         { icon: <Eye size={15} />, label: t("msg.preview"), run: () => onFile(entry.name, key) },
@@ -335,20 +334,23 @@ function FolderRows({ machine, dir, selected, onFolder, onFile, copyActions, ent
   }
   return (
     <>
-      <ul role="list" className="m-0 list-none p-0">
-        {entries.map((entry) => (
-          <FolderRow
-            key={entry.name}
-            entry={entry}
-            machine={machine}
-            path={join(dir, entry.name)}
-            selected={selected === entry.name}
-            onFolder={onFolder}
-            onFile={onFile}
-            onMenu={openMenu}
-          />
-        ))}
-      </ul>
+      {entries.length > 0 && (
+        <ul role="list" className="m-0 list-none p-0">
+          {entries.map((entry) => (
+            // Keep .. on one stable key across folders so Enter climbs again; other rows key by path.
+            <FolderRow
+              key={entry.name === ".." ? ".." : `${machine}:${entry.path}`}
+              entry={entry}
+              machine={machine}
+              selected={selected === entry.name}
+              onFolder={openDirectory}
+              onFile={onFile}
+              onMenu={openMenu}
+            />
+          ))}
+        </ul>
+      )}
+      <FolderStatus folders={folders} />
       <Menu.Root modal={false} open={at !== null} onOpenChange={(open) => !open && setAt(null)}>
         <Menu.Portal>
           <Menu.Positioner anchor={anchor} side="bottom" align="start" sideOffset={4} collisionPadding={8} className="z-50">
@@ -366,11 +368,11 @@ function FolderRows({ machine, dir, selected, onFolder, onFile, copyActions, ent
 }
 
 /** One row of the folder: warmed on hover or focus, its menu on right click, long press or menu key. */
-function FolderRow({ entry, machine, path, selected, onFolder, onFile, onMenu }: Pick<FolderRowsProps, "machine" | "onFolder" | "onFile"> & {
-  entry: DirEntry;
-  path: string;
+function FolderRow({ entry, machine, selected, onFolder, onFile, onMenu }: Pick<FolderContentsProps, "machine" | "onFile"> & {
+  entry: BrowserEntry;
   selected: boolean;
-  onMenu: (entry: DirEntry, key: HTMLButtonElement, point: Point) => void;
+  onFolder: (entry: BrowserEntry, fromKeyboard: boolean) => void;
+  onMenu: (entry: BrowserEntry, key: HTMLButtonElement, point: Point) => void;
 }) {
   const key = useRef<HTMLButtonElement>(null);
   const lp = useLongPress((point) => key.current && onMenu(entry, key.current, point), { suppressTouchClick: true });
@@ -391,12 +393,13 @@ function FolderRow({ entry, machine, path, selected, onFolder, onFile, onMenu }:
       </li>
     );
   }
-  const warm = () => directory ? void prefetchDirectory(machine, path) : void preview().catch(() => {});
+  const warm = () => directory ? void prefetchDirectory(machine, entry.path) : void preview().catch(() => {});
   return (
     <li>
       <button
         ref={key}
         type="button"
+        aria-label={entry.name === ".." ? t("browse.up") : undefined}
         aria-current={selected || undefined}
         aria-keyshortcuts="Shift+F10"
         className={cn(folderRowClass, "hover:bg-fill select-none aria-[current=true]:bg-fill aria-[current=true]:font-medium [-webkit-touch-callout:none]")}
@@ -407,7 +410,7 @@ function FolderRow({ entry, machine, path, selected, onFolder, onFile, onMenu }:
           warm();
         }}
         onFocus={warm}
-        onClick={(e) => directory ? onFolder(path, e.detail === 0) : onFile(entry.name, e.currentTarget)}
+        onClick={(e) => directory ? onFolder(entry, e.detail === 0) : onFile(entry.name, e.currentTarget)}
         onContextMenu={(e) => {
           if (lp.onContextMenu(e)) return;
           e.preventDefault();
