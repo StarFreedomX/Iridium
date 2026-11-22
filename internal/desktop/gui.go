@@ -41,9 +41,9 @@ type ui struct {
 	pub  publicState // its 公网访问 (public.go)
 
 	mu      sync.Mutex
-	ready   string // a downloaded update's version, waiting for a restart
-	waiting bool   // the window waits on the app's page for this computer's Iridium to start
-	atApp   bool   // the window is on the app's own page (its last word came from there)
+	ready   string                     // a downloaded update's version, waiting for a restart
+	waiting bool                       // the window waits on the app's page for this computer's Iridium to start
+	atApp   bool                       // the window is on the app's own page (its last word came from there)
 	control *application.WebviewWindow // the control page's window while open
 }
 
@@ -142,12 +142,33 @@ func gui(o Options) int {
 	// macOS gives a web view ⌘C, ⌘V, ⌘A, ⌘Z only through the menu bar's Edit menu: without one,
 	// nothing pastes. Elsewhere the keys work without, and a menu would be a bar in the window.
 	if runtime.GOOS == "darwin" {
+		// A Mac app's menu bar and keys (kumo, 2026-11-22): ⌘, the control page, ⌘W closes the
+		// window (the app stays in the menu bar), ⌘Q quits, ⌘H hides, ⌘M minimises, ⌃⌘F full
+		// screen; Edit's for ⌘C ⌘V ⌘A ⌘Z in the pages.
 		bar := u.app.Menu.New()
-		bar.AddRole(application.AppMenu)
+		app := bar.AddSubmenu("Iridium")
+		app.AddRole(application.About)
+		app.AddSeparator()
+		app.Add("设置…").SetAccelerator("CmdOrCtrl+,").OnClick(func(*application.Context) { u.openControl() })
+		app.AddSeparator()
+		app.AddRole(application.Hide)
+		app.AddRole(application.HideOthers)
+		app.AddRole(application.UnHide)
+		app.AddSeparator()
+		app.AddRole(application.Quit)
+		file := bar.AddSubmenu("文件")
+		file.AddRole(application.CloseWindow)
 		bar.AddRole(application.EditMenu)
+		view := bar.AddSubmenu("显示")
+		view.AddRole(application.ToggleFullscreen)
 		bar.AddRole(application.WindowMenu)
 		u.app.Menu.SetApplicationMenu(bar)
+		// The Dock's icon pressed with the window closed: the window again.
+		u.app.Event.OnApplicationEvent(events.Mac.ApplicationShouldHandleReopen, func(*application.ApplicationEvent) {
+			application.InvokeAsync(u.show)
+		})
 	}
+	u.keepFrame()
 
 	u.menu = u.app.Menu.New()
 	u.tray = u.app.SystemTray.New().SetIcon(trayIcon).SetMenu(u.menu)

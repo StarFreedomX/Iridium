@@ -313,6 +313,18 @@ func installFramelessDragMonitor() {
 			if loc.X < resizeThreshold || loc.X > frame.Size.Width-resizeThreshold {
 				return event
 			}
+			// Iridium's patch: a double click there does what a title bar's does, as the system
+			// is set (System Settings: double-click a window's title bar to zoom, minimise or not).
+			if get[int](ev, "clickCount") == 2 {
+				switch titleBarDoubleClick() {
+				case "Minimize":
+					win.send("performMiniaturize:", objc.ID(0))
+				case "None":
+				default:
+					win.send("performZoom:", objc.ID(0))
+				}
+				return 0
+			}
 			win.send("performWindowDragWithEvent:", event)
 		}
 		return event
@@ -648,4 +660,14 @@ func macosOnDragEnter(windowID uint) {
 // macosOnDragExit is the pure-Go entry point for a drag leaving a window.
 func macosOnDragExit(windowID uint) {
 	handleDragExit(windowID)
+}
+
+// titleBarDoubleClick is the system's setting for a double click on a title bar: Maximize (zoom),
+// Minimize or None (Iridium's patch).
+func titleBarDoubleClick() string {
+	v := class("NSUserDefaults").send("standardUserDefaults").send("stringForKey:", nsString("AppleActionOnDoubleClick"))
+	if v.isNil() {
+		return "Maximize"
+	}
+	return v.string()
 }

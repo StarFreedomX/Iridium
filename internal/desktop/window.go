@@ -9,10 +9,12 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kumoSleeping/iridium/internal/version"
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/events"
 )
 
 // follow draws the tray again when what the runtime says changes (its joins' states, this
@@ -129,4 +131,33 @@ func (u *ui) syncRuntime(logf func(string, ...any)) {
 		}
 		time.Sleep(2 * time.Second)
 	}
+}
+
+// keepFrame: the window opens where and as large as it was last (Config.Frame), and is kept as it
+// moves and resizes (a Mac's or Windows' window does).
+func (u *ui) keepFrame() {
+	c, _ := loadConfig()
+	if f := c.Frame; f.W >= 360 && f.H >= 480 {
+		u.win.SetSize(f.W, f.H)
+		u.win.SetPosition(f.X, f.Y)
+	}
+	var mu sync.Mutex
+	var t *time.Timer
+	save := func(*application.WindowEvent) {
+		mu.Lock()
+		defer mu.Unlock()
+		if t != nil {
+			t.Stop()
+		}
+		t = time.AfterFunc(700*time.Millisecond, func() {
+			if u.win.IsMaximised() || u.win.IsFullscreen() || u.win.IsMinimised() {
+				return
+			}
+			x, y := u.win.Position()
+			w, h := u.win.Size()
+			_, _ = updateConfig(func(c *Config) { c.Frame = Frame{X: x, Y: y, W: w, H: h} })
+		})
+	}
+	u.win.OnWindowEvent(events.Common.WindowDidMove, save)
+	u.win.OnWindowEvent(events.Common.WindowDidResize, save)
 }

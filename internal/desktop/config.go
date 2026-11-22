@@ -47,6 +47,7 @@ type Config struct {
 	Name    string   `json:"name,omitempty"`    // this computer's name; "": the host name
 	Theme   string   `json:"theme,omitempty"`   // "dark" or "light", as the Iridium's page last was
 	Zoom    float64  `json:"zoom,omitempty"`    // the window's, as last set (⌘= ⌘- ⌘0); 0: 1
+	Frame   Frame    `json:"frame,omitzero"`    // the window's place and size, as last left
 	// NoServer: no Iridium of this computer's own (ir server off, ir start --no-server).
 	NoServer bool `json:"noServer,omitempty"`
 	// Me: who the person at the window says they are on the app's first page (kumo, 2026-11-22):
@@ -201,4 +202,9 @@ func (c *Config) server(address string) *Server {
 		}
 	}
 	return nil
+}
+
+// Frame is a window's place and size.
+type Frame struct {
+	X, Y, W, H int
 }
