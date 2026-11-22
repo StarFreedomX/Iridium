@@ -976,7 +976,7 @@ export function CreatePopover({ trigger }: { trigger: ReactElement }) {
         {/* Page to page, sliding the way you went: on to the agents, back to the folder. */}
         <div key={page} data-dir={page === "folder" ? "back" : undefined} className={shownAs.current.stepped ? "g-slide" : undefined}>
           {page === "folder" ? (
-            <>
+            <div className="w-[min(352px,calc(100vw-16px))]">
               {machines.length > 0 && <MachineSwitch machines={machines} at={at} onAt={(m) => (setAt(m), setFolder("~"))} />}
               <FolderPicker
                 key={at?.id ?? ""}
@@ -987,7 +987,7 @@ export function CreatePopover({ trigger }: { trigger: ReactElement }) {
                   setPage("session");
                 }}
               />
-            </>
+            </div>
           ) : (
             <NewSession ws="" folder={here} busy={busy} onFolder={() => setPage("folder")} onMake={sub.make} onPick={(a, to, people, as) => void sub.settled(to).then((p) => p && start(a, p.to?.cwd ?? p.folder, undefined, p.to?.m.id, people, as))} />
           )}
@@ -1053,7 +1053,7 @@ export function WsPlus({ w, trigger, open, setOpen, opened }: { w: Workspace; tr
 /** Which machine's folders the picker shows: this one, or another connected one. */
 function MachineSwitch({ machines, at, onAt }: { machines: Machine[]; at?: Machine; onAt: (m?: Machine) => void }) {
   return (
-    <div role="radiogroup" aria-label={t("new.machine")} className="flex gap-1 overflow-x-auto px-2 pt-2 [scrollbar-width:none]">
+    <div role="radiogroup" aria-label={t("new.machine")} className="no-bar flex gap-1 overflow-x-auto px-2 pt-2">
       {[undefined, ...machines].map((m) => {
         const on = m?.id === at?.id;
         const off = !!m && !m.online;
