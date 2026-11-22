@@ -10,6 +10,7 @@
 import {
   ChevronLeft,
   ChevronRight,
+  Folder,
   FolderPlus,
   Globe,
   LoaderCircle,
@@ -17,6 +18,8 @@ import {
   Pause,
   Play,
   Plus,
+  ShieldCheck,
+  SquareTerminal,
   Trash2,
   UserRound,
 } from "lucide-react";
@@ -713,7 +716,9 @@ function Grants({ st, open }: { st: State; open: (s: Server) => void }) {
     (s) => s.url,
   );
   return (
-    <Fold state={rows.length ? "in" : "out"}>
+    // Open from the first draw when there are any: taken from the rows, which come a draw later,
+    // the part folded open from the top each time the list was shown (kumo, 2026-11-22).
+    <Fold state={st.servers.some((s) => !s.local && s.loggedIn) ? "in" : "out"}>
       <Heading className="mt-3">授权操作</Heading>
       {rows.map(({ item: s, key, state }) => {
         const l = linkOf(s);
@@ -805,8 +810,9 @@ function ServerPage({
       />
       <div className="mt-4" />
       <Row
-        icon={<span />}
+        icon={<ShieldCheck size={16} className="text-ink-2" />}
         title="授权操作"
+        sub="允许在这台电脑上操作"
         end={
           <Switch
             label="授权操作"
@@ -817,8 +823,9 @@ function ServerPage({
       />
       <Fold state={s.joined ? "in" : "out"}>
         <Row
-          icon={<span />}
+          icon={<SquareTerminal size={16} className="text-ink-2" />}
           title="命令行"
+          sub="执行命令、打开终端"
           end={
             <Switch
               label="命令行"
@@ -842,9 +849,9 @@ function ServerPage({
           />
         ))}
         <Row
-          icon={<span />}
+          icon={<Folder size={16} className="text-ink-2" />}
           title="文件夹"
-          sub={roots.length ? `${roots.length} 个` : "全部"}
+          sub={roots.length ? `仅 ${roots.length} 个` : "全部"}
           end={
             <IconKey
               label="添加文件夹"

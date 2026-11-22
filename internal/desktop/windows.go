@@ -67,7 +67,8 @@ func (u *ui) newWindow(address, link string) {
 		URL: themed(link), CSS: pageCSS, JS: pageJS,
 		// No title bar of its own on macOS (kumo, 2026-11-20: no line under it): the page goes up to
 		// the window's top, the window dragged by that strip (pageCSS keeps it clear).
-		Mac: application.MacWindow{TitleBar: application.MacTitleBarHidden, InvisibleTitleBarHeight: macBar},
+		// The strip's right end is the page's: the app's key is there (web/src/appkey.tsx).
+		Mac: application.MacWindow{TitleBar: application.MacTitleBarHidden, InvisibleTitleBarHeight: macBar, InvisibleTitleBarClearRight: 44},
 	}
 	// Given as it is made: nothing of it is set after (set before the app ran, that hung it).
 	if f := c.Frame; f.W >= 360 && f.H >= 480 {

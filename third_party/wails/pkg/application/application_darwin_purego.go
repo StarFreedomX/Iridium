@@ -313,6 +313,10 @@ func installFramelessDragMonitor() {
 			if loc.X < resizeThreshold || loc.X > frame.Size.Width-resizeThreshold {
 				return event
 			}
+			// Iridium's patch: the strip's right end is the page's (its key there is pressed).
+			if c := CGFloat(impl.invisibleTitleBarClearRight); c > 0 && loc.X > frame.Size.Width-c {
+				return event
+			}
 			// Iridium's patch: a double click there does what a title bar's does, as the system
 			// is set (System Settings: double-click a window's title bar to zoom, minimise or not).
 			if get[int](ev, "clickCount") == 2 {

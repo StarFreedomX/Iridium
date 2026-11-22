@@ -8,6 +8,7 @@ github.com/wailsapp/wails/v3 v3.1.0 中 Iridium 用到的包（三个系统的�
 - **纯 Go 后端是默认的。** 原来要 `-tags purego`。所有 `//go:build` 行里 `!purego` 换成 `wails_cgo`，`purego` 换成 `!wails_cgo`；cgo 后端（`-tags wails_cgo`）编不了。这样 `go build`、`go test ./...` 不加标签、开不开 cgo 都能编。
 - **macOS 隐藏标题栏的双击。** 隐藏标题栏后顶上那一条只能拖动，双击没反应。改成按系统设置（「双击窗口标题栏以」：缩放、最小化、无，`AppleActionOnDoubleClick`）缩放或最小化。见 `pkg/application/application_darwin_purego.go` 的 `titleBarDoubleClick`。
 - **macOS 网页视图透明是默认的。** 原来要 `-tags private_mac_apis`，不加时 `wailsPrivateSetWebviewTransparent` 是空的：透明窗口（右上角弹窗、权限请求面板）整块是白的（kumo，2026-11-22）。`mac_private_api_darwin_purego.go` 改成默认编入，要只用公开接口加 `-tags public_mac_apis`。
+- **macOS 隐藏标题栏右端留给页面。** `MacWindow.InvisibleTitleBarClearRight`：顶上那条右端这么宽的一段不拖窗口，按下去交给页面（Iridium 的键画在那里）。
 
 ## 升级
 

@@ -352,8 +352,13 @@ func (u *ui) message(w application.Window, msg string, o *application.OriginInfo
 			})
 		}
 	case "home":
-		// The key at the page's top right: the app's own window (the picker), 服务器 and 授权操作.
-		u.showPicker()
+		// The app's key: the app's own window (the picker), 服务器 and 授权操作; pressed again, it
+		// goes (kumo, 2026-11-22).
+		if u.picker.IsVisible() {
+			u.picker.Hide()
+		} else {
+			u.showPicker()
+		}
 	case "needlogin":
 		// The Iridium's login page, in the app: the app's own instead (its passkey is in the browser).
 		// Its window is given up (a window shows an Iridium's page only); the picker logs in.

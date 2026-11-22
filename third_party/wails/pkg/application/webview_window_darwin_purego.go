@@ -27,6 +27,8 @@ type macosWindowNative struct {
 	// `height` points of a frameless / transparent-titlebar window (see the
 	// local mouse monitor installed in appInit).
 	invisibleTitleBarHeight uint
+	// invisibleTitleBarClearRight: that strip's right end left to the page (Iridium's patch).
+	invisibleTitleBarClearRight uint
 	// showToolbarWhenFullscreen controls the fullscreen presentation options
 	// returned by the delegate.
 	showToolbarWhenFullscreen bool
@@ -589,6 +591,7 @@ func (w *macosWebviewWindow) applyMacOptions(options WebviewWindowOptions) {
 	// a frameless or transparent-titlebar window (matches cgo run()).
 	if macOptions.InvisibleTitleBarHeight != 0 && (options.Frameless || titleBar.AppearsTransparent) {
 		w.invisibleTitleBarHeight = uint(macOptions.InvisibleTitleBarHeight)
+		w.invisibleTitleBarClearRight = uint(macOptions.InvisibleTitleBarClearRight)
 	}
 
 	if macOptions.Appearance != "" {

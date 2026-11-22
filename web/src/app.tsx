@@ -6,7 +6,7 @@
 // the chat staying under it; on a phone a sheet too, by a swipe up from the left quarter or ⋯. The jump box
 // (⌘K) opens in the sidebar, not over the page. The chat, the settings and the jump box come only as
 // they are opened, or the page is idle: the first screen stays light.
-import { AppKey } from "./appkey";
+import { AppKey, AppStripKey } from "./appkey";
 import { Dialog } from "@base-ui/react/dialog";
 import { Toast } from "@base-ui/react/toast";
 import { Tooltip } from "@base-ui/react/tooltip";
@@ -413,6 +413,7 @@ export function App() {
   return (
     <Toast.Provider toastManager={toasts}>
       <Tooltip.Provider delay={450} closeDelay={60}>
+        <AppStripKey />
         <div className="flex h-full overflow-hidden" data-still={params.get("still") === "1" || undefined}>
           {!phone && sidebar}
           {main}
