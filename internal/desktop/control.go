@@ -3,41 +3,71 @@ package desktop
 import (
 	"encoding/json"
 	"runtime"
+	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 )
 
-// The control (docs/app.md "控制"): a popover under the key at an Iridium page's top right, as the
-// web app's popovers look, but the app's own (a window without a frame over the page): the
-// Iridium cannot press its switches, so 授权操作 asks nothing more (kumo, 2026-11-22). It closes
-// as it loses the focus (a press outside), on Esc, or when it took the window somewhere.
+// The control (docs/app.md "控制"): the popover under the key at an Iridium page's top right, drawn
+// as the web app's popovers are (PopSurface: its surface, shadow, unfold), but the app's own (a
+// window without a frame over the page): the Iridium cannot press its switches, so 授权操作 asks
+// nothing more (kumo, 2026-11-22). Its window is made once the app has started, hidden, its page
+// loaded with the state: opened, the page has its rows and height already, and the window is never
+// sized again (its panel glides to its height inside). It hides as it loses the focus (a press
+// outside), on Esc, or when it took the window somewhere.
 
-const controlW = 340
+const (
+	controlW    = 352 // the panel, as wide as the web app's "+" popover
+	controlSide = 32  // round the panel: its shadow's room (--shadow-float)
+	controlTop  = 8
+	controlFoot = 48
+	controlMaxH = 640
+)
 
 // keyRect is where the key is in its page (CSS pixels from the page's top left).
 type keyRect struct{ X, Y, W, H float64 }
 
-// openControl shows the control under the key of the window in front; at its top right with no
-// key given (the tray, ⌘,). On the main thread.
+// makeControl makes the control's window, hidden, once. On the main thread.
+func (u *ui) makeControl() *application.WebviewWindow {
+	u.mu.Lock()
+	w := u.control
+	u.mu.Unlock()
+	if w != nil {
+		return w
+	}
+	w = u.app.Window.NewWithOptions(application.WebviewWindowOptions{
+		Name: "control", Title: "Iridium",
+		Width: controlW + 2*controlSide, Height: controlTop + controlMaxH + controlFoot,
+		URL: themed("/#control"), Frameless: true, DisableResize: true, AlwaysOnTop: true,
+		BackgroundType: application.BackgroundTypeTransparent, Hidden: true,
+		// No shadow of the system's: the panel draws the web app's own.
+		Mac: application.MacWindow{Backdrop: application.MacBackdropTransparent, WindowLevel: application.MacWindowLevelFloating, DisableShadow: true},
+	})
+	w.OnWindowEvent(events.Common.WindowLostFocus, func(*application.WindowEvent) { u.closeControl() })
+	u.mu.Lock()
+	u.control = w
+	u.mu.Unlock()
+	return w
+}
+
+// openControl shows the control under the key of the window in front, its right edge in line
+// with the key's (a popover aligned at its end); at the window's top right with no key given (the
+// tray, ⌘,). On the main thread.
 func (u *ui) openControl(arg string) {
 	var r keyRect
 	_ = json.Unmarshal([]byte(arg), &r)
+	w := u.makeControl()
 	u.mu.Lock()
-	w, front := u.control, u.win
-	u.mu.Unlock()
-	if w == nil {
-		w = u.app.Window.NewWithOptions(application.WebviewWindowOptions{
-			Name: "control", Title: "Iridium", Width: controlW, Height: 420,
-			URL: themed("/#control"), Frameless: true, DisableResize: true, AlwaysOnTop: true,
-			BackgroundType: application.BackgroundTypeTransparent, Hidden: true,
-			Mac: application.MacWindow{Backdrop: application.MacBackdropTransparent, WindowLevel: application.MacWindowLevelFloating},
-		})
-		w.OnWindowEvent(events.Common.WindowLostFocus, func(*application.WindowEvent) { u.closeControl() })
-		u.mu.Lock()
-		u.control = w
+	// The key pressed again with it open: the press took its focus and put it away; it stays away,
+	// as a popover's trigger closes it.
+	if time.Since(u.controlShut) < 300*time.Millisecond {
 		u.mu.Unlock()
+		return
 	}
+	front := u.win
+	u.controlOpen = true
+	u.mu.Unlock()
 	if front != nil {
 		x, y := front.Position()
 		fw, _ := front.Size()
@@ -49,39 +79,53 @@ func (u *ui) openControl(arg string) {
 		if zoom <= 0 {
 			zoom = 1
 		}
-		px := x + fw - controlW - 8
-		py := y + top + 48
+		right, below := x+fw-8, y+top+48
 		if r.W > 0 {
-			px = x + int((r.X+r.W)*zoom) - controlW + 8
-			py = y + top + int((r.Y+r.H)*zoom) + 2
+			right = x + int((r.X+r.W)*zoom)
+			below = y + top + int((r.Y+r.H)*zoom)
 		}
-		w.SetPosition(px, py)
+		w.SetPosition(right-controlW-controlSide, below+8-controlTop)
 	}
+	c, _ := loadConfig()
+	st := u.pageState(c)
+	st["open"] = true
 	w.Show()
 	w.Focus()
+	reply(w, st)
 }
 
-// sizeControl is the control's height as its page says it fits (at most most of a screen).
-func (u *ui) sizeControl(h int) {
-	u.mu.Lock()
-	w := u.control
-	u.mu.Unlock()
-	if w == nil || h <= 0 {
-		return
-	}
-	if h > 680 {
-		h = 680
-	}
-	w.SetSize(controlW, h)
-}
-
-// closeControl closes the control, if open.
+// closeControl puts the control away, if open: its panel folds back (the page, as a popover's
+// does), then the window hides.
 func (u *ui) closeControl() {
 	u.mu.Lock()
-	w := u.control
-	u.control = nil
+	w, open := u.control, u.controlOpen
+	u.controlOpen = false
+	if open {
+		u.controlShut = time.Now()
+	}
 	u.mu.Unlock()
-	if w != nil {
-		application.InvokeAsync(w.Close)
+	if w == nil || !open {
+		return
+	}
+	reply(w, map[string]any{"close": true})
+	time.AfterFunc(180*time.Millisecond, func() {
+		application.InvokeAsync(func() {
+			u.mu.Lock()
+			again := u.controlOpen
+			u.mu.Unlock()
+			if !again {
+				w.Hide()
+			}
+		})
+	})
+}
+
+// tellControl gives the control the state afresh while it is open (a link's state changed).
+func (u *ui) tellControl(c Config) {
+	u.mu.Lock()
+	w, open := u.control, u.controlOpen
+	u.mu.Unlock()
+	if w != nil && open {
+		reply(w, u.pageState(c))
 	}
 }

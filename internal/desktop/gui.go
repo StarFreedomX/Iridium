@@ -14,7 +14,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -41,14 +40,16 @@ type ui struct {
 	here localState  // this computer's own Iridium (local.go)
 	pub  publicState // its 公网访问 (public.go)
 
-	mu      sync.Mutex
-	ready   string                       // a downloaded update's version, waiting for a restart
-	waiting bool                         // the window waits on the app's page for this computer's Iridium to start
-	atApp   bool                         // the window is on the app's own page (its last word came from there)
-	control *application.WebviewWindow   // the control page's window while open
-	wins    []*application.WebviewWindow // the windows on Iridiums, the one in front (win) among them
-	shows   map[string]string            // each window's (by name) Iridium, as its page says
-	nwin    int
+	mu          sync.Mutex
+	ready       string                     // a downloaded update's version, waiting for a restart
+	waiting     bool                       // the window waits on the app's page for this computer's Iridium to start
+	atApp       bool                       // the window is on the app's own page (its last word came from there)
+	control     *application.WebviewWindow // the control's window, made once the app has started (control.go)
+	controlOpen bool
+	controlShut time.Time                    // when it was put away last
+	wins        []*application.WebviewWindow // the windows on Iridiums, the one in front (win) among them
+	shows       map[string]string            // each window's (by name) Iridium, as its page says
+	nwin        int
 }
 
 func gui(o Options) int {
@@ -199,6 +200,10 @@ func gui(o Options) int {
 		_ = SetServer(false)
 	}
 	go u.binaryUpdates()
+	// The control's window made ahead, hidden, its page loaded: whole as it opens.
+	u.app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
+		application.InvokeAsync(func() { u.makeControl() })
+	})
 
 	if err := u.app.Run(); err != nil {
 		logf("%v", err)
@@ -495,10 +500,6 @@ func (u *ui) local(w application.Window, verb, arg string) {
 		if c, _ := loadConfig(); c.server(arg) != nil {
 			u.closeControl()
 			application.InvokeAsync(func() { u.newWindow(arg) })
-		}
-	case "size":
-		if h, err := strconv.Atoi(arg); err == nil {
-			application.InvokeAsync(func() { u.sizeControl(h) })
 		}
 	case "close":
 		u.closeControl()
@@ -948,6 +949,7 @@ func (u *ui) confirm(ctx context.Context, q string) bool {
 // redraw builds the tray's menu again: each Iridium with its state, which is shown, the app's own.
 func (u *ui) redraw() {
 	c, _ := loadConfig()
+	u.tellControl(c)
 	m := u.menu
 	m.Clear()
 	cur := c.current()
