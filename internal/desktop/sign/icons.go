@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"image"
 	"image/png"
+	"math"
 	"os"
 
 	"golang.org/x/image/draw"
@@ -32,6 +33,9 @@ func icons() error {
 	}
 	mac := image.NewNRGBA(image.Rect(0, 0, 1024, 1024))
 	draw.CatmullRom.Scale(mac, image.Rect(100, 100, 924, 924), src, src.Bounds(), draw.Over, nil)
+	// Its corners as the template's (radius 185.4 of 824): macOS 26 masks an icon shaped like
+	// it into the new shape by itself (WWDC25 220, StarFreedomX, 2026-11-22).
+	roundCorners(mac, image.Rect(100, 100, 924, 924), 185.4)
 	if err := writePNG("internal/desktop/assets/icon-mac.png", mac); err != nil {
 		return err
 	}
@@ -57,6 +61,24 @@ func icons() error {
 		}
 	}
 	return nil
+}
+
+// roundCorners keeps of img only what is inside r with its corners rounded by radius, the edge
+// smoothed over a pixel.
+func roundCorners(img *image.NRGBA, r image.Rectangle, radius float64) {
+	for y := r.Min.Y; y < r.Max.Y; y++ {
+		for x := r.Min.X; x < r.Max.X; x++ {
+			px, py := float64(x)+0.5, float64(y)+0.5
+			cx := math.Max(float64(r.Min.X)+radius, math.Min(px, float64(r.Max.X)-radius))
+			cy := math.Max(float64(r.Min.Y)+radius, math.Min(py, float64(r.Max.Y)-radius))
+			d := math.Hypot(px-cx, py-cy) - radius // > 0: outside
+			cover := math.Max(0, math.Min(1, 0.5-d))
+			if cover < 1 {
+				i := img.PixOffset(x, y) + 3
+				img.Pix[i] = uint8(float64(img.Pix[i]) * cover)
+			}
+		}
+	}
 }
 
 func writePNG(path string, img image.Image) error {

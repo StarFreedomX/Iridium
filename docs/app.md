@@ -114,7 +114,7 @@ curl 只装程序，`sh -s --` 后面的交给 `ir`。见 `docs/exec.md`。
 ## 图标（2026-11-22）
 
 `go run ./internal/desktop/sign icons` 从 `assets/icon.png` 生成，生成的文件进 git，构建不需要别的工具：
-- `assets/icon-mac.png`：按 Mac 图标的网格，1024 画布里方块占 824、四周留边。原来方块铺满画布，程序坞里比别的图标都大（kumo，2026-11-22）。程序坞（运行时）和 .app 的 icns 都用它。
+- `assets/icon-mac.png`：按 Mac 图标的网格，1024 画布里方块占 824、四周留边，圆角照模板（半径 185.4）：macOS 26 把形状像模板的老图标自己裁成新形状（WWDC25 220，StarFreedomX，2026-11-22）。原来方块铺满画布，程序坞里比别的图标都大（kumo，2026-11-22）。程序坞（运行时）和 .app 的 icns 都用它。
 - `cmd/iridium/rsrc_windows_{amd64,arm64}.syso`：Windows 程序的图标资源（第 3 组，Wails 找的就是它），资源管理器、任务栏、窗口都用它。原来装生成工具失败，程序没有图标；现在是自己写的 COFF 生成器（`sign/icons.go`）。
 
 ## 更新
