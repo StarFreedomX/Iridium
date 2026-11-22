@@ -582,6 +582,8 @@ export const zh = {
   "new.notInstalled": "{name} 未安装",
   "new.offline": "{name} 未连接",
   "new.machine": "应用",
+  "new.scrollMachinesLeft": "向左滚动",
+  "new.scrollMachinesRight": "向右滚动",
   "new.folder": "目录",
   "new.local": "Iridium",
   "new.gone": "已移除的应用",

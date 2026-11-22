@@ -5,7 +5,7 @@ import { Menu } from "@base-ui/react/menu";
 import { Popover } from "@base-ui/react/popover";
 import { Tooltip } from "@base-ui/react/tooltip";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bot, Check, ChevronDown, ChevronRight, Folder, FolderPlus, LoaderCircle, Play, UserMinus } from "lucide-react";
+import { Bot, Check, ChevronDown, ChevronLeft, ChevronRight, Folder, FolderPlus, LoaderCircle, Play, UserMinus } from "lucide-react";
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactElement, type ReactNode } from "react";
 import type { NewMember, NewSession as NewSessionReq, Recv, Workspace } from "./api/types.gen";
 import { api, missing } from "./api/client";
@@ -1049,29 +1049,94 @@ export function WsPlus({ w, trigger, open, setOpen, opened }: { w: Workspace; tr
   );
 }
 
-/** Which machine's folders the picker shows: this one, or another connected one. */
+/** Which machine's folders the picker shows: this one, or another connected one. When the strip
+ *  overflows the popover, left and right arrows appear at its ends to step through it; at either
+ *  end its arrow dims in place so the buttons never jump. */
 function MachineSwitch({ machines, at, onAt }: { machines: Machine[]; at?: Machine; onAt: (m?: Machine) => void }) {
+  const viewport = useRef<HTMLDivElement>(null);
+  const [edges, setEdges] = useState({ overflow: false, left: false, right: false });
+  useLayoutEffect(() => {
+    const el = viewport.current;
+    const row = el?.parentElement;
+    const content = el?.firstElementChild;
+    if (!el || !row || !content) return;
+    const measure = () => {
+      // Compare against the full row width so showing the arrows cannot keep them mounted by
+      // shrinking the viewport; 1px tolerance absorbs subpixel scroll offsets.
+      const overflow = el.scrollWidth > row.clientWidth;
+      const left = el.scrollLeft > 1;
+      const right = el.scrollWidth - el.clientWidth - el.scrollLeft > 1;
+      setEdges((e) => (e.overflow === overflow && e.left === left && e.right === right ? e : { overflow, left, right }));
+    };
+    // Watch both the viewport (popover resize) and inner w-max strip (machines added or renamed).
+    const resize = new ResizeObserver(measure);
+    resize.observe(el);
+    resize.observe(content);
+    el.addEventListener("scroll", measure, { passive: true });
+    measure();
+    return () => {
+      resize.disconnect();
+      el.removeEventListener("scroll", measure);
+    };
+  }, []);
+  // Step almost one view so the edge machine stays visible as an anchor on the opposite side; fall
+  // back to 80% of the viewport when a wide item leaves less than a third of a view to advance.
+  const scroll = (direction: -1 | 1) => {
+    const el = viewport.current;
+    if (!el || !(direction === -1 ? edges.left : edges.right)) return;
+    const start = el.scrollLeft;
+    const end = start + el.clientWidth;
+    const visible = [...el.querySelectorAll("button")].filter((key) => key.offsetLeft >= start && key.offsetLeft + key.offsetWidth <= end);
+    const keep = direction === -1 ? visible[0] : visible.at(-1);
+    const distance = keep ? (direction === -1 ? end - keep.offsetLeft - keep.offsetWidth : keep.offsetLeft - start) : 0;
+    el.scrollBy({ left: direction * (distance >= el.clientWidth / 3 ? distance : el.clientWidth * 0.8) });
+  };
+  // Use aria-disabled instead of disabled so hitting either end never drops keyboard focus.
+  const arrow = "h-7 w-7 aria-disabled:opacity-35 aria-disabled:hover:bg-transparent pointer-coarse:h-9 pointer-coarse:w-10";
+  // Let the popover's glass show through only at edges with more machines offscreen.
+  const mask = `linear-gradient(to right, ${edges.left ? "transparent" : "#000"}, #000 12px, #000 calc(100% - 12px), ${edges.right ? "transparent" : "#000"})`;
   return (
-    <div role="radiogroup" aria-label={t("new.machine")} className="no-bar flex gap-1 overflow-x-auto px-2 pt-2">
-      {[undefined, ...machines].map((m) => {
-        const on = m?.id === at?.id;
-        const off = !!m && !m.online;
-        return (
-          <button
-            key={m?.id ?? ""}
-            type="button"
-            role="radio"
-            aria-checked={on}
-            disabled={off}
-            onClick={() => !on && onAt(m)}
-            className={cn("g-press flex h-7 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-xs transition-colors duration-(--dur-2) pointer-coarse:h-9", on ? "bg-ink text-on-ink" : "bg-fill text-ink-2 hover:bg-fill-2", off && "opacity-40")}
-          >
-            {m && <MachineFace m={m} size={14} />}
-            {m ? m.name : t("term.local")}
-            {off && <span>{t("status.offline")}</span>}
-          </button>
-        );
-      })}
+    <div className="flex items-center pt-2">
+      {edges.overflow && (
+        <IconKey label={t("new.scrollMachinesLeft")} className={cn(arrow, "ms-1.5")} aria-disabled={!edges.left} onClick={() => scroll(-1)}>
+          <ChevronLeft size={16} />
+        </IconKey>
+      )}
+      <div
+        ref={viewport}
+        role="radiogroup"
+        aria-label={t("new.machine")}
+        className="no-bar min-w-0 flex-1 overflow-x-auto overscroll-x-contain scroll-px-3 motion-safe:scroll-smooth"
+        style={edges.overflow ? { maskImage: mask, WebkitMaskImage: mask } : undefined}
+      >
+        {/* relative anchors each button's offsetLeft to the strip; w-max lets ResizeObserver track its full width. */}
+        <div className="relative flex w-max gap-1 px-2">
+          {[undefined, ...machines].map((m) => {
+            const on = m?.id === at?.id;
+            const off = !!m && !m.online;
+            return (
+              <button
+                key={m?.id ?? ""}
+                type="button"
+                role="radio"
+                aria-checked={on}
+                disabled={off}
+                onClick={() => !on && onAt(m)}
+                className={cn("g-press flex h-7 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-xs transition-colors duration-(--dur-2) focus-visible:-outline-offset-2 pointer-coarse:h-9", on ? "bg-ink text-on-ink" : "bg-fill text-ink-2 hover:bg-fill-2", off && "opacity-40")}
+              >
+                {m && <MachineFace m={m} size={14} />}
+                {m ? m.name : t("term.local")}
+                {off && <span>{t("status.offline")}</span>}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      {edges.overflow && (
+        <IconKey label={t("new.scrollMachinesRight")} className={cn(arrow, "me-1.5")} aria-disabled={!edges.right} onClick={() => scroll(1)}>
+          <ChevronRight size={16} />
+        </IconKey>
+      )}
     </div>
   );
 }
