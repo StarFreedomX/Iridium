@@ -127,6 +127,7 @@ type Hosted struct {
 	stopStep   int
 	turn       agent.State // where the agent's turn is
 	turnSince  time.Time   // when turn became what it is
+	turnEnds   int         // turns this process ended (not replayed): an interrupt's watch tells its turn from the next
 	asks       []api.Ask
 	tasks      []api.Task
 	model      string
@@ -867,6 +868,7 @@ func (h *Hosted) onEvent(e agent.Event) {
 		if !replay {
 			// In the log: a session shown at work after this is one stuck here, not in its agent.
 			h.logf("turn ended (process %d)", proc)
+			h.turnEnds++
 		}
 		h.lastActive = time.Now()
 		if !replay {

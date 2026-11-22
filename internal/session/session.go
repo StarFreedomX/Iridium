@@ -472,23 +472,26 @@ func (m *Manager) Interrupt(ctx context.Context, id string) error {
 	}
 	// An interrupt its agent does not answer (the turn over there already, its end never told
 	// here) leaves the session at work with nothing more to press: its process is stopped
-	// instead, after a while. The session stays; the next message starts it again.
+	// instead, after a while. The session stays; the next message starts it again. A turn that
+	// ended meanwhile answered it: one at work now is the next (a message that waited, run at
+	// once), not this one stuck (kumo, 2026-11-22: stopped so in the middle of its next turn).
 	h.mu.Lock()
-	proc := h.proc
+	proc, ends := h.proc, h.turnEnds
 	h.mu.Unlock()
+	wait := interruptWait
 	go func() {
 		select {
 		case <-m.ctx.Done():
 			return
-		case <-time.After(interruptWait):
+		case <-time.After(wait):
 		}
 		h.mu.Lock()
-		stuck := h.live && h.proc == proc && h.turn != agent.Idle && len(h.asks) == 0
+		stuck := h.live && h.proc == proc && h.turnEnds == ends && h.turn != agent.Idle && len(h.asks) == 0
 		h.mu.Unlock()
 		if !stuck {
 			return
 		}
-		h.logf("interrupted %s ago and still in its turn: stopping its agent", interruptWait)
+		h.logf("interrupted %s ago and still in its turn: stopping its agent", wait)
 		if err := h.stop(m.ctx); err != nil {
 			h.logf("%v", err)
 		}

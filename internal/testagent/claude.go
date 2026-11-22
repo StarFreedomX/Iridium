@@ -58,7 +58,9 @@ func Main() (code int, ok bool) {
 //     M, L) and answers "ok: answers <question>=<answer>; ...", by question.
 //   - WAIT runs for half a second (an interrupt ends it at once); messages that come meanwhile
 //     join it, each answered "ok: <text>" in the same turn. HOLD is WAIT until the first message
-//     joins it (ten seconds at most), however slow the machine.
+//     joins it (ten seconds at most), however slow the machine. One that comes meanwhile ending in
+//     LATER waits in the agent instead, as Claude's queue does while a call runs: once the turn
+//     ends (an interrupt too), it runs as the next turn, LATER taken off.
 //   - crash begins the turn, then exits 3. Resumed with CLAUDE_CODE_RESUME_INTERRUPTED_TURN=1, it
 //     runs that turn again by itself, saying "ok: continued". crash! exits the same way but is
 //     never run again by itself; crashloop crashes again each time it is run again.
@@ -221,11 +223,20 @@ func Claude() int {
 	var waiting map[string]any // a WAIT turn
 	holding := false           // a HOLD turn: it ends once a message joins it
 	var steered []map[string]any
+	var later []map[string]any // LATER messages waiting for the turn's end
 	var timer <-chan time.Time
 	var compacting map[string]any // a /compact running
 	var compacted <-chan time.Time
 	for {
 		var line []byte
+		if len(later) > 0 && waiting == nil && pending == nil && compacting == nil {
+			f := later[0]
+			later = later[1:]
+			c := f["message"].(map[string]any)["content"].([]any)[0].(map[string]any)
+			c["text"] = strings.Replace(c["text"].(string), " LATER", "", 1)
+			line, _ = json.Marshal(f)
+			goto parse
+		}
 		select {
 		case l, ok := <-lines:
 			if !ok {
@@ -249,6 +260,7 @@ func Claude() int {
 			compacting = nil
 			continue
 		}
+	parse:
 		var f map[string]any
 		if json.Unmarshal(line, &f) != nil {
 			return 1 // as the real CLI does
@@ -332,6 +344,11 @@ func Claude() int {
 			}
 		case "user":
 			text := textOf(f)
+			if words, _, _ := strings.Cut(text, "\n\n<channel-context>"); waiting != nil && strings.HasSuffix(words, " LATER") {
+				say(map[string]any{"type": "command_lifecycle", "command_uuid": f["uuid"], "state": "queued"})
+				later = append(later, f)
+				continue
+			}
 			if waiting != nil {
 				// Taken into the running turn, as the CLI does with a message mid-turn.
 				say(map[string]any{"type": "command_lifecycle", "command_uuid": f["uuid"], "state": "started"})

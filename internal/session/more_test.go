@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -111,6 +113,41 @@ func TestQueuePaused(t *testing.T) {
 	s = r.waitState(id, "the queue sent", func(s *api.SessionState) bool { return said(s, "ok: two") })
 	if len(s.Queue) != 0 {
 		t.Errorf("queue: %+v", s.Queue)
+	}
+}
+
+// An interrupt its agent answers, a message that waited in the agent run at once as the next
+// turn: that turn is not the interrupted one stuck, its process is not stopped (kumo, 2026-11-22:
+// stopped so, the message that waited lost). Not parallel: it shortens interruptWait.
+func TestInterruptThenNextTurn(t *testing.T) {
+	was := interruptWait
+	interruptWait = 200 * time.Millisecond
+	defer func() { interruptWait = was }()
+	var stopped atomic.Bool
+	r := newRig(t, func(_ *config.Config, o *Options) {
+		logf := o.Logf
+		o.Logf = func(f string, a ...any) {
+			if strings.Contains(fmt.Sprintf(f, a...), "still in its turn") {
+				stopped.Store(true)
+			}
+			logf(f, a...)
+		}
+	})
+	id, _ := r.m.Create(bg, api.NewSession{Cwd: r.cwd, Text: "one HOLD"}, "网页")
+	r.waitState(id, "the turn", func(s *api.SessionState) bool { return s.Status == api.StatusRunning })
+	if _, queued, err := r.m.SendWith(bg, id, "two WAIT LATER", "网页", true); queued || err != nil {
+		t.Fatalf("steer: queued %v, %v", queued, err)
+	}
+	time.Sleep(100 * time.Millisecond) // in the agent's queue
+	if err := r.m.Interrupt(bg, id); err != nil {
+		t.Fatal(err)
+	}
+	s := r.waitState(id, "the next turn's reply", func(s *api.SessionState) bool { return said(s, "ok: two WAIT") && s.Status == api.StatusIdle })
+	if s.Error != "" {
+		t.Errorf("error: %s", s.Error)
+	}
+	if stopped.Load() {
+		t.Error("the next turn was taken for the interrupted one stuck")
 	}
 }
 
