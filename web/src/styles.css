@@ -218,14 +218,30 @@ body {
   -webkit-box-decoration-break: clone;
   box-decoration-break: clone;
 }
+/* Solid, the blur would be worked out each frame under a ground it cannot be seen through: none,
+   and the layer it made (a stacking context) kept, so nothing in it moves in front or behind. */
 @media (prefers-reduced-transparency: reduce) {
   .glass {
     background: var(--glass-solid);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    isolation: isolate;
   }
   .glass.thick {
     background: var(--glass-thick-solid);
-    -webkit-backdrop-filter: none;
+  }
+}
+/* Firefox's engine (Zen, kumo 2026-11-22): a backdrop blur under what scrolls or streams is worked
+   out again each frame there, and the page stuttered where Chrome's ran smooth. Solid there, as when
+   transparency is reduced: the same tint over the page's ground. */
+@supports (-moz-appearance: none) {
+  .glass {
+    background: var(--glass-solid);
     backdrop-filter: none;
+    isolation: isolate;
+  }
+  .glass.thick {
+    background: var(--glass-thick-solid);
   }
 }
 

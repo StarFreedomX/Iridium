@@ -327,6 +327,10 @@ html[data-turn="prev"] {
 html[data-turn] .g-turn-stay.glass,
 html[data-turn] .g-turn-stay .glass {
   background: var(--glass-solid);
+  /* solid, its blur is not seen: not worked out each frame of the turn (its layer kept) */
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  isolation: isolate;
 }
 html[data-turn] .g-turn-stay.glass.thick,
 html[data-turn] .g-turn-stay .glass.thick {
