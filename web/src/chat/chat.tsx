@@ -85,6 +85,10 @@ import { Stick, toEnd } from "./stick";
 import { Activity, OtherTurn, TurnFrame } from "./atwork";
 import { VoiceDock } from "../voice/dock";
 
+/** How many turns of a conversation are drawn as it opens, and how many more each time. */
+const FIRST_TURNS = 20;
+const MORE_TURNS = 20;
+
 const BUSY = new Set(["running", "compacting", "starting", "waiting"]);
 /** Another agent of the channel at work: its frame under the conversation. */
 // At work: in a turn. Not "starting" (its harness coming up, no turn yet: an invited agent's face
@@ -180,7 +184,12 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
   if (real) had.current = true;
   else if (had.current && !lost) setLost(true);
   if (real && lost) setLost(false);
-  const [chat] = useState(() => chatOf(id));
+  const [chat] = useState(() => {
+    const c = chatOf(id);
+    // Opened at its end: drawn from its last turns again, however far up it was gone before.
+    if (c.place.top === null) (c.place.from = undefined), (c.place.n = undefined);
+    return c;
+  });
   // Its subagents at work (kumo, 2026-11-15: members that only read, no rows in the sidebar;
   // 2026-11-16: each a turn of its own, outside its parent's, live as the agent's): their states
   // on the stream beside the channel's agents', as far as it has room (SubTurn).
@@ -276,6 +285,24 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
   /** The turn at work as this page follows it (turns.ts liveAt), and whether it saw the chat at rest. */
   const liveSeen = useRef<{ id: string; idle: boolean; at: LiveAt | null }>({ id: "", idle: false, at: null });
   const column = useRef<HTMLDivElement>(null);
+  /** The first turn drawn, among the turns as last drawn (their keys). */
+  const drawnFrom = useRef<{ from: number; keys: string[] }>({ from: 0, keys: [] });
+  /** MORE_TURNS more of the turns before; says whether there were any. */
+  const drawMore = () => {
+    const { from, keys } = drawnFrom.current;
+    if (from <= 0) return false;
+    const f = Math.max(0, from - MORE_TURNS);
+    chat.place.from = keys[f];
+    chat.place.n = keys.length - f;
+    drawnFrom.current = { from: f, keys };
+    return true;
+  };
+  // What is drawn as it opens does not fill the pane (short turns): more, before it is painted.
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    const col = column.current;
+    if (el && col && col.offsetHeight < el.clientHeight * 1.25 && drawMore()) changed();
+  });
   // How high the row at work was while the agent was at work, for what takes its place as the
   // turn is stopped (stopped, below).
   const workBusy = useRef(false);
@@ -627,7 +654,18 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
     else composer.current?.focus();
   };
   // The record's page before, with the log back as far (the chat's own paging, and a quote's).
-  const older = () => log.older(async (p) => void (ready && p.blocks[0]?.time !== undefined && (await alignBack(ready.kept.log, p.more ? p.blocks[0].time : 0))));
+  const olderPage = () => log.older(async (p) => void (ready && p.blocks[0]?.time !== undefined && (await alignBack(ready.kept.log, p.more ? p.blocks[0].time : 0))));
+  // The turns held and not yet drawn first, each lot in a task of its own (what is on the page is
+  // painted first); then the page before.
+  const older = async () => {
+    if (drawnFrom.current.from <= 0) return olderPage();
+    await new Promise<void>((r) => {
+      const go = () => (clearTimeout(late), r());
+      const late = window.setTimeout(go, 120);
+      requestAnimationFrame(() => setTimeout(go, 0));
+    });
+    return drawMore() || olderPage();
+  };
   // A quote pressed: the message it answers, drawn from the log or the own agent's record, the
   // pages before brought till it is (channel/jump.ts).
   const jump = (n: number) => {
@@ -785,6 +823,17 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
   const stopped = stoppedAt !== null && lastOne?.kind === "one" && lastOne.key === stoppedAt ? lastOne : null;
   const turns = stopped ? allTurns.slice(0, -1) : allTurns;
   workBusy.current = busy;
+  // A long conversation is drawn from its end: the last FIRST_TURNS turns as it opens, the ones
+  // before as they are gone up to (Stick's paging, which asks for the pages before only once
+  // all the turns held are drawn), a few each time. Every turn was drawn at once: a channel of
+  // 388 turns took 0.7 s to make and 0.2 s to take away, and as long again each time anything
+  // it is drawn from changed (measured 2026-11-23). Kept by the first turn drawn, so what comes
+  // at the end takes nothing away at the top; and with the chat, so one left gone up comes back
+  // as it was.
+  let from = chat.place.from === undefined ? -1 : turns.findIndex((x) => x.key === chat.place.from);
+  if (from < 0) from = Math.max(0, turns.length - (chat.place.n ?? FIRST_TURNS));
+  if (log.loaded && turns.length) (chat.place.from = turns[from]?.key), (chat.place.n = turns.length - from);
+  drawnFrom.current = { from, keys: turns.map((x) => x.key) };
   // Come to rest with nothing new in the record (stopped: its line comes a moment after): the row
   // at work stays as high till that line is there, not a line high for a frame in between, the
   // conversation dropped and brought up again.
@@ -1002,14 +1051,14 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
     <Nicks.Provider value={nicks}>
     <Dispatching.Provider value={dispatching}>
     <div className="relative h-full" onDragOver={(e) => files(e) || session(e) || place(e)} onDrop={drop}>
-      <Stick scroller={scroller} tail={grew} older={older} draw={changed} place={chat.place} bottom={stackH} quiet={agents.some((a) => !!stateOf(a.session)?.asks.length)} style={{ paddingTop: padTop, paddingBottom: stackH + 20 }}>
+      <Stick scroller={scroller} tail={grew} older={older} held={from > 0} draw={changed} place={chat.place} bottom={stackH} quiet={agents.some((a) => !!stateOf(a.session)?.asks.length)} style={{ paddingTop: padTop, paddingBottom: stackH + 20 }}>
         <div ref={column} className="mx-auto flex max-w-(--chat-w) flex-col gap-5 px-4 [--depart-gap:1.25rem] sm:px-6">
           {/* In a turn, the calls being written or run and the dots share one row at the end, as
               high whatever it shows: the conversation does not jump as a call is drafted, runs and
               folds into the line above (the user, 2026-11-06). */}
           <Rows
             pieces={[
-              ...turns.map((x, i) => ({ at: i, node: turnBox(x, i) })),
+              ...turns.flatMap((x, i) => (i < from ? [] : [{ at: i, node: turnBox(x, i) }])),
               ...pendingBefore.map((x) => ({ at: tailAt + 0.1, node: pendingNode(x) })),
               // The turn's row, after what you sent: kept, one line high, even out of a turn, so a
               // message sent or the dots coming do not move the conversation (the user,
@@ -1044,7 +1093,7 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
               },
               ...pendingAfter.map((x) => ({ at: tailAt + 0.3, node: pendingNode(x) })),
             ]}
-            boxes={P || subs.length ? boxes : NO_BOXES}
+            boxes={P || subs.length ? (from > 0 ? boxes.filter((b) => b.at >= from - 0.5) : boxes) : NO_BOXES}
           />
           {s.status === "error" && s.error && <Crash error={s.error} />}
         </div>

@@ -10,7 +10,7 @@ import { useContext, useRef, useState, type ComponentType, type ReactNode } from
 import { FoldMenu } from "./foldstate";
 import { t } from "../i18n";
 import { toast } from "../toast";
-import { own, useLongPress, usePointAnchor } from "../ui";
+import { own, useEver, useLongPress, usePointAnchor } from "../ui";
 import type { Act } from "./react";
 
 /** What a channel's message has besides, once react.tsx is loaded. */
@@ -29,6 +29,7 @@ export function Copyable({ copy, children, className, quote, act }: { copy?: str
   const chose = useRef(false);
   const lp = useLongPress(() => setAt(down.current));
   const fold = useContext(FoldMenu);
+  const ever = useEver(at !== null);
   if (copy === undefined) return <div className={className}>{children}</div>;
   const anchor = usePointAnchor(at);
   return (
@@ -50,7 +51,7 @@ export function Copyable({ copy, children, className, quote, act }: { copy?: str
     >
       <FoldMenu.Provider value={null}>{children}</FoldMenu.Provider>
       {act && acts.Under && <acts.Under act={act} />}
-      <Menu.Root open={at !== null} onOpenChange={(o) => !o && setAt(null)}>
+      {ever && <Menu.Root open={at !== null} onOpenChange={(o) => !o && setAt(null)}>
         <Menu.Portal>
           <Menu.Positioner anchor={anchor} side="bottom" align="start" sideOffset={4} collisionPadding={8} className="z-50">
             <Menu.Popup finalFocus={false} className="g-unfold glass thick float min-w-48 rounded-lg p-1.5 text-ink outline-none">
@@ -79,7 +80,7 @@ export function Copyable({ copy, children, className, quote, act }: { copy?: str
             </Menu.Popup>
           </Menu.Positioner>
         </Menu.Portal>
-      </Menu.Root>
+      </Menu.Root>}
     </div>
   );
 }

@@ -74,6 +74,16 @@ export const buzz = (ms = 8) => void navigator.vibrate?.(ms);
 const android = typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent);
 const buzzHeld = () => android || buzz();
 
+/** Whether on has been true since this was first drawn: what floats out of a row (its menu, its
+ *  card) is made as it first opens and kept from then on (it folds away drawn), not made shut
+ *  with every row of a conversation, which no one may ever open (a chat of 388 rows spent most of
+ *  its first draw making some thousand menus and popovers, shut; measured 2026-11-23). */
+export function useEver(on: boolean): boolean {
+  const ever = useRef(false);
+  if (on) ever.current = true;
+  return ever.current;
+}
+
 /** A row's menu at a point, one open at a time: a long press on another row never clicks outside
  *  the one open (its click is swallowed), so opening one puts the other away (the user, 2026-11-07). */
 let shut: (() => void) | null = null;

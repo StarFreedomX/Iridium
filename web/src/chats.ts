@@ -390,7 +390,10 @@ export class Messages {
 export const KEPT_BLOCKS = 2000;
 
 /** A session's chat as kept: its conversation, its scroll place as it was left. */
-export type Chat = { log: Messages; place: { top: number | null }; coming?: Promise<void> };
+/** place.from, n: the first turn drawn (its key) and how many from the end, when not all are
+ *  (chat/chat.tsx: a long conversation is drawn from its end, the turns before as they are gone
+ *  up to). */
+export type Chat = { log: Messages; place: { top: number | null; from?: string; n?: number }; coming?: Promise<void> };
 const newChat = (id: string, get?: Get): Chat => ({ log: new Messages(id, get), place: { top: null } });
 
 const kept = new Map<string, Chat>();

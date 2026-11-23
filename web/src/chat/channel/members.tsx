@@ -19,7 +19,7 @@ import { ModeMark, modeName } from "../../modes";
 import { useList, useSession } from "../../store";
 import { errText, toast } from "../../toast";
 import { openChat } from "../../route";
-import { agentName, cn, Lamp, Logo, own, PopSurface, sessionStatusText, useLongPress, useMenuAt, usePointAnchor } from "../../ui";
+import { agentName, cn, Lamp, Logo, own, PopSurface, sessionStatusText, useEver, useLongPress, useMenuAt, usePointAnchor } from "../../ui";
 import { levelName } from "../effort";
 import { LongWords } from "../longwords";
 import { MODEL_POPUP, SessionModels, useModelMenu, useMode } from "../meters";
@@ -60,6 +60,8 @@ export function AgentFace({ channel, a, call, record, may, talk, size = 28 }: { 
   const [menuAt, setMenuAt] = useMenuAt();
   const [detail, setDetail] = useState(false);
   const [asked, setAsked] = useState<Ask | null>(null);
+  const detailEver = useEver(detail);
+  const menuEver = useEver(menuAt !== null);
   const lp = useLongPress(() => {
     const r = face.current?.getBoundingClientRect();
     setMenuAt(r ? { x: r.left, y: r.bottom + 4 } : { x: 40, y: 80 });
@@ -93,10 +95,12 @@ export function AgentFace({ channel, a, call, record, may, talk, size = 28 }: { 
           )}
         </span>
       </button>
-      <At anchor={face} open={detail} onOpenChange={setDetail} className={CARD_POP}>
-        <AgentCard channel={channel} a={a} call={call} record={record} may={may} talk={talk} done={() => setDetail(false)} />
-      </At>
-      <MemberMenu channel={channel} a={a} may={may} at={menuAt} close={() => setMenuAt(null)} call={call} record={record} ask={(kind) => setAsked({ kind, a })} />
+      {detailEver && (
+        <At anchor={face} open={detail} onOpenChange={setDetail} className={CARD_POP}>
+          <AgentCard channel={channel} a={a} call={call} record={record} may={may} talk={talk} done={() => setDetail(false)} />
+        </At>
+      )}
+      {menuEver && <MemberMenu channel={channel} a={a} may={may} at={menuAt} close={() => setMenuAt(null)} call={call} record={record} ask={(kind) => setAsked({ kind, a })} />}
       <MemberAsks channel={channel} anchor={face} asked={asked} done={() => setAsked(null)} />
     </>
   );

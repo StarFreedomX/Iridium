@@ -19,7 +19,9 @@ const occupy = (el: Element, who: string, ms: number) => lanes?.occupy(el, who, 
 
 // How near the top the page before is put in: two screens, at least 600px. It was asked for ahead
 // (chats.ts), so this is drawing only.
-const near = (el: HTMLElement) => Math.max(600, el.clientHeight * 2);
+/** held: what comes is drawn from what the page holds already (turns not drawn yet), quick: one
+ *  screen is room enough, and less is kept drawn. */
+const near = (el: HTMLElement, held = false) => (held ? Math.max(500, el.clientHeight) : Math.max(600, el.clientHeight * 2));
 const END = 40; // px from the bottom that count as at the newest
 const SETTLE = 600; // ms after a chat opens that what grows does not glide
 const REST = 500; // ms since the user last scrolled it that a chat at its newest is at rest there
@@ -93,7 +95,10 @@ const inner = (target: EventTarget | null, list: HTMLElement) => {
  *  redraw draws nothing of it (its children are the page's), and drawn whenever the page next
  *  drew, the page before came in unplaced: the conversation a page off for a frame, then gliding
  *  back (as a chat opened, as a message was sent). */
-export function Stick({ tail, older, draw, place, style, children, scroller, bottom, quiet }: { tail: unknown; older: () => Promise<boolean>; draw: () => void; place: { top: number | null }; style?: CSSProperties; children: ReactNode; scroller?: RefObject<HTMLDivElement | null>; bottom: number; quiet?: boolean }) {
+/** held: turns the page holds and has not drawn are over what is drawn (older draws them). */
+export function Stick({ tail, older, draw, place, style, children, scroller, bottom, quiet, held }: { tail: unknown; older: () => Promise<boolean>; draw: () => void; place: { top: number | null }; style?: CSSProperties; children: ReactNode; scroller?: RefObject<HTMLDivElement | null>; bottom: number; quiet?: boolean; held?: boolean }) {
+  const heldNow = useRef(held);
+  heldNow.current = held;
   const own = useRef<HTMLDivElement>(null);
   const list = scroller ?? own;
   const atEnd = useRef(place.top === null);
@@ -480,7 +485,7 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     if (!el || paging.current) return;
     paging.current = true;
     try {
-      while (el.isConnected && el.scrollTop < near(el) && (await older())) {
+      while (el.isConnected && el.scrollTop < near(el, heldNow.current) && (await older())) {
         const h = el.scrollHeight;
         flushSync(() => (draw(), redraw((n) => n + 1)));
         el.scrollTop += el.scrollHeight - h;

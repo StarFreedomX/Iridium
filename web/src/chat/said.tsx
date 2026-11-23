@@ -25,7 +25,7 @@ import type { Block, Device, FileRef, Result } from "../api/types.gen";
 import type { Sent } from "../chats";
 import { errText, toast } from "../toast";
 import { t } from "../i18n";
-import { agentName, Avatar, Badge, cn, IconKey, IrMark, Logo, own, PopSurface, tilde, Tip, titleOf, useLongPress, useMenuAt, usePointAnchor } from "../ui";
+import { agentName, Avatar, Badge, cn, IconKey, IrMark, Logo, own, PopSurface, tilde, Tip, titleOf, useEver, useLongPress, useMenuAt, usePointAnchor } from "../ui";
 import { useHome, useMachines } from "../data";
 import { LocalMark } from "../me";
 import { go } from "../route";
@@ -155,6 +155,13 @@ function Face({ who }: { who: You | From }) {
 type FaceMenu = (at: { x: number; y: number } | null, close: () => void) => ReactNode;
 const Sender = forwardRef<HTMLDivElement, { who: You | From; time?: number; jump?: () => void; left?: boolean; card?: ReactNode; menu?: FaceMenu; under?: ReactNode; children: ReactNode }>(function Sender({ who, time, jump, left, card, menu, under, children }, ref) {
   const [menuAt, setMenuAt] = useMenuAt();
+  const menuEver = useEver(menuAt !== null);
+  // The face's card, made as it is first opened (useEver).
+  const [carded, setCarded] = useState(false);
+  const cardEver = useEver(carded);
+  // Whether it was open as the press on its face began: that press, outside it, has shut it by
+  // the time the click comes, and the click is not to open it again.
+  const cardWas = useRef<boolean | null>(null);
   const faceKey = useRef<HTMLButtonElement>(null);
   const lp = useLongPress(() => {
     const r = faceKey.current?.getBoundingClientRect();
@@ -183,18 +190,18 @@ const Sender = forwardRef<HTMLDivElement, { who: You | From; time?: number; jump
   return (
     <div ref={ref} {...row} className={cn(row.className, "flex items-start gap-2.5", left ? "pr-6 sm:pr-10" : "flex-row-reverse pl-6 sm:pl-10")}>
       {card ? (
-        <Popover.Root>
-          <Popover.Trigger
-            render={
-              <button ref={faceKey} type="button" aria-label={tip} {...menuKeys} className="g-press grid shrink-0 rounded-full select-none [-webkit-touch-callout:none]">
-                {face}
-              </button>
-            }
-          />
-          <PopSurface anchor={faceKey.current} still align={left ? "start" : "end"} className={CARD_POP}>
-            {card}
-          </PopSurface>
-        </Popover.Root>
+        <>
+          <button ref={faceKey} type="button" aria-label={tip} aria-haspopup="dialog" aria-expanded={carded} {...menuKeys} onPointerDown={(e) => ((cardWas.current = carded), menu && lp.onPointerDown(e))} onClick={() => (setCarded(!(cardWas.current ?? carded)), (cardWas.current = null))} className="g-press grid shrink-0 rounded-full select-none [-webkit-touch-callout:none]">
+            {face}
+          </button>
+          {cardEver && (
+            <Popover.Root open={carded} onOpenChange={setCarded}>
+              <PopSurface anchor={faceKey.current} still align={left ? "start" : "end"} className={CARD_POP}>
+                {card}
+              </PopSurface>
+            </Popover.Root>
+          )}
+        </>
       ) : (
       <Tip label={tip}>
         {press ? (
@@ -225,7 +232,7 @@ const Sender = forwardRef<HTMLDivElement, { who: You | From; time?: number; jump
         {children}
         {under}
       </div>
-      {menu?.(menuAt, () => setMenuAt(null))}
+      {menuEver && menu?.(menuAt, () => setMenuAt(null))}
     </div>
   );
 });
