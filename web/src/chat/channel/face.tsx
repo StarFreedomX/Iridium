@@ -2,7 +2,7 @@
 // id; a channel's as a channel (channel), a session's own channel's its own, else its agent's
 // (kumo, 2026-11-16). One with none of its own has the one last given to a session of its model; with
 // neither, the harness's logo.
-import { useState, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode, type SyntheticEvent } from "react";
 import type { Agent } from "../../api/types.gen";
 import { useApps } from "../../data";
 import { useCarried } from "../../store";
@@ -13,6 +13,41 @@ import { Avatar, cn, isHost, Logo } from "../../ui";
 // moment and then the picture (kumo, 2026-11-23: every face in the sidebar blinked so at each
 // fold).
 const came = new Set<string>();
+// And as drawn, at the size they were shown at (px across): a picture element made anew is asked
+// of the server again and decoded again, a frame or more with nothing in it, however lately the
+// same picture was on the page; what is kept here is drawn in the frame the face is (kumo,
+// 2026-11-23: the faces still blinked, the picture known but not yet there). Of one count of
+// faces (v) only: the ones before it are let go.
+const drawn = new Map<string, ImageBitmap>();
+let drawnV = -1;
+const pxOf = (size: number) => Math.ceil(size * (typeof devicePixelRatio === "number" ? devicePixelRatio : 1));
+function keep(img: HTMLImageElement, src: string, size: number, v: number) {
+  const key = `${src}@${pxOf(size)}`;
+  if (drawn.has(key) || typeof createImageBitmap !== "function" || !img.naturalWidth || !img.naturalHeight) return;
+  if (v !== drawnV) {
+    for (const b of drawn.values()) b.close();
+    drawn.clear();
+    drawnV = v;
+  }
+  // The middle of it, as object-cover shows it.
+  const s = Math.min(img.naturalWidth, img.naturalHeight);
+  const px = pxOf(size);
+  void createImageBitmap(img, (img.naturalWidth - s) / 2, (img.naturalHeight - s) / 2, s, s, { resizeWidth: px, resizeHeight: px, resizeQuality: "high" })
+    .then((b) => (v === drawnV ? drawn.set(key, b) : b.close()))
+    .catch(() => {});
+}
+/** A picture kept, drawn before the frame it is first in. */
+function Kept({ b }: { b: ImageBitmap }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useLayoutEffect(() => {
+    try {
+      ref.current?.getContext("2d")?.drawImage(b, 0, 0);
+    } catch {
+      // Let go meanwhile (another count of faces): the next draw has the picture itself.
+    }
+  }, [b]);
+  return <canvas ref={ref} width={b.width} height={b.height} aria-hidden className="absolute inset-0 size-full rounded-full" />;
+}
 
 /** The face of session id's agent, or with channel of channel id as a channel; round, size
  *  across; none given: the agent's logo, as large as logo, or what else stands for it. */
@@ -27,10 +62,20 @@ export function Face({ id, agent, size, logo, className, none: instead, low, cha
   // for again does not blank and come back (kumo, 2026-11-16: every face in the list blinked).
   const [shown, setShown] = useState<string | null>(() => (came.has(src) ? src : null));
   if (none === src) return instead ? <span className={cn("grid", className)}>{instead}</span> : <Logo agent={agent} size={logo ?? size} className={className} />;
-  const here = () => (came.add(src), setGot(src), setShown(src));
+  const here = (e: SyntheticEvent<HTMLImageElement>) => (came.add(src), keep(e.currentTarget, src, size, v), setGot(src), setShown(src));
+  const kept = (of: string) => drawn.get(`${of}@${pxOf(size)}`);
+  // Kept: drawn at once, nothing asked for.
+  const mine = kept(src);
+  if (mine)
+    return (
+      <span className={cn("relative grid shrink-0 place-items-center", className)} style={{ width: size, height: size }}>
+        <Kept b={mine} />
+      </span>
+    );
+  const before = shown && shown !== src ? kept(shown) : undefined;
   // low: one of many (the sidebar's rows), fetched after what the open page asks for.
   const next = <img key={src} src={src} alt="" draggable={false} fetchPriority={low ? "low" : undefined} onLoad={here} onError={() => setNone(src)} className={cn("absolute inset-0 size-full rounded-full object-cover", shown && shown !== src && "opacity-0")} />;
-  const was = shown && shown !== src ? <img key={shown} src={shown} alt="" draggable={false} className="absolute inset-0 size-full rounded-full object-cover" /> : null;
+  const was = shown && shown !== src ? before ? <Kept key={shown} b={before} /> : <img key={shown} src={shown} alt="" draggable={false} className="absolute inset-0 size-full rounded-full object-cover" /> : null;
   if (instead && got !== src && !shown)
     return (
       <span className={cn("relative grid", className)}>

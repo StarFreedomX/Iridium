@@ -768,7 +768,9 @@ function Stacks({ days, perDay, order, colors, on, name, sel, onSel, week, m, fa
     return () => cancelAnimationFrame(f);
   }, []);
   // The parts keep one order whatever the measure: moved, they would lose their height's glide.
-  const stack = useMemo(() => [...order].sort(), [order]);
+  // A login's models (their keys have a NUL) after the logins: come or gone, they move none of the
+  // others in the page, which would end its glide.
+  const stack = useMemo(() => [...order].sort((a, b) => Number(a.includes("\u0000")) - Number(b.includes("\u0000")) || (a < b ? -1 : a > b ? 1 : 0)), [order]);
   const room = CHART_H - 14; // the scale's label above the highest bar
   const sums = days.map((d) => {
     const all = zero();
@@ -857,14 +859,19 @@ type SwapProps = StacksProps & { k: string };
 /** One part of a bar. A part new to the chart (a model's, as only its login is left in) is drawn
  *  first at nothing and rises to its figure, as the chart's own did. */
 function Part({ h, gap, color, fall }: { h: number; gap: boolean; color: string | undefined; fall?: boolean }) {
+  // In the frame it comes in, not the next: the login's part goes down from that frame, and the
+  // bar dipped between the two (kumo, 2026-11-23: it bounced). Its style at nothing is read
+  // first, so the height's glide begins from there.
   const [up, setUp] = useState(false);
-  useEffect(() => {
-    const f = requestAnimationFrame(() => setUp(true));
-    return () => cancelAnimationFrame(f);
+  const ref = useRef<HTMLSpanElement>(null);
+  useLayoutEffect(() => {
+    void ref.current?.offsetHeight;
+    setUp(true);
   }, []);
   const at = up ? h : 0;
   return (
     <span
+      ref={ref}
       className={cn("block shrink-0 border-t-transparent bg-clip-content transition-[height,border-top-width]", fall ? "duration-(--dur-2) ease-(--ease-out)" : "duration-(--dur-3) ease-(--ease-out)")}
       style={{ height: at > 0 ? Math.max(2, at) : 0, borderTopWidth: gap && up ? 1.5 : 0, borderTopStyle: "solid", background: color, backgroundClip: "content-box" } as CSSProperties}
     />
