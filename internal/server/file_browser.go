@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/kumoSleeping/iridium/internal/access"
@@ -190,8 +191,9 @@ func (s *Server) browseFile(w http.ResponseWriter, r *http.Request) {
 }
 
 // serveBrowserFile serves one host or remote file through ServePathContent (wrapping remote
-// responses in browserRemoteWriter) and logs successful GET reads with who read what and how many
-// bytes were written.
+// responses in browserRemoteWriter) and logs successful GET reads. Full 200 reads log every time;
+// a burst of 206 range reads for the same login, computer, path and action logs once per
+// browserRangeLogWindow.
 func (s *Server) serveBrowserFile(w http.ResponseWriter, r *http.Request, at *browserLocation, name string, mtime time.Time, src io.ReadSeeker) {
 	machine := gate.HostID
 	if at.machine != nil {
@@ -200,14 +202,60 @@ func (s *Server) serveBrowserFile(w http.ResponseWriter, r *http.Request, at *br
 	}
 	out := browserFileResponse{ResponseWriter: w}
 	files.ServePathContent(&out, r, name, mtime, src)
-	if r.Method == http.MethodGet && (out.status == http.StatusOK || out.status == http.StatusPartialContent) {
-		c := callerOf(r)
-		action := "preview"
-		if r.URL.Query().Has("download") {
-			action = "download"
-		}
-		s.logf("file browser: read login=%q name=%q machine=%q path=%q action=%s status=%d bytes=%d", c.ID(), c.Name, machine, at.path, action, out.status, out.bytes)
+	if r.Method != http.MethodGet || (out.status != http.StatusOK && out.status != http.StatusPartialContent) {
+		return
 	}
+	c := callerOf(r)
+	login := c.ID()
+	action := "preview"
+	if r.URL.Query().Has("download") {
+		action = "download"
+	}
+	if out.status == http.StatusPartialContent && out.bytes > 0 {
+		key := browserReadKey{login: login, machine: machine, path: at.path, action: action}
+		if !s.browserRanges.first(key) {
+			return
+		}
+	}
+	s.logf("file browser: read login=%q name=%q machine=%q path=%q action=%s status=%d bytes=%d", login, c.Name, machine, at.path, action, out.status, out.bytes)
+}
+
+const browserRangeLogWindow = time.Minute
+
+type browserReadKey struct {
+	login, machine, path, action string
+}
+
+// browserRangeLog deduplicates 206 range-read logs per (login, machine, path, action) for one
+// fixed window, so a PDF viewer's burst of range requests writes one line instead of dozens.
+type browserRangeLog struct {
+	mu      sync.Mutex
+	until   map[browserReadKey]time.Time
+	sweepAt time.Time
+}
+
+// first reports whether key should be logged now, opening a fixed browserRangeLogWindow and
+// sweeping expired entries at most once per window.
+func (l *browserRangeLog) first(key browserReadKey) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	now := time.Now()
+	if now.Before(l.until[key]) {
+		return false
+	}
+	if !now.Before(l.sweepAt) {
+		for read, until := range l.until {
+			if !now.Before(until) {
+				delete(l.until, read)
+			}
+		}
+		l.sweepAt = now.Add(browserRangeLogWindow)
+	}
+	if l.until == nil {
+		l.until = make(map[browserReadKey]time.Time)
+	}
+	l.until[key] = now.Add(browserRangeLogWindow)
+	return true
 }
 
 // browserFileResponse captures status and bytes written without losing the underlying writer's

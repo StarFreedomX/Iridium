@@ -44,7 +44,9 @@ import (
 
 type Server struct {
 	// personas: the agents' hosts' personas, kept a while (personas.go).
-	personas personasCache
+	personas      personasCache
+	browserRanges browserRangeLog // recently logged 206 range reads (file_browser.go)
+
 	cfg config.Config
 	m   *session.Manager
 	hub *hub.Hub
