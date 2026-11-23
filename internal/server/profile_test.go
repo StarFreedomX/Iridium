@@ -149,12 +149,13 @@ func TestMemoryAndRoles(t *testing.T) {
 	if len(mem) != 0 {
 		t.Errorf("another's memory: %+v", mem)
 	}
-	// Kept as a role: its card and its memory go with it; a session started as it has both.
+	// Kept as a role: its card and its memory go with it, not its intro (a role has none);
+	// a session started as it has them, and no intro.
 	l.want(200, "web", "PATCH", "/v1/internal/members/claude", map[string]any{"intro": "a fat fish", "avatar": "🐟"}, nil)
 	l.want(403, "agent-in:"+ch, "POST", "/v1/internal/roles", api.NewRole{Session: ch}, nil)
 	var role api.Role
 	l.want(200, "web", "POST", "/v1/internal/roles", api.NewRole{Session: ch}, &role)
-	if role.Name != "claude" || role.Agent != api.AgentClaude || role.Intro != "a fat fish" || role.Avatar == "" || role.Memories != 1 {
+	if role.Name != "claude" || role.Agent != api.AgentClaude || role.Avatar == "" || role.Memories != 1 || l.s.st.Profile(store.RoleProfileKey(role.ID)).Intro != "" {
 		t.Fatalf("the role: %+v", role)
 	}
 	var roles []api.Role
@@ -170,14 +171,14 @@ func TestMemoryAndRoles(t *testing.T) {
 	}
 	var p api.Self
 	l.want(200, "agent-in:"+third, "GET", "/v1/internal/self", nil, &p)
-	if p.Intro != "a fat fish" || p.Role != role.ID || len(p.Memory) != 1 || !strings.Contains(p.Avatar, "v=g") {
+	if p.Intro != "" || p.Role != role.ID || len(p.Memory) != 1 || !strings.Contains(p.Avatar, "v=g") {
 		t.Errorf("a session of the role: %+v", p)
 	}
-	// Changed in the session, the role's stays; a person forgets a memory.
+	// Its intro its own: the role does not take it back; a person forgets a memory.
 	l.want(200, "web", "PATCH", "/v1/internal/members/"+l.s.ch.Nick(third), map[string]any{"intro": "another fish"}, nil)
-	l.want(200, "web", "GET", "/v1/internal/roles", nil, &roles)
-	if roles[0].Intro != "a fat fish" {
-		t.Errorf("the role after its session changed: %+v", roles[0])
+	l.want(200, "web", "PATCH", "/v1/internal/roles/"+role.ID, api.RolePatch{Session: third}, nil)
+	if got := l.s.st.Profile(store.RoleProfileKey(role.ID)).Intro; got != "" {
+		t.Errorf("the role took its session's intro: %q", got)
 	}
 	l.want(200, "web", "DELETE", "/v1/internal/memory/"+itoa(kept.ID)+"?session="+third, nil, nil)
 	l.want(200, "agent-in:"+ch, "GET", "/v1/internal/memory", nil, &mem)
@@ -199,8 +200,8 @@ func TestRolePersona(t *testing.T) {
 	var role api.Role
 	l.want(400, "web", "POST", "/v1/internal/roles", api.NewRole{Role: api.Role{Name: "reviewer"}}, nil)
 	l.want(400, "web", "POST", "/v1/internal/roles", api.NewRole{Role: api.Role{Name: "reviewer", Agent: api.AgentClaude, Persona: strings.Repeat("长", api.PersonaMax+1)}}, nil)
-	l.want(200, "web", "POST", "/v1/internal/roles", api.NewRole{Role: api.Role{Name: "reviewer", Agent: api.AgentClaude, Intro: "reviews", Persona: "  only sure findings\nverdict first  "}}, &role)
-	if role.Persona != "only sure findings\nverdict first" || role.Intro != "reviews" || role.Model != "" {
+	l.want(200, "web", "POST", "/v1/internal/roles", api.NewRole{Role: api.Role{Name: "reviewer", Agent: api.AgentClaude, Persona: "  only sure findings\nverdict first  "}}, &role)
+	if role.Persona != "only sure findings\nverdict first" || role.Model != "" {
 		t.Fatalf("a role made from nothing: %+v", role)
 	}
 	// Started as it: its card, the effort given for this once, else none of the role's.
@@ -215,14 +216,14 @@ func TestRolePersona(t *testing.T) {
 	self := l.s.selfText(two)
 	in, err := assemble.System(assemble.Where{Self: self})
 	text := in.String()
-	if err != nil || !strings.Contains(text, "reviews\nonly sure findings\nverdict first\n") {
+	if err != nil || !strings.Contains(text, "here.\nonly sure findings\nverdict first\n") {
 		t.Errorf("the system prompt: %v\n%s", err, text)
 	}
 	// 更新角色: the card comes back, the model does not; the role's name stays.
 	l.want(200, "web", "PATCH", "/v1/internal/members/"+l.s.ch.Nick(two), map[string]any{"persona": "be kind", "intro": "reviews gently"}, nil)
 	l.want(200, "web", "PATCH", "/v1/internal/roles/"+role.ID, map[string]any{"model": "sonnet"}, nil)
 	l.want(200, "web", "PATCH", "/v1/internal/roles/"+role.ID, api.RolePatch{Session: two}, &role)
-	if role.Persona != "be kind" || role.Intro != "reviews gently" || role.Model != "sonnet" || role.Name != "reviewer" {
+	if role.Persona != "be kind" || role.Model != "sonnet" || role.Name != "reviewer" || l.s.st.Profile(store.RoleProfileKey(role.ID)).Intro != "" {
 		t.Errorf("updated from its session: %+v", role)
 	}
 	// Kept from a session: no effort comes with it (the field is gone), its persona does.

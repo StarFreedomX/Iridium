@@ -1,6 +1,6 @@
 // The settings' 角色 page (docs/channels.md "角色"; kumo, 2026-11-16): the roles in one flat
 // list, each by its face, name, line and how much it remembers; a row opens the role's own page,
-// where its name, intro, persona, face, background, model (dsh: preset) are changed, each saved
+// where its name, persona, face, background, model (dsh: preset) are changed, each saved
 // as it is changed (PATCH /v1/internal/roles/{id}), and the role deleted (asked first). No effort:
 // chosen at each start (otae, 2026-11-21). A role is made from a session's 编辑资料 (存为角色),
 // or here (the + at the top right: its name and its agent, where it runs; then its own page).
@@ -88,7 +88,7 @@ function useKinds(machine: string): Agent[] {
 }
 
 /** A new role: its name and its agent (where it runs, with more than one computer); a host's
- *  persona taken gives its name and intro where none is typed, and its persona. Made, its own
+ *  persona taken gives its name where none is typed, and its persona (no intro: a role has none). Made, its own
  *  page in place of this one. */
 function NewRolePage({ onBack, made }: { onBack: () => void; made: (r: Role) => void }) {
   useLang();
@@ -111,7 +111,7 @@ function NewRolePage({ onBack, made }: { onBack: () => void; made: (r: Role) => 
     if (!ok) return;
     setBusy(true);
     try {
-      const r = await api.newRole({ name: name.trim(), agent: kind, ...(machine ? { machine } : {}), ...(took ? { persona: took.text, ...(took.description ? { intro: [...took.description].slice(0, 200).join("") } : {}) } : {}) });
+      const r = await api.newRole({ name: name.trim(), agent: kind, ...(machine ? { machine } : {}), ...(took ? { persona: took.text } : {}) });
       qc.setQueriesData<Role[]>({ queryKey: ["roles"] }, (old) => (old ? [...old.filter((x) => x.id !== r.id), r] : old));
       made(r);
     } catch (e) {
@@ -279,9 +279,6 @@ function RolePage({ role, onBack }: { role: Role; onBack: () => void }) {
         <div className="flex flex-col px-3">
           <Item label={t("channel.nick")}>
             <Field key={role.name} value={role.name} label={t("channel.nick")} save={(name) => patch({ name })} className="h-7 w-36 text-right" />
-          </Item>
-          <Item label={t("profile.intro")} below>
-            <Field key={role.intro ?? ""} value={role.intro ?? ""} label={t("profile.intro")} save={(intro) => patch({ intro })} lines maxLength={200} className="w-full py-1.5" />
           </Item>
           <PersonaRow value={role.persona} open={() => setPersona(true)} />
           <FacePick label={t("profile.avatar")} preview={<RoleFace role={role} size={28} />} set={(avatar) => patch({ avatar })} upload={(f) => setPicture(URL.createObjectURL(f))} />

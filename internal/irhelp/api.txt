@@ -112,13 +112,13 @@ GET internal/memory {session?} -> Memory[]  what you chose to remember, the late
 DELETE internal/memory/{id} - -> {ok}  forget one
 GET internal/channels/{id}/background - -> image  the background of the channel's card (a session's: its agent's); 404 none
 GET internal/people/{id}/background - -> image  the background of a person's card; 404 none
-POST internal/roles {session | name, agent, machine?, model?, preset?, intro?, persona?, avatar?, background?} -> Role  keep a role: from a session as it is now (its card, agent, model, preset; the session is the role's from then on), or as given; no effort or mode: those are each start's; person only
-PATCH internal/roles/{id} {name?, model?, preset?, intro?, persona?, avatar?, background?, sort?, session?} -> Role  change a role (its agent stays); session: take its card (intro, persona, face, background) from that session again, not its model; person only
+POST internal/roles {session | name, agent, machine?, model?, preset?, persona?, avatar?, background?} -> Role  keep a role: from a session as it is now (its card, agent, model, preset; the session is the role's from then on), or as given; no effort or mode: those are each start's; no intro: each of its sessions writes its own; person only
+PATCH internal/roles/{id} {name?, model?, preset?, persona?, avatar?, background?, sort?, session?} -> Role  change a role (its agent stays); session: take its card (persona, face, background) from that session again, not its model; person only
 DELETE internal/roles/{id} - -> {ok}  take a role away, its memory with it; its sessions stay; person only
 DELETE internal/sessions/{id}/role - -> {ok}  the session is no role's from now on: its card stays, what it remembered stays the role's; person only
 GET internal/roles/{id}/avatar - -> image  a role's face; 404 none
 GET internal/roles/{id}/background - -> image  a role's background; 404 none
-GET internal/roles - -> Role[]  the roles kept to start sessions as (channel.create _data.role=<name>; POST internal/channels/{id}/members role=<name>): name, agent, model, intro  view=name,agent,model,intro
+GET internal/roles - -> Role[]  the roles kept to start sessions as (channel.create _data.role=<name>; POST internal/channels/{id}/members role=<name>): name, agent, model  view=name,agent,model
 GET internal/personas - -> HostPersona[]  the personas the agents' hosts give where they run (dsh's persona plugin), each whole: one to take as a persona (persona=<its text>); none: empty  view=name,from,machineName,description
 
 # session settings

@@ -2079,8 +2079,8 @@ export interface MemberCard extends Profile {
 }
 /**
  * Role is an agent kept to start sessions as: its name (the nick its sessions take), what it
- * runs (Agent, its default Model and dsh's Preset, at Machine), its card (Intro, Persona, Avatar,
- * Background as Profile's). ModelName: the model as shown. No effort and no mode: they are the
+ * runs (Agent, its default Model and dsh's Preset, at Machine), its card (Persona, Avatar,
+ * Background as Profile's; no intro: what it does each of its sessions writes, otae, 2026-11-23). ModelName: the model as shown. No effort and no mode: they are the
  * task's, chosen as a session starts (otae, 2026-11-21).
  */
 export interface Role {
@@ -2091,7 +2091,6 @@ export interface Role {
   modelName?: string;
   preset?: string;
   machine?: string;
-  intro?: string;
   persona?: string;
   avatar?: string;
   background?: string;
@@ -2122,14 +2121,13 @@ export interface NewRole extends Role {
 }
 /**
  * RolePatch changes a role; a nil field stays. Avatar, Background as ProfilePatch's. Session:
- * take the card from this session, as it is now (its name, intro, persona, face, background;
- * not its model or preset: those change here alone).
+ * take the card from this session, as it is now (its persona, face, background; not its intro,
+ * nick, model or preset: those change here alone).
  */
 export interface RolePatch {
   name?: string;
   model?: string;
   preset?: string;
-  intro?: string;
   persona?: string;
   avatar?: string;
   background?: string;
