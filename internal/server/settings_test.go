@@ -28,13 +28,13 @@ func TestSettings(t *testing.T) {
 			t.Fatal(err)
 		}
 		s.ConfigPath = path
-		var err error
-		s.Push, err = push.Open(push.Options{StateDir: cfg.StateDir, Store: s.st, Manager: s.m, Logf: t.Logf, Save: func(on bool) error {
+		service, err := push.Open(push.Options{StateDir: cfg.StateDir, Store: s.st, Manager: s.m, Logf: t.Logf, Save: func(on bool) error {
 			return s.SaveConfig(func(c *config.Config) { c.Push = on })
 		}})
 		if err != nil {
 			t.Fatal(err)
 		}
+		s.SetPush(service)
 	})
 	var st api.Settings
 	l.want(200, "web", "GET", "/v1/internal/settings", nil, &st)
@@ -80,7 +80,7 @@ func TestSettings(t *testing.T) {
 	on := true
 	st = api.Settings{} // decoding into a map adds to it
 	l.want(200, "web", "PUT", "/v1/internal/settings", api.SettingsPatch{Modes: map[string]string{"claude": ""}, Push: &on}, &st)
-	if _, ok := st.Modes["claude"]; ok || !st.Push || !l.s.Push.Enabled() {
+	if _, ok := st.Modes["claude"]; ok || !st.Push || !l.s.push.Load().Enabled() {
 		t.Fatalf("mode cleared, push on: %+v", st)
 	}
 	var ps api.PushState

@@ -12,7 +12,7 @@ import (
 // the logins of ir_web and the host. A TOKEN, or an agent's ir, neither switches it nor
 // subscribes an address of its own.
 func (s *Server) pushRoutes(mux *http.ServeMux) {
-	if s.Push == nil {
+	if s.push.Load() == nil {
 		return
 	}
 	mux.HandleFunc("GET /v1/internal/web/push", s.panelOnly(s.pushState))
@@ -25,7 +25,7 @@ func (s *Server) pushRoutes(mux *http.ServeMux) {
 }
 
 func (s *Server) pushState(w http.ResponseWriter, r *http.Request) {
-	st, err := s.Push.State()
+	st, err := s.push.Load().State()
 	if err != nil {
 		s.fault(w, err)
 		return
@@ -38,7 +38,7 @@ func (s *Server) pushSwitch(w http.ResponseWriter, r *http.Request) {
 	if !readJSON(w, r, &req) {
 		return
 	}
-	s.settle(w, s.Push.SetEnabled(req.Enabled))
+	s.settle(w, s.push.Load().SetEnabled(req.Enabled))
 }
 
 // pushDefaults sets the events pushed where no rule says otherwise; it answers with the state.
@@ -47,7 +47,7 @@ func (s *Server) pushDefaults(w http.ResponseWriter, r *http.Request) {
 	if !readJSON(w, r, &req) {
 		return
 	}
-	if err := s.Push.SetDefaults(req); err != nil {
+	if err := s.push.Load().SetDefaults(req); err != nil {
 		s.fault(w, err)
 		return
 	}
@@ -61,7 +61,7 @@ func (s *Server) pushRule(w http.ResponseWriter, r *http.Request) {
 	if !readJSON(w, r, &req) {
 		return
 	}
-	if err := s.Push.SetRule(req); err != nil {
+	if err := s.push.Load().SetRule(req); err != nil {
 		s.fault(w, err)
 		return
 	}
@@ -74,7 +74,7 @@ func (s *Server) pushSubscribe(w http.ResponseWriter, r *http.Request) {
 	if !readJSON(w, r, &sub) {
 		return
 	}
-	s.settle(w, s.Push.Subscribe(c.ID(), sub))
+	s.settle(w, s.push.Load().Subscribe(c.ID(), sub))
 }
 
 func (s *Server) pushUnsubscribe(w http.ResponseWriter, r *http.Request) {
@@ -82,7 +82,7 @@ func (s *Server) pushUnsubscribe(w http.ResponseWriter, r *http.Request) {
 	if !readJSON(w, r, &req) {
 		return
 	}
-	s.settle(w, s.Push.Unsubscribe(req.Endpoint))
+	s.settle(w, s.push.Load().Unsubscribe(req.Endpoint))
 }
 
 // pushTest pushes a test message to the caller's subscriptions, the switch on or off.
@@ -90,6 +90,6 @@ func (s *Server) pushTest(w http.ResponseWriter, r *http.Request) {
 	c := callerOf(r)
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
-	n := s.Push.Send(ctx, c.ID(), api.PushMessage{Kind: "test", Title: "Iridium", Body: "推送通了"})
+	n := s.push.Load().Send(ctx, c.ID(), api.PushMessage{Kind: "test", Title: "Iridium", Body: "推送通了"})
 	reply(w, http.StatusOK, map[string]any{"sent": n})
 }

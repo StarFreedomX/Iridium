@@ -77,8 +77,9 @@ type Server struct {
 	pairs    *pairs     // apps asking to pair (pairing.go)
 	vault    *vault     // the credentials' masks and allowed uses (routes_secrets.go)
 
-	// Push, if set before Handler, is Web Push (routes_push.go).
-	Push *push.Service
+	// push, if set via SetPush before Handler, is Web Push (routes_push.go); atomic because
+	// SetPush runs during startup after New registers the session watcher.
+	push atomic.Pointer[push.Service]
 	// Discover and Folders, if set, serve the workspaces and the folder picker (routes_discover.go).
 	Discover *discover.Index
 	Folders  discover.Folders
@@ -133,6 +134,9 @@ type Server struct {
 	voiceNow map[string][]voice.Member
 }
 
+// SetPush installs the Web Push service; call before Handler to register push routes.
+func (s *Server) SetPush(p *push.Service) { s.push.Store(p) }
+
 // New is the API over m. Apps and logins live in m's store; on the TCP address ir_web (package
 // webapp: passkeys, cookies, the page) stands in front of the core's TOKEN gate (package gate);
 // the unix socket is the host.
@@ -157,13 +161,22 @@ func New(cfg config.Config, m *session.Manager, h *hub.Hub, logf func(string, ..
 	s.sat = satori.New(satoriBackend{s}, logf)
 	s.sat.Channels(s.ch)
 	s.sat.OnSaid(s.routeSaid)
-	// A turn's start and end in order with what its agent wrote (answers), so that its words
-	// are said where it was called before the call closes.
+	// A turn's start and completion run in order with what its agent wrote (answers), so that
+	// its words are said where it was called before the call closes and its completion push
+	// targets that same channel.
 	s.sat.OnTaken(s.answers.took)
 	s.sat.OnTurnStart(func(id string) { s.answers.add(id, func() { s.turnBegan(id) }) })
-	s.sat.OnTurnEnd(func(id, _ string, _ []string) {
-		taken := s.answers.given(id)
-		s.answers.add(id, func() { s.turnEnded(id, taken) })
+	s.sat.OnCompletion(func(n session.Notice) func(channel.Message) {
+		// Snapshot push enablement at notice arrival so enabling push later does not deliver
+		// completions that were already queued before the switch was turned on.
+		var notify func(session.Notice, string)
+		if p := s.push.Load(); p != nil && p.Enabled() {
+			notify = p.Notify
+		}
+		return func(reply channel.Message) {
+			taken := s.answers.given(n.Session)
+			s.answers.add(n.Session, func() { s.complete(n, reply, taken, notify) })
+		}
 	})
 	m.SetInChannel(s.multi)
 	m.SetChannelOf(s.channelOf)

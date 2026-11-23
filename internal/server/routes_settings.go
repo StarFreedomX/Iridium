@@ -27,8 +27,8 @@ func (s *Server) settings() api.Settings {
 	s.cmu.Lock()
 	hidden, push, manual := slices.Clone(s.cfg.QuotaHidden), s.cfg.Push, s.cfg.Update.Manual
 	s.cmu.Unlock()
-	if s.Push != nil {
-		push = s.Push.Enabled()
+	if service := s.push.Load(); service != nil {
+		push = service.Enabled()
 	}
 	if hidden == nil {
 		hidden = []string{}
@@ -69,6 +69,7 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	service := s.push.Load()
 	err := s.SaveConfig(func(c *config.Config) {
 		if p.IdleReap != nil {
 			c.IdleReap = config.Duration(reap)
@@ -99,7 +100,7 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		if p.Lang != nil {
 			c.Lang = *p.Lang
 		}
-		if p.Push != nil && s.Push == nil {
+		if p.Push != nil && service == nil {
 			c.Push = *p.Push
 		}
 		if p.AutoUpdate != nil {
@@ -109,8 +110,8 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	if err == nil && p.AutoUpdate != nil && s.Updater != nil {
 		s.Updater.SetManual(!*p.AutoUpdate)
 	}
-	if err == nil && p.Push != nil && s.Push != nil {
-		err = s.Push.SetEnabled(*p.Push) // saves the file's push through SaveConfig
+	if err == nil && p.Push != nil && service != nil {
+		err = service.SetEnabled(*p.Push) // saves the file's push through SaveConfig
 	}
 	if err != nil {
 		s.error(w, err)

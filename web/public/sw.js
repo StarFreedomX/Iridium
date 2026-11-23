@@ -4,7 +4,9 @@
 // ---- push ----
 
 // A push shows a notification; tapping it opens the session's chat, in a page already open if
-// there is one.
+// there is one. Tag comes from d.tag when present (e.g. "<channel>:<agent>" for a member
+// finishing in a shared channel) so notifications from different members do not replace one
+// another.
 self.addEventListener("push", (e) => {
   let d = {};
   try {
@@ -12,7 +14,7 @@ self.addEventListener("push", (e) => {
   } catch (_) {
     d = { title: e.data ? e.data.text() : "Iridium" };
   }
-  e.waitUntil(self.registration.showNotification(d.title || "Iridium", { body: d.body || "", tag: d.session || undefined, data: { session: d.session || "" }, icon: "/favicon.svg" }));
+  e.waitUntil(self.registration.showNotification(d.title || "Iridium", { body: d.body || "", tag: d.tag || d.session || undefined, data: { session: d.session || "" }, icon: "/favicon.svg" }));
 });
 
 self.addEventListener("notificationclick", (e) => {

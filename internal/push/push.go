@@ -112,7 +112,14 @@ func Open(o Options) (*Service, error) {
 	s := &Service{o: o, key: key, pub: pub}
 	s.enabled.Store(o.Enabled)
 	if o.Manager != nil {
-		o.Manager.Watch(s.onNotice)
+		// Asks and errors push directly from the session watcher; turn completions and
+		// compactions go through Notify once the server knows which channel the turn
+		// answered in (server.complete).
+		o.Manager.Watch(func(n session.Notice) {
+			if n.Kind == session.NoticeAsk || n.Kind == session.NoticeError {
+				s.Notify(n, n.Session)
+			}
+		})
 	}
 	return s, nil
 }
@@ -299,13 +306,15 @@ func (s *Service) Unsubscribe(endpoint string) error {
 
 var ErrBadSubscription = errors.New("bad subscription")
 
-// onNotice pushes what the session's rules want (Resolve), while the switch is on.
-func (s *Service) onNotice(n session.Notice) {
+// Notify pushes notice n for target (the channel or session the notification opens and
+// whose push rules and visibility apply), while the total switch is on. n.Session still
+// identifies the agent session that produced the notice (for card lookup and dedup tags).
+func (s *Service) Notify(n session.Notice, target string) {
 	if !s.Enabled() {
 		return
 	}
 	if kind, n, ok := s.kindOf(n); ok {
-		go s.notice(kind, n)
+		go s.notice(kind, n, target)
 	}
 }
 
@@ -335,13 +344,13 @@ func (s *Service) kindOf(n session.Notice) (string, session.Notice, bool) {
 	return "", n, false
 }
 
-func (s *Service) notice(kind string, n session.Notice) {
-	st, err := s.o.Manager.State(n.Session)
+func (s *Service) notice(kind string, n session.Notice, target string) {
+	st, err := s.o.Manager.State(target)
 	if err != nil {
 		return
 	}
 	// A session in a group at another machine not listed (docs/exec.md "远端工作区").
-	if !s.o.Manager.Listed(n.Session) {
+	if !s.o.Manager.Listed(target) {
 		return
 	}
 	ps, err := s.State()
@@ -349,11 +358,17 @@ func (s *Service) notice(kind string, n session.Notice) {
 		s.o.Logf("push: %v", err)
 		return
 	}
-	e, on := Resolve(ps, st.Workspace, st.Cwd, n.Session)
+	e, on := Resolve(ps, st.Workspace, st.Cwd, target)
 	if !on || !map[string]bool{"needs_you": e.NeedsYou, "error": e.Error, "turn_end": e.TurnEnd}[kind] {
 		return
 	}
-	msg := api.PushMessage{Kind: kind, Session: n.Session, Title: titleOf(st), Tag: n.Session}
+	// Scope the dedup tag by agent when a member finishes in another channel, so two
+	// members completing in the same channel do not overwrite each other's notifications.
+	tag := target
+	if target != n.Session {
+		tag += ":" + n.Session
+	}
+	msg := api.PushMessage{Kind: kind, Session: target, Title: titleOf(st), Tag: tag}
 	switch kind {
 	case "needs_you":
 		msg.Body = "需要你"

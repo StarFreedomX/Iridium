@@ -186,7 +186,7 @@ type called struct {
 }
 
 // calls are the calls each session's agent has open: made as it is given a channel's message,
-// closed as the turn that took it ends (turnEnded). What the agent writes is said in the channel
+// closed as the turn that took it ends (complete). What the agent writes is said in the channel
 // of the latest it has taken (answering). Kept in the store too (callsKey), so that a turn going
 // on across a restart still has its words said where it was called (the user, 2026-11-13).
 type calls struct {
@@ -289,16 +289,17 @@ func (k *calls) current(session string) string {
 }
 
 // answering is session's latest open call whose input its agent had been given (taken: the
-// inputs given before the words it wrote, answers.took): what it wrote answers that call, and is
-// said in its channel. Not one given after (its last turn's words heard late, as the next turn
-// takes the call: kumo, 2026-11-17), nor one still queued. One kept from before this process,
-// its input given by then, was taken: a turn going on across a restart still answers it.
-func (k *calls) answering(session string, taken []string) (called, bool) {
+// inputs given before the words it wrote, answers.took; waiting: inputs still queued at turn
+// end, session.Notice.Waiting): what it wrote answers that call, and is said in its channel.
+// Not one given after (its last turn's words heard late, as the next turn takes the call:
+// kumo, 2026-11-17), nor one still queued. One kept from before this process, its input given
+// by then, was taken: a turn going on across a restart still answers it.
+func (k *calls) answering(session string, taken, waiting []string) (called, bool) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	cs := k.load(session)
 	for i := len(cs) - 1; i >= 0; i-- {
-		if wasGiven(k.st, cs[i], taken) {
+		if !slices.Contains(waiting, cs[i].Input) && wasGiven(k.st, cs[i], taken) {
 			return cs[i], true
 		}
 	}
@@ -366,21 +367,41 @@ func (s *Server) turnBegan(id string) {
 	s.closeCalls(id, over)
 }
 
-// turnEnded: a turn of session's agent ended (also one cut short, its process gone); taken, the
-// inputs it had been given by then (answers.given, as the end was told). The calls it took are
-// over; the others, still queued or given after (a message steered in as the turn ended, which
-// the next turn takes), stay open for the turn that takes them. What it wrote was said where it
-// was called as it wrote it (answer); a call it said nothing for leaves a line in its channel.
-func (s *Server) turnEnded(id string, taken []string) {
+// complete finishes a turn in the agent's answer queue (turn end, premature process exit, or
+// compaction): relays any final reply via replyIn, closes the calls this turn took (leaving
+// calls still in n.Waiting or given after taken open for the next turn), and sends the
+// completion push to the same channel the final reply routed to.
+func (s *Server) complete(n session.Notice, reply channel.Message, taken []string, notify func(session.Notice, string)) {
+	id, target := n.Session, n.Session
+	if n.Kind == session.NoticeCompacted {
+		// Compaction does not close open calls; push directly to the agent's own session.
+		if notify != nil {
+			notify(n, id)
+		}
+		return
+	}
+	if n.Kind == session.NoticeTurnEnd {
+		target = s.replyIn(id, reply, taken, n.Waiting)
+	}
 	// Not while it is being given a message: that call is made once the message is its.
 	unlock := s.chain.lock(id)
-	over := s.calls.take(id, func(c called) bool { return wasGiven(s.st, c, taken) })
+	over := s.calls.take(id, func(c called) bool {
+		return !slices.Contains(n.Waiting, c.Input) && wasGiven(s.st, c, taken)
+	})
 	unlock()
 	s.closeCalls(id, over)
+	if n.Kind == session.NoticeTurnEnd && notify != nil {
+		// When routed to another channel, match the push body to the flushed reply (empty
+		// if the agent said nothing in this turn).
+		if target != id {
+			n.Text = reply.Text
+		}
+		notify(n, target)
+	}
 }
 
-// closeCalls closes calls over of session id, whose turn ended (turnEnded): each it said nothing
-// for is told in its channel.
+// closeCalls closes calls over of session id, whose turn ended (complete): each it said
+// nothing for is told in its channel.
 func (s *Server) closeCalls(id string, over []called) {
 	done := map[string]bool{}
 	for _, c := range over {
@@ -2456,14 +2477,19 @@ func fileNames(text string, files []api.FileRef) string {
 }
 
 // routeSaid: an agent said m in its channel. In a channel of several, the agents it names are
-// given it; after too many agents in a row, nobody is, and the channel says so.
-func (s *Server) routeSaid(m channel.Message) {
+// given it; after too many agents in a row, nobody is, and the channel says so. When
+// completing is true, m is the turn's final reply and complete will relay it to the calling
+// channel instead of queueing a separate replyIn here.
+func (s *Server) routeSaid(m channel.Message, completing bool) {
 	sender, ok := store.SessionOfMember(m.Author)
 	// What it sent with ir (or wrote where it was called) was given to whom it names as it was sent.
 	if !ok || m.Kind != channel.KindSaid || m.D.Sent {
 		return
 	}
-	s.answer(sender, m)
+	if !completing {
+		taken := s.answers.given(sender)
+		s.answers.add(sender, func() { s.replyIn(sender, m, taken, nil) })
+	}
 	// The logins it names (ats.go), once it is on its way to the agents it names: what is said
 	// after it is told after this returns.
 	defer s.names(m.Channel, m.Seq, m.Text, "")
@@ -2503,44 +2529,42 @@ func (s *Server) routeSaid(m channel.Message) {
 	}()
 }
 
-// answer: session id's agent wrote m in its own channel. Called in another channel and
-// answering there (calls.answering), it is said there too, as it was written: what an agent
-// writes is said where it was called, as a person answers where they were spoken to (kumo,
-// 2026-11-17). Which inputs it had been given by then is taken now, in order with its words;
-// the rest is done in its turn of answers, after what it wrote before and before its turn's end
-// closes the call.
-func (s *Server) answer(id string, m channel.Message) {
-	taken := s.answers.given(id)
-	text, nick, final := m.Text, s.ch.Nick(id), m.D.Final
-	s.answers.add(id, func() {
-		// A message being given to it has its call made by the time this lock is had (deliverTo).
-		unlock := s.chain.lock(id)
-		c, ok := s.calls.answering(id, taken)
-		// Its own channel may have the same words twice (heard live, then read from its record
-		// as another): they are said for a call once.
-		ok = ok && c.Channel != m.Channel && s.ch.Speaks(c.Channel, id) && s.answers.first(id, c, text)
-		w := &written{final: final}
-		if ok {
-			if st, err := s.m.State(id); err == nil {
-				w.to = st.End
-			}
-			w.from = s.calls.spoke(id, c.Channel, w.to)
-		}
+// replyIn resolves the destination channel for session id's turn (its calling channel via
+// calls.answering, or id itself) and relays m there if non-empty. A zero m (m.Seq == 0) runs
+// the same routing lookup without sending, so a silent turn's completion push still targets
+// the channel that called the agent.
+func (s *Server) replyIn(id string, m channel.Message, taken, waiting []string) string {
+	// A message being given to it has its call made by the time this lock is had (deliverTo).
+	unlock := s.chain.lock(id)
+	c, ok := s.calls.answering(id, taken, waiting)
+	if !ok || c.Channel == id || !s.ch.Speaks(c.Channel, id) {
 		unlock()
-		if !ok {
-			return
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-		defer cancel()
-		if _, err := s.sendChannelAs(ctx, caller{Identity: localIdentity, socket: true, agent: true, session: id}, session.From(gate.HostID, "@"+nick), c.Channel, api.Send{Text: text}, w); err != nil {
-			s.logf("server: channel %s: saying what %s wrote: %v", c.Channel, id, err)
-		}
-	})
+		return id
+	}
+	// Silent turn (m.Seq == 0) or duplicate of words already relayed (heard live, then read
+	// from the record): keep c.Channel as the destination without posting again.
+	if m.Seq == 0 || !s.answers.first(id, c, m.Text) {
+		unlock()
+		return c.Channel
+	}
+	w := &written{final: m.D.Final}
+	if st, err := s.m.State(id); err == nil {
+		w.to = st.End
+	}
+	w.from = s.calls.spoke(id, c.Channel, w.to)
+	unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	if _, err := s.sendChannelAs(ctx, caller{Identity: localIdentity, socket: true, agent: true, session: id}, session.From(gate.HostID, "@"+s.ch.Nick(id)), c.Channel, api.Send{Text: m.Text}, w); err != nil {
+		s.logf("server: channel %s: saying what %s wrote: %v", c.Channel, id, err)
+		return id
+	}
+	return c.Channel
 }
 
 // answers is, for each agent, what is done of its turns in order: what it wrote said where it
-// was called, its turn's start and end closing calls (server.go), one at a time; and the inputs
-// it was given lately (took), in order with what it says.
+// was called, its turn's start and completion closing calls and pushing (server.go), one at a
+// time; and the inputs it was given lately (took), in order with what it says.
 type answers struct {
 	mu     sync.Mutex
 	of     map[string][]func()

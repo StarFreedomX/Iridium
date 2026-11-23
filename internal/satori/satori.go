@@ -21,6 +21,7 @@ import (
 
 	"github.com/kumoSleeping/iridium/internal/api"
 	"github.com/kumoSleeping/iridium/internal/channel"
+	"github.com/kumoSleeping/iridium/internal/session"
 	"github.com/kumoSleeping/iridium/internal/store"
 )
 
@@ -178,11 +179,12 @@ type Service struct {
 
 	ch  channels
 	log *channel.Service // what was said in the channels (Channels)
-	// onSaid is told each message an agent said, as it is sent out (OnSaid).
-	onSaid    func(channel.Message)
-	onTurnEnd func(session, reply string, waiting []string)
-	onTaken   func(session, input string)
-	onBegan   func(session string)
+	// onSaid is told each message an agent said, as it is sent out (OnSaid); onCompletion
+	// handles turn end, premature exit, and compaction (OnCompletion).
+	onSaid       func(channel.Message, bool)
+	onCompletion func(session.Notice) func(channel.Message)
+	onTaken      func(session, input string)
+	onBegan      func(session string)
 
 	mu      sync.Mutex
 	held    map[string]channel.Message  // session: the agent's last message this turn, not sent yet
@@ -194,8 +196,9 @@ type Service struct {
 }
 
 // OnSaid has f told each thing an agent says in a channel, after the event of it is kept; f
-// must not wait.
-func (s *Service) OnSaid(f func(channel.Message)) { s.onSaid = f }
+// must not wait. completing is true when the message is the turn's final reply and will also
+// be passed to OnCompletion, so callers avoid relaying it twice.
+func (s *Service) OnSaid(f func(channel.Message, bool)) { s.onSaid = f }
 
 // OnTaken has f told each input given to a session's agent, in order with what the agent says
 // (session.NoticeTaken): what f is told before a thing said is told were given before it.
@@ -204,10 +207,11 @@ func (s *Service) OnTaken(f func(session, input string)) { s.onTaken = f }
 // OnTurnStart has f told each turn of a session that begins, in order with what its agent says.
 func (s *Service) OnTurnStart(f func(session string)) { s.onBegan = f }
 
-// OnTurnEnd has f told each turn of a session that ends, after its reply was said: the
-// session, the reply's words ("" if it said none), and the inputs that still wait in its queue
-// (session.Notice.Waiting). A turn cut short by its process ending is told too, with no reply.
-func (s *Service) OnTurnEnd(f func(session, reply string, waiting []string)) { s.onTurnEnd = f }
+// OnCompletion prepares a callback synchronously when a turn-end, process-ended, or
+// compaction notice arrives (Notice), so callers can snapshot state (such as the push switch)
+// at notice time. The returned callback runs in notice order on the worker after any final
+// reply is flushed (zero message when the turn had no reply, ended early, or compacted).
+func (s *Service) OnCompletion(f func(session.Notice) func(channel.Message)) { s.onCompletion = f }
 
 // Note writes a line of Iridium's own into channel ch and tells those who see it (_data.kind
 // "note"). ev: what it tells of, for a page to say in its own words (the message's _data.event).

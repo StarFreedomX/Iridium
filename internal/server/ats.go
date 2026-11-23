@@ -207,7 +207,8 @@ func (s *Server) unnames(ch string, seq int64, members []string) {
 // pushNamed pushes message seq of the channel to the logins it names, whatever their rules for
 // it say (a quiet channel too); not while Web Push is off.
 func (s *Server) pushNamed(st *api.SessionState, seq int64, told []person) {
-	if s.Push == nil || !s.Push.Enabled() {
+	service := s.push.Load()
+	if service == nil || !service.Enabled() {
 		return
 	}
 	m, ok := s.ch.Get(st.ID, seq)
@@ -232,7 +233,7 @@ func (s *Server) pushNamed(st *api.SessionState, seq int64, told []person) {
 		for _, p := range told {
 			// A browser's subscription is kept under its login's id, the host's under the host's.
 			if p.app == gate.WebApp || p.app == gate.HostID {
-				s.Push.Send(ctx, p.id, msg)
+				service.Send(ctx, p.id, msg)
 			}
 		}
 	}()

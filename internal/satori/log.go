@@ -285,8 +285,9 @@ func (s *Service) tell(m channel.Message, kind, origin string, denied int) {
 	msg.Content += activityElement(m.D.Activity, false)
 	s.emitOf(st.Session, m.D.Session, Event{Type: "message-created", Message: &msg, User: msg.User}, s.logFiles(m), kind, origin)
 	// What an agent said in its turn; what it sent with ir went to whom it names as it was sent.
+	// When OnCompletion is set, the final reply is relayed by the completion handler instead.
 	if s.onSaid != nil && m.Kind == channel.KindSaid && !m.D.Sent {
-		s.onSaid(m)
+		s.onSaid(m, kind == "reply" && s.onCompletion != nil)
 	}
 }
 
@@ -318,14 +319,15 @@ func (s *Service) hear(session, text, origin string) {
 	s.mu.Unlock()
 }
 
-// flush tells what session's agent said last, as kind (reply: the last of its turn).
-func (s *Service) flush(session, kind, origin string, denied int) {
+// flush tells what session's agent said last, as kind (reply: the last of its turn), and
+// returns the flushed message (zero value if nothing was held).
+func (s *Service) flush(session, kind, origin string, denied int) channel.Message {
 	s.mu.Lock()
 	held, ok := s.held[session]
 	delete(s.held, session)
 	s.mu.Unlock()
 	if !ok || held.Seq == 0 {
-		return
+		return channel.Message{}
 	}
 	if kind == "reply" {
 		held = s.log.Final(held)
@@ -333,6 +335,7 @@ func (s *Service) flush(session, kind, origin string, denied int) {
 		held = cur // found in the record meanwhile: its files
 	}
 	s.tell(held, kind, origin, denied)
+	return held
 }
 
 // noteIn writes a line that is not words into channel ch (session's own, or one its agent is

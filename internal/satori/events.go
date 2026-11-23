@@ -125,8 +125,17 @@ func (s *Service) render(e entry, app, login string) Event {
 
 // Notice takes a session's notice (session.Manager.Watch). It does not wait.
 func (s *Service) Notice(n session.Notice) {
+	event := noticed{Notice: n, at: time.Now()}
+	switch n.Kind {
+	case session.NoticeTurnEnd, session.NoticeEnded, session.NoticeCompacted:
+		// Prepare the completion callback at notice arrival so it snapshots state (e.g. push
+		// enablement) before the worker drains the queue.
+		if s.onCompletion != nil {
+			event.complete = s.onCompletion(n)
+		}
+	}
 	s.qmu.Lock()
-	s.queue = append(s.queue, noticed{n, time.Now()})
+	s.queue = append(s.queue, event)
 	s.qmu.Unlock()
 	select {
 	case s.qwake <- struct{}{}:
@@ -142,7 +151,7 @@ func (s *Service) work() {
 		s.queue = nil
 		s.qmu.Unlock()
 		for _, n := range q {
-			s.handle(n.Notice, n.at)
+			s.handle(n)
 		}
 		select {
 		case <-s.stop:
@@ -152,13 +161,14 @@ func (s *Service) work() {
 	}
 }
 
-// noticed is a notice and when it came.
+// noticed is a notice, when it came, and any completion callback prepared on arrival.
 type noticed struct {
 	session.Notice
-	at time.Time
+	at       time.Time
+	complete func(channel.Message)
 }
 
-func (s *Service) handle(n session.Notice, at time.Time) {
+func (s *Service) handle(n noticed) {
 	s.mu.Lock()
 	held := s.held[n.Session]
 	origin := s.origin[n.Session]
@@ -168,7 +178,7 @@ func (s *Service) handle(n session.Notice, at time.Time) {
 		s.mu.Lock()
 		delete(s.held, n.Session)
 		s.origin[n.Session] = n.From
-		s.started[n.Session] = at
+		s.started[n.Session] = n.at
 		s.mu.Unlock()
 		if s.onBegan != nil {
 			s.onBegan(n.Session)
@@ -185,14 +195,14 @@ func (s *Service) handle(n session.Notice, at time.Time) {
 		if n.Text != "" && !channel.Same(n.Text, held.Text) {
 			s.hear(n.Session, n.Text, origin)
 		}
-		s.flush(n.Session, "reply", origin, n.Denied)
-		if s.onTurnEnd != nil {
-			s.onTurnEnd(n.Session, n.Text, n.Waiting)
+		reply := s.flush(n.Session, "reply", origin, n.Denied)
+		if n.complete != nil {
+			n.complete(reply)
 		}
-	case session.NoticeEnded:
-		// Cut short: nothing was its reply.
-		if s.onTurnEnd != nil {
-			s.onTurnEnd(n.Session, "", n.Waiting)
+	case session.NoticeEnded, session.NoticeCompacted:
+		// Cut short or compacted: no final reply message was flushed for this notice.
+		if n.complete != nil {
+			n.complete(channel.Message{})
 		}
 	case session.NoticeAsk:
 		st, err := s.b.Session(n.Session)

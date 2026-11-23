@@ -1,7 +1,6 @@
 package server
 
 import (
-	"context"
 	"crypto/ecdh"
 	"crypto/rand"
 	"encoding/base64"
@@ -9,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -17,6 +15,7 @@ import (
 	"github.com/kumoSleeping/iridium/internal/api"
 	"github.com/kumoSleeping/iridium/internal/config"
 	"github.com/kumoSleeping/iridium/internal/push"
+	"github.com/kumoSleeping/iridium/internal/session"
 	"github.com/kumoSleeping/iridium/internal/store"
 )
 
@@ -26,31 +25,17 @@ var allowHTTP = true
 // pushRig is a server with Web Push on the TCP address, no public origin: every request is the
 // host's.
 type pushRig struct {
-	t    *testing.T
-	base string
-	work string
+	*live
 }
 
 func newPushRig(t *testing.T) *pushRig {
-	s, cfg, work := setup(t)
-	st, err := store.Open(filepath.Join(cfg.StateDir, "iridium.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { st.Close() })
-	s.Push, err = push.Open(push.Options{StateDir: cfg.StateDir, Store: st, Manager: s.m, Logf: t.Logf, AllowHTTP: allowHTTP})
-	if err != nil {
-		t.Fatal(err)
-	}
-	tcp, unix, err := s.Listen()
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	go func() { s.Serve(ctx, tcp, unix); close(done) }()
-	t.Cleanup(func() { cancel(); <-done })
-	return &pushRig{t: t, base: "http://" + tcp.Addr().String(), work: work}
+	return &pushRig{startWith(t, func(s *Server, cfg config.Config, _ string) {
+		service, err := push.Open(push.Options{StateDir: cfg.StateDir, Store: s.st, Manager: s.m, Logf: t.Logf, AllowHTTP: allowHTTP})
+		if err != nil {
+			t.Fatal(err)
+		}
+		s.SetPush(service)
+	})}
 }
 
 func (p *pushRig) do(method, path string, body, out any) int {
@@ -76,11 +61,10 @@ func (p *pushRig) do(method, path string, body, out any) int {
 	return resp.StatusCode
 }
 
-// With the switch on, an ask pushes "needs you" to the subscription; a turn's end does not, by
-// default.
-func TestPushOnAsk(t *testing.T) {
-	t.Parallel()
-	p := newPushRig(t)
+// capturePush registers an httptest push endpoint and returns its subscription and a channel
+// of decrypted push messages.
+func capturePush(t *testing.T) (api.PushSubscription, <-chan api.PushMessage) {
+	t.Helper()
 	ua, _ := ecdh.P256().GenerateKey(rand.Reader)
 	auth := make([]byte, 16)
 	rand.Read(auth)
@@ -96,10 +80,19 @@ func TestPushOnAsk(t *testing.T) {
 		got <- m
 		w.WriteHeader(http.StatusCreated)
 	}))
-	defer srv.Close()
+	t.Cleanup(srv.Close)
 	sub := api.PushSubscription{Endpoint: srv.URL}
 	sub.Keys.P256dh = base64.RawURLEncoding.EncodeToString(ua.PublicKey().Bytes())
 	sub.Keys.Auth = base64.RawURLEncoding.EncodeToString(auth)
+	return sub, got
+}
+
+// With the switch on, an ask pushes "needs you" to the subscription; a turn that ended while
+// the switch was off is not pushed even if its worker callback runs after push is turned on.
+func TestPushOnAsk(t *testing.T) {
+	t.Parallel()
+	p := newPushRig(t)
+	sub, got := capturePush(t)
 	if code := p.do("POST", "/v1/internal/web/push/subscriptions", sub, nil); code != 200 {
 		t.Fatalf("subscribe: %d", code)
 	}
@@ -107,16 +100,25 @@ func TestPushOnAsk(t *testing.T) {
 	if p.do("POST", "/v1/internal/web/push/test", nil, &sent); sent["sent"] != 1 || (<-got).Kind != "test" {
 		t.Errorf("test push: %v", sent)
 	}
+	// Wait for NoticeTurnEnd before enabling push; satori's worker may still drain it afterward,
+	// verifying that enabling push does not retroactively deliver an already-ended turn.
+	ended := make(chan string, 1)
+	p.s.m.Watch(func(n session.Notice) {
+		if n.Kind == session.NoticeTurnEnd {
+			select {
+			case ended <- n.Session:
+			default:
+			}
+		}
+	})
 	created, _ := createAt(p.t, http.DefaultClient, p.base, api.NewSession{Agent: api.AgentClaude, Cwd: p.work, Text: "hi"})
-	// A turn's end with the switch off: nothing (a push meanwhile would be the first got below).
-	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
-		var s api.SessionState
-		if p.do("GET", "/v1/internal/sessions/"+created, nil, &s); s.Status == api.StatusIdle && s.Last != nil && s.Last.Text == "ok: hi" {
-			break
+	select {
+	case id := <-ended:
+		if id != created {
+			t.Fatalf("turn ended in %s, want %s", id, created)
 		}
-		if time.Now().After(deadline) {
-			t.Fatal("no turn's end")
-		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("no turn's end")
 	}
 	p.do("PUT", "/v1/internal/web/push", api.PushSwitch{Enabled: true}, nil)
 	sendAt(p.t, http.DefaultClient, p.base, created, api.Send{Text: "please ASK"})
@@ -135,16 +137,61 @@ func TestPushOnAsk(t *testing.T) {
 	}
 }
 
+// A member's completion push opens the channel where its turn was called (with that channel's
+// title and a "<channel>:<agent>" tag), both with a text reply and when the turn ends without
+// words; a direct turn in the agent's own session still opens and tags that session.
+func TestCompletionPushFollowsChannel(t *testing.T) {
+	t.Parallel()
+	p := newPushRig(t)
+	sub, got := capturePush(t)
+	p.want(200, "web", "POST", "/v1/internal/web/push/subscriptions", sub, nil)
+	p.want(200, "web", "PUT", "/v1/internal/web/push", api.PushSwitch{Enabled: true}, nil)
+	ch := p.create(200, "web", api.NewSession{Cwd: p.work})
+	const title = "Shared channel"
+	p.wantSat(200, "web", "channel.update", map[string]any{"channel_id": ch, "data": map[string]string{"name": title}}, nil)
+	var members api.ChannelMembers
+	p.want(200, "web", "POST", "/v1/internal/channels/"+ch+"/members", api.NewMember{Agent: api.AgentClaude, Nick: "member"}, &members)
+	var agent string
+	for _, m := range members.Members {
+		if m.Nick == "member" {
+			agent = m.Session
+			break
+		}
+	}
+	if agent == "" {
+		t.Fatal("missing invited member")
+	}
+	for _, tc := range []struct{ channel, text, body, tag string }{
+		{ch, "@member review this", "review this", ch + ":" + agent},
+		{ch, "@member finish (say nothing)", "", ch + ":" + agent},
+		{agent, "own conversation", "own conversation", agent},
+	} {
+		if code, _ := p.send("web", tc.channel, api.Send{Text: tc.text}); code != 200 {
+			t.Fatalf("send %q: %d", tc.text, code)
+		}
+		select {
+		case m := <-got:
+			if m.Kind != "turn_end" || m.Session != tc.channel || m.Tag != tc.tag ||
+				(tc.channel == ch && m.Title != title) ||
+				(tc.body == "" && m.Body != "") || !strings.Contains(m.Body, tc.body) {
+				t.Fatalf("push for %q: %+v", tc.text, m)
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatalf("no push for %q", tc.text)
+		}
+	}
+}
+
 // Push is the panels' and 本机's: a TOKEN and an agent's ir get 403 on every route, so neither
 // switches it nor subscribes an address of its own. A revoked terminal's subscriptions go with it.
 func TestPushPanelsOnly(t *testing.T) {
 	t.Parallel()
 	l := startWith(t, func(s *Server, cfg config.Config, work string) {
-		var err error
-		s.Push, err = push.Open(push.Options{StateDir: cfg.StateDir, Store: s.st, Manager: s.m, Logf: t.Logf, AllowHTTP: allowHTTP})
+		service, err := push.Open(push.Options{StateDir: cfg.StateDir, Store: s.st, Manager: s.m, Logf: t.Logf, AllowHTTP: allowHTTP})
 		if err != nil {
 			t.Fatal(err)
 		}
+		s.SetPush(service)
 	})
 	var bot api.Token
 	bot = l.newApp("bot", false)
@@ -176,7 +223,7 @@ func TestPushPanelsOnly(t *testing.T) {
 			l.want(403, as, r.method, r.path, r.body, nil)
 		}
 	}
-	if l.s.Push.Enabled() {
+	if l.s.push.Load().Enabled() {
 		t.Fatal("switched on by a TOKEN or an agent")
 	}
 	if subs, _ := l.s.st.PushSubscriptions(); len(subs) != 0 {
