@@ -57,6 +57,17 @@ body { min-height: 100dvh; background: var(--bg); color: var(--fg); overflow: hi
 }
 
 .card { width: 100%; max-width: 20rem; }
+.face {
+  display: block;
+  width: 4.5rem;
+  height: 4.5rem;
+  margin: 0 auto 1.75rem;
+  border-radius: 50%;
+  object-fit: cover;
+  box-shadow: inset 0 0 0 .5px var(--line, rgba(0, 0, 0, .08));
+  animation: enter .2s cubic-bezier(0, 0, .2, 1);
+}
+.face[hidden] { display: none; }
 
 .brand {
   position: fixed;

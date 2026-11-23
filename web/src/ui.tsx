@@ -6,6 +6,7 @@ import { Bot, Camera, Check, Copy, Monitor, Puzzle, ScrollText, UsersRound, type
 import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type ComponentProps, type CSSProperties, type ReactElement, type ReactNode } from "react";
 import type { Agent, Status } from "./api/types.gen";
 import { t } from "./i18n";
+import { useCarried } from "./store";
 import { AGY, AGY_BLOBS, AGY_VIEWBOX, CLAUDE, DSH, DSH_VIEWBOX, OPENAI, OPENAI_VIEWBOX, PI, PI_VIEWBOX } from "./logos";
 
 export const cn = (...xs: (string | false | null | undefined)[]) => xs.filter(Boolean).join(" ");
@@ -427,12 +428,39 @@ export function Lamp({ status }: { status: Status }) {
 }
 
 /** Iridium's own mark: "Ir" on a rounded square, in ink (or the colour given). */
-export function IrMark({ size = 16, className, ground = "currentColor" }: { size?: number; className?: string; ground?: string }) {
+export function IrMark({ size = 16, className, ground = "currentColor", round }: { size?: number; className?: string; ground?: string; round?: boolean }) {
   return (
     <svg viewBox="0 0 64 64" width={size} height={size} className={cn("shrink-0", className)} aria-hidden>
-      <rect width="64" height="64" rx="14" fill={ground} />
+      <rect width="64" height="64" rx={round ? 32 : 14} fill={ground} />
       <path d="M20 18h6v28h-6zM32 28h5.6v3.2c1.4-2.4 3.6-3.6 6.4-3.6v5.8c-3.8 0-6.2 1.6-6.2 6V46H32z" fill="var(--paper)" />
     </svg>
+  );
+}
+
+/** This Iridium's own face (GET /v1/internal/face; docs/app.md "服务器头像"), as it stands among
+ *  others (the desktop app's list, the login page): round. None set: Iridium's mark in the circle.
+ *  One set: the face, Iridium's mark small at its bottom right, a rounded square (kumo,
+ *  2026-11-23). */
+export function ServerFace({ size = 32, over }: { size?: number; over?: ReactNode }) {
+  const v = useCarried<number>("avatars") ?? 0;
+  const src = `/v1/internal/face?v=${v}`;
+  const [broken, setBroken] = useState<string | null>(null);
+  const has = broken !== src;
+  const mark = Math.max(12, Math.round(size * 0.4));
+  return (
+    <span className="relative inline-block shrink-0" style={{ width: size, height: size }}>
+      {has ? (
+        <img src={src} alt="" draggable={false} onError={() => setBroken(src)} className="size-full rounded-full object-cover" style={{ boxShadow: "inset 0 0 0 0.5px var(--edge)" }} />
+      ) : (
+        <IrMark size={size} round className="text-ink" />
+      )}
+      {over}
+      {has && (
+        <span className="absolute -right-0.5 -bottom-0.5 grid rounded-[30%] bg-paper p-px">
+          <IrMark size={mark} className="text-ink" />
+        </span>
+      )}
+    </span>
   );
 }
 

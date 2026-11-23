@@ -775,6 +775,7 @@ export const en: Dict = {
   "apps.pending": "Pending",
   "apps.removeLogin": "Remove",
   "apps.loginRemoved": "Removed {name}",
+  "apps.serverFace": "Server picture",
   "apps.delete": "Delete app",
   "apps.loginPerms": "The login's permissions (within its app's)",
   "apps.perms": "Permissions",

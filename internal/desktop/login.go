@@ -171,7 +171,7 @@ func refreshFaces(c Config) (Config, bool) {
 				if err != nil || !strings.HasPrefix(ct, "image/") || strings.HasPrefix(ct, "image/svg") {
 					return
 				}
-				face = "data:" + ct + ";base64," + base64.StdEncoding.EncodeToString(b)
+				face = smallFace("data:" + ct + ";base64," + base64.StdEncoding.EncodeToString(b))
 			case http.StatusNotFound:
 			default:
 				return

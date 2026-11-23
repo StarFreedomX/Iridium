@@ -366,7 +366,17 @@ function watchForApp() {
   found();
 }
 
+// This Iridium's face, shown once it has come; none set (404), the place stays empty.
+function showFace() {
+  const f = document.getElementById('face');
+  if (!f) return;
+  f.addEventListener('load', () => { f.hidden = false; }, { once: true });
+  f.addEventListener('error', () => f.remove(), { once: true });
+  f.src = '/v1/internal/face';
+}
+
 async function init() {
+  showFace();
   document.documentElement.lang = ZH ? 'zh-CN' : 'en';
   for (const el of document.querySelectorAll('[data-t]')) el.textContent = t(el.dataset.t);
   for (const el of document.querySelectorAll('[data-tp]')) {

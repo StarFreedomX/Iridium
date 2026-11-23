@@ -48,7 +48,8 @@ type Server = {
   loggedIn: boolean;
   name?: string;
   title?: string; // its name in the app, given on its page
-  avatar?: string;
+  avatar?: string; // who one is there: their face
+  face?: string; // the Iridium's own (GET /v1/internal/face), a data: URL; none: not set
   local?: boolean;
   status?: string; // this computer's own: 运行中, 启动中…
   joined?: boolean;
@@ -451,19 +452,46 @@ function Lamp({ color }: { color: string }) {
   );
 }
 
-function Face({ s }: { s: Server }) {
-  if (s.loggedIn && s.avatar)
-    return (
+function Face({ s, size = 36 }: { s: Server; size?: number }) {
+  // The Iridium's own face (GET /v1/internal/face, set in its 应用管理), not who one is there (kumo,
+  // 2026-11-23: as a game's server list, the server's picture, the name one's own): round; none
+  // set, Iridium's mark in the circle; one set, the mark small at its bottom right, as its page
+  // draws it (ui.tsx ServerFace).
+  const mark = Math.max(12, Math.round(size * 0.4));
+  if (!s.face) return <IrMark size={size} round className="text-ink" />;
+  return (
+    <span
+      className="relative inline-block shrink-0"
+      style={{ width: size, height: size }}
+    >
       <img
-        src={s.avatar}
+        src={s.face}
         alt=""
         draggable={false}
-        className="size-9 rounded-full object-cover"
+        className="size-full rounded-full object-cover"
       />
-    );
+      <span className="absolute -right-0.5 -bottom-0.5 grid rounded-[30%] bg-paper p-px">
+        <IrMark size={mark} className="text-ink" />
+      </span>
+    </span>
+  );
+}
+
+/** Who one is on an Iridium (its page told the app): its face and name, in that Iridium's own page
+ *  of the picker. */
+function Account({ s }: { s: Server }) {
+  if (!s.loggedIn || !s.name) return null;
   return (
-    <span className="grid size-9 place-items-center rounded-full bg-fill text-sm font-medium text-ink-2 uppercase">
-      {(s.loggedIn && s.name ? s.name : s.host).slice(0, 1)}
+    <span className="flex min-w-0 items-center gap-1.5">
+      {s.avatar ? (
+        <img
+          src={s.avatar}
+          alt=""
+          draggable={false}
+          className="size-4 shrink-0 rounded-full object-cover"
+        />
+      ) : null}
+      <span className="truncate">{s.name}</span>
     </span>
   );
 }
@@ -615,7 +643,7 @@ function Servers({
           <Fold key={key} state={state}>
             <Row
               icon={<Face s={s} />}
-              title={s.title || (s.loggedIn && s.name ? s.name : s.host)}
+              title={s.title || s.host}
               sub={
                 mine ? (
                   <span className={mine.error ? "text-err" : undefined}>
@@ -875,6 +903,17 @@ function ServerPage({
           </>
         }
       />
+      {s.loggedIn && s.name && (
+        <Row
+          icon={<span />}
+          title={<span className="font-normal text-ink-2">登录身份</span>}
+          end={
+            <span className="max-w-40 text-sm text-ink-2">
+              <Account s={s} />
+            </span>
+          }
+        />
+      )}
       <div className="mt-4" />
       <Row
         icon={<ShieldCheck size={16} className="text-ink-2" />}

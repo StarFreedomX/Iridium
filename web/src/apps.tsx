@@ -68,7 +68,8 @@ import {
   cn,
   CopyKey,
   IconKey,
-  IrMark,
+  FaceChangeOver,
+  ServerFace,
   Logo,
   own,
   Switch,
@@ -553,6 +554,7 @@ function ItemRow({ a }: { a: App }) {
       .profile({ avatar: b }, a.id)
       .then(() => qc.invalidateQueries({ queryKey: ["apps"] })),
   );
+  const hostFace = useFacePick((b) => api.serverFace(b), t("apps.serverFace"));
   const menu = useRowMenu();
   const remove = t(isComputer(a) ? "apps.deleteComputer" : "apps.delete");
   const grant = useGrant(a);
@@ -589,7 +591,18 @@ function ItemRow({ a }: { a: App }) {
         )}
       >
         {a.host ? (
-          <IrMark size={32} className="text-ink" />
+          // This Iridium's face, as it stands among others (the desktop app's list, the login
+          // page): a press changes it (kumo, 2026-11-23).
+          <Tip label={t("apps.serverFace")}>
+            <button
+              type="button"
+              aria-label={t("apps.serverFace")}
+              onClick={hostFace.open}
+              className="group g-press grid shrink-0 rounded-full"
+            >
+              <ServerFace size={32} over={<FaceChangeOver size={32} />} />
+            </button>
+          </Tip>
         ) : (
           <AvatarKey
             label={t("term.avatar")}
@@ -635,10 +648,12 @@ function ItemRow({ a }: { a: App }) {
         )}
       </div>
       {face.crop}
+      {hostFace.crop}
       {folders && m && (
         <OpenFolder a={a} m={m} grant={grant} done={() => setFolders(false)} />
       )}
       {face.input}
+      {hostFace.input}
       {!a.host &&
         menu.menu([
           ...grants,

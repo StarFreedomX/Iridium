@@ -72,6 +72,7 @@ func gui(o Options) int {
 		return u.askEach(ctx, server, by, items)
 	})
 	go u.follow()
+	go smallFaces()
 	// The name keys the single-instance lock, as Wails's UniqueID did.
 	mygo.App.SetName("Iridium")
 	mygo.App.SetVersion(version.Short(version.Version))
@@ -352,7 +353,7 @@ func (u *ui) message(w *mygo.Window, msg, origin string, logf func(string, ...an
 		if json.Unmarshal([]byte(arg), &me) == nil && len(me.Avatar) < 512<<10 && (me.Avatar == "" || strings.HasPrefix(me.Avatar, "data:image/")) {
 			_, _ = updateConfig(func(c *Config) {
 				if s := c.server(server); s != nil {
-					s.LoggedIn, s.Name, s.Avatar = true, me.Name, me.Avatar
+					s.LoggedIn, s.Name, s.Avatar = true, me.Name, smallFace(me.Avatar)
 				}
 			})
 		}
@@ -575,6 +576,7 @@ func (u *ui) local(w *mygo.Window, verb, arg string) {
 		var me Me
 		if json.Unmarshal([]byte(arg), &me) == nil && len(me.Avatar) < 1<<20 && (me.Avatar == "" || strings.HasPrefix(me.Avatar, "data:image/")) {
 			me.Name = strings.TrimSpace(me.Name)
+			me.Avatar = smallFace(me.Avatar)
 			_, _ = updateConfig(func(c *Config) { c.Me = me })
 		}
 		if err := u.useLocal(appLog()); err != nil {
@@ -587,6 +589,7 @@ func (u *ui) local(w *mygo.Window, verb, arg string) {
 		// The first page's name and face, kept as typed and chosen.
 		var me Me
 		if json.Unmarshal([]byte(arg), &me) == nil && len(me.Avatar) < 1<<20 && (me.Avatar == "" || strings.HasPrefix(me.Avatar, "data:image/")) {
+			me.Avatar = smallFace(me.Avatar)
 			_, _ = updateConfig(func(c *Config) { c.Me = me })
 		}
 	case "login":

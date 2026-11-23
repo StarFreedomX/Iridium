@@ -775,6 +775,7 @@ export const zh = {
   "apps.pending": "待批",
   "apps.removeLogin": "移除",
   "apps.loginRemoved": "已移除 {name}",
+  "apps.serverFace": "服务器头像",
   "apps.delete": "删除应用",
   "apps.loginPerms": "登录的权限（在应用的权限之内）",
   "apps.perms": "权限",

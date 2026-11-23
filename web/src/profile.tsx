@@ -241,9 +241,12 @@ export function Crop({ src, onCancel, onDone, banner }: { src: string; onCancel:
     const w = w0 * zoom;
     const h = h0 * zoom;
     g.drawImage(img, ((W - w) / 2 + pos.x) * k, ((H - h) / 2 + pos.y) * k, w * k, h * k);
-    // A photo's strip as a JPEG: well under the 2 MB the gate takes.
-    if (banner) c.toBlob((b) => b && onDone(b), "image/jpeg", 0.9);
-    else c.toBlob((b) => b && onDone(b), "image/png");
+    // A photo's strip as a JPEG: well under the 2 MB the gate takes. A face as small as it goes
+    // (kumo, 2026-11-23: every upload made small; the daemon keeps 128 px of it, gate.MakeAvatar):
+    // a JPEG where nothing shows through, else WebP (PNG where the browser makes no WebP: Safari).
+    const opaque = banner || g.getImageData(0, 0, OW, OH).data.every((x, i) => i % 4 !== 3 || x === 255);
+    if (opaque) c.toBlob((b) => b && onDone(b), "image/jpeg", 0.88);
+    else c.toBlob((b) => b && onDone(b), "image/webp", 0.9);
   };
   return (
     <div className="flex flex-col items-center gap-3 p-3">
