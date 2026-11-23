@@ -130,7 +130,7 @@ export function Reactions({ act }: { act: Act }) {
   }, [list.length > 0]);
   if (!shown.length) return null;
   return (
-    <div className={cn("grid transition-[grid-template-rows] duration-(--dur-2) ease-out", open && list.length ? "grid-rows-[1fr]" : "grid-rows-[0fr]")}>
+    <div className="g-reveal" data-open={open && list.length ? "" : undefined}>
       <div className="min-h-0 overflow-hidden">
         <div className={cn("flex flex-wrap gap-1 pt-1.5", act.side === "left" && "pl-[38px]", act.side === "right" && "justify-end pr-[38px]")}>
           {shown.map((r) => (

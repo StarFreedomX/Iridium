@@ -25,10 +25,18 @@
 */
 
 :root {
-  --dur-1: 120ms; /* fold, fade, press */
-  --dur-2: 200ms; /* unfold, pop */
-  --dur-3: 280ms; /* slide, reorder */
-  --dur-4: 420ms; /* long moves */
+  /* The three times the user sees (kumo, 2026-11-23: the same kind of change takes the same time
+     everywhere, precise and quick). move: anything that changes place or height (the chat pushed
+     up, rows changing places, a fold, a row of reactions, the composer's rows, a chat swapped);
+     fade: anything that comes or goes in place; a reveal is a move whose content fades in over
+     its last REVEAL (motion.ts reveal), or the other way round as it goes. The dur-n are these. */
+  --move: 160ms;
+  --fade: 100ms;
+  --reveal: 40ms;
+  --dur-1: var(--fade); /* fade, press */
+  --dur-2: var(--move); /* unfold, pop, fold */
+  --dur-3: var(--move); /* slide, reorder */
+  --dur-4: 220ms; /* a long way */
   --stagger: 12ms;
 
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
@@ -40,9 +48,9 @@
   --slide-x: 24px;
 
   /* turn: how far the chats drift as they swap, down the sidebar or up */
-  --turn-dur: 170ms; /* the next coming in */
-  --turn-out-dur: 90ms; /* the one before going, first */
-  --turn-gap: 40ms; /* the next begins as the one before is nearly gone: no blank pane between */
+  --turn-dur: 120ms; /* the next coming in */
+  --turn-out-dur: 80ms; /* the one before going, as the next comes */
+  --turn-gap: 0ms; /* both at once: the whole swap is --turn-dur */
   --turn-in: 8px;
   --turn-out: 4px;
 }
@@ -170,6 +178,34 @@
   transition-timing-function: var(--ease-in);
 }
 
+/* --- reveal: room opened, then what is in it (kumo, 2026-11-23: not both at once, its rows
+   drawn whole and clipped as the room grows, "out of a crack in a white wall"). Open
+   ([data-open]): the height moves (--move), what is in it fades in over the move's last --reveal
+   and on. Shut: what is in it fades out first (--fade), the height then. One child, the room's
+   content; g-snap: at once both ways (a composer emptied as its message goes). --- */
+.g-reveal {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--move) var(--ease-out) calc(var(--fade) - var(--reveal));
+}
+.g-reveal[data-open] {
+  grid-template-rows: 1fr;
+  transition-delay: 0s;
+}
+.g-reveal > * {
+  min-height: 0;
+  opacity: 0;
+  transition: opacity var(--fade) var(--ease-out);
+}
+.g-reveal[data-open] > * {
+  opacity: 1;
+  transition-delay: calc(var(--move) - var(--reveal));
+}
+.g-reveal.g-snap,
+.g-reveal.g-snap > * {
+  transition: none;
+}
+
 /* --- fade --- */
 /* A fold shutting (chat/stick.tsx toggleFold): still open as its height glides down, its chevron already turning back. */
 details[data-shut] > summary .fold-chev {
@@ -186,13 +222,25 @@ details[data-shut] > summary .fold-chev {
 .g-arrive > * {
   animation: g-rise var(--dur-2) var(--ease-out) both;
 }
-/* --- depart: what is in it fades out, then it is gone (moves.ts useLeaving); the room it leaves
-   at the conversation's end is the chat's to close (stick.tsx, the floor), once, gliding. --- */
+/* --- depart: a reveal backwards (moves.ts useLeaving): what is in it fades out, then its room
+   shuts, the gap over it too (--depart-gap, the list's), and it is gone with nothing left to
+   jump; the chat keeps its end under it as it shuts (stick.tsx moves). One child. --- */
 .g-depart {
   pointer-events: none;
+  display: grid !important;
+  grid-template-rows: 1fr;
+  animation: g-depart-room var(--move) var(--ease-out) calc(var(--fade) - var(--reveal)) both;
 }
 .g-depart > * {
-  animation: g-fade-out var(--dur-2) var(--ease-out) both;
+  min-height: 0;
+  overflow: hidden;
+  animation: g-fade-out var(--fade) var(--ease-out) both;
+}
+@keyframes g-depart-room {
+  to {
+    grid-template-rows: 0fr;
+    margin-top: calc(-1 * var(--depart-gap, 0px));
+  }
 }
 @keyframes g-fade-out {
   to {
@@ -271,6 +319,9 @@ html[data-turn] .vt-stack {
 ::view-transition {
   pointer-events: none; /* clicks go on to the page itself */
 }
+/* The root's own group too: the browser's 250ms of nothing to see (its old snapshot is not
+   shown) held the turn on, the page not its own, for twice as long as the swap. */
+::view-transition-group(root),
 ::view-transition-old(root),
 ::view-transition-new(root) {
   animation: none;
@@ -436,8 +487,7 @@ html[data-turn] .vt-drawer {
 
 @media (prefers-reduced-motion: reduce) {
   :root {
-    --dur-2: 120ms;
-    --dur-3: 120ms;
+    --move: 100ms;
     --dur-4: 0ms;
     --stagger: 0ms;
     --unfold-from: none;

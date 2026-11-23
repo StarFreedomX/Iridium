@@ -296,7 +296,7 @@ export function Pending({ s, who, retry, drop, takeBack, bubbleRef, words }: { s
     <div className="flex flex-col items-end gap-0.5">
       <YouBubble ref={bubbleRef} text={s.text} who={who} words={words} failed={s.failed !== undefined} going={s.failed !== undefined ? undefined : s.queued ? "queued" : "sending"}>
         {s.files.map((f) =>
-          f.url ? <Picture key={f.ref} src={f.url} full={f.url} name={f.name} /> : <SentFile key={f.ref} name={f.name} bytes={f.size} />,
+          f.url ? <Picture key={f.ref} src={f.url} full={f.url} name={f.name} w={f.w} h={f.h} /> : <SentFile key={f.ref} name={f.name} bytes={f.size} />,
         )}
       </YouBubble>
       {/* One kept for the turn's end or the quota may be taken back while it waits. */}
@@ -417,7 +417,7 @@ export function Compaction({ b, since }: { b?: Block; since?: number }) {
         <span aria-hidden className="h-px flex-1 bg-edge" />
       </div>
       {sum && (
-        <div inert={!open || undefined} aria-hidden={!open || undefined} className={cn("grid transition-[grid-template-rows] duration-(--dur-2) ease-(--ease-out)", open ? "grid-rows-[1fr]" : "grid-rows-[0fr]")}>
+        <div inert={!open || undefined} aria-hidden={!open || undefined} className="g-reveal" data-open={open ? "" : undefined}>
           <div className="min-h-0 overflow-hidden">
             <p className="m-0 mx-auto max-w-[min(640px,100%)] pt-1.5 leading-5 whitespace-pre-wrap [overflow-wrap:anywhere]">{sum}</p>
           </div>
@@ -493,7 +493,7 @@ export function Relayed({ given, relay, name, time, onJump, children }: { given:
                 )}
               </div>
               {relay.full && relay.context && (
-                <div inert={!rules || undefined} aria-hidden={!rules || undefined} className={cn("grid transition-[grid-template-rows,opacity] duration-(--dur-2) ease-(--ease-out)", rules ? "grid-rows-[1fr]" : "grid-rows-[0fr] opacity-0")}>
+                <div inert={!rules || undefined} aria-hidden={!rules || undefined} className="g-reveal" data-open={rules ? "" : undefined}>
                   <div className="min-h-0 overflow-hidden">
                     <p className="m-0 mb-2 border-l-2 border-dashed border-edge pl-2.5 font-mono text-xs leading-5 whitespace-pre-wrap text-ink-3 [overflow-wrap:anywhere]">{relay.context}</p>
                   </div>
@@ -1117,7 +1117,7 @@ export function Earlier({ done, fresh, words, steps, children, after, bare }: { 
         </span>
         <ChevronRight size={13} className={cn("shrink-0 text-ink-4 transition-transform duration-(--dur-2)", open && "rotate-90")} />
       </button>}
-      <div inert={!open || undefined} aria-hidden={!open || undefined} className={cn("grid transition-[grid-template-rows] duration-(--dur-2) ease-(--ease-out)", open ? "grid-rows-[1fr]" : "grid-rows-[0fr]")}>
+      <div inert={!open || undefined} aria-hidden={!open || undefined} className="g-reveal" data-open={open ? "" : undefined}>
         <div className={cn("min-h-0 min-w-0", !within && "overflow-hidden")}>
           <div className={cn("flex min-w-0 flex-col gap-5", !bare && "mt-0.5 pt-4")}>
             {children}

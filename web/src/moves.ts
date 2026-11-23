@@ -107,6 +107,9 @@ export function play(root: HTMLElement, before: Spots, enter: boolean) {
   if (long) occupy(root, "move", delay + long);
 }
 
+/** How long one leaving takes (motion.css g-depart): its fading, then its room shutting. */
+export const departs = () => motion.fade() - motion.reveal() + motion.move();
+
 /** items, with those just gone kept a while where they were, marked leaving (drawn .g-depart: they
  *  fade), so that a row that goes does not vanish at once. key names an item. */
 export function useLeaving<T>(items: T[], key: (x: T) => string): { item: T; leaving: boolean }[] {
@@ -121,8 +124,8 @@ export function useLeaving<T>(items: T[], key: (x: T) => string): { item: T; lea
     const k = key(x.item);
     if (now.has(k)) out.push({ item: fresh.get(k)!, leaving: false });
     else {
-      if (!gone.current.has(k)) gone.current.set(k, Date.now());
-      if (Date.now() - gone.current.get(k)! < motion.dur(2)) out.push({ item: x.item, leaving: true });
+      if (!gone.current.has(k)) gone.current.set(k, performance.now());
+      if (performance.now() - gone.current.get(k)! < departs()) out.push({ item: x.item, leaving: true });
     }
   }
   for (const x of items) if (!out.some((o) => !o.leaving && key(o.item) === key(x))) out.push({ item: x, leaving: false });
@@ -131,7 +134,7 @@ export function useLeaving<T>(items: T[], key: (x: T) => string): { item: T; lea
   const leaving = out.some((o) => o.leaving);
   useEffect(() => {
     if (!leaving) return;
-    const t = setTimeout(() => tick((n) => n + 1), motion.dur(2) + 20);
+    const t = setTimeout(() => tick((n) => n + 1), departs() + 20);
     return () => clearTimeout(t);
   });
   return out;

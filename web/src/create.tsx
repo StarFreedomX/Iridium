@@ -189,7 +189,7 @@ export function FolderPicker({ initial, onChoose, startNew = false, busy, machin
         </IconKey>
       </div>
       {/* The new folder's row: opening and closing in place, above the list (the user, 2026-11-06). */}
-      <div aria-hidden={newName === null || undefined} className={cn("grid px-1.5 transition-[grid-template-rows,opacity] duration-(--dur-2) ease-(--ease-out)", newName !== null ? "grid-rows-[1fr]" : "grid-rows-[0fr] opacity-0")}>
+      <div aria-hidden={newName === null || undefined} className="g-reveal px-1.5" data-open={newName !== null ? "" : undefined}>
         <div className="min-h-0 overflow-hidden">
           <div className="mb-px flex h-9 items-center gap-2.5 rounded-md bg-fill px-2.5">
             <FolderPlus size={16} className="shrink-0 text-ink-3" />
@@ -506,7 +506,7 @@ export type As = Partial<ReturnType<typeof roleStart>> & { nick?: string; recv?:
 /** What opens and shuts in the "+" (开始): its height glides, nothing jumps. */
 function Fold({ open, children }: { open: boolean; children: ReactNode }) {
   return (
-    <div aria-hidden={!open || undefined} inert={!open || undefined} className={cn("grid transition-[grid-template-rows,opacity] duration-(--dur-3) ease-(--ease-out)", open ? "grid-rows-[1fr]" : "grid-rows-[0fr] opacity-0")}>
+    <div aria-hidden={!open || undefined} inert={!open || undefined} className="g-reveal" data-open={open ? "" : undefined}>
       <div className="min-h-0 overflow-hidden">{children}</div>
     </div>
   );

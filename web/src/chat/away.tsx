@@ -102,7 +102,7 @@ export function AwayBox({ place, count, session, children }: { place: Place; cou
         {count > 0 && <span className="shrink-0 tabular-nums">×{count}</span>}
         <ChevronRight size={13} className={cn("shrink-0 text-ink-4 transition-transform duration-(--dur-2)", open && "rotate-90")} />
       </button>
-      <div inert={!open || undefined} aria-hidden={!open || undefined} className={cn("grid transition-[grid-template-rows] duration-(--dur-2) ease-(--ease-out)", open ? "grid-rows-[1fr]" : "grid-rows-[0fr]")}>
+      <div inert={!open || undefined} aria-hidden={!open || undefined} className="g-reveal" data-open={open ? "" : undefined}>
         <div className="min-h-0 min-w-0 overflow-hidden">
           <div className="flex min-w-0 flex-col gap-3 pt-1 pb-2.5">{children}</div>
         </div>

@@ -164,7 +164,7 @@ const outcome = (r: ScriptRun) => (r.code === 0 ? t("script.ok") : r.code === -1
 /** What opens and shuts under something, its height gliding; the last of it drawn while it shuts. */
 function Slide({ open, children }: { open: boolean; children: ReactNode }) {
   return (
-    <div inert={!open || undefined} aria-hidden={!open || undefined} className={cn("grid transition-[grid-template-rows,opacity] duration-(--dur-3) ease-(--ease-out)", open ? "grid-rows-[1fr]" : "grid-rows-[0fr] opacity-0")}>
+    <div inert={!open || undefined} aria-hidden={!open || undefined} className="g-reveal" data-open={open ? "" : undefined}>
       <div className="min-h-0 overflow-hidden">{children}</div>
     </div>
   );

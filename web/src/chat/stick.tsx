@@ -26,10 +26,12 @@ const HOLD = 350; // ms with nothing changing before the room what shrank at the
 const SLACK = 32; // px of such room that is not worth moving the conversation for: it stays till filled
 const NEW = 400; // ms after something new came that what grows or shrinks is still its doing
 const RESIZED = 400; // ms after the pane itself changed height (the keyboard) that nothing glides
+const FRAME = 17; // ms: a frame, at 60 a second (less at more)
 
 /** The glide's spring, critically damped: it comes to rest once, without a bounce, and one pushed
- *  again while it moves goes on at the speed it had. W: its stiffness, per ms. */
-const springW = () => 7 / motion.dur(3);
+ *  again while it moves goes on at the speed it had. W: its stiffness, per ms: at rest (all but
+ *  half a percent of the way) in one move's time (motion.css --move), as every other move is. */
+const springW = () => 7.5 / motion.move();
 type Spring = { y: number; v: number; t: number };
 /** Where a spring let go at s is at time now, and how fast (px, px/ms). */
 export function springAt(s: Spring, now: number, w: number): { y: number; v: number } {
@@ -154,8 +156,12 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     mark(el);
     return el.scrollTop - was;
   };
-  /** To the newest, gliding up by as far as that scrolled it (a message sent). */
-  const toBottom = (el: HTMLElement) => glide(pin(el));
+  /** To the newest, gliding up by as far as that scrolled it (a message sent): that glide, and the
+   *  one already begun this frame by the bubble coming, is the send's. */
+  const toBottom = (el: HTMLElement) => {
+    glide(pin(el), true, true);
+    if (anim.current?.playState === "running") sending.current = anim.current;
+  };
   /** What changes its own height over time inside the conversation (a fold's track, a fold
    *  pressed, long words opened), each with its height as last read, and till when at most. */
   const moving = useRef(new Map<HTMLElement, { h: number; till: number }>());
@@ -235,8 +241,10 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     // channel shrank seconds after it opened, and the end went up and then down again).
     const a = anchor.current;
     if (live && !dPad && height.current !== was && a && a.el.isConnected && col && Math.abs(lastTop.current - a.at) <= 1 && Math.abs(fromEnd(col, a.el) - a.h) < 0.5) return void pin(el);
-    // The part of it that something moving of itself made: that is drawn by itself.
-    if (live && !own && !dPad && !settling && performance.now() - came.current > NEW) return void pin(el);
+    // Shrunk with nothing new (a card filled in shorter): the end kept, at once. Grown so at the
+    // newest (a picture come in late, a card filled in), it pushes up as anything new does,
+    // gliding: not a jump (kumo, 2026-11-23).
+    if (live && !own && !dPad && !settling && height.current < was && performance.now() - came.current > NEW) return void pin(el);
     const its = own ? d : d > 0 ? Math.min(d, Math.max(0, self)) : Math.max(d, Math.min(0, self));
     let push = d - its;
     // What the conversation itself shrank by is held as the floor: something in it may grow back.
@@ -278,10 +286,10 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
       }
     }
   };
-  const glide = (by: number, settling = false) => {
-    // A chat just opened settles in place (its pictures, the composer's cards): nothing glides. What
-    // came since it was last seen, brought as it opens, still does (the user, 2026-11-06).
-    if (!settling && performance.now() - born.current < SETTLE) return;
+  /** The timeline's time the glide under way began at; the glide that is a message sent. */
+  const begun = useRef(-1);
+  const sending = useRef<Animation | null>(null);
+  const glide = (by: number, settling = false, send = false) => {
     const el = list.current;
     const col = el && colOf(el);
     if (!el || !col || !by || reduced() || document.hidden) return;
@@ -289,9 +297,20 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     const now = (document.timeline.currentTime as number | null) ?? performance.now();
     const w = springW();
     const running = anim.current?.playState === "running";
+    // What changed by the frame the glide under way is first drawn in is the same change (a message
+    // sent: its bubble come in the key's own task, the composer emptied as the observer tells it,
+    // a frame on): one move by all of it, whichever way each went, not one way and then back
+    // (kumo, 2026-11-23). Within a frame of its start nothing of it has been seen.
+    const together = running && now - begun.current <= FRAME;
+    // A chat just opened settles in place (its pictures, the composer's cards): nothing glides. What
+    // came since it was last seen, brought as it opens, still does (the user, 2026-11-06).
+    if (!together && !settling && performance.now() - born.current < SETTLE) return;
     const cur = running ? springAt(spring.current, now, w) : { y: 0, v: 0 };
-    // Against the glide under way: held till that is done.
-    if (running && by * cur.y < 0 && Math.abs(cur.y) >= 0.5) return setHeld(col, heldBy.current + by);
+    // Against the glide under way: held till that is done. So is anything while a message sent
+    // goes up: the send is one move, what comes meanwhile comes after it (kumo, 2026-11-23).
+    if (!together && running && ((by * cur.y < 0 && Math.abs(cur.y) >= 0.5) || sending.current === anim.current)) return setHeld(col, heldBy.current + by);
+    // The send's glide, gone on by what came with it (that frame), is still the send's.
+    const wasSend = together && !!anim.current && sending.current === anim.current;
     anim.current?.cancel();
     anim.current = null;
     const y = Math.max(-el.clientHeight, Math.min(el.clientHeight, cur.y + by));
@@ -306,9 +325,9 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     // Rows changing places in it are let finish first: drawn where it is till then.
     const wait = freeIn(col, "push");
     spring.current = { y, v, t: now + wait };
-    // The spring's path as linear keyframes, to rest (e^-9 of the way left).
-    const T = 9 / w;
-    const N = 24;
+    // The spring's path as linear keyframes, to rest in one move's time.
+    const T = motion.move();
+    const N = 16;
     const frames: Keyframe[] = [];
     for (let i = 0; i < N; i++) frames.push({ transform: `translateY(${springAt(spring.current, now + wait + (T * i) / N, w).y.toFixed(2)}px)` });
     frames.push({ transform: "none" });
@@ -316,6 +335,7 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     occupy(col, "push", wait + T);
     // Done: what was held meanwhile glides from where it is drawn.
     a.onfinish = () => {
+      if (sending.current === a) sending.current = null;
       const h = heldBy.current;
       if (anim.current !== a || !h) return;
       setHeld(col, 0);
@@ -329,6 +349,8 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
       // No timeline time (a page not shown): it begins when it can.
     }
     anim.current = a;
+    begun.current = now;
+    if (send || wasSend) sending.current = a;
   };
 
   /** Fold d opened or shut by a press (the user, 2026-11-08: clean, no jump at either end): its
@@ -338,18 +360,23 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
   const toggleFold = (d: HTMLDetailsElement) => {
     if (d.dataset.anim !== undefined) return;
     const opening = !d.open;
-    moves(d, motion.dur(2) + 100);
+    moves(d, motion.move() + motion.fade() + 100);
     const from = d.offsetHeight;
     if (opening) d.open = true;
     else d.dataset.shut = "";
     const sum = d.querySelector(":scope > summary") as HTMLElement | null;
     const to = opening ? d.offsetHeight : (sum?.offsetHeight ?? 0);
-    const opts: KeyframeAnimationOptions = { duration: motion.dur(2), easing: motion.ease("out"), fill: "forwards" };
+    // As a reveal (motion.css g-reveal): opening, the room first, its rows fading in over its last
+    // part; shutting, the rows fading out first, then the room.
+    const ease = motion.ease("out");
+    const move = motion.move();
+    const fade = motion.fade();
+    const lag = opening ? move - motion.reveal() : fade - motion.reveal();
     d.dataset.anim = "";
     d.style.overflow = "clip";
-    const fades = [...d.children].filter((c) => c !== sum).map((c) => c.animate([{ opacity: opening ? 0 : 1 }, { opacity: opening ? 1 : 0 }], opts));
-    const a = d.animate([{ height: `${from}px` }, { height: `${to}px` }], opts);
-    void a.finished
+    const fades = [...d.children].filter((c) => c !== sum).map((c) => c.animate([{ opacity: opening ? 0 : 1 }, { opacity: opening ? 1 : 0 }], { duration: fade, easing: ease, delay: opening ? lag : 0, fill: "both" }));
+    const a = d.animate([{ height: `${from}px` }, { height: `${to}px` }], { duration: move, easing: ease, delay: opening ? 0 : lag, fill: "both" });
+    void Promise.all([a.finished, ...fades.map((f) => f.finished)])
       .then(() => {
         if (!opening) d.open = false;
         delete d.dataset.shut;
@@ -475,6 +502,9 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     el.addEventListener("transitionend", ran);
     el.addEventListener("transitioncancel", ran);
     el.addEventListener(MOVES, told);
+    // One leaving (motion.css g-depart) shuts its room by an animation of its own.
+    const departing = (e: AnimationEvent) => e.animationName === "g-depart-room" && e.target instanceof HTMLElement && moves(e.target, motion.fade() + motion.move() + 100);
+    el.addEventListener("animationstart", departing);
     el.addEventListener("wheel", wheel, { passive: true });
     for (const k of ["touchstart", "touchmove", "touchend", "touchcancel"] as const) el.addEventListener(k, touch, { passive: true });
     el.addEventListener("keydown", key);
@@ -485,6 +515,7 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
       el.removeEventListener("transitionend", ran);
       el.removeEventListener("transitioncancel", ran);
       el.removeEventListener(MOVES, told);
+      el.removeEventListener("animationstart", departing);
       el.removeEventListener("wheel", wheel);
       for (const k of ["touchstart", "touchmove", "touchend", "touchcancel"] as const) el.removeEventListener(k, touch);
       el.removeEventListener("keydown", key);

@@ -53,7 +53,7 @@ export function ProfileCard({ face, name, sub, state, intro, background, keys, m
           </span>
         )}
         {/* What comes after the card is shown (a person's signature) slides open, pushing nothing at once. */}
-        <div className={cn("grid transition-[grid-template-rows,opacity] duration-(--dur-3) ease-(--ease-out)", intro ? "grid-rows-[1fr]" : "grid-rows-[0fr] opacity-0")}>
+        <div className="g-reveal" data-open={intro ? "" : undefined}>
           <div className="min-h-0 overflow-hidden">
             <p className="m-0 pt-2 text-sm leading-5 whitespace-pre-wrap text-ink-2 [overflow-wrap:anywhere]">{intro}</p>
           </div>

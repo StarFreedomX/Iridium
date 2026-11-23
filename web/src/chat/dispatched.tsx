@@ -84,7 +84,7 @@ export function Sent({ call, session, live }: { call: Pick<Tool, "name" | "input
       <button type="button" aria-expanded={open} aria-label={t("sub.to", { name: sub.name })} onClick={() => setOpen(!open)} className={cn(LINE, "hover:text-ink-2 focus-visible:text-ink-2", open && "text-ink-2")}>
         {line}
       </button>
-      <div className={cn("grid transition-[grid-template-rows,opacity] duration-(--dur-3) ease-(--ease-out)", open ? "grid-rows-[1fr]" : "grid-rows-[0fr] opacity-0")}>
+      <div className="g-reveal" data-open={open ? "" : undefined}>
         <div className="min-h-0 overflow-hidden">
           <div className="mt-0.5 mb-1 ml-[7px] grid min-w-0 gap-1.5 pl-3 shadow-[inset_1px_0_0_var(--edge)]">
             {said.text && <Markdown text={said.text} className="w-full text-sm text-ink-2" />}
