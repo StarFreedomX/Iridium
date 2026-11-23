@@ -459,6 +459,14 @@ func (u *ui) local(w *mygo.Window, verb, arg string) {
 		reply(w, st)
 	case "answer":
 		answerAsk(arg)
+	case "title":
+		// An Iridium's name in this app, from the picker (any Iridium, of any version).
+		var t struct{ URL, Title string }
+		if json.Unmarshal([]byte(arg), &t) == nil && t.URL != "" {
+			u.retitle(t.URL, t.Title)
+		}
+		c, _ := loadConfig()
+		reply(w, state(c))
 	case "win":
 		u.winKey(w, arg)
 	case "clipboard":

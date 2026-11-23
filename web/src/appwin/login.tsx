@@ -38,13 +38,7 @@ import {
   SureKey,
   Switch,
 } from "../ui";
-import {
-  ask,
-  clipboardKeys,
-  followTheme,
-  onAnswer,
-  whenReady,
-} from "./bridge";
+import { ask, clipboardKeys, followTheme, onAnswer, whenReady } from "./bridge";
 import { Fold, useFolding } from "./fold";
 
 type Link = { up: boolean; rtt?: number; since: string };
@@ -143,7 +137,11 @@ export function Login() {
         <IrMark size={15} className="text-ink" />
         <span className="flex-1">Iridium</span>
         {/* Close alone: it is never full screen (kumo, 2026-11-22: no minimise). */}
-        <IconKey label="关闭" onClick={() => ask("ir:win:close")} className="size-7">
+        <IconKey
+          label="关闭"
+          onClick={() => ask("ir:win:close")}
+          className="size-7"
+        >
           <X size={15} />
         </IconKey>
       </header>
@@ -774,6 +772,58 @@ function Grants({ st, open }: { st: State; open: (s: Server) => void }) {
   );
 }
 
+/** The name an Iridium goes by in this app (its windows' titles, the task bar's, the tray's; kumo,
+ *  2026-11-23): pressed, a field. The app's alone, so any Iridium's, of any version; its page's own
+ *  top left (appkey.tsx AppName) sets the same. Empty: its address. */
+function Retitle({ s }: { s: Server }) {
+  const [editing, setEditing] = useState(false);
+  const [v, setV] = useState("");
+  const done = useRef(false);
+  if (!editing)
+    return (
+      <button
+        type="button"
+        aria-label="改名"
+        onClick={() => {
+          done.current = false;
+          setV(s.title ?? "");
+          setEditing(true);
+        }}
+        className="-mx-1 max-w-full truncate rounded-sm px-1 text-left hover:bg-fill"
+      >
+        {s.title || s.host}
+      </button>
+    );
+  const end = (keep: boolean) => {
+    if (done.current) return;
+    done.current = true;
+    setEditing(false);
+    const t = v.trim();
+    if (keep && t !== (s.title ?? ""))
+      ask("ir:title:" + JSON.stringify({ url: s.url, title: t }));
+  };
+  return (
+    <input
+      autoFocus
+      value={v}
+      maxLength={40}
+      placeholder={s.host}
+      aria-label="改名"
+      spellCheck={false}
+      onFocus={(e) => e.currentTarget.select()}
+      onChange={(e) => setV(e.target.value)}
+      onBlur={() => end(true)}
+      onKeyDown={(e) => {
+        if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+        if (e.key === "Enter") end(true);
+        else if (e.key === "Escape") end(false);
+        else clipboardKeys(e, setV);
+      }}
+      className="h-7 w-full min-w-0 rounded-md bg-fill px-1.5 text-sm outline-none select-text placeholder:text-ink-3"
+    />
+  );
+}
+
 /** A list's title in a popover, as the web app's (create.tsx). */
 function Heading({
   children,
@@ -817,7 +867,7 @@ function ServerPage({
       </button>
       <Row
         icon={<Face s={s} />}
-        title={s.title || s.host}
+        title={<Retitle s={s} />}
         sub={
           <>
             <Lamp color={l.dot} />
