@@ -134,24 +134,22 @@ func windowTitle(title string) string {
 
 // chromeJS is put in every page a window shows: its top bar drags the window (mygo's --app-region;
 // a double click there does as the system's title bar does). The top bar is what the page marks
-// data-app-drag (the keys, fields and links in it excepted); a page with none marked (an Iridium
-// from before) has its top 40 pixels, marked for mygo as the pointer goes down there. Such a page
-// draws no window keys either: they are put at its top right here, plainer, till the page has its
-// own (data-win-keys).
+// data-app-drag (the keys, fields and links in it excepted). A page that draws no window keys of
+// its own (data-win-keys; an Iridium from before) gets a strip of its own above it instead, which
+// drags the window, the keys at its right, the page moved down under it: nothing of the page is
+// covered (kumo, 2026-11-23: keys laid over the page's own top right hid its app key).
 var chromeJS = css(`[data-app-drag]{--app-region:drag}`) + fmt.Sprintf(`(function(){
-var mac=%t;
+var mac=%t,H=32;
 function inv(m){var w=window._wails;if(w&&w.invoke)w.invoke(m)}
-var keys="button,a,input,textarea,select,label,summary,[role=button],[role=menuitem],[role=tab],[role=switch],[contenteditable=true],[contenteditable=''],[data-no-drag]";
-addEventListener("pointerdown",function(e){var t=e.target;if(e.button!==0||!(t instanceof Element)||t.closest(keys))return;
-if(document.querySelector("[data-app-drag]")||e.clientY>=40)return;
-t.style.setProperty("--app-region","drag");setTimeout(function(){t.style.removeProperty("--app-region")},0)},true);
-function plain(){var have=document.querySelector("[data-win-keys]:not([data-win-keys=app])"),ours=document.querySelector("[data-win-keys=app]");
-if(have){if(ours)ours.remove();return}if(ours||!document.body)return;
-var d=document.createElement("div");d.setAttribute("data-win-keys","app");
-d.style.cssText="position:fixed;top:8px;right:8px;z-index:2147483647;display:flex;gap:2px";
-[[mac?"full":"max",mac?"⤢":"□"],["close","✕"]].forEach(function(k){var b=document.createElement("button");b.type="button";b.setAttribute("aria-label",k[0]);b.textContent=k[1];
-b.style.cssText="width:32px;height:32px;border-radius:6px;border:0;padding:0;cursor:default;background:none;color:inherit;opacity:.7;font:15px system-ui";b.onclick=function(){inv("ir:win:"+k[0])};d.appendChild(b)});
-document.body.appendChild(d)}
-setInterval(plain,2000);
+function plain(){var have=document.querySelector("[data-win-keys]:not([data-win-keys=app])"),ours=document.getElementById("ir-strip");
+if(have){if(ours){ours.remove();document.documentElement.style.removeProperty("--ir-strip")}return}
+if(ours||!document.body||!document.getElementById("root")||!document.getElementById("root").children.length)return;
+var d=document.createElement("div");d.id="ir-strip";d.setAttribute("data-app-drag","");
+d.style.cssText="position:fixed;top:0;left:0;right:0;height:"+H+"px;z-index:2147483647;display:flex;justify-content:flex-end;align-items:center;gap:2px;padding-right:6px;box-sizing:border-box;background:Canvas;color:CanvasText";
+var k=document.createElement("span");k.setAttribute("data-win-keys","app");k.style.cssText="display:flex;gap:2px";
+[[mac?"full":"max",mac?"\u2922":"\u25a1"],["close","\u2715"]].forEach(function(x){var b=document.createElement("button");b.type="button";b.setAttribute("aria-label",x[0]);b.textContent=x[1];
+b.style.cssText="width:28px;height:24px;border-radius:6px;border:0;padding:0;cursor:default;background:none;color:inherit;opacity:.6;font:13px system-ui";b.onclick=function(){inv("ir:win:"+x[0])};k.appendChild(b)});
+d.appendChild(k);document.body.appendChild(d);document.documentElement.style.setProperty("--ir-strip",H+"px")}
+setInterval(plain,1000);
 })();
-`, runtime.GOOS == "darwin")
+`, runtime.GOOS == "darwin") + css(`#root{box-sizing:border-box;padding-top:var(--ir-strip,0px)}`)
