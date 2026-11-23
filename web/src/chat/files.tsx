@@ -84,8 +84,17 @@ export function Picture({ src, full, name, under, w, h }: { src: string; full: s
   );
 }
 
+/** Space shuts a preview, as Quick Look does on a Mac (kumo, 2026-11-23); not where one types. */
+const spaceShuts = (close: () => void) => (e: React.KeyboardEvent) => {
+  if (e.key !== " " || e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;
+  const t = e.target as HTMLElement;
+  if (t.closest("input,textarea,select,[contenteditable=''],[contenteditable=true]")) return;
+  e.preventDefault();
+  close();
+};
+
 /** children (a button) opens full over the page, fit to the window, to look closer (zoom.tsx), shut
- *  by a press beside it, Esc or its key, or download. */
+ *  by a press beside it, Esc, Space or its key, or download. */
 export function Zoom({ full, name, children }: { full: string; name: string; children: ReactElement }) {
   const [open, setOpen] = useState(false);
   return (
@@ -95,7 +104,7 @@ export function Zoom({ full, name, children }: { full: string; name: string; chi
       </Tip>
       <Dialog.Portal>
         <Dialog.Backdrop className="fixed inset-0 z-50 bg-paper/70 backdrop-blur-sm transition-opacity duration-(--dur-2) data-ending-style:opacity-0 data-starting-style:opacity-0" />
-        <Dialog.Popup className="fixed inset-0 z-50 outline-none transition-[opacity,scale] duration-(--dur-2) ease-(--ease-out) data-ending-style:scale-[0.98] data-ending-style:opacity-0 data-starting-style:scale-[0.98] data-starting-style:opacity-0">
+        <Dialog.Popup onKeyDown={spaceShuts(() => setOpen(false))} className="fixed inset-0 z-50 outline-none transition-[opacity,scale] duration-(--dur-2) ease-(--ease-out) data-ending-style:scale-[0.98] data-ending-style:opacity-0 data-starting-style:scale-[0.98] data-starting-style:opacity-0">
           <Dialog.Title className="sr-only">{name}</Dialog.Title>
           <Viewer
             src={full}
@@ -122,6 +131,7 @@ export function Zoom({ full, name, children }: { full: string; name: string; chi
  *  its download key beside; a PDF opens in a tab of its own. view: the file served inline, href:
  *  to download. */
 export function Preview({ kind, name, view, href, className, label, tip, children }: { kind: PreviewKind; name: string; view: string; href: string; className?: string; label?: string; tip?: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
   const tipped = (key: ReactElement) => (tip ? <Tip label={tip}>{key}</Tip> : key);
   if (kind === "pdf")
     return tipped(
@@ -130,7 +140,7 @@ export function Preview({ kind, name, view, href, className, label, tip, childre
       </a>,
     );
   return (
-    <Dialog.Root>
+    <Dialog.Root open={open} onOpenChange={setOpen}>
       {tipped(
         <Dialog.Trigger aria-label={label} className={className}>
           {children}
@@ -138,7 +148,7 @@ export function Preview({ kind, name, view, href, className, label, tip, childre
       )}
       <Dialog.Portal>
         <Dialog.Backdrop className="fixed inset-0 z-50 bg-paper/70 backdrop-blur-sm transition-opacity duration-(--dur-2) data-ending-style:opacity-0 data-starting-style:opacity-0" />
-        <Dialog.Popup className="g-unfold fixed top-1/2 left-1/2 z-50 flex max-h-[86vh] w-[min(960px,94vw)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl bg-paper text-ink shadow-(--shadow-float) outline-none">
+        <Dialog.Popup onKeyDown={spaceShuts(() => setOpen(false))} className="g-unfold fixed top-1/2 left-1/2 z-50 flex max-h-[86vh] w-[min(960px,94vw)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl bg-paper text-ink shadow-(--shadow-float) outline-none">
           <div className="flex h-12 shrink-0 items-center gap-2 border-b border-edge pr-2 pl-4">
             <Dialog.Title className="min-w-0 flex-1 truncate text-sm font-medium">{name}</Dialog.Title>
             <Tip label={t("msg.download")}>

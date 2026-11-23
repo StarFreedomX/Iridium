@@ -455,25 +455,16 @@ function Lamp({ color }: { color: string }) {
 function Face({ s, size = 36 }: { s: Server; size?: number }) {
   // The Iridium's own face (GET /v1/internal/face, set in its 应用管理), not who one is there (kumo,
   // 2026-11-23: as a game's server list, the server's picture, the name one's own): round; none
-  // set, Iridium's mark in the circle; one set, the mark small at its bottom right, as its page
-  // draws it (ui.tsx ServerFace).
-  const mark = Math.max(12, Math.round(size * 0.4));
+  // set, Iridium's mark in the circle. No mark on a face set here: every one is an Iridium.
   if (!s.face) return <IrMark size={size} round className="text-ink" />;
   return (
-    <span
-      className="relative inline-block shrink-0"
+    <img
+      src={s.face}
+      alt=""
+      draggable={false}
+      className="shrink-0 rounded-full object-cover"
       style={{ width: size, height: size }}
-    >
-      <img
-        src={s.face}
-        alt=""
-        draggable={false}
-        className="size-full rounded-full object-cover"
-      />
-      <span className="absolute -right-0.5 -bottom-0.5 grid rounded-[30%] bg-paper p-px">
-        <IrMark size={mark} className="text-ink" />
-      </span>
-    </span>
+    />
   );
 }
 
