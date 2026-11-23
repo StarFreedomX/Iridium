@@ -32,8 +32,15 @@ const FRAME = 17; // ms: a frame, at 60 a second (less at more)
 /** The glide's spring, critically damped: it comes to rest once, without a bounce, and one pushed
  *  again while it moves goes on at the speed it had. W: its stiffness, per ms: at rest (all but
  *  half a percent of the way) in one move's time (motion.css --move), as every other move is. */
-const springW = () => 7.5 / motion.move();
-type Spring = { y: number; v: number; t: number };
+const springW = (quick = true) => 7.5 / (quick ? motion.move() : motion.move() * FOLLOW);
+/** How many moves' time what comes of itself takes to come to rest (the agent's lines, a row, a
+ *  picture): each line that came was its own quick move, done before the next line was there, a
+ *  step and a stand and a step (kumo, 2026-11-23: no glide to be seen, and a stutter). Slower than
+ *  the lines come, the glide never stands between them: one movement, its speed kept. What the
+ *  user does (a message sent, the composer's height) is a move as any, in one move's time. */
+const FOLLOW = 3;
+/** w: its stiffness, as it was let go with. */
+type Spring = { y: number; v: number; t: number; w?: number };
 /** Where a spring let go at s is at time now, and how fast (px, px/ms). */
 export function springAt(s: Spring, now: number, w: number): { y: number; v: number } {
   const dt = Math.max(0, now - s.t);
@@ -140,7 +147,7 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     if (!p || a?.playState !== "running") return;
     const now = (document.timeline.currentTime as number | null) ?? performance.now();
     const on = gliding.current;
-    for (const r of seenIn(el, col, springAt(spring.current, now, springW()).y)) {
+    for (const r of seenIn(el, col, springAt(spring.current, now, spring.current.w ?? springW()).y)) {
       // Not one moving already, nor in one or around one.
       if (on.some((o) => o === r || o.contains(r) || r.contains(o))) continue;
       const b = r.animate(p.frames, p.opts);
@@ -312,7 +319,7 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     const before = ours.current;
     pin(el);
     const by = before >= 0 ? el.scrollTop - before : 0;
-    glide(push > 0 ? Math.min(push, Math.max(0, by)) : Math.max(push, Math.min(0, by)), settling);
+    glide(push > 0 ? Math.min(push, Math.max(0, by)) : Math.max(push, Math.min(0, by)), settling, false, dPad !== 0);
   };
   /** The column's row at the top of what is seen as pin last put the end there (at: the scroll
    *  then), and how far its top is from the column's end: what follow tells a change above what is
@@ -335,15 +342,17 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
   /** The timeline's time the glide under way began at; the glide that is a message sent. */
   const begun = useRef(-1);
   const sending = useRef<Animation | null>(null);
-  const glide = (by: number, settling = false, send = false) => {
+  /** quick: the user's own doing (a message sent, the composer's height): one move's time; else
+   *  what came of itself, slower (FOLLOW). */
+  const glide = (by: number, settling = false, send = false, quick = send) => {
     const el = list.current;
     const col = el && colOf(el);
     if (!el || !col || reduced() || document.hidden) return;
     if (!by) return join(el, col);
     // By the timeline's clock: where the one running is, is where the compositor draws it.
     const now = (document.timeline.currentTime as number | null) ?? performance.now();
-    const w = springW();
     const running = anim.current?.playState === "running";
+    const was = spring.current.w ?? springW();
     // What changed by the frame the glide under way is first drawn in is the same change (a message
     // sent: its bubble come in the key's own task, the composer emptied as the observer tells it,
     // a frame on): one move by all of it, whichever way each went, not one way and then back
@@ -352,12 +361,14 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     // A chat just opened settles in place (its pictures, the composer's cards): nothing glides. What
     // came since it was last seen, brought as it opens, still does (the user, 2026-11-06).
     if (!together && !settling && performance.now() - born.current < SETTLE) return;
-    const cur = running ? springAt(spring.current, now, w) : { y: 0, v: 0 };
-    // Against the glide under way: held till that is done. So is anything while a message sent
-    // goes up: the send is one move, what comes meanwhile comes after it (kumo, 2026-11-23).
-    if (!together && running && ((by * cur.y < 0 && Math.abs(cur.y) >= 0.5) || sending.current === anim.current)) return (setHeld(col, heldBy.current + by), join(el, col));
-    // The send's glide, gone on by what came with it (that frame), is still the send's.
-    const wasSend = together && !!anim.current && sending.current === anim.current;
+    const cur = running ? springAt(spring.current, now, was) : { y: 0, v: 0 };
+    // One spring, whatever pushes it and whichever way: a push is added to where it is, its speed
+    // kept, so it goes on to its new place in one movement. Nothing is held back to go after it:
+    // held, the conversation stood off its place meanwhile (a message of many lines sent, the
+    // composer made shorter a frame or two after the bubble came: a hole over the composer till
+    // the glide was done, then the conversation dropped into it; kumo, 2026-11-23). A quick one
+    // under way stays quick till it is nearly there.
+    const w = quick || (running && was === springW() && Math.abs(cur.y) > 8) ? springW() : springW(false);
     stopGlide();
     const y = Math.max(-el.clientHeight, Math.min(el.clientHeight, cur.y + by));
     // Never past its place and back: at most as fast towards it as comes to rest there.
@@ -370,10 +381,10 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     }
     // Rows changing places in it are let finish first: drawn where it is till then.
     const wait = freeIn(col, "push");
-    spring.current = { y, v, t: now + wait };
-    // The spring's path as linear keyframes, to rest in one move's time.
-    const T = motion.move();
-    const N = 16;
+    spring.current = { y, v, t: now + wait, w };
+    // The spring's path as linear keyframes, to rest (half a percent of the way left).
+    const T = 7.5 / w;
+    const N = Math.max(16, Math.round(T / 12));
     const frames: Keyframe[] = [];
     for (let i = 0; i < N; i++) frames.push({ transform: `translateY(${springAt(spring.current, now + wait + (T * i) / N, w).y.toFixed(2)}px)` });
     frames.push({ transform: "none" });
@@ -405,7 +416,7 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     path.current = { frames, opts };
     anim.current = a;
     begun.current = now;
-    if (send || wasSend) sending.current = a;
+    if (send) sending.current = a;
   };
 
   /** Fold d opened or shut by a press (the user, 2026-11-08: clean, no jump at either end): its
@@ -456,7 +467,7 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     const col = el?.firstElementChild as HTMLElement | null;
     if (!el || !col || anim.current?.playState !== "running") return;
     const now = (document.timeline.currentTime as number | null) ?? performance.now();
-    const at = springAt(spring.current, now, springW()).y + heldBy.current;
+    const at = springAt(spring.current, now, spring.current.w ?? springW()).y + heldBy.current;
     stopGlide();
     setHeld(col, 0);
     if (Math.abs(at) < 0.5) return;
@@ -515,6 +526,14 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     const ro = new ResizeObserver(() => follow(el));
     ro.observe(el);
     if (col) ro.observe(col);
+    // A row drawn anew while the glide runs (what is being written become its block, a message
+    // sent become its row) joins it before it is first drawn: on its own it stood at its place
+    // among rows still on their way.
+    const mo = new MutationObserver(() => {
+      const c = colOf(el);
+      if (c && anim.current?.playState === "running") join(el, c);
+    });
+    if (col) mo.observe(col, { childList: true, subtree: true });
     ends.set(el, () => ((atEnd.current = true), setFresh(false), toBottom(el)));
     goes.set(el, leave);
     rests.set(el, () => atEnd.current && bottomOf(el) - el.scrollTop < 2 && performance.now() - moved.current > REST);
@@ -564,6 +583,7 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     el.addEventListener("keydown", key);
     return () => {
       ro.disconnect();
+      mo.disconnect();
       clearTimeout(floorTimer.current);
       el.removeEventListener("transitionrun", runs);
       el.removeEventListener("transitionend", ran);

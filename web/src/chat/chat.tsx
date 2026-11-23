@@ -71,7 +71,6 @@ import { renameOnly } from "./cmd";
 import { Composer, type ComposerHandle } from "./composer";
 import { folded } from "./fold";
 import { StopKey, ToolDraft } from "./live";
-import { Draft } from "./markdown";
 import { ContextRing, ModeKey, ModelKey, modelView, QuotaBars, useMode } from "./meters";
 import { PublicLink, publicLinkQ } from "./publiclink";
 import { ShellRuns } from "./shell";
@@ -80,7 +79,7 @@ import { attachedOf, placesIn, PLACE_DRAG, SESSION_DRAG, sourceOf, withDevice, y
 import { placeDropped, type NamedPlace } from "./at";
 import { PlaceIcon, placeOf } from "./mention";
 import { spotsOf, type Spot } from "./where";
-import { Compaction, Earlier, Pending, Relayed, Said, When } from "./said";
+import { Compaction, Earlier, Pending, Relayed, Said, When, type AsDraft } from "./said";
 import { earlierOf, liveAt, rowPlace, slotAfter, tailOf, turnKey, turnsOf, type LiveAt, type Row } from "./turns";
 import { Stick, toEnd } from "./stick";
 import { Activity, OtherTurn, TurnFrame } from "./atwork";
@@ -280,6 +279,9 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
   // How high the row at work was while the agent was at work, for what takes its place as the
   // turn is stopped (stopped, below).
   const workBusy = useRef(false);
+  // The turn's end as this page saw it: whether it was at work at the last draw, the record's last
+  // row then, and when it came to rest with that row still the last.
+  const rest = useRef({ busy: false, last: "", at: -1e9, with: "" });
   const workH = useRef({ id: "", h: 0 });
   useLayoutEffect(() => {
     if (workH.current.id !== id) workH.current = { id, h: 0 };
@@ -559,23 +561,30 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
       return [];
     }
     rowTimes.push({ agent: b.kind === "assistant" || b.kind === "fold" || b.kind === "running", time: b.kind === "fold" ? { since: b.steps[0]?.time } : b.kind === "running" ? { since: b.tool.time } : b.time });
+    // What this page saw written keeps the draft's key and is drawn as the draft was (said.tsx
+    // Assistant): the same thing as it becomes its block, nothing of it drawn anew.
+    const wasDraft = b.kind === "assistant" ? log.draftOf(b.at) : undefined;
+    const key = wasDraft ?? b.at;
     if (b.kind === "fold") stepsAt.set(b.at, b.steps.length);
-    if (b.kind === "assistant") wordsOf.set(b.at, b.text ?? "");
+    if (b.kind === "assistant") wordsOf.set(key, b.text ?? "");
     const given: GivenTurn | null = relay ? { seq: relay.seq, words: relay.msgs.at(-1)?.text ?? "", context: relay.context, ...(relay.channel !== id ? { channel: { id: relay.channel, name: relay.name } } : {}) } : b.kind === "user" ? givenTurn(b.text ?? "") : null;
     const time = b.kind === "user" ? b.time : undefined;
-    if (b.kind !== "user" && "time" in b && b.time) times.set(b.at, b.time);
+    if (b.kind !== "user" && "time" in b && b.time) times.set(key, b.time);
     return [
       {
-        key: b.at,
+        key,
         agent: b.kind === "assistant" || b.kind === "fold" || b.kind === "running",
         ...(given?.channel ? { works: { given, relay, time } } : {}),
-        node: <Said key={b.at} b={b} session={id} cwd={cwd} source={source} onJump={openChat} card={personCard} menu={personMenu} left={othersWords} />,
+        node: <Said key={key} b={b} session={id} cwd={cwd} source={source} onJump={openChat} card={personCard} menu={personMenu} left={othersWords} draft={wasDraft ? asDraft(`${id}:${wasDraft}`, false) : undefined} />,
       },
     ];
   });
   for (const d of log.drafts) {
     if (d.tool && (busy || renamesDraft(d))) continue;
     const key = `${d.proc}.${d.n}`;
+    // Words as its block will be: where the turn's rows are split (Earlier) and what is put
+    // around them is the same before and after it is whole, nothing moved as the turn ends.
+    if (!d.tool) wordsOf.set(key, d.text);
     rowTimes.push({ agent: true, time: Infinity });
     rows.push({
       key,
@@ -585,9 +594,7 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
       ) : (
         // Faded in as it first comes, not again as it goes from the turn's row at work into the
         // turn (draftRef).
-        <div key={key} ref={draftRef(`${id}:${key}`)} className="min-w-0 pr-6">
-          <Draft text={d.text} live={!d.whole && busy} />
-        </div>
+        <Said key={key} b={{ kind: "assistant", at: key, text: d.text } as Block & { kind: "assistant" }} session={id} cwd={cwd} source={source} onJump={openChat} card={personCard} menu={personMenu} left={othersWords} draft={asDraft(`${id}:${key}`, !d.whole && busy)} />
       ),
     });
   }
@@ -722,6 +729,13 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
   const stopped = stoppedAt !== null && lastOne?.kind === "one" && lastOne.key === stoppedAt ? lastOne : null;
   const turns = stopped ? allTurns.slice(0, -1) : allTurns;
   workBusy.current = busy;
+  // Come to rest with nothing new in the record (stopped: its line comes a moment after): the row
+  // at work stays as high till that line is there, not a line high for a frame in between, the
+  // conversation dropped and brought up again.
+  const lastAt = lastShown?.at ?? "";
+  if (busy) rest.current = { ...rest.current, busy: true, last: lastAt };
+  else if (rest.current.busy) rest.current = { busy: false, last: rest.current.last, at: performance.now(), with: rest.current.last };
+  const justRested = !busy && !stopped && !pending.length && lastAt === rest.current.with && performance.now() - rest.current.at < 1500 && workH.current.id === id && workH.current.h > 16;
   // A turn another channel called (works) is the agent's too once it has rows: its row at work
   // goes on under them, not under a face and name again (kumo, 2026-11-18).
   // The turn at work is not ended by what others say meanwhile: their words go under it (merge.ts
@@ -936,7 +950,7 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
             ) : (
               activity
             )
-          ) : s.denials?.length ? <Denials session={id} denials={s.denials} cwd={cwd} stuck={s.status === "waiting" && !s.asks.length} /> : stopped ? <div className="grid content-center" style={{ minHeight: workH.current.id === id ? workH.current.h : 0 }}>{stopped.node}</div> : <div aria-hidden className="-mt-3 h-7 pointer-coarse:h-9" />)}
+          ) : s.denials?.length ? <Denials session={id} denials={s.denials} cwd={cwd} stuck={s.status === "waiting" && !s.asks.length} /> : stopped ? <div className="grid content-center" style={{ minHeight: workH.current.id === id ? workH.current.h : 0 }}>{stopped.node}</div> : justRested ? <div aria-hidden style={{ minHeight: workH.current.h }} /> : <div aria-hidden className="-mt-3 h-7 pointer-coarse:h-9" />)}
                   </div>
                 ),
               },
@@ -1451,6 +1465,18 @@ const renamesDraft = (d: Drafted) => !!d.tool && renameOnly({ name: d.tool.name,
  *  goes on from where it was, not again from nothing. One ref a draft, kept: a new one each draw
  *  would be called again each draw. */
 const draftsSeen = new Map<string, { at: number; ref: (el: HTMLElement | null) => void }>();
+/** How a draft, or the block it became, is drawn (said.tsx AsDraft): one thing a draft and state,
+ *  kept, so that what is drawn from it is not drawn again for nothing. */
+const asDrafts = new Map<string, AsDraft>();
+function asDraft(key: string, live: boolean): AsDraft {
+  const k = `${key} ${live}`;
+  let d = asDrafts.get(k);
+  if (!d) {
+    if (asDrafts.size > 1000) asDrafts.clear();
+    asDrafts.set(k, (d = { live, rise: draftRef(key) }));
+  }
+  return d;
+}
 function draftRef(key: string) {
   let d = draftsSeen.get(key);
   if (!d) {

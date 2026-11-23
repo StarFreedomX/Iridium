@@ -99,6 +99,19 @@ export const Markdown = memo(function Markdown({ text, className, session, files
   );
 });
 
+/** What the agent said as this page saw it written, whole or not yet: drawn piece by piece as a
+ *  draft is (Streamdown's own way with what grows), and still so once it is whole, so that the
+ *  pieces drawn stay as they are when the draft becomes its block. live: words still come. */
+export function Streamed({ text, live, className, session, files }: { text: string; live: boolean; className?: string; session: string; files?: FileRef[] }) {
+  return (
+    <LinkFiles session={session} files={files ?? []}>
+      <Streamdown {...MARKDOWN} isAnimating={live} className={cn("prose-ir min-w-0 text-md", className)}>
+        {text}
+      </Streamdown>
+    </LinkFiles>
+  );
+}
+
 /** What the agent is writing: Markdown half written shows as it will be, its title line left out
  *  (draftWords). live: words still come. No caret after them (the user, 2026-11-06). */
 export function Draft({ text, live }: { text: string; live: boolean }) {

@@ -144,6 +144,18 @@ export class Messages {
   private loose: string[] = [];
   /** The tool calls the transcript brought in this turn: a call's draft that comes later goes. */
   private looseCalls = new Set<string>();
+  /** The draft each block was as this page saw it written, by the block's place: the page draws
+   *  the block where the draft was, as the same thing, not the draft gone and the block come
+   *  (kumo, 2026-11-23: the last thing said was drawn again whole as its turn ended). */
+  private wasDraft = new Map<string, string>();
+  private became(at: string, d: { proc: number; n: number }) {
+    if (this.wasDraft.size > 500) this.wasDraft.clear();
+    this.wasDraft.set(at, `${d.proc}.${d.n}`);
+  }
+  /** The key of the draft the block at at was (proc.n), if this page saw it written. */
+  draftOf(at: string): string | undefined {
+    return this.wasDraft.get(at);
+  }
   private forget(d: { proc: number; n: number }) {
     if (d.proc !== this.gone.proc) this.gone = { proc: d.proc, n: -1 };
     this.gone.n = Math.max(this.gone.n, d.n);
@@ -202,9 +214,13 @@ export class Messages {
       const text = (b.text ?? "").trim();
       if (!text) continue;
       const i = this.drafts.findIndex((d) => same(d, text));
-      if (i >= 0) this.drafts.splice(0, i + 1).forEach((d) => this.forget(d));
-      else if (live && this.drafts[0]?.whole && !this.drafts[0].tool) this.forget(this.drafts.shift()!);
-      else this.loose.push(text);
+      if (i >= 0) {
+        this.became(b.at, this.drafts[i]!);
+        this.drafts.splice(0, i + 1).forEach((d) => this.forget(d));
+      } else if (live && this.drafts[0]?.whole && !this.drafts[0].tool) {
+        this.became(b.at, this.drafts[0]);
+        this.forget(this.drafts.shift()!);
+      } else this.loose.push(text);
     }
     this.sent = unsent(this.sent, this.blocks);
     this.version++;

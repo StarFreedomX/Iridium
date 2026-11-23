@@ -34,10 +34,10 @@ import { Pictures } from "./pictures";
 import { cmdOfCall, cpOfCall, isShell, newOfCall, type Cmd, type CpSide } from "./cmd";
 import { argOf, diffSum, foldLine, foldSaid, kindOf, runCmds, type Diff, type Kind, type Shown, type Step, type Tool } from "./fold";
 import { Code } from "./hl";
-import { Markdown } from "./markdown";
+import { Markdown, Streamed } from "./markdown";
 import { partialInput } from "./partial";
 import { machineNamed, MentionCard, NamedCards, Worded } from "./mention";
-import { fromSatori, type Mention, sessionOf, type Source, withoutFiles, withoutNameLines } from "./refs";
+import { draftWords, fromSatori, type Mention, sessionOf, type Source, withoutFiles, withoutNameLines } from "./refs";
 import { MachineFace } from "../machines";
 import { useList } from "../store";
 import type { Agent } from "../api/types.gen";
@@ -431,7 +431,11 @@ const SYSTEM: Record<string, Parameters<typeof t>[0]> = { compact: "sys.compact"
 
 /** What the agent said: Markdown, its file links (ir:<id>) in place, then the files its file lines
  *  give ([文件] `path`). */
-export const Assistant = memo(function Assistant({ b, session }: { b: Block; session: string }) {
+/** draft: this page saw it written (chats.ts draftOf), or it is being written still (live): drawn
+ *  as what is written is, the same thing from its first words to its block; rise: its ref, for
+ *  its coming in. */
+export type AsDraft = { live: boolean; rise?: (el: HTMLElement | null) => void };
+export const Assistant = memo(function Assistant({ b, session, draft }: { b: Block; session: string; draft?: AsDraft }) {
   const home = useHome().data;
   // The members of its channel it names (agents, people, apps: chat/channel/nick.tsx), links.
   const names = useContext(Nicks)?.names;
@@ -443,10 +447,14 @@ export const Assistant = memo(function Assistant({ b, session }: { b: Block; ses
   const under = b.files?.filter((f) => !isLink(f)) ?? [];
   // data-at: where a quote of it is gone to on a session's page (channel/jump.ts).
   return (
-    <div data-at={b.at} className="flex min-w-0 flex-col items-start gap-2 pr-6">
-      {text && <Markdown text={text} className="w-full" session={session} files={b.files ?? undefined} />}
-      <Forwards fs={fw.forwards} />
-      {!!under.length && <Files session={session} files={under} />}
+    <div data-at={b.at} ref={draft?.rise} className="flex min-w-0 flex-col items-start gap-2 pr-6">
+      {draft ? (
+        <Streamed text={draft.live ? draftWords(fromSatori(b.text ?? ""), true) : text} live={draft.live} className="w-full" session={session} files={b.files ?? undefined} />
+      ) : (
+        text && <Markdown text={text} className="w-full" session={session} files={b.files ?? undefined} />
+      )}
+      {!draft?.live && <Forwards fs={fw.forwards} />}
+      {!draft?.live && !!under.length && <Files session={session} files={under} />}
     </div>
   );
 });
@@ -535,7 +543,7 @@ export function Relayed({ given, relay, name, time, onJump, children }: { given:
 
 /** card: what a person's face opens (their card, chat.tsx), for one not the one looking. left:
  *  another person's words, on the left: only the one looking is on the right (kumo, 2026-11-16). */
-export function Said({ b, session, cwd, source, onJump, card, menu, left }: { b: Shown; session: string; cwd: string; source: (b: { from?: string; fromTerminal?: string; fromDevice?: Device }) => Source; onJump: (id: string) => void; card?: (b: Block) => ReactNode; menu?: (b: Block) => FaceMenu | undefined; left?: (b: Block) => boolean }) {
+export function Said({ b, session, cwd, source, onJump, card, menu, left, draft }: { b: Shown; draft?: AsDraft; session: string; cwd: string; source: (b: { from?: string; fromTerminal?: string; fromDevice?: Device }) => Source; onJump: (id: string) => void; card?: (b: Block) => ReactNode; menu?: (b: Block) => FaceMenu | undefined; left?: (b: Block) => boolean }) {
   // In the record of the channel's own session, a block is a message of the channel too: reacted
   // to and taken back as one (react.tsx). Not in another's record shown here (an agent's work).
   const named = useContext(Nicks);
@@ -576,7 +584,7 @@ export function Said({ b, session, cwd, source, onJump, card, menu, left }: { b:
     case "assistant":
       return (
         <Copyable copy={b.text ?? ""} act={here ? { channel: session, key: { at: b.at }, may: !!named.may } : undefined}>
-          <Assistant b={b} session={session} />
+          <Assistant b={b} session={session} draft={draft} />
         </Copyable>
       );
     case "system":
@@ -1106,9 +1114,15 @@ export function Earlier({ done, fresh, words, steps, children, after, bare }: { 
   // rule beside it, not set in (kumo, 2026-11-16: the rule is the steps' fold's alone; with one
   // here too, a fold of steps in it stood behind two, and the turn's rows moved aside as it ended).
   const within = !done && open;
+  // after is always in the one place, after the fold, the turn going on or ended: put inside it
+  // while the turn went on and taken out as it ended, the last thing said was drawn anew as its
+  // turn ended (kumo, 2026-11-23: a flicker as each answer was done). The gap between the two is
+  // the turn's own (TurnFrame's), as wide as the fold's; nothing to fold yet, no fold to stand
+  // in it.
+  const has = Children.count(children) > 0;
   return (
     <>
-    <div className="flex min-w-0 flex-col">
+    {(has || !bare) && <div className="flex min-w-0 flex-col">
       {!bare && <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className={cn(ROW, "-my-0.5 w-full text-left")}>
         <span className="min-w-0 truncate">
           <MessagesSquare size={14} className="mr-2 inline-block align-[-2.5px]" />
@@ -1121,12 +1135,11 @@ export function Earlier({ done, fresh, words, steps, children, after, bare }: { 
         <div className={cn("min-h-0 min-w-0", !within && "overflow-hidden")}>
           <div className={cn("flex min-w-0 flex-col gap-5", !bare && "mt-0.5 pt-4")}>
             {children}
-            {within && after}
           </div>
         </div>
       </div>
-    </div>
-    {!within && after}
+    </div>}
+    {after}
     </>
   );
 }
