@@ -11,6 +11,7 @@ import {
   ChevronLeft,
   ChevronRight,
   CornerDownLeft,
+  PencilLine,
   EyeOff,
   Folder,
   FolderPlus,
@@ -26,6 +27,7 @@ import {
   UserRound,
   X,
 } from "lucide-react";
+import { Menu } from "@base-ui/react/menu";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import type { Agent } from "../api/types.gen";
 import { Crop } from "../profile";
@@ -39,6 +41,7 @@ import {
   Logo,
   SureKey,
   Switch,
+  usePointAnchor,
 } from "../ui";
 import { ask, clipboardKeys, followTheme, onAnswer, whenReady } from "./bridge";
 import { Fold, useFolding } from "./fold";
@@ -375,6 +378,7 @@ function Row({
   sub,
   end,
   onClick,
+  onContextMenu,
   tone,
 }: {
   icon: ReactNode;
@@ -382,6 +386,7 @@ function Row({
   sub?: ReactNode;
   end?: ReactNode;
   onClick?: () => void;
+  onContextMenu?: (e: React.MouseEvent) => void;
   tone?: string;
 }) {
   const body = (
@@ -399,6 +404,7 @@ function Row({
   );
   return (
     <div
+      onContextMenu={onContextMenu}
       className={cn(
         "group flex min-h-13 items-center gap-1 rounded-md pr-2",
         onClick && "hover:bg-fill",
@@ -518,6 +524,7 @@ function Servers({
   const mineOf = (url?: string) =>
     note && url && note.server === url ? note : null;
   const localNote = mineOf(local?.url);
+  const menu = useServerMenu();
 
   return (
     <>
@@ -650,11 +657,19 @@ function Servers({
       </Fold>
       {rows.map(({ item: s, key, state }) => {
         const mine = mineOf(s.url);
+        const naming = menu.renaming === s.url;
         return (
           <Fold key={key} state={state}>
             <Row
               icon={<Face s={s} />}
-              title={s.title || s.host}
+              title={
+                naming ? (
+                  <TitleField s={s} done={menu.stopRenaming} />
+                ) : (
+                  s.title || s.host
+                )
+              }
+              onContextMenu={menu.open(s)}
               sub={
                 mine ? (
                   <span className={mine.error ? "text-err" : undefined}>
@@ -667,8 +682,11 @@ function Servers({
                   </>
                 )
               }
-              onClick={() =>
-                s.loggedIn ? ask("ir:open:" + s.url) : login(s.url, s.url)
+              onClick={
+                naming
+                  ? undefined
+                  : () =>
+                      s.loggedIn ? ask("ir:open:" + s.url) : login(s.url, s.url)
               }
               end={
                 busy === s.url ? (
@@ -697,6 +715,14 @@ function Servers({
         );
       })}
 
+      {menu.menu((url) => [
+        {
+          icon: <Trash2 size={15} />,
+          label: "移除",
+          sure: "确认移除",
+          run: () => ask("ir:remove:" + url),
+        },
+      ])}
       {/* 添加服务器: pressed, a field in its place for an address or an invite link; a paste is
           handled as it lands. No field waits with the focus in it (kumo, 2026-11-22). */}
       {adding ? (
@@ -787,6 +813,7 @@ function Grants({ st, open }: { st: State; open: (s: Server) => void }) {
     st.servers.filter((s) => !s.local && s.loggedIn),
     (s) => s.url,
   );
+  const menu = useServerMenu();
   return (
     // Open from the first draw when there are any: taken from the rows, which come a draw later,
     // the part folded open from the top each time the list was shown (kumo, 2026-11-22).
@@ -798,7 +825,14 @@ function Grants({ st, open }: { st: State; open: (s: Server) => void }) {
           <Fold key={key} state={state}>
             <Row
               icon={<Face s={s} />}
-              title={s.title || s.host}
+              title={
+                menu.renaming === s.url ? (
+                  <TitleField s={s} done={menu.stopRenaming} />
+                ) : (
+                  s.title || s.host
+                )
+              }
+              onContextMenu={menu.open(s)}
               sub={
                 <>
                   <Lamp color={l.dot} />
@@ -825,6 +859,16 @@ function Grants({ st, open }: { st: State; open: (s: Server) => void }) {
           </Fold>
         );
       })}
+      {menu.menu((url) => [
+        {
+          icon: <ChevronRight size={15} />,
+          label: "授权设置",
+          run: () => {
+            const t = st.servers.find((x) => x.url === url);
+            if (t) open(t);
+          },
+        },
+      ])}
     </Fold>
   );
 }
@@ -834,27 +878,27 @@ function Grants({ st, open }: { st: State; open: (s: Server) => void }) {
  *  top left (appkey.tsx AppName) sets the same. Empty: its address. */
 function Retitle({ s }: { s: Server }) {
   const [editing, setEditing] = useState(false);
-  const [v, setV] = useState("");
-  const done = useRef(false);
-  if (!editing)
-    return (
-      <button
-        type="button"
-        aria-label="改名"
-        onClick={() => {
-          done.current = false;
-          setV(s.title ?? "");
-          setEditing(true);
-        }}
-        className="-mx-1 max-w-full truncate rounded-sm px-1 text-left hover:bg-fill"
-      >
-        {s.title || s.host}
-      </button>
-    );
+  if (editing) return <TitleField s={s} done={() => setEditing(false)} />;
+  return (
+    <button
+      type="button"
+      aria-label="编辑名称"
+      onClick={() => setEditing(true)}
+      className="-mx-1 max-w-full truncate rounded-sm px-1 text-left hover:bg-fill"
+    >
+      {s.title || s.host}
+    </button>
+  );
+}
+
+/** The field an Iridium's name here is typed in: Enter or leaving keeps it, Esc does not. */
+function TitleField({ s, done }: { s: Server; done: () => void }) {
+  const [v, setV] = useState(s.title ?? "");
+  const ended = useRef(false);
   const end = (keep: boolean) => {
-    if (done.current) return;
-    done.current = true;
-    setEditing(false);
+    if (ended.current) return;
+    ended.current = true;
+    done();
     const t = v.trim();
     if (keep && t !== (s.title ?? ""))
       ask("ir:title:" + JSON.stringify({ url: s.url, title: t }));
@@ -865,20 +909,98 @@ function Retitle({ s }: { s: Server }) {
       value={v}
       maxLength={40}
       placeholder={s.host}
-      aria-label="改名"
+      aria-label="编辑名称"
       spellCheck={false}
       onFocus={(e) => e.currentTarget.select()}
       onChange={(e) => setV(e.target.value)}
       onBlur={() => end(true)}
+      onClick={(e) => e.stopPropagation()}
       onKeyDown={(e) => {
         if (e.nativeEvent.isComposing || e.keyCode === 229) return;
         if (e.key === "Enter") end(true);
         else if (e.key === "Escape") end(false);
         else clipboardKeys(e, setV);
       }}
-      className="h-7 w-full min-w-0 rounded-md bg-fill px-1.5 text-sm outline-none select-text placeholder:text-ink-3"
+      className="h-7 w-full min-w-0 rounded-md bg-fill px-1.5 text-sm font-medium outline-none select-text placeholder:text-ink-3"
     />
   );
+}
+
+type MenuEntry = {
+  icon: ReactNode;
+  label: string;
+  run: () => void;
+  sure?: string;
+};
+
+/** A row's menu at the pointer, on a right click (kumo, 2026-11-23): what one changes of an
+ *  Iridium here; 编辑名称 first. One at a time, for the lists of the picker. */
+function useServerMenu() {
+  const [at, setAt] = useState<{ url: string; x: number; y: number } | null>(
+    null,
+  );
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [armed, setArmed] = useState<string>();
+  const anchor = usePointAnchor(at && { x: at.x, y: at.y });
+  return {
+    renaming,
+    stopRenaming: () => setRenaming(null),
+    open: (s: Server) => (e: React.MouseEvent) => {
+      e.preventDefault();
+      setArmed(undefined);
+      setAt({ url: s.url, x: e.clientX, y: e.clientY });
+    },
+    menu: (items: (s: string) => MenuEntry[]) => (
+      <Menu.Root open={at !== null} onOpenChange={(o) => !o && setAt(null)}>
+        <Menu.Portal>
+          <Menu.Positioner
+            anchor={anchor}
+            side="bottom"
+            align="start"
+            sideOffset={4}
+            collisionPadding={8}
+            className="z-50"
+          >
+            <Menu.Popup
+              finalFocus={false}
+              className="g-unfold glass thick float min-w-40 rounded-lg p-1.5 text-ink outline-none"
+            >
+              {at &&
+                ([] as MenuEntry[])
+                  .concat(
+                    {
+                      icon: <PencilLine size={15} />,
+                      label: "编辑名称",
+                      run: () => setRenaming(at.url),
+                    },
+                    items(at.url),
+                  )
+                  .map((it) => {
+                    const asks = !!it.sure && armed !== it.label;
+                    const red = !!it.sure && armed === it.label;
+                    return (
+                      <Menu.Item
+                        key={it.label}
+                        closeOnClick={!asks}
+                        onClick={asks ? () => setArmed(it.label) : it.run}
+                        className={cn(
+                          "flex h-8 cursor-default items-center gap-2.5 rounded-md px-2.5 text-sm outline-none select-none data-highlighted:bg-fill",
+                          red && "text-err",
+                        )}
+                      >
+                        <span className={red ? "text-err" : "text-ink-2"}>
+                          {it.icon}
+                        </span>
+                        {red ? it.sure : it.label}
+                      </Menu.Item>
+                    );
+                  })}
+            </Menu.Popup>
+          </Menu.Positioner>
+        </Menu.Portal>
+      </Menu.Root>
+    ),
+  };
 }
 
 /** A list's title in a popover, as the web app's (create.tsx). */
