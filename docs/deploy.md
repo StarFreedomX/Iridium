@@ -41,6 +41,8 @@ systemctl --user enable --now iridium.service
 
 推一个 `v*` 标签，`.github/workflows/release.yml` 构建网页、跑测试，`scripts/release.sh` 出 `iridium-{linux,darwin}-{amd64,arm64}.tar.gz`（静态、去符号）和 `SHA256SUMS`，Release 说明里带大小表。本地试：`scripts/release.sh v0.0.0 /tmp/rel`（先 `npm run build`）。
 
+CI 里三台机器同时编（2026-11-23，kumo：原来一台编全部平台要三分半，Mac 还要等它）：Linux、Windows 各一台 Linux 机器交叉编（`release.sh … build`，`PLATFORMS` 只给自己的），macOS 在 Mac 上编并打包签名；检查另一台。publish 把三份合起来，`release.sh … finish` 出说明、`SHA256SUMS` 和安装脚本。Mac 签名失败照样发版，只是少了 .app；Mac 编译失败不发。
+
 ## linger：必须开
 
 没开 linger，账号退出登录后服务、托管的 agent、隧道都会停，重启后也不会自己起来。

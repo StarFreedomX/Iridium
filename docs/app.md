@@ -128,7 +128,7 @@ curl 只装程序，`sh -s --` 后面的交给 `ir`。见 `docs/exec.md`。
 
 Mac 的 .app 必须整个签名（临时签名，不用 Apple ID）：只有 Go 链接器给程序的那个签名、Info.plist 和资源没封装时，下载来的会被说成“已损坏”，设置里也打不开（2026-11-20 实测）。整个签了以后是“无法验证开发者”，系统设置 → 隐私与安全性里能“仍要打开”。脚本在有 `codesign`（Mac）或 `rcodesign` 的机器上签，都没有就警告：发版要在 Mac 上（CI 的 macOS 机器）打包。
 
-`scripts/release.sh` 出各系统的 `iridium-<系统>-<arch>.tar.gz`，Linux、Windows 另出裸的 `iridium-app-*`；`scripts/app-bundle.sh <版本> <目录>` 在 Mac 上（CI 的 macOS 机器）把 macOS 的二进制包成 Iridium.app、签名、压缩，把它们的校验和加进 `SHA256SUMS`。应用自己的页面先 `npm run build:app`。大小（去符号）：Linux 30MB，Mac 29MB（压缩 13MB），Windows 31MB。
+`scripts/release.sh` 出各系统的 `iridium-<系统>-<arch>.tar.gz`，Linux、Windows 另出裸的 `iridium-app-*`；`scripts/app-bundle.sh <版本> <目录>` 在 Mac 上（CI 的 macOS 机器）把 macOS 的二进制包成 Iridium.app、签名、压缩，本地有 `SHA256SUMS` 时把它们的校验和加进去（CI 里 `SHA256SUMS` 在 publish 合起来时才算，含它们）。应用自己的页面先 `npm run build:app`。大小（去符号）：Linux 30MB，Mac 29MB（压缩 13MB），Windows 31MB。
 
 ## 还没做
 

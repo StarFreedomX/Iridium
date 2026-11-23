@@ -12,16 +12,21 @@ on:
 permissions:
   contents: write
 
-# The Go checks run beside the build; publish waits for both.
+# All at once: the checks, Linux's and Windows' builds (one runner each), and macOS's on a Mac,
+# which bundles and signs the app there too. publish waits for all and puts their files together
+# (scripts/release.sh finish). One runner building every platform took about three and a half
+# minutes, and the Mac waited for it.
 jobs:
-  go:
+  check:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4 # the node executor under test
+      - uses: actions/setup-node@v4 # the web's checks, and the node executor under test
         with:
           node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -34,7 +39,12 @@ jobs:
             ~/go/pkg/mod
           key: go-${{ runner.os }}-${{ hashFiles('go.mod', 'go.sum') }}
           restore-keys: go-${{ runner.os }}-
-      - name: test
+      - name: web
+        working-directory: web
+        run: |
+          npm ci --no-audit --no-fund
+          npm run check
+      - name: go
         run: |
           scripts/check-types.sh
           go vet ./...
@@ -43,12 +53,17 @@ jobs:
           go test ./...
 
   build:
+    strategy:
+      matrix:
+        include:
+          - os: linux
+            platforms: linux/amd64 linux/arm64
+          - os: windows
+            platforms: windows/amd64 windows/arm64
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 # the notes are the commits since the last tag
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -69,74 +84,81 @@ jobs:
         working-directory: web
         run: |
           npm ci --no-audit --no-fund
-          npm run check
           npm run build
           npm run build:app
       - name: build
         env:
           VERSION: ${{ github.ref_name }}
-        run: scripts/release.sh "$VERSION" dist
+          PLATFORMS: ${{ matrix.platforms }}
+          COMPUTER_PLATFORMS: ${{ matrix.platforms }}
+        run: scripts/release.sh "$VERSION" dist build
       - uses: actions/upload-artifact@v4
         with:
-          name: dist
+          name: dist-${{ matrix.os }}
           path: dist
           retention-days: 1
 
-  # The macOS app: Iridium.app around the macOS binaries, signed whole (ad hoc) with codesign, and
-  # their sums added to SHA256SUMS. A release goes out without them if this fails.
+  # macOS's binaries, built on a Mac, then Iridium.app around them, signed whole (ad hoc) with
+  # codesign. A release goes out without the app if that step fails, never without the binaries.
   mac:
-    needs: build
     runs-on: macos-latest
-    timeout-minutes: 15
-    continue-on-error: true
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: false # a tag's cache serves no later tag
-      - uses: actions/download-artifact@v4
-        with:
-          name: dist
-          path: dist
-      - name: bundle
+      - name: web
+        working-directory: web
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+          npm run build:app
+      - name: build
         env:
           VERSION: ${{ github.ref_name }}
+          PLATFORMS: darwin/arm64 darwin/amd64
+          COMPUTER_PLATFORMS: darwin/arm64 darwin/amd64
+          TAR: gtar # the runner's GNU tar: the archives as Linux's (a Mac's own tar has no --owner)
         run: |
-          scripts/app-bundle.sh "$VERSION" dist
-          mkdir dist-mac
-          mv dist/iridium-app-darwin-* dist-mac/
-          # SHA256SUMS with the app zips' sums added (the install script checks them).
-          cp dist/SHA256SUMS dist-mac/
+          command -v gtar >/dev/null || brew install gnu-tar
+          scripts/release.sh "$VERSION" dist build
+      - name: bundle
+        continue-on-error: true
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: scripts/app-bundle.sh "$VERSION" dist
       - uses: actions/upload-artifact@v4
         with:
           name: dist-mac
-          path: dist-mac
+          path: dist
           retention-days: 1
 
   publish:
-    needs: [go, build, mac]
-    if: ${{ !cancelled() && needs.go.result == 'success' && needs.build.result == 'success' }}
+    needs: [check, build, mac]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the notes are the commits since the last tag
       - uses: actions/download-artifact@v4
         with:
-          name: dist
+          pattern: dist-*
+          merge-multiple: true
           path: dist
-      - uses: actions/download-artifact@v4
-        continue-on-error: true
-        with:
-          name: dist-mac
-          path: dist-mac
-      # The macOS app and the SHA256SUMS that has its sums too, over the build's, when that job made them.
-      - run: "[ ! -d dist-mac ] || cp -f dist-mac/* dist/"
       - name: publish
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ github.ref_name }}
         run: |
+          scripts/release.sh "$VERSION" dist finish
           pre=""
           case "$VERSION" in *-*) pre="--prerelease" ;; esac
           gh release create "$VERSION" dist/*.tar.gz dist/iridium-app-* dist/ir-computer-* dist/install.sh dist/install.ps1 dist/SHA256SUMS \
