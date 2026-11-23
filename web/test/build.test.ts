@@ -1,18 +1,15 @@
-// The build's sizes (plan "弱网"): the first screen's mark 252KB gzipped (kumo, 2026-11-21; was 250KB, 200KB before 2026-11-06); the chat
-// loaded only when opened, its mark 300KB gzipped (the user, 2026-11-12; was 200KB), its libraries apart from the first screen's; a brotli
-// and a gzip beside each script and style; the later files listed for idle prefetch. Past a mark is a warning, not a failure: the pages
-// grow with what they do (the user, 2026-11-20); whoever sees it tells the user.
+// The build's sizes (plan "弱网"): the first screen's and the chat's (loaded only when opened, its libraries apart from the first
+// screen's), said as they are, with no mark to be past (kumo, 2026-11-23: the mark taken away; the sizes as text, no warning); a
+// brotli and a gzip beside each script and style; the later files listed for idle prefetch.
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gzipSync } from "node:zlib";
 import { afterAll, beforeAll, expect, test } from "vitest";
 
-/** A size past its mark: said, not failed. */
-function mark(what: string, size: number, limit: number) {
-  console.log(`${what} ${size.toFixed(1)}KB gzipped`);
-  // Straight to stderr: vitest keeps a passed test's console to itself.
-  if (size > limit) process.stderr.write(`\nWARNING: ${what} ${size.toFixed(1)}KB gzipped, past its ${limit}KB mark: tell the user\n\n`);
+/** A size, said. Straight to stderr: vitest keeps a passed test's console to itself. */
+function say(what: string, size: number) {
+  process.stderr.write(`${what} ${size.toFixed(1)}KB gzipped\n`);
 }
 
 type Chunk = { file: string; imports?: string[]; dynamicImports?: string[]; css?: string[]; isEntry?: boolean; isDynamicEntry?: boolean };
@@ -45,7 +42,7 @@ const kb = (fs: Iterable<string>) => [...fs].reduce((n, f) => n + gz(f), 0) / 10
 test("the first screen's size, without the chat's Markdown", () => {
   const first = files("index.html");
   const size = kb(first) + gz("index.html") / 1024 + gz("favicon.svg") / 1024 + gz("theme.js") / 1024;
-  mark("first screen", size, 252);
+  say("first screen", size);
   const js = text(first);
   expect(js).not.toContain("data-streamdown");
   // React's production build.
@@ -55,7 +52,7 @@ test("the first screen's size, without the chat's Markdown", () => {
 test("the chat comes apart; its size", () => {
   const first = files("index.html");
   const chat = [...files("src/chat/chat.tsx")].filter((f) => !first.has(f));
-  mark("chat", kb(chat), 300);
+  say("chat", kb(chat));
   expect(manifest["src/chat/chat.tsx"]!.isDynamicEntry).toBe(true);
   expect(text(chat)).toContain("data-streamdown");
   // The page fetches them ahead once idle: the HTML lists them.
