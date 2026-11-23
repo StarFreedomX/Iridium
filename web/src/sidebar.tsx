@@ -25,7 +25,7 @@ import { createAt, onOpenPlace, type Place } from "./places";
 import { LinkDot } from "./link";
 import { errText, toast } from "./toast";
 import { manages, useMachines, useMe, useSaidLine, useUpdate } from "./data";
-import { agentName, ago, cn, fine, IconKey, IrMark, keep, kept, Lamp, lampOf, Logo, own, sessionStatusText, statusText, tilde, Tip, titleOf, untitled, useLongPress, useMenuAt, useMinute, usePointAnchor } from "./ui";
+import { agentName, ago, cn, fine, IconKey, IrMark, keep, kept, Lamp, lampOf, Logo, own, sessionStatusText, statusText, tilde, Tip, titleOf, useEver, untitled, useLongPress, useMenuAt, useMinute, usePointAnchor } from "./ui";
 import { AppName } from "./appkey";
 import { PLACE_DRAG, SESSION_DRAG } from "./chat/refs";
 import { badge, isQuiet, setQuiet, useAt, useQuiet, useUnread } from "./unread";
@@ -944,6 +944,8 @@ const SessionRow = memo(function SessionRow({ s, where, depth, flip, selected, o
   const speaker = s.last?.nick || s.agents?.find((a) => a.session === s.id)?.nick || agentName(s.agent);
   const line = s.last ? (s.last.role === "user" ? saidNow(s.last, s) : `${speaker}: ${s.last.text}`) : nicks || (s.bare ? "" : agentName(s.agent));
   const [menuAt, setMenuAt] = useMenuAt();
+  // Its menu made as it is first opened (ui.tsx useEver), not shut with every row of the list.
+  const menuEver = useEver(menuAt !== null);
   const [renaming, setRenaming] = useState(false);
   const rest = useRef<number | undefined>(undefined);
   const lp = useLongPress((p) => setMenuAt({ x: p.x, y: p.y }));
@@ -1067,7 +1069,7 @@ const SessionRow = memo(function SessionRow({ s, where, depth, flip, selected, o
         dim={dim}
         extra={{ ...lp, ...hover, ...drag, onClickCapture: lp.onClickCapture }}
       />
-      <SessionMenu s={s} at={menuAt} close={() => setMenuAt(null)} rename={() => setRenaming(true)} />
+      {menuEver && <SessionMenu s={s} at={menuAt} close={() => setMenuAt(null)} rename={() => setRenaming(true)} />}
     </>
   );
 });

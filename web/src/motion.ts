@@ -37,7 +37,7 @@ export const motion = {
   ease: (k: "out" | "in" | "spring") => token(`--ease-${k}`, "ease-out"),
 };
 
-// The page's one way to move what changes place (docs/前端设计规范.md "动画协调"). Whatever draws
+// The page's one way to move what changes place (docs/动画.md). Whatever draws
 // a list, the sidebar's rows or a conversation's turns, asks here; none animates a move of its own.
 
 /** Rows that change places (reorder, unfold, fold, one put between others): each marked
