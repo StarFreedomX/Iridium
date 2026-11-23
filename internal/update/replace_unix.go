@@ -3,11 +3,9 @@
 package update
 
 import (
-	"fmt"
 	"os"
-	"os/exec"
-	"runtime"
-	"strings"
+
+	"github.com/kumoSleeping/iridium/internal/macapp"
 )
 
 const (
@@ -23,17 +21,6 @@ func link(from, to string) error { return os.Link(from, to) }
 
 func dropReplaced(string) {}
 
-// resign signs the macOS app exe is in again, whole (ad hoc, as the release did): a binary changed
-// inside a signed bundle leaves its signature broken, and macOS then calls the app damaged.
-// Outside an app, nothing.
-func resign(exe string) error {
-	i := strings.Index(exe, ".app/Contents/MacOS/")
-	if runtime.GOOS != "darwin" || i < 0 {
-		return nil
-	}
-	out, err := exec.Command("codesign", "--force", "--deep", "-s", "-", "--identifier", "ltd.kumo.iridium.app", exe[:i+len(".app")]).CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("%v: %s", err, strings.TrimSpace(string(out)))
-	}
-	return nil
-}
+// resign writes the macOS app exe is in for version and signs it again (macapp.Refresh): its
+// Info.plist and icon those of the new release, not those it was installed with.
+func resign(exe, version string) error { return macapp.Refresh(exe, version) }

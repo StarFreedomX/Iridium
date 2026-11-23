@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/kumoSleeping/iridium/internal/joinscript"
+	"github.com/kumoSleeping/iridium/internal/macapp"
 	"github.com/kumoSleeping/iridium/internal/remote/executor"
 	"github.com/kumoSleeping/iridium/internal/remote/wire"
 	"github.com/kumoSleeping/iridium/internal/version"
@@ -183,13 +184,10 @@ func (o *Options) fetchSelf(ctx context.Context, exe, v string) error {
 	if err := replaceExe(tmp, exe); err != nil {
 		return err
 	}
-	// Inside Iridium.app (macOS, the install script's): the bundle signed again, else macOS takes
-	// it for damaged; ad hoc, as the release signed it.
-	if i := strings.Index(exe, ".app/Contents/MacOS/"); i >= 0 && runtime.GOOS == "darwin" {
-		app := exe[:i+len(".app")]
-		if out, err := exec.CommandContext(ctx, "codesign", "--force", "--deep", "-s", "-", app).CombinedOutput(); err != nil {
-			o.say("%s 重新签名失败：%v %s", app, err, strings.TrimSpace(string(out)))
-		}
+	// Inside Iridium.app (macOS, the install script's): its Info.plist and icon the new release's,
+	// the bundle signed again, else macOS takes it for damaged (macapp.Refresh).
+	if err := macapp.Refresh(exe, v); err != nil {
+		o.say("%s 重新签名失败：%v", macapp.Of(exe), err)
 	}
 	return nil
 }

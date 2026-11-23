@@ -21,6 +21,7 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/kumoSleeping/iridium/internal/join"
+	"github.com/kumoSleeping/iridium/internal/macapp"
 	"github.com/kumoSleeping/iridium/internal/remote/executor"
 	"github.com/kumoSleeping/iridium/internal/version"
 )
@@ -58,7 +59,7 @@ func gui(o Options) int {
 	icon, _ := assets.ReadFile("assets/icon.png")
 	if runtime.GOOS == "darwin" {
 		// On a Mac icon's grid, room around the square (sign/icons.go): the Dock's is this one.
-		icon, _ = assets.ReadFile("assets/icon-mac.png")
+		icon = macapp.Icon
 	}
 	trayIcon, _ := assets.ReadFile("assets/tray.png")
 	u := &ui{icon: icon}

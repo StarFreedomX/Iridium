@@ -47,4 +47,4 @@ func dropReplaced(exe string) {
 }
 
 // resign: Windows has no app to sign again.
-func resign(string) error { return nil }
+func resign(string, string) error { return nil }

@@ -14,7 +14,7 @@ import (
 
 // icons makes the app's icons from internal/desktop/assets/icon.png (run from the root):
 //
-//   - internal/desktop/assets/icon-mac.png: on a macOS icon's grid, the mark's square at 824 of
+//   - internal/macapp/icon-mac.png: on a macOS icon's grid, the mark's square at 824 of
 //     1024 pixels with the room around it a Mac icon has (kumo, 2026-11-22: drawn edge to edge, it
 //     stood larger than every other icon in the Dock), for the Dock (gui.go) and the bundle's icns;
 //   - cmd/iridium/rsrc_windows_{amd64,arm64}.syso: the program's icon for Windows (Explorer, the
@@ -36,7 +36,7 @@ func icons() error {
 	// Its corners as the template's (radius 185.4 of 824): macOS 26 masks an icon shaped like
 	// it into the new shape by itself (WWDC25 220, StarFreedomX, 2026-11-22).
 	roundCorners(mac, image.Rect(100, 100, 924, 924), 185.4)
-	if err := writePNG("internal/desktop/assets/icon-mac.png", mac); err != nil {
+	if err := writePNG("internal/macapp/icon-mac.png", mac); err != nil {
 		return err
 	}
 	var imgs [][]byte

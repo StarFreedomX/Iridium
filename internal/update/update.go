@@ -441,7 +441,7 @@ func (u *Updater) Apply(ctx context.Context, force bool) (api.UpdateState, error
 	if err := replace(bin, exe); err != nil {
 		return fail(err)
 	}
-	if err := resign(exe); err != nil {
+	if err := resign(exe, m.Version); err != nil {
 		u.o.Logf("update: signing the app again: %v", err)
 	}
 	u.mu.Lock()

@@ -63,7 +63,9 @@ function useClosePage(inApp: boolean) {
 export function WinKeys({ className }: { className?: string }) {
   const app = useApp();
   const full = useWinMax();
-  if (!app) return null;
+  // Only an app that has no title bar and takes the keys (it says its system, os): one from before
+  // keeps its own frame, and would take a press for nothing.
+  if (!app?.os) return null;
   return (
     <WinKeyPair
       mac={app.os === "darwin"}
@@ -82,7 +84,8 @@ export function AppName() {
   const [editing, setEditing] = useState(false);
   const done = useRef(false);
   const name = app?.title || "Iridium";
-  if (!app)
+  // An app from before (no os in its hello) takes no name: the mark's name, as in a browser.
+  if (!app?.os)
     return (
       <span className="truncate text-base font-semibold tracking-[-0.01em]">
         Iridium

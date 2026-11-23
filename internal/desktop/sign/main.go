@@ -8,11 +8,11 @@ package main
 
 import (
 	"archive/zip"
-	"bytes"
-	"encoding/binary"
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/kumoSleeping/iridium/internal/macapp"
 )
 
 func main() {
@@ -46,34 +46,11 @@ func fail(s string) {
 	os.Exit(1)
 }
 
-const plist = `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-	<key>CFBundleName</key><string>Iridium</string>
-	<key>CFBundleDisplayName</key><string>Iridium</string>
-	<key>CFBundleIdentifier</key><string>ltd.kumo.iridium.app</string>
-	<key>CFBundleExecutable</key><string>iridium</string>
-	<key>CFBundleIconFile</key><string>icon</string>
-	<key>CFBundlePackageType</key><string>APPL</string>
-	<key>CFBundleShortVersionString</key><string>%[1]s</string>
-	<key>CFBundleVersion</key><string>%[1]s</string>
-	<key>LSMinimumSystemVersion</key><string>11.0</string>
-	<key>NSHighResolutionCapable</key><true/>
-	<key>NSMicrophoneUsageDescription</key><string>语音输入</string>
-</dict>
-</plist>
-`
-
 // bundle writes dir/Iridium.app: the binary, its Info.plist and its icon. Signed after
 // (scripts/app-bundle.sh): a bundle whose Info.plist and resources its signature does not cover,
 // macOS calls damaged once it was downloaded.
 func bundle(bin, dir, version string) error {
 	exe, err := os.ReadFile(bin)
-	if err != nil {
-		return err
-	}
-	png, err := os.ReadFile("internal/desktop/assets/icon-mac.png") // run from the root; on the Mac grid (icons.go)
 	if err != nil {
 		return err
 	}
@@ -88,8 +65,8 @@ func bundle(bin, dir, version string) error {
 		mode os.FileMode
 		b    []byte
 	}{
-		{"Info.plist", 0o644, fmt.Appendf(nil, plist, version)},
-		{"Resources/icon.icns", 0o644, icns(png)},
+		{"Info.plist", 0o644, macapp.Plist(version)},
+		{"Resources/icon.icns", 0o644, macapp.ICNS(macapp.Icon)},
 		{"MacOS/iridium", 0o755, exe},
 	} {
 		if err := os.WriteFile(filepath.Join(app, f.name), f.b, f.mode); err != nil {
@@ -143,15 +120,4 @@ func zipDir(app, out string) error {
 		return err
 	}
 	return z.Close()
-}
-
-// icns is an icon file of one 1024-pixel PNG (ic10).
-func icns(png []byte) []byte {
-	var b bytes.Buffer
-	b.WriteString("icns")
-	binary.Write(&b, binary.BigEndian, uint32(8+8+len(png)))
-	b.WriteString("ic10")
-	binary.Write(&b, binary.BigEndian, uint32(8+len(png)))
-	b.Write(png)
-	return b.Bytes()
 }
