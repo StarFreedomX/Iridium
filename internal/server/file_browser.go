@@ -150,7 +150,7 @@ func (s *Server) browseFile(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		src := browserRemoteFile{ctx: r.Context(), machine: at.machine, path: at.path, scope: at.scope}
-		files.ServePathContent(w, r, remote.Base(at.hello.Sep, at.path), time.UnixMilli(st.Mtime), io.NewSectionReader(src, 0, st.Size))
+		files.ServePathContent(browserRemoteWriter{w}, r, remote.Base(at.hello.Sep, at.path), time.UnixMilli(st.Mtime), io.NewSectionReader(src, 0, st.Size))
 		return
 	}
 	p, err := s.files.Guarded(at.path, at.scope...)
@@ -194,6 +194,24 @@ func (s *Server) browserRemoteError(w http.ResponseWriter, err error) {
 		return
 	}
 	s.remoteFileError(w, err)
+}
+
+// browserRemoteWriter lets http.ServeContent copy a remote file in wire.MaxRead pieces instead of
+// its default 32 KB buffer, avoiding thousands of round trips on large downloads. ServeContent
+// passes a LimitedReader for the response length, so short files and ranges allocate only what
+// they need.
+type browserRemoteWriter struct{ http.ResponseWriter }
+
+func (w browserRemoteWriter) ReadFrom(src io.Reader) (int64, error) {
+	size := int64(wire.MaxRead)
+	if limit, ok := src.(*io.LimitedReader); ok {
+		if limit.N <= 0 {
+			return 0, nil
+		}
+		size = min(size, limit.N)
+	}
+	// Hide ResponseWriter's ReadFrom so CopyBuffer uses our buffer rather than its smaller one.
+	return io.CopyBuffer(struct{ io.Writer }{w.ResponseWriter}, src, make([]byte, size))
 }
 
 // browserRemoteFile adapts a remote file to io.ReaderAt for http.ServeContent via io.SectionReader,
