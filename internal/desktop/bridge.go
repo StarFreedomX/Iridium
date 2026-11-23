@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -240,13 +241,41 @@ func (u *ui) hideOnClose(w *mygo.Window) {
 // pageLog is the app's log (appLog), for what has no logf handed to it.
 var pageLog = sync.OnceValue(appLog)
 
+// activeDownloads maps each running app-fetched download, keyed by its window and random id, to
+// its cancel function so a page can only cancel its own downloads (cancelDownload).
+type downloadKey struct {
+	window *mygo.Window
+	id     string
+}
+
+var activeDownloads sync.Map // downloadKey -> context.CancelFunc
+
+// cancelDownload stops an active download started from w; a no-op once it has ended or is unknown.
+func cancelDownload(w *mygo.Window, id string) {
+	if cancel, ok := activeDownloads.Load(downloadKey{w, id}); ok {
+		cancel.(context.CancelFunc)()
+	}
+}
+
+// downloadNotice is the payload sent to the page's toast (web/src/irapp.ts showDownload). Pct and
+// Got are pointers so 0 is still sent and omitted only when unknown.
+type downloadNotice struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	State       string `json:"state"`
+	Pct         *int   `json:"pct,omitempty"`
+	Got         *int64 `json:"got,omitempty"`
+	Total       int64  `json:"total,omitempty"`
+	Cancellable bool   `json:"cancellable,omitempty"`
+}
+
 // guard sets up the page of a window on the Iridium at origin ("": the app's own pages):
 //
 //   - its title stays the window's (the Iridium's name here, retitle), not the page's <title>;
 //   - a link to another site opens in the browser, the window staying on its Iridium (Wails let
 //     the page go there, and did nothing for target=_blank: kumo, 2026-11-23);
 //   - a download is saved in Downloads (one from its Iridium fetched by the app, its toast saying
-//     how far: download.go), then shown in Finder or Explorer (Wails dropped them);
+//     how far and letting it be canceled: download.go), then shown in Finder or Explorer (Wails dropped them);
 //   - the microphone, the camera and notifications are its own Iridium's (voice rooms), nothing
 //     else is; no other page gets anything;
 //   - its web process gone (killed by the system: WebKit's 8 GB a page, kumo, 2026-11-23, the
@@ -278,64 +307,77 @@ func guard(w *mygo.Window, origin string) {
 	// Each download in the log, its end too, and told to the page as it starts, goes and ends (its
 	// toast: web/src/irapp.ts; the web view shows none, and a download went on unseen: QGI,
 	// 2026-11-23). One from the window's own Iridium the app fetches itself (download.go), saying
-	// how far it is; others are the web view's. One that failed goes to the system's browser, whose
-	// own download asks what the app could not.
-	tell := func(u, name, state string, pct int) {
-		d := map[string]any{"id": u, "name": name, "state": state}
-		if pct >= 0 {
-			d["pct"] = pct
-		}
+	// how far it is and letting the page cancel it; others are the web view's. One that failed
+	// goes to the system's browser, whose own download asks what the app could not.
+	tell := func(d downloadNotice) {
 		reply(w, map[string]any{"download": d})
 	}
-	failed := func(raw, name string, err error) {
+	failed := func(id, raw, name string, err error) {
 		pageLog()("download %s failed: %v; in the browser instead", pathOf(raw), err)
-		tell(raw, name, "failed", -1)
+		tell(downloadNotice{ID: id, Name: name, State: "failed"})
 		if u, err := url.Parse(raw); err == nil && (u.Scheme == "http" || u.Scheme == "https") {
 			go func() { _ = mygo.Shell.OpenExternal(raw) }()
 		}
 	}
-	done := func(raw, path string) {
+	done := func(id, raw, path string) {
 		pageLog()("download %s done", pathOf(raw))
-		tell(raw, filepath.Base(path), "done", -1)
+		tell(downloadNotice{ID: id, Name: filepath.Base(path), State: "done"})
 		go mygo.Shell.ShowItemInFolder(path)
 	}
 	p.OnWillDownload(func(e *mygo.DownloadEvent) {
 		pageLog()("download %s → %s", pathOf(e.URL), e.Path)
 		name := filepath.Base(e.Path)
+		if e.Path == "" {
+			name = e.SuggestedName
+		}
 		if origin == "" || e.Path == "" || originOf(e.URL) != origin {
-			tell(e.URL, name, "start", -1)
+			tell(downloadNotice{ID: e.URL, Name: name, State: "start"})
 			return
 		}
 		e.PreventDefault()
 		raw, path := e.URL, e.Path
-		tell(raw, name, "start", 0)
+		id := rand.Text()
+		key := downloadKey{w, id}
+		ctx, cancel := context.WithCancel(context.Background())
+		activeDownloads.Store(key, cancel)
+		tell(downloadNotice{ID: id, Name: name, State: "start", Cancellable: true})
 		go func() {
+			defer cancel()
+			defer activeDownloads.Delete(key)
 			var cs []*http.Cookie
 			if list, err := mygo.Cookies.List(mygo.CookieFilter{URL: raw}); err == nil {
 				for _, c := range list {
 					cs = append(cs, &http.Cookie{Name: c.Name, Value: c.Value})
 				}
 			}
-			err := fetch(context.Background(), raw, path, cs, func(got, total int64) {
+			err := fetch(ctx, raw, path, cs, func(got, total int64) {
+				d := downloadNotice{ID: id, Name: name, State: "progress", Got: &got, Total: total}
 				if total > 0 {
-					tell(raw, name, "progress", int(got*100/total))
+					pct := int(float64(got) / float64(total) * 100)
+					d.Pct = &pct
 				}
+				tell(d)
 			})
 			if err != nil {
-				failed(raw, name, err)
+				if ctx.Err() == context.Canceled {
+					pageLog()("download %s canceled", pathOf(raw))
+					tell(downloadNotice{ID: id, Name: name, State: "canceled"})
+					return
+				}
+				failed(id, raw, name, err)
 				return
 			}
-			done(raw, path)
+			done(id, raw, path)
 		}()
 	})
 	p.OnDownloadDone(func(d *mygo.Download) {
 		switch {
 		case d.Err == nil && d.Path != "":
-			done(d.URL, d.Path)
+			done(d.URL, d.URL, d.Path)
 		case d.Err != nil:
-			failed(d.URL, filepath.Base(d.Path), d.Err)
+			failed(d.URL, d.URL, filepath.Base(d.Path), d.Err)
 		default:
-			tell(d.URL, filepath.Base(d.Path), "gone", -1)
+			tell(downloadNotice{ID: d.URL, Name: filepath.Base(d.Path), State: "gone"})
 		}
 	})
 	p.SetPermissionHandler(func(r mygo.PermissionRequest) bool {

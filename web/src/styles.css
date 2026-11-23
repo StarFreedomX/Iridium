@@ -215,6 +215,21 @@ body {
 .float.rest {
   box-shadow: var(--shadow-rest);
 }
+/* Download toast progress ring (toast.tsx DownloadRing): conic arc masked to a 2px stroke,
+   driven by --download-progress; high-contrast modes swap in system colors. */
+.download-ring {
+  --track: var(--fill-2);
+  --arc: var(--ink-2);
+  background: conic-gradient(var(--arc) var(--download-progress), var(--track) 0);
+  mask-image: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 2px));
+}
+@media (forced-colors: active) {
+  .download-ring {
+    forced-color-adjust: none;
+    --track: GrayText;
+    --arc: CanvasText;
+  }
+}
 /* A session named in the composer (chat/mention.tsx): a soft ground under its words, a little wider
    than them by a shadow, so no letter moves. */
 .mention-mark {

@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -24,9 +25,10 @@ var dlClient = &http.Client{Transport: &http.Transport{
 	ResponseHeaderTimeout: 30 * time.Second,
 }}
 
-// fetch saves raw at path: in path.part as it comes, renamed at the end (no half a file under the
-// name). progress is called with what has come and the whole (-1: not said), at most every 200 ms,
-// and once at the end.
+// fetch saves raw at path via a unique hidden .part file in the same directory, renamed at the end
+// and removed on error or cancellation (no half a file left under the name). progress is called
+// once headers arrive with the total (-1: not said), at most every 200 ms as bytes come, and once
+// at the end.
 func fetch(ctx context.Context, raw, path string, cookies []*http.Cookie, progress func(got, total int64)) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, raw, nil)
 	if err != nil {
@@ -43,19 +45,19 @@ func fetch(ctx context.Context, raw, path string, cookies []*http.Cookie, progre
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
-	part := path + ".part"
-	f, err := os.Create(part)
+	f, err := os.CreateTemp(filepath.Dir(path), ".iridium-*.part")
 	if err != nil {
 		return err
 	}
-	total, got, last := resp.ContentLength, int64(0), time.Time{}
+	defer os.Remove(f.Name())
+	defer f.Close()
+	total, got, last := resp.ContentLength, int64(0), time.Now()
+	progress(got, total)
 	buf := make([]byte, 256<<10)
 	for {
 		n, rerr := resp.Body.Read(buf)
 		if n > 0 {
 			if _, err := f.Write(buf[:n]); err != nil {
-				f.Close()
-				os.Remove(part)
 				return err
 			}
 			got += int64(n)
@@ -68,19 +70,18 @@ func fetch(ctx context.Context, raw, path string, cookies []*http.Cookie, progre
 			break
 		}
 		if rerr != nil {
-			f.Close()
-			os.Remove(part)
 			return rerr
 		}
 	}
 	if err := f.Close(); err != nil {
-		os.Remove(part)
 		return err
 	}
 	if total >= 0 && got != total {
-		os.Remove(part)
 		return fmt.Errorf("cut short: %d of %d bytes", got, total)
 	}
 	progress(got, total)
-	return os.Rename(part, path)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return os.Rename(f.Name(), path)
 }

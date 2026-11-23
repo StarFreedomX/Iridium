@@ -345,6 +345,9 @@ func (u *ui) message(w *mygo.Window, msg, origin string, logf func(string, ...an
 		return
 	}
 	switch verb {
+	case "cancel-download":
+		// Stop an active download started from this window (bridge.go cancelDownload).
+		cancelDownload(w, arg)
 	case "win":
 		u.winKey(w, arg)
 	case "title":
