@@ -154,8 +154,8 @@ type Props = {
 /** The names that call more than one in a channel (internal/deliver AllMembers, AllAgents), as
  *  rows of the @ list. */
 const everyoneRows = (): AgentRow[] => [
-  { session: "", member: "*", agent: "" as Agent, nick: ALL_MEMBERS, name: t("channel.atMembers"), status: "idle", recv: [] },
-  { session: "", member: "agent:*", agent: "" as Agent, nick: ALL_AGENTS, name: t("channel.atAgents"), status: "idle", recv: [] },
+  { session: "", member: "*", agent: "" as Agent, nick: ALL_MEMBERS, name: t("channel.atMembers"), status: "idle", on: [] },
+  { session: "", member: "agent:*", agent: "" as Agent, nick: ALL_AGENTS, name: t("channel.atAgents"), status: "idle", on: [] },
 ];
 
 export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s, turn, onSent, onSentDone, cycleMode, openModel, openMode, openUsage, openContext, cleared, tools, nicks, quote, unquote, people }, ref) {

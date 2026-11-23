@@ -256,8 +256,8 @@ func TestChannelRelayStopped(t *testing.T) {
 	// One line of agents: a person calls the second alone, into a turn of its own that runs,
 	// naming someone nobody is called yet; the channel's own agent takes that name meanwhile.
 	// The fake agents echo: the second's reply names the first, whose echo names the second...
-	at, helper := api.Recv{}, "helper"
-	l.want(200, "web", "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+ch, api.MemberPatch{Recv: &at}, nil)
+	at, helper := []api.Trigger{}, "helper"
+	l.want(200, "web", "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+ch, api.MemberPatch{On: &at}, nil)
 	if code, _ := l.send("web", second, api.Send{Text: "its own work WAIT"}); code != 200 {
 		t.Fatalf("send to the second: %d", code)
 	}
@@ -343,8 +343,8 @@ func TestChannelSeenOnlyWhatWasGiven(t *testing.T) {
 
 	// Its turn runs; it is called into it; someone speaks meanwhile (to nobody: the channel's
 	// own agent takes only what names it); its reply is said for it.
-	at := api.Recv{}
-	l.want(200, "web", "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+ch, api.MemberPatch{Recv: &at}, nil)
+	at := []api.Trigger{}
+	l.want(200, "web", "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+ch, api.MemberPatch{On: &at}, nil)
 	if code, _ := l.send("web", second, api.Send{Text: "its own work WAIT"}); code != 200 {
 		t.Fatalf("send to the second: %d", code)
 	}
@@ -374,8 +374,8 @@ func TestChannelRecvAfterRefusal(t *testing.T) {
 	t.Parallel()
 	l, ch, second := two(t)
 	l.want(200, "web", "PUT", "/v1/internal/channels/"+ch+"/people", api.People{People: []string{"*"}}, nil)
-	every := api.Recv{"*"}
-	l.want(200, "agent-in:"+second, "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+second, api.MemberPatch{Recv: &every}, nil)
+	every := onFrom("*")
+	l.want(200, "agent-in:"+second, "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+second, api.MemberPatch{On: &every}, nil)
 	// A Bot with no right to Claude names it: refused.
 	bot := l.newApp("bot", false).Token
 	if code, _ := l.send(bot, ch, api.Send{Text: "@claude for you"}); code != 403 {
@@ -544,7 +544,7 @@ func TestChannelJoinFullAndRolledBack(t *testing.T) {
 	}
 	// A session there is that does not join (what it would receive is no such thing): the nick
 	// asked for it is not set.
-	l.want(400, "web", "POST", "/v1/internal/channels/"+other+"/members", api.NewMember{Session: ch, Nick: "newname", Recv: api.Recv{"bogus"}}, nil)
+	l.want(422, "web", "POST", "/v1/internal/channels/"+other+"/members", api.NewMember{Session: ch, Nick: "newname", On: onFrom("bogus")}, nil)
 	other = ch
 	if nick := l.s.ch.Nick(other); nick == "newname" {
 		t.Errorf("the nick of one that did not join: %q", nick)
@@ -793,19 +793,22 @@ func TestChannelMemberRights(t *testing.T) {
 	}
 }
 
-// A session that is its agent's alone is read to its end by that agent, whatever the agent
-// was set to receive: everything said there is sent to it.
+// A session that is its agent's alone: what wakes it is as among several (its subscriptions);
+// what did not is given with what next does, and it has read to the end then.
 func TestReadsOfOneAgent(t *testing.T) {
 	t.Parallel()
 	l := start(t)
 	ch := l.create(200, "web", api.NewSession{Agent: api.AgentClaude, Cwd: l.work, Text: "first"})
 	l.waitReply("web", ch, "ok: first")
-	at := api.Recv{}
-	l.want(200, "web", "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+ch, api.MemberPatch{Recv: &at}, nil)
+	at := []api.Trigger{}
+	l.want(200, "web", "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+ch, api.MemberPatch{On: &at}, nil)
 	if code, _ := l.send("web", ch, api.Send{Text: "more"}); code != 200 {
 		t.Fatalf("send: %d", code)
 	}
-	l.waitReply("web", ch, "ok: more")
+	// Only @ now (kumo, 2026-11-23: a set of one agent's was not minded): held, given with what
+	// names it next.
+	l.send("web", ch, api.Send{Text: "@claude and"})
+	l.waitSaid("web", ch, "ok: Said here since you were last woken", ": more", "Now:\n@claude and")
 	var reads api.ChannelReads
 	l.want(200, "web", "GET", "/v1/internal/channels/"+ch+"/reads", nil, &reads)
 	if len(reads.Readers) != 1 || reads.Readers[0].Seq != reads.End || reads.End < 4 {

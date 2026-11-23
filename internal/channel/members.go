@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/kumoSleeping/iridium/internal/api"
 	"github.com/kumoSleeping/iridium/internal/deliver"
 	"github.com/kumoSleeping/iridium/internal/store"
 )
@@ -40,7 +41,7 @@ func (s *Service) written(channel string, base func(session string) string) erro
 		return err
 	}
 	defer s.changed()
-	if err := s.st.PutChannelMember(store.ChannelMember{Channel: channel, Member: Everyone, Recv: RecvAll}); err != nil {
+	if err := s.st.PutChannelMember(store.ChannelMember{Channel: channel, Member: Everyone, Triggers: PersonRow}); err != nil {
 		return err
 	}
 	if own {
@@ -49,7 +50,7 @@ func (s *Service) written(channel string, base func(session string) string) erro
 	if _, err := s.nickOf(channel, base); err != nil {
 		return err
 	}
-	return s.st.PutChannelMember(store.ChannelMember{Channel: channel, Member: store.AgentMember(channel), Recv: EncodeRecv([]string{Everyone}), Send: store.SendDirect, Seen: end})
+	return s.st.PutChannelMember(store.ChannelMember{Channel: channel, Member: store.AgentMember(channel), Triggers: EncodeTriggers(EveryoneOn), Send: store.SendDirect, Seen: end})
 }
 
 // nickOf is session's nick: the one it has, else one made from its harness's name (base,
@@ -160,19 +161,19 @@ func (s *Service) SetNick(session, nick string) error {
 	return nil
 }
 
-// Join puts session's agent in channel, its receive set recv (none: only what names it): a
+// Join puts session's agent in channel, its subscriptions on (none: only what names it): a
 // subscription. There it sees what is said and is called by what names it; it has seen nothing
 // of the channel yet. nick, if any, becomes what it is called by. base names a session's
 // harness. full: given the channel's agents now, there is no room for another (nil: any
 // number). One at a time, so that two joining at once do not both find room; a join that fails
 // leaves the nick as it was.
-func (s *Service) Join(channel, session string, recv []string, nick string, base func(session string) string, full func(agents []string) bool) (Member, error) {
+func (s *Service) Join(channel, session string, on []api.Trigger, nick string, base func(session string) string, full func(agents []string) bool) (Member, error) {
 	s.jmu.Lock()
 	defer s.jmu.Unlock()
 	if s.Speaks(channel, session) {
 		return Member{}, ErrMember
 	}
-	recv, err := CleanRecv(recv, store.AgentMember(session))
+	on, err := CleanOn(on, store.AgentMember(session))
 	if err != nil {
 		return Member{}, err
 	}
@@ -193,7 +194,7 @@ func (s *Service) Join(channel, session string, recv []string, nick string, base
 	} else if _, err := s.nickOf(session, base); err != nil {
 		return Member{}, err
 	}
-	row := store.ChannelMember{Channel: channel, Member: store.AgentMember(session), Recv: EncodeRecv(recv), Send: store.SendIR}
+	row := store.ChannelMember{Channel: channel, Member: store.AgentMember(session), Triggers: EncodeTriggers(on), Send: store.SendIR}
 	err = s.st.PutChannelMember(row)
 	s.changed()
 	if err != nil {
@@ -227,9 +228,9 @@ func (s *Service) Leave(channel, member string) error {
 	return err
 }
 
-// Change sets a member's nick (an agent's, in every channel) and an agent's receive set (nil: as
-// it is).
-func (s *Service) Change(channel, member string, nick *string, recv *[]string, base func(session string) string) (Member, error) {
+// Change sets a member's nick (an agent's, in every channel) and an agent's subscriptions (nil:
+// as they are).
+func (s *Service) Change(channel, member string, nick *string, on *[]api.Trigger, base func(session string) string) (Member, error) {
 	if err := s.written(channel, base); err != nil {
 		return Member{}, err
 	}
@@ -250,15 +251,15 @@ func (s *Service) Change(channel, member string, nick *string, recv *[]string, b
 			}
 			m.Nick = *nick
 		}
-		if recv != nil {
+		if on != nil {
 			if !m.Agent() {
-				return Member{}, ErrRecv
+				return Member{}, fmt.Errorf("%w: a person subscribes to nothing", ErrOn)
 			}
-			set, err := CleanRecv(*recv, m.Member)
+			set, err := CleanOn(*on, m.Member)
 			if err != nil {
 				return Member{}, err
 			}
-			m.Recv = EncodeRecv(set)
+			m.Triggers = EncodeTriggers(set)
 		}
 		defer s.changed()
 		return m, s.st.PutChannelMember(m.ChannelMember)
@@ -394,7 +395,7 @@ func (s *Service) SetPeople(channel string, people []string, base func(session s
 		if slices.Contains(people, Everyone) && p != Everyone {
 			continue // everyone: the rest says nothing more
 		}
-		if err := s.st.PutChannelMember(store.ChannelMember{Channel: channel, Member: p, Recv: RecvAll}); err != nil {
+		if err := s.st.PutChannelMember(store.ChannelMember{Channel: channel, Member: p, Triggers: PersonRow}); err != nil {
 			return err
 		}
 	}

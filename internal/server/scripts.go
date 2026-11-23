@@ -55,9 +55,6 @@ const (
 	scriptIntroMax = 300
 )
 
-// scriptEvents are the lines of a channel's own an event trigger may name.
-var scriptEvents = []string{"join", "leave", "rename", "recv", "people"}
-
 func (s *Server) scriptRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/internal/channels/{id}/scripts", s.scriptsGet)
 	mux.HandleFunc("POST /v1/internal/channels/{id}/scripts", s.scriptAdd)
@@ -150,12 +147,12 @@ func (s *Server) scriptAdd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	x := store.Script{Channel: ch, Name: strings.TrimSpace(req.Name), Intro: strings.TrimSpace(req.Intro), Avatar: strings.TrimSpace(req.Avatar), Run: strings.TrimSpace(req.Run), Enabled: req.Enabled == nil || *req.Enabled}
-	on, err := cleanTriggers(req.On)
+	on, err := cleanTriggers(req.On, x.Name)
 	if err == nil {
 		err = checkScript(x)
 	}
 	if err != nil {
-		refuse(w, http.StatusBadRequest, "bad_request", err.Error())
+		scriptOnFault(w, err)
 		return
 	}
 	x.Triggers = encodeTriggers(on)
@@ -168,10 +165,12 @@ func (s *Server) scriptAdd(w http.ResponseWriter, r *http.Request) {
 		s.fault(w, err)
 		return
 	}
-	s.tellMembers(c, ch, fmt.Sprintf("添加了脚本「%s」", x.Name), channel.Event{Type: "script", Name: x.Name, What: []string{"add"}})
+	s.tellMembers(c, ch, fmt.Sprintf("添加了命令「%s」", x.Name), channel.Event{Type: "script", Name: x.Name, What: []string{"add"}})
 	s.scriptsChanged(ch)
 	x, _, _ = s.st.Script(ch, x.Name)
-	reply(w, http.StatusOK, s.scriptOut(x))
+	out := s.scriptOut(x)
+	out.Warn = s.loops(ch, scriptMember(x.Name))
+	reply(w, http.StatusOK, out)
 }
 
 func (s *Server) scriptPatch(w http.ResponseWriter, r *http.Request) {
@@ -200,9 +199,9 @@ func (s *Server) scriptPatch(w http.ResponseWriter, r *http.Request) {
 	set("avatar", &x.Avatar, p.Avatar)
 	set("run", &x.Run, p.Run)
 	if p.On != nil {
-		on, err := cleanTriggers(*p.On)
+		on, err := cleanTriggers(*p.On, x.Name)
 		if err != nil {
-			refuse(w, http.StatusBadRequest, "bad_request", err.Error())
+			scriptOnFault(w, err)
 			return
 		}
 		if t := encodeTriggers(on); t != x.Triggers {
@@ -230,19 +229,21 @@ func (s *Server) scriptPatch(w http.ResponseWriter, r *http.Request) {
 		s.fault(w, err)
 		return
 	}
-	text := fmt.Sprintf("修改了脚本「%s」", x.Name)
+	text := fmt.Sprintf("修改了命令「%s」", x.Name)
 	switch {
 	case slices.Equal(what, []string{"enabled"}):
-		text = fmt.Sprintf("启用了脚本「%s」", x.Name)
+		text = fmt.Sprintf("启用了命令「%s」", x.Name)
 	case slices.Equal(what, []string{"disabled"}):
-		text = fmt.Sprintf("停用了脚本「%s」", x.Name)
+		text = fmt.Sprintf("停用了命令「%s」", x.Name)
 	case slices.Contains(what, "name"):
-		text = fmt.Sprintf("把脚本「%s」改名为「%s」", was.Name, x.Name)
+		text = fmt.Sprintf("把命令「%s」改名为「%s」", was.Name, x.Name)
 	}
 	s.tellMembers(c, ch, text, channel.Event{Type: "script", Name: x.Name, From: cond(was.Name != x.Name, was.Name, ""), What: what})
 	s.scriptsChanged(ch)
 	x, _, _ = s.st.Script(ch, x.Name)
-	reply(w, http.StatusOK, s.scriptOut(x))
+	out := s.scriptOut(x)
+	out.Warn = s.loops(ch, scriptMember(x.Name))
+	reply(w, http.StatusOK, out)
 }
 
 func cond[T any](ok bool, a, b T) T {
@@ -265,7 +266,7 @@ func (s *Server) scriptRemove(w http.ResponseWriter, r *http.Request) {
 		s.fault(w, err)
 		return
 	}
-	s.tellMembers(c, ch, fmt.Sprintf("删除了脚本「%s」", x.Name), channel.Event{Type: "script", Name: x.Name, What: []string{"remove"}})
+	s.tellMembers(c, ch, fmt.Sprintf("删除了命令「%s」", x.Name), channel.Event{Type: "script", Name: x.Name, What: []string{"remove"}})
 	s.scriptsChanged(ch)
 	reply(w, http.StatusOK, map[string]bool{"ok": true})
 }
@@ -321,59 +322,21 @@ func checkScript(x store.Script) error {
 	return nil
 }
 
-// cleanTriggers checks a script's triggers: at least one, each of one kind.
-func cleanTriggers(on []api.Trigger) ([]api.Trigger, error) {
+// cleanTriggers checks a script's subscriptions (channel.CleanOn): at least one.
+func cleanTriggers(on []api.Trigger, name string) ([]api.Trigger, error) {
 	if len(on) == 0 {
-		return nil, errors.New("on: at least one trigger: {message}, {command}, {cron} or {event}")
+		return nil, fmt.Errorf("%w: at least one: {message}, {command}, {cron} or {event}", channel.ErrOn)
 	}
-	out := make([]api.Trigger, 0, len(on))
-	for _, t := range on {
-		kinds := 0
-		if t.Message != nil {
-			kinds++
-			from, err := channel.CleanRecv(t.Message.From, "")
-			if err != nil {
-				return nil, fmt.Errorf("on.message.from: %w", err)
-			}
-			var words []string
-			for _, w := range t.Message.Words {
-				if w = strings.TrimSpace(w); w != "" && !slices.Contains(words, w) {
-					words = append(words, w)
-				}
-			}
-			t.Message = &api.MessageTrigger{Words: words}
-			if len(from) > 0 {
-				t.Message.From = from
-			}
-		}
-		if t.Command != "" {
-			kinds++
-			t.Command = strings.TrimPrefix(strings.TrimSpace(t.Command), "/")
-			if !deliver.ValidNick(t.Command) {
-				return nil, errors.New("on.command: a name, letters, digits, _ and -")
-			}
-		}
-		if t.Cron != "" {
-			kinds++
-			t.Cron = strings.Join(strings.Fields(t.Cron), " ")
-			if _, err := cron.Parse(t.Cron); err != nil {
-				return nil, fmt.Errorf("on.cron: %w", err)
-			}
-		}
-		if len(t.Event) > 0 {
-			kinds++
-			for _, e := range t.Event {
-				if !slices.Contains(scriptEvents, e) {
-					return nil, fmt.Errorf("on.event: of %s", strings.Join(scriptEvents, ", "))
-				}
-			}
-		}
-		if kinds != 1 {
-			return nil, errors.New("on: each trigger one of message, command, cron, event")
-		}
-		out = append(out, t)
+	return channel.CleanOn(on, scriptMember(name))
+}
+
+// scriptOnFault answers with what is wrong with a script's subscriptions or fields.
+func scriptOnFault(w http.ResponseWriter, err error) {
+	if errors.Is(err, channel.ErrOn) {
+		refuse(w, http.StatusUnprocessableEntity, "bad_on", err.Error())
+		return
 	}
-	return out, nil
+	refuse(w, http.StatusBadRequest, "bad_request", err.Error())
 }
 
 func encodeTriggers(on []api.Trigger) string {
@@ -636,7 +599,7 @@ func (s *Server) runScript(x store.Script, j scriptJob) store.ScriptRun {
 		if r := []rune(said); len(r) > scriptSayMax {
 			said = string(r[:scriptSayMax]) + "…"
 		}
-		seq, err := s.scriptSay(x, said, j.lk, 0)
+		seq, err := s.scriptSay(x, said, j.lk, 0, &j)
 		if err != nil {
 			run.Err = strings.TrimSpace(run.Err + "\nnot said: " + err.Error())
 		}
@@ -665,8 +628,9 @@ func (s *Server) scriptCaller(x store.Script) caller {
 }
 
 // scriptSay says text in x's channel as x, on the run at lk, answering quote (0: none), and
-// gives it to the agents it names (and that x may wake).
-func (s *Server) scriptSay(x store.Script, text string, lk link, quote int64) (int64, error) {
+// gives it to the agents it names (and that x may wake). cause: the run it is of; an agent the
+// message that ran it woke already is not woken again by it (one thing, once).
+func (s *Server) scriptSay(x store.Script, text string, lk link, quote int64, cause *scriptJob) (int64, error) {
 	ch := x.Channel
 	st, err := s.m.State(ch)
 	if err != nil {
@@ -681,17 +645,21 @@ func (s *Server) scriptSay(x store.Script, text string, lk link, quote int64) (i
 	s.names(ch, seq, text, "")
 	list, _ := s.agentsOf(ch)
 	who := deliver.From{Member: u.ID, Quiet: true}
-	wake, _, limit := s.wakes(text, who, lk, list)
+	wake, _, _, limit := s.wakes(text, who, lk, list)
 	if limit > 0 {
 		s.stopped(ch, seq, limit, lk.origin)
 		return seq, nil
+	}
+	if cause != nil && cause.seq > 0 && cause.member != "" && (cause.trigger == "message" || cause.trigger == "command") {
+		before := deliver.Route(satori.AtWords(cause.text, s.ch.Nick), deliver.From{Member: cause.member, Session: sessionOfMember(cause.member)}, list)
+		wake = slices.DeleteFunc(wake, func(t string) bool { return slices.Contains(before.Wake, t) })
 	}
 	c := s.scriptCaller(x)
 	from := session.From(gate.HostID, x.Name)
 	for _, t := range wake {
 		if _, err := s.using(c, t); err != nil {
 			nick := s.ch.Nick(t)
-			s.sat.Note(ch, fmt.Sprintf("未送达 #%d → @%s：脚本「%s」无权叫起它", seq, nick, x.Name), lk.origin, &channel.Event{Type: "undelivered", Seq: seq, Nick: nick})
+			s.sat.Note(ch, fmt.Sprintf("未送达 #%d → @%s：命令「%s」无权叫起它", seq, nick, x.Name), lk.origin, &channel.Event{Type: "undelivered", Seq: seq, Nick: nick})
 			continue
 		}
 		go func(t string) {
@@ -733,7 +701,7 @@ func (s *Server) scriptSend(c caller, ch string, req api.Send) (api.SendReply, e
 	if !ok {
 		lk = s.chain.of(ch, "")
 	}
-	seq, err := s.scriptSay(x, req.Text, lk, req.Quote)
+	seq, err := s.scriptSay(x, req.Text, lk, req.Quote, nil)
 	if err != nil {
 		return api.SendReply{}, err
 	}
@@ -757,7 +725,6 @@ func (s *Server) heard(ch string, seq int64, text, member, name string, lk link)
 		return
 	}
 	body := strings.TrimSpace(text)
-	agentSaid := strings.HasPrefix(member, "agent:")
 	_, isCommand := s.scriptCommandOf(ch, body)
 	type fired struct {
 		x store.Script
@@ -770,28 +737,14 @@ func (s *Server) heard(ch string, seq int64, text, member, name string, lk link)
 		}
 		for _, t := range triggersOf(x) {
 			j := scriptJob{seq: seq, text: text, member: member, name: name, lk: lk}
-			if t.Command != "" {
-				args, ok := commandArgs(body, t.Command)
-				if !ok || agentSaid {
-					continue
-				}
-				j.trigger, j.args = "command", args
-			} else if t.Message != nil {
-				if isCommand {
-					continue // a command is its script's alone
-				}
-				if len(t.Message.From) > 0 && !deliver.Receives(t.Message.From, member) {
-					continue
-				}
-				if len(t.Message.Words) > 0 && !slices.ContainsFunc(t.Message.Words, func(w string) bool {
-					return strings.Contains(strings.ToLower(text), strings.ToLower(w))
-				}) {
-					continue
-				}
-				j.trigger = "message"
-			} else {
+			if t.Message != nil && isCommand {
+				continue // a command is its script's alone
+			}
+			args, ok := deliver.Fires(t, member, text)
+			if !ok {
 				continue
 			}
+			j.trigger, j.args = cond(t.Command != "", "command", "message"), args
 			due = append(due, fired{x, j})
 			break
 		}
@@ -811,20 +764,6 @@ func sessionOfMember(m string) string {
 	return id
 }
 
-// commandArgs: body is "/<command>" alone or with words after a space; args, those words.
-func commandArgs(body, command string) (string, bool) {
-	rest, ok := strings.CutPrefix(body, "/")
-	if !ok || command == "" {
-		return "", false
-	}
-	word, args, _ := strings.Cut(rest, " ")
-	word, more, _ := strings.Cut(word, "\n")
-	if !strings.EqualFold(word, command) {
-		return "", false
-	}
-	return strings.TrimSpace(strings.TrimSpace(more) + " " + args), true
-}
-
 // scriptCommandOf is the script of channel ch whose command body is, if any.
 func (s *Server) scriptCommandOf(ch, body string) (store.Script, bool) {
 	if !strings.HasPrefix(body, "/") {
@@ -839,7 +778,7 @@ func (s *Server) scriptCommandOf(ch, body string) (store.Script, bool) {
 			continue
 		}
 		for _, t := range triggersOf(x) {
-			if _, ok := commandArgs(body, t.Command); ok {
+			if _, ok := deliver.CommandArgs(body, t.Command); ok {
 				return x, true
 			}
 		}
@@ -847,28 +786,27 @@ func (s *Server) scriptCommandOf(ch, body string) (store.Script, bool) {
 	return store.Script{}, false
 }
 
-// eventHeard: a line of channel ch's own (number seq, words text) told of ev; the scripts that
-// wait for it run.
+// eventHeard: a line of channel ch (number seq, words text) told of ev, or an agent's error or
+// ask there: the scripts that wait for it run, the agents subscribed to it are woken.
 func (s *Server) eventHeard(ch string, seq int64, ev *channel.Event, text string) {
-	if ev == nil || !slices.Contains(scriptEvents, ev.Type) {
-		return
-	}
-	xs, err := s.st.Scripts(ch)
-	if err != nil || len(xs) == 0 {
+	kinds := eventKinds(ev)
+	if len(kinds) == 0 {
 		return
 	}
 	if st, err := s.m.State(ch); err != nil || st.Archived {
 		return
 	}
+	s.eventWakes(ch, seq, ev, text, kinds)
+	xs, err := s.st.Scripts(ch)
+	if err != nil {
+		return
+	}
 	for _, x := range xs {
-		if !x.Enabled {
+		if !x.Enabled || ev.Member == scriptMember(x.Name) || (ev.Type == "script" && strings.EqualFold(ev.Name, x.Name)) {
 			continue
 		}
-		for _, t := range triggersOf(x) {
-			if slices.Contains(t.Event, ev.Type) {
-				s.fire(x, scriptJob{trigger: "event", seq: seq, text: text, member: satori.NoteUser, name: "Iridium", event: ev, lk: s.chain.of(ch, "")})
-				break
-			}
+		if _, ok := eventFires(triggersOf(x), kinds); ok {
+			s.fire(x, scriptJob{trigger: "event", seq: seq, text: text, member: satori.NoteUser, name: "Iridium", event: ev, lk: s.chain.of(ch, "")})
 		}
 	}
 }
@@ -917,6 +855,7 @@ func (s *Server) cronLoop(ctx context.Context) {
 // the archive has none fired; what was missed meanwhile is not made up for. A time fired begins
 // a run of the channel, as a person speaking does.
 func (s *Server) cronTick(at time.Time) {
+	s.cronAgents(at)
 	xs, err := s.st.Scripts("")
 	if err != nil {
 		s.logf("server: scripts: %v", err)

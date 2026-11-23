@@ -389,6 +389,14 @@ var schema = []string{
 	`ALTER TABLE profiles ADD COLUMN persona TEXT NOT NULL DEFAULT '';
 	ALTER TABLE roles DROP COLUMN effort;
 	ALTER TABLE roles DROP COLUMN mode;`,
+	// 47: an agent's receive set is its subscriptions (docs/channels.md "订阅事件", kumo,
+	// 2026-11-23): ["*", "agent:x"] is [{"message":{"from":["*","agent:x"]}}], [] none.
+	`ALTER TABLE channel_members RENAME COLUMN recv TO triggers;
+	UPDATE channel_members SET triggers = CASE
+		WHEN triggers = 'all' THEN '[{"message":{"from":["*"]}}]'
+		WHEN triggers IN ('', 'at', '[]') OR json_valid(triggers) = 0 THEN '[]'
+		ELSE json_array(json_object('message', json_object('from', json(triggers))))
+	END WHERE member LIKE 'agent:%';`,
 }
 
 // steps run in Go after the migration of their version, in the same transaction.

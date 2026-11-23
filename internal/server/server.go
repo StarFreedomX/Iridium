@@ -398,9 +398,13 @@ func (s *Server) create(ctx context.Context, c caller, req api.NewSession) (stri
 	if id != "" && err == nil && setup != nil {
 		err = s.setUp(ctx, c, id, *setup, first)
 	} else if id != "" && err == nil {
-		// Its people as any new channel's (DefaultPeople).
+		// Its people as any new channel's (DefaultPeople); its agent woken by its maker's words.
 		if err := s.setNewPeople(c, id, nil); err != nil {
 			s.logf("server: %s: its people: %v", id, err)
+		}
+		on := makerOn(c)
+		if _, err := s.ch.Change(id, store.AgentMember(id), nil, &on, s.harnessOf); err != nil {
+			s.logf("server: %s: its subscriptions: %v", id, err)
 		}
 	}
 	if id != "" {
@@ -458,6 +462,17 @@ func (s *Server) sendAs(ctx context.Context, c caller, from, id string, req api.
 	if s.multi(id) && !(command && s.m.IsCommand(id, req.Text)) {
 		return s.sendChannel(ctx, c, from, id, req)
 	}
+	// One agent: woken as among several (docs/channels.md "订阅事件"): by what names it or by one
+	// of its subscriptions; else said in its channel and held for it, given before what next
+	// wakes it. Its own commands, and another session's agent writing to it, reach it as ever.
+	held, texts := "", []string(nil)
+	if !c.byAgent() && !(command && s.m.IsCommand(id, req.Text)) && !session.IsClear(req.Text) {
+		woken, t := s.wakesOwn(id, c, req.Text)
+		if !woken {
+			return s.sendChannel(ctx, c, from, id, req)
+		}
+		held, texts = s.heldWords(id), t
+	}
 	// One agent: the message it answers as quoted lines before the words.
 	if req.Quote > 0 {
 		if q, ok := s.ch.Get(id, req.Quote); ok {
@@ -505,7 +520,7 @@ func (s *Server) sendAs(ctx context.Context, c caller, from, id string, req api.
 		seq = s.sat.Input(st.Session, req.ID, req.Text, u, c.ID(), channel.Data{Device: s.deviceOfCaller(c)})
 	}
 	named := s.names(id, seq, req.Text, readerOf(c)) // the logins it names (ats.go)
-	input, queued, err := s.m.SendAs(ctx, id, req.ID, satori.ForwardWords(text), from, true, images...)
+	input, queued, err := s.m.SendAs(ctx, id, req.ID, held+satori.ForwardWords(text)+onText(texts), from, true, images...)
 	if err != nil {
 		if seq != 0 {
 			s.ch.Unsay(id, seq) // not sent: not said

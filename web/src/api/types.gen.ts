@@ -1305,8 +1305,8 @@ export interface PublicState {
  * ChannelMember is a member of a channel (docs/channels.md). Member: "agent:<session>", an
  * app's login "<app>/<login>", or all of an app's "<app>/*". An agent's: Session, the session
  * it is; Agent, its harness; Name, what it runs as now ("Claude Opus 5.5 High"); Nick, what it is
- * called by, in every channel (@nick); Status, its lamp; Cwd, Machine, where it runs. Recv: an
- * agent's receive set (Recv), what wakes it beside what names it. What an agent writes in a turn
+ * called by, in every channel (@nick); Status, its lamp; Cwd, Machine, where it runs. On: an
+ * agent's subscriptions (Trigger), what wakes it beside what names it. What an agent writes in a turn
  * a channel called is said in that channel. Seen: the number of the last message the agent was
  * given.
  */
@@ -1316,7 +1316,7 @@ export interface ChannelMember {
   agent?: Agent;
   name?: string;
   nick?: string;
-  recv?: Recv;
+  on?: Trigger[];
   seen?: number /* int64 */;
   status?: Status;
   cwd?: string;
@@ -1344,12 +1344,16 @@ export interface ChannelMembers {
    */
   joined: boolean;
   me?: string;
+  /**
+   * Warn: what a change just made may lead to (a loop of subscriptions), a line each.
+   */
+  warn?: string[];
 }
 /**
  * NewMember adds an agent to a channel: Session, a session there is; else a new session of
  * Agent (Model, Mode, Effort, Preset as NewSession's) started in Cwd at Machine (none: the
  * channel's folder), listed there as any session. Nick: what it is called by ("": the one it
- * has, else one made); Recv: what wakes it beside what names it (none: nothing).
+ * has, else one made); On: what wakes it beside what names it (none: nothing).
  */
 export interface NewMember {
   session?: string;
@@ -1361,7 +1365,7 @@ export interface NewMember {
   effort?: string;
   preset?: string;
   nick?: string;
-  recv?: Recv;
+  on?: Trigger[];
   /**
    * Role: start it as this role (its id or name): the role's agent, model, preset and card,
    * where the fields above say nothing; its effort and mode are these fields' or the agent's
@@ -1384,20 +1388,12 @@ export interface NewMember {
   greet?: boolean;
 }
 /**
- * MemberPatch changes a member: its nick, an agent's receive set (Recv; [] only what names it).
+ * MemberPatch changes a member: its nick, an agent's subscriptions (On; [] only what names it).
  */
 export interface MemberPatch {
   nick?: string;
-  recv?: Recv;
+  on?: Trigger[];
 }
-/**
- * Recv is what wakes an agent of a channel beside what names it (docs/channels.md "接收"): the
- * senders whose messages that name nobody it is given. "*" every person (not an agent),
- * "<app>/*" an app's logins, "<app>/<login>" one login, "agent:<session>" an agent (its turn's
- * last words). Empty: only what names it. Read from JSON, the old words go too: "all" is ["*"],
- * "at" is [].
- */
-export type Recv = string[];
 /**
  * Injection is what an agent was given once (docs/channels.md "可追溯"): for message Seq of
  * its channel, as input Input, at At (ms); Record says where each part of it came from
@@ -1442,10 +1438,11 @@ export interface ChannelSetup {
   agents?: NewMember[];
   people?: string[];
   /**
-   * Nick, Recv: the first agent's own (the session's), as NewMember's; none: made, ["*"].
+   * Nick, On: the first agent's own (the session's), as NewMember's; On none: the messages of
+   * whoever makes it (docs/channels.md "订阅事件").
    */
   nick?: string;
-  recv?: Recv;
+  on?: Trigger[];
 }
 /**
  * ChannelReads is how far each member has read a channel (GET …/reads, the carried state
@@ -2319,19 +2316,25 @@ export interface Script {
   made: ScriptBy;
   changed: ScriptBy;
   last?: ScriptRun;
+  /**
+   * Warn: what a change just made may lead to (a loop of subscriptions), a line each.
+   */
+  warn?: string[];
 }
 /**
- * Trigger is one way a script is run; one of its fields is set. Message: a message said in the
- * channel (MessageTrigger). Command: a message that begins "/<command>" (a person's; it goes to
- * the script, not to the agents). Cron: a time, as cron writes it ("m h dom mon dow", the
- * host's time zone). Event: a line of Iridium's own of these types (join, leave, rename,
- * recv, people, script).
+ * Trigger is one subscription of a member of a channel (docs/channels.md "订阅事件"): what
+ * wakes an agent or runs a script; one of Message, Command, Cron, Event is set. Message: a
+ * message said in the channel (MessageTrigger). Command: a message that begins "/<command>" (a
+ * person's). Cron: a time, as cron writes it ("m h dom mon dow", the host's time zone). Event:
+ * a line of the channel's own or a message of an agent of these kinds (Events). Text: words an
+ * agent woken by it is given beside what woke it.
  */
 export interface Trigger {
   message?: MessageTrigger;
   command?: string;
   cron?: string;
   event?: string[];
+  text?: string;
 }
 /**
  * MessageTrigger: a message of a sender in From (as a receive set names them, Recv: "*" every

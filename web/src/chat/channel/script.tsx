@@ -6,10 +6,10 @@
 // Opened from a script's face beside what it said, and from the members' list (top.tsx).
 import { Popover } from "@base-ui/react/popover";
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { AlarmClock, ChevronLeft, ChevronRight, CircleOff, CirclePlay, File, LoaderCircle, Megaphone, PencilLine, Play, Plus, SquareTerminal, Trash2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, CircleOff, CirclePlay, LoaderCircle, PencilLine, Play, Plus, SquareTerminal, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { api, ApiError } from "../../api/client";
-import type { Agent, NewScript, Script, ScriptBy, ScriptRun } from "../../api/types.gen";
+import type { Agent, ChannelMembers, NewScript, Script, ScriptBy, ScriptRun, Trigger } from "../../api/types.gen";
 import { FacePick } from "../../facepick";
 import { isColour } from "../../facevalue";
 import { t, useLang } from "../../i18n";
@@ -23,8 +23,9 @@ import { Face, MemberFace } from "./face";
 import { mayAct, useMembers } from "./gate";
 import { validNick } from "./lib";
 import { CARD_POP, ProfileCard, type CardKey } from "./profilecard";
-import { useRecvName, useRecvOptions } from "./recv";
-import { blankTrigger, cronReading, dailyCron, draftOf, remindScript, SCRIPT_EVENTS, scriptRefusal, splitWords, toggle, triggerLine, triggerOf, wakeScript, type CronWords, type TriggerDraft, type TriggerKind, type TriggerWords } from "./scripts";
+import { memberError } from "./key";
+import { cronWords, triggerWords, useRecvName, useRecvOptions } from "./recv";
+import { blankTrigger, cronReading, draftOf, EVENTS, scriptRefusal, toggle, triggerLine, triggerOf, type TriggerDraft, type TriggerKind } from "./scripts";
 
 const scriptsKey = (channel: string) => ["scripts", channel];
 const runsKey = (channel: string, name: string) => ["scriptRuns", channel, name];
@@ -65,8 +66,8 @@ export const IrTag = () => <span className="shrink-0 rounded-sm bg-fill-2 px-1 t
 /** A script's state in a word: 已停用, 出错 (its last run did not end well); else none. */
 export const scriptState = (x: Script) => (!x.enabled ? t("script.off") : x.last && x.last.code !== 0 ? t("script.failed") : "");
 
-/** A page of the popover: a script's card, its editor, a new one's templates, its draft. */
-export type ScriptPage = { k: "card"; name: string } | { k: "edit"; name: string } | { k: "new" } | { k: "wake" } | { k: "remind" } | { k: "draft"; x: NewScript };
+/** A page of the popover: a command's card, its editor, a new one's draft. */
+export type ScriptPage = { k: "card"; name: string } | { k: "edit"; name: string } | { k: "new" } | { k: "draft"; x: NewScript };
 
 /** The popover at anchor, open while page is (a press elsewhere or Esc: done). still: out of a
  *  face in a conversation, where it opened. */
@@ -116,33 +117,11 @@ function ScriptPages({ channel, start, done }: { channel: string; start: ScriptP
     case "edit":
       return <Editor key={key} channel={channel} name={page.name} dir={dir} back={back} saved={saved} />;
     case "new":
-      return <Templates key={key} dir={dir} back={back} go={go} />;
-    case "wake":
-    case "remind":
-      return <Template key={key} kind={page.k} channel={channel} dir={dir} back={back} go={go} />;
+      return <Editor key={key} channel={channel} draft={{ name: "", run: "", on: [{ message: {} }] }} dir={dir} back={back} saved={saved} />;
     case "draft":
       return <Editor key={key} channel={channel} draft={page.x} dir={dir} back={back} saved={saved} />;
   }
 }
-
-/** The words a trigger is said in, in the page's language. */
-export function triggerWords(): TriggerWords {
-  return {
-    message: t("script.line.message"),
-    messageHas: t("script.line.messageHas"),
-    quote: t("script.line.quote"),
-    or: t("script.line.or"),
-    anyone: t("script.line.anyone"),
-    command: t("script.line.command"),
-    cron: t("script.line.cron"),
-    event: t("script.line.event"),
-    events: Object.fromEntries(SCRIPT_EVENTS.map((e) => [e, t(`script.ev.${e}`)])),
-    sep: t("channel.what.sep"),
-    recv: { all: t("channel.recvEveryone") },
-    when: cronWords(),
-  };
-}
-const cronWords = (): CronWords => ({ minute: t("cron.minute"), everyMin: t("cron.everyMin"), hourly: t("cron.hourly"), everyHour: t("cron.everyHour"), daily: t("cron.daily"), weekdays: t("cron.weekdays"), weekly: t("cron.weekly"), monthly: t("cron.monthly"), days: t("cron.days").split(","), sep: t("channel.what.sep") });
 
 /** A refusal of the server's in the page's words. */
 function why(e: unknown): string {
@@ -354,26 +333,6 @@ function Runs({ runs, lang }: { runs?: ScriptRun[]; lang: string }) {
   );
 }
 
-/** A new script: what it starts from. */
-function Templates({ dir, back, go }: { dir?: "back"; back?: () => void; go: (p: ScriptPage) => void }) {
-  const row = (icon: ReactNode, label: string, p: ScriptPage) => (
-    <button type="button" onClick={() => go(p)} className="g-press flex h-10 items-center gap-2.5 rounded-md px-2 text-left text-base hover:bg-fill pointer-coarse:h-12">
-      <span className="text-ink-2">{icon}</span>
-      <span className="flex-1">{label}</span>
-      <ChevronRight size={14} className="text-ink-4" />
-    </button>
-  );
-  return (
-    <Frame title={t("script.new")} back={back} dir={dir}>
-      <div className="-mx-2 flex flex-col">
-        {row(<Megaphone size={16} />, t("script.tplWake"), { k: "wake" })}
-        {row(<AlarmClock size={16} />, t("script.tplRemind"), { k: "remind" })}
-        {row(<File size={16} />, t("script.tplBlank"), { k: "draft", x: { name: "", run: "", on: [{ message: {} }] } })}
-      </div>
-    </Frame>
-  );
-}
-
 const INPUT = "no-ring w-full min-w-0 rounded-md bg-fill px-2.5 text-base placeholder:text-ink-3";
 const LABEL = "flex flex-col gap-1.5 py-1.5 text-sm";
 
@@ -383,67 +342,6 @@ function Chip({ on, onClick, children }: { on: boolean; onClick: () => void; chi
     <button type="button" aria-pressed={on} onClick={onClick} className={cn("g-press flex h-7 max-w-full min-w-0 items-center gap-1.5 rounded-full px-2.5 text-sm pointer-coarse:h-9", on ? "bg-ink text-on-ink" : "bg-fill text-ink-2 hover:bg-fill-2")}>
       {children}
     </button>
-  );
-}
-
-/** 唤醒词, 定时提醒: what it needs (the words; the time and text), and which agent it calls. */
-function Template({ kind, channel, dir, back, go }: { kind: "wake" | "remind"; channel: string; dir?: "back"; back?: () => void; go: (p: ScriptPage) => void }) {
-  const agents = (useMembers(channel)?.members ?? []).filter((m) => m.session && m.nick);
-  const [nick, setNick] = useState(agents[0]?.nick ?? "");
-  const [words, setWords] = useState("");
-  const [time, setTime] = useState("09:00");
-  const [text, setText] = useState("");
-  const cron = dailyCron(time);
-  const when = cron ? (cronReading(cron, cronWords()) ?? cron) : "";
-  const ok = !!nick && (kind === "wake" ? splitWords(words).length > 0 : !!cron && !!text.trim());
-  const next = () => {
-    if (!ok) return;
-    if (kind === "wake") {
-      const ws = splitWords(words);
-      go({ k: "draft", x: wakeScript(nick, ws, { name: t("script.tplWakeName", { nick }), intro: t("script.tplWakeIntro", { nick, words: ws.map((x) => t("script.line.quote", { w: x })).join(t("script.line.or")) }), say: t("script.tplWakeSay") }) });
-    } else go({ k: "draft", x: remindScript(nick, cron!, text.trim(), { name: t("script.tplRemindName", { nick }), intro: t("script.tplRemindIntro", { nick, when }) }) });
-  };
-  return (
-    <Frame title={t(kind === "wake" ? "script.tplWake" : "script.tplRemind")} back={back} dir={dir}>
-      {kind === "wake" ? (
-        <label className={LABEL}>
-          {t("script.words")}
-          <input value={words} onChange={(e) => setWords(e.target.value)} className={cn(INPUT, "h-8 pointer-coarse:h-10")} />
-        </label>
-      ) : (
-        <>
-          <label className={LABEL}>
-            <span className="flex items-baseline gap-2">
-              <span className="flex-1">{t("script.tplTime")}</span>
-              <span className="text-xs text-ink-3">{when}</span>
-            </span>
-            <input type="time" value={time} onChange={(e) => setTime(e.target.value)} className={cn(INPUT, "h-8 pointer-coarse:h-10")} />
-          </label>
-          <label className={LABEL}>
-            {t("script.tplText")}
-            <input value={text} onChange={(e) => setText(e.target.value)} className={cn(INPUT, "h-8 pointer-coarse:h-10")} />
-          </label>
-        </>
-      )}
-      <div className={LABEL}>
-        {t("script.tplAgent")}
-        <div className="flex flex-wrap gap-1.5">
-          {agents.map((m) => (
-            <Chip key={m.member} on={nick === m.nick} onClick={() => setNick(m.nick!)}>
-              <span className="grid size-4 shrink-0 place-items-center rounded-full bg-fill">
-                <Face id={m.session!} agent={m.agent ?? "claude"} size={16} logo={10} />
-              </span>
-              <span className="truncate">@{m.nick}</span>
-            </Chip>
-          ))}
-        </div>
-      </div>
-      <div className="mt-2 flex justify-end">
-        <button type="button" disabled={!ok} onClick={next} className="g-press flex h-8 items-center gap-1.5 rounded-md bg-ink px-3 text-sm font-medium text-on-ink disabled:opacity-40 pointer-coarse:h-10">
-          {t("script.next")}
-        </button>
-      </div>
-    </Frame>
   );
 }
 
@@ -519,7 +417,7 @@ function Editor({ channel, name, draft, dir, back, saved }: { channel: string; n
 }
 
 /** One trigger: its kind, and that kind's fields. */
-function TriggerEdit({ channel, d, set, remove }: { channel: string; d: TriggerDraft; set: (p: Partial<TriggerDraft>) => void; remove?: () => void }) {
+function TriggerEdit({ channel, d, set, remove, text, skip }: { channel: string; d: TriggerDraft; set: (p: Partial<TriggerDraft>) => void; remove?: () => void; text?: boolean; skip?: string }) {
   const kinds: TriggerKind[] = ["message", "command", "cron", "event"];
   const reading = d.kind === "cron" ? cronReading(d.cron, cronWords()) : undefined;
   return (
@@ -535,7 +433,7 @@ function TriggerEdit({ channel, d, set, remove }: { channel: string; d: TriggerD
       </div>
       {d.kind === "message" && (
         <>
-          <Senders channel={channel} from={d.from} set={(from) => set({ from })} />
+          <Senders channel={channel} from={d.from} set={(from) => set({ from })} skip={skip} />
           <label className={LABEL}>
             {t("script.words")}
             <input value={d.words} placeholder={t("script.wordsHint")} onChange={(e) => set({ words: e.target.value })} className={cn(INPUT, "h-8 bg-paper pointer-coarse:h-10")} />
@@ -564,7 +462,7 @@ function TriggerEdit({ channel, d, set, remove }: { channel: string; d: TriggerD
         <div className={LABEL}>
           {t("script.events")}
           <div className="flex flex-wrap gap-1.5">
-            {SCRIPT_EVENTS.map((e) => (
+            {EVENTS.map((e) => (
               <Chip key={e} on={d.event.includes(e)} onClick={() => set({ event: toggle(d.event, e) })}>
                 {t(`script.ev.${e}`)}
               </Chip>
@@ -572,13 +470,19 @@ function TriggerEdit({ channel, d, set, remove }: { channel: string; d: TriggerD
           </div>
         </div>
       )}
+      {text && (
+        <label className={LABEL}>
+          {t("script.onText")}
+          <input value={d.text} placeholder={t("script.onTextHint")} onChange={(e) => set({ text: e.target.value })} className={cn(INPUT, "h-8 bg-paper pointer-coarse:h-10")} />
+        </label>
+      )}
     </div>
   );
 }
 
 /** Whose messages a message trigger takes: the entries a receive set may have; none, anyone. */
-function Senders({ channel, from, set }: { channel: string; from: string[]; set: (f: string[]) => void }) {
-  const options = useRecvOptions(channel);
+function Senders({ channel, from, set, skip }: { channel: string; from: string[]; set: (f: string[]) => void; skip?: string }) {
+  const options = useRecvOptions(channel, skip);
   return (
     <div className={LABEL}>
       <span className="flex items-baseline gap-2">
@@ -594,5 +498,58 @@ function Senders({ channel, from, set }: { channel: string; from: string[]; set:
         ))}
       </div>
     </div>
+  );
+}
+
+/** 订阅事件 of an agent of channel (docs/channels.md "订阅事件"): each what wakes it beside @, with
+ *  the words it is given then; saved together, a ring they make told. */
+export function OnEditor({ channel, member, on: was, done }: { channel: string; member: string; on: Trigger[]; done: () => void }) {
+  useLang();
+  const qc = useQueryClient();
+  const [on, setOn] = useState<TriggerDraft[]>(() => was.map(draftOf));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const session = member.startsWith("agent:") ? member.slice(6) : undefined;
+  const save = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      const ms = await api.patchMember(channel, member, { on: on.map(triggerOf) });
+      qc.setQueryData<ChannelMembers>(["members", channel], ms);
+      if (ms.warn?.length) toast(t("script.loop"), { description: ms.warn.join("\n") });
+      done();
+    } catch (e) {
+      setError(e instanceof ApiError && e.status === 422 ? why(e) : memberError(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const setAt = (i: number, d: Partial<TriggerDraft>) => (setOn(on.map((x, j) => (j === i ? { ...x, ...d } : x))), setError(""));
+  return (
+    <Frame title={t("channel.onEdit")}>
+      <div className="flex h-8 items-center gap-2 text-sm">
+        <span className="flex-1 text-ink-3">{t("channel.onAt")}</span>
+        <IconKey label={t("script.addTrigger")} onClick={() => setOn([...on, blankTrigger()])} className="size-7">
+          <Plus size={15} />
+        </IconKey>
+      </div>
+      <ul className="m-0 flex list-none flex-col gap-2 p-0 pt-1">
+        {on.map((d, i) => (
+          <li key={i} className="g-fade rounded-md bg-fill p-2">
+            <TriggerEdit channel={channel} d={d} set={(p) => setAt(i, p)} remove={() => setOn(on.filter((_, j) => j !== i))} text skip={session} />
+          </li>
+        ))}
+      </ul>
+      <Slide open={!!error}>
+        <p className="m-0 pt-2 text-xs text-err">{error}</p>
+      </Slide>
+      <div className="mt-3 flex justify-end">
+        <button type="button" disabled={busy} onClick={() => void save()} className="g-press flex h-8 items-center gap-1.5 rounded-md bg-ink px-3 text-sm font-medium text-on-ink disabled:opacity-40 pointer-coarse:h-10">
+          {busy && <LoaderCircle size={13} className="animate-spin" />}
+          {t("script.save")}
+        </button>
+      </div>
+    </Frame>
   );
 }

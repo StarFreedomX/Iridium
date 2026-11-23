@@ -3,7 +3,14 @@ package deliver
 import (
 	"strings"
 	"testing"
+
+	"github.com/kumoSleeping/iridium/internal/api"
 )
+
+// of is one message subscription of from.
+func of(from ...string) []api.Trigger {
+	return []api.Trigger{{Message: &api.MessageTrigger{From: from}}}
+}
 
 func TestMentions(t *testing.T) {
 	nicks := []string{"claude", "claude2", "审稿"}
@@ -32,7 +39,7 @@ func TestMentions(t *testing.T) {
 }
 
 func TestRoute(t *testing.T) {
-	agents := []Agent{{"s1", "claude", []string{"*"}}, {"s2", "codex", nil}, {"s3", "pi", []string{"web/kumo", "agent:s1"}}}
+	agents := []Agent{{"s1", "claude", of("*")}, {"s2", "codex", nil}, {"s3", "pi", of("web/kumo", "agent:s1")}}
 	wake := func(d Decision) string { return strings.Join(d.Wake, " ") }
 	person := From{Member: "web/kumo"}
 	// A person: whoever is named; nobody named, those whose set has them.
@@ -85,7 +92,7 @@ func TestRoute(t *testing.T) {
 // A reaction goes to whom a message that names nobody would: those whose receive set has its
 // author; an agent's only to those subscribed to it, never to itself.
 func TestReacts(t *testing.T) {
-	agents := []Agent{{Session: "a", Nick: "a", Recv: []string{"*"}}, {Session: "b", Nick: "b", Recv: []string{}}, {Session: "c", Nick: "c", Recv: []string{"agent:a", "ir_web/kumo"}}}
+	agents := []Agent{{Session: "a", Nick: "a", On: of("*")}, {Session: "b", Nick: "b", On: nil}, {Session: "c", Nick: "c", On: of("agent:a", "ir_web/kumo")}}
 	for _, tc := range []struct {
 		from From
 		want string
@@ -98,5 +105,30 @@ func TestReacts(t *testing.T) {
 		if got := strings.Join(Reacts(tc.from, agents), " "); got != tc.want {
 			t.Errorf("%+v: %q, want %q", tc.from, got, tc.want)
 		}
+	}
+}
+
+// Words, commands, an event's text: a subscription fires on what it names; each agent is woken
+// once, given the words of the subscriptions that woke it.
+func TestFires(t *testing.T) {
+	words := api.Trigger{Message: &api.MessageTrigger{Words: []string{"XiaoKe"}}, Text: "hi"}
+	cmd := api.Trigger{Command: "standup", Text: "standup"}
+	agents := []Agent{{"x", "xiaoke", []api.Trigger{words, words, cmd}}, {"y", "y", of("*")}}
+	d := Route("ask xiaoke please", From{Member: "web/kumo"}, agents)
+	if strings.Join(d.Wake, " ") != "x y" || strings.Join(d.Texts["x"], "|") != "hi" {
+		t.Fatalf("%+v", d)
+	}
+	// Named, only whom it names, once: the words naming it set off nothing more.
+	if d := Route("@xiaoke look", From{Member: "web/kumo"}, agents); strings.Join(d.Wake, " ") != "x" || d.Texts != nil {
+		t.Fatalf("%+v", d)
+	}
+	if args, ok := Fires(cmd, "web/kumo", "/standup now"); !ok || args != "now" {
+		t.Fatal(args, ok)
+	}
+	if _, ok := Fires(cmd, "agent:z", "/standup"); ok {
+		t.Fatal("an agent's words are no command")
+	}
+	if MaxHops != 4 {
+		t.Fatal(MaxHops)
 	}
 }

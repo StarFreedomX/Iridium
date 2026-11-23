@@ -1,10 +1,9 @@
-// A channel's receive sets as the page names them (docs/channels.md "接收"): what an agent's set
-// (and a script's senders, the same entries) may have, each with its name and face, and a set in
-// a few words. The entries: "*" every person, an app's logins ("<app>/*"; an app of one login is
+// The senders a channel's subscriptions may name (docs/channels.md "订阅事件"), each with its name
+// and face, and an agent's subscriptions in a few words. The entries: "*" every person, an app's logins ("<app>/*"; an app of one login is
 // the app alone, docs/前端设计规范.md "一个登录的应用合成一行"), a login, another agent.
 import { UsersRound } from "lucide-react";
 import type { ReactNode } from "react";
-import type { Recv } from "../../api/types.gen";
+import type { Trigger } from "../../api/types.gen";
 import { useApps } from "../../data";
 import { t } from "../../i18n";
 import { agentName, isHost } from "../../ui";
@@ -12,7 +11,7 @@ import { Face, MemberFace } from "./face";
 import { useMembers } from "./gate";
 import { personName } from "./lib";
 import { usePeople } from "./person";
-import { recvLabel, recvWhole, type RecvWords } from "./scripts";
+import { EVENTS, onLabel, recvWhole, triggerLine, type CronWords, type RecvWords, type TriggerWords } from "./scripts";
 
 export type RecvOption = { entry: string; label: string; face: ReactNode };
 
@@ -62,9 +61,31 @@ export function useRecvName(channel: string): (entry: string) => string {
   };
 }
 
-/** A receive set in a few words (beside 接收消息), or whole (an event's line). */
-export function useRecvLabel(channel: string): { short: (r: Recv) => string; whole: (r: Recv) => string } {
+/** An agent's subscriptions in a few words (beside 订阅事件), or whole (an event's line); an older
+ *  line's receive set whole. */
+export function useRecvLabel(channel: string): { short: (on: Trigger[]) => string; whole: (r: string[]) => string; onWhole: (on: Trigger[]) => string } {
   const name = useRecvName(channel);
   const w = recvWords();
-  return { short: (r) => recvLabel(r, name, w), whole: (r) => recvWhole(r, name, w) };
+  const tw = triggerWords();
+  return { short: (on) => onLabel(on, name, w), whole: (r) => recvWhole(r, name, w), onWhole: (on) => (on.length ? [w.at, ...on.map((x) => triggerLine(x, name, tw))].join(tw.sep) : w.at) };
 }
+
+/** The words a trigger is said in, in the page's language. */
+export function triggerWords(): TriggerWords {
+  return {
+    message: t("script.line.message"),
+    messageHas: t("script.line.messageHas"),
+    quote: t("script.line.quote"),
+    or: t("script.line.or"),
+    anyone: t("script.line.anyone"),
+    command: t("script.line.command"),
+    cron: t("script.line.cron"),
+    event: t("script.line.event"),
+    events: Object.fromEntries(EVENTS.map((e) => [e, t(`script.ev.${e}`)])),
+    sep: t("channel.what.sep"),
+    textSep: t("script.line.textSep"),
+    recv: { all: t("channel.recvEveryone") },
+    when: cronWords(),
+  };
+}
+export const cronWords = (): CronWords => ({ minute: t("cron.minute"), everyMin: t("cron.everyMin"), hourly: t("cron.hourly"), everyHour: t("cron.everyHour"), daily: t("cron.daily"), weekdays: t("cron.weekdays"), weekly: t("cron.weekly"), monthly: t("cron.monthly"), days: t("cron.days").split(","), sep: t("channel.what.sep") });

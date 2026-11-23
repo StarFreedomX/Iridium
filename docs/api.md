@@ -278,8 +278,8 @@ Web Push，总开关在配置 `push`，默认关。VAPID 密钥存在状态目�
 
 | 接口 | 做什么 |
 | --- | --- |
-| `GET /v1/internal/channels/{id}/members` | `ChannelMembers {channel, multi, members}`：成员（`member`、`session`、`agent`、`name`、`nick`、`recv`、`seen`、`status`）；`multi`：不止一个 agent，或是无 agent 的频道 |
-| `POST /v1/internal/channels/{id}/members` | `NewMember {session? | agent, cwd?, machine?, model?, mode?, effort?, preset?, nick?, recv?}`：邀请一个已有的会话（`session`，要能用它；已在里面 409 `member`），或新开一个会话再邀请（不给 `cwd` 就在频道的文件夹）。能起这个 agent 的调用方都行，频道里的 agent 也行。满 8 个回 409 `full` |
+| `GET /v1/internal/channels/{id}/members` | `ChannelMembers {channel, multi, members}`：成员（`member`、`session`、`agent`、`name`、`nick`、`on`、`seen`、`status`）；`multi`：不止一个 agent，或是无 agent 的频道 |
+| `POST /v1/internal/channels/{id}/members` | `NewMember {session? | agent, cwd?, machine?, model?, mode?, effort?, preset?, nick?, on?}`：邀请一个已有的会话（`session`，要能用它；已在里面 409 `member`），或新开一个会话再邀请（不给 `cwd` 就在频道的文件夹）。能起这个 agent 的调用方都行，频道里的 agent 也行。满 8 个回 409 `full` |
 | `GET`、`POST /v1/internal/channels/{id}/scripts`；`PATCH`、`DELETE …/scripts/{name}`；`GET …/scripts/{name}/runs`；`POST …/scripts/{name}/run {text?}` | 频道的脚本（`Script`、`NewScript`、`ScriptPatch`、`ScriptRun`），见 `docs/channels.md`“脚本”；频道里的人和 agent 都能改；携带状态 `scripts` 在脚本变了、跑了一次时加一 |
 | `GET`、`PUT`、`DELETE /v1/internal/channels/{id}/avatar` | 频道（会话）的头像，见 `docs/channels.md`“头像” |
 | `GET`、`PATCH /v1/internal/self` | 自己的资料卡（agent：连同所在频道、之前的上下文、记忆），见 `docs/channels.md`“资料” |
@@ -293,7 +293,7 @@ Web Push，总开关在配置 `push`，默认关。VAPID 密钥存在状态目�
 | `POST /v1/internal/channels/{id}/read` | `Read {seq}`：我读到这条了；只给人。读到的位置之前点到我的标记一并清掉 |
 | `GET /v1/internal/ats` | `ChannelAts`：`{频道ID: ChannelAt {seq, everyone}}`，各频道里第一条点到我、我还没读的消息（`docs/channels.md`“有人 @ 我”）；`everyone`：只是 `@全体成员`。agent 的 `ir` 得到空的 |
 | `PUT /v1/internal/channels/{id}/people` | `People {people}`：谁能在频道里说话，`["*"]` 或不给是所有人；只给人，要在群里 |
-| `PATCH /v1/internal/channels/{id}/members/{member}` | `MemberPatch {nick?, recv?}`；称呼在所有频道都改，要有用那个会话的权限；`recv` 是接收集（列表，也收旧写法 `all`、`at`），频道里任何成员都能改任何 agent 的 |
+| `PATCH /v1/internal/channels/{id}/members/{member}` | `MemberPatch {nick?, on?}`；称呼在所有频道都改，要有用那个会话的权限；`on` 是订阅事件（整份替换，`docs/channels.md`“订阅事件”），频道里任何成员都能改任何 agent 的；回答的 `warn` 是订阅连成的圈 |
 | `DELETE /v1/internal/channels/{id}/members/{member}` | 移出（退订）一个 agent（`agent:<会话>`，别的 400），它的会话照旧；频道自己的 agent 移不出（422 `no_such_member`）；只给人 |
 | `GET /v1/internal/sessions/{id}/injections` | 频道给过这个 agent 什么，新的在前：`Injection {id, seq, input, at, record}` |
 
@@ -302,7 +302,7 @@ Web Push，总开关在配置 `push`，默认关。VAPID 密钥存在状态目�
 - 会话列表里：几个 agent 的频道带 `agents`；订阅了别的频道的会话带 `in`；为频道新开的会话带 `spawned {by, channel}`；无 agent 的频道带 `bare`。
 - 发消息的回答多一个 `seq`：这条消息在频道里的编号。几个 agent 的频道里还有 `said: true`（没有可等的输入）；agent 用 `ir` 发的带 `unseen`（它没读过的消息，文字）。落后太多回 409 `behind`。
 - `ChannelMembers.joined`：调用者在不在群里；`me`：调用者作为成员的写法。不在群里的只能读，写的接口回 403。
-- `channel.create` 的 `_data.members`：`ChannelSetup {agents, people, nick, recv}`，建的同时配好成员。
+- `channel.create` 的 `_data.members`：`ChannelSetup {agents, people, nick, on}`，建的同时配好成员。
 
 ## 公开链接
 

@@ -257,7 +257,7 @@ describe("didOf", () => {
 });
 
 describe("a channel's events", () => {
-  const w: EventWords = { join: "{nick} 已加入", leave: "{nick} 已移出", rename: "{from} 改名 {nick}", recv: "{nick} 接收{recv}", everyone: "人：全部", added: "已加入：{added}", removed: "已移出：{removed}", undelivered: "#{seq} 未送达 {nick}", stopped: "#{seq} 未转交", silent: "#{seq} {nick} 未发话", silentWhy: "#{seq} {nick} 未发话：{reason}", by: "（{by}）", sep: "，", reasons: { 余额不足: "no balance left" }, script: { add: "{by} 添加了脚本「{script}」", remove: "{by} 删除了脚本「{script}」", enabled: "{by} 启用了脚本「{script}」", disabled: "{by} 停用了脚本「{script}」", changed: "{by} 修改了脚本「{script}」", renamed: "{by} 把脚本「{old}」改名为「{script}」" } };
+  const w: EventWords = { join: "{nick} 已加入", leave: "{nick} 已移出", rename: "{from} 改名 {nick}", recv: "{nick} 接收{recv}", on: "{nick} 订阅事件：{on}", everyone: "人：全部", added: "已加入：{added}", removed: "已移出：{removed}", undelivered: "#{seq} 未送达 {nick}", stopped: "#{seq} 未转交", silent: "#{seq} {nick} 未发话", silentWhy: "#{seq} {nick} 未发话：{reason}", by: "（{by}）", sep: "，", reasons: { 余额不足: "no balance left" }, script: { add: "{by} 添加了命令「{script}」", remove: "{by} 删除了命令「{script}」", enabled: "{by} 启用了命令「{script}」", disabled: "{by} 停用了命令「{script}」", changed: "{by} 修改了命令「{script}」", renamed: "{by} 把命令「{old}」改名为「{script}」" } };
   test("join and leave: the agent, then who did it", () => {
     expect(eventParts({ type: "join", member: "agent:s", nick: "pi2", name: "pi Low", by: "主机" }, w)).toEqual([{ nick: "pi2" }, " 已加入（Iridium）"]);
     expect(eventParts({ type: "leave", nick: "pi2" }, w)).toEqual([{ nick: "pi2" }, " 已移出"]);
@@ -271,11 +271,11 @@ describe("a channel's events", () => {
     expect(eventParts({ type: "recv", nick: "pi", recv: "at" }, w)).toEqual([{ nick: "pi" }, " 接收", { recv: [] }]);
   });
   test("script: what was done to it, by whom, in the line's own words", () => {
-    expect(eventParts({ type: "script", name: "echo", what: ["add"], by: "kumo" }, w)).toEqual(["kumo 添加了脚本「echo」"]);
-    expect(eventParts({ type: "script", name: "echo", what: ["disabled"], by: "kumo" }, w)).toEqual(["kumo 停用了脚本「echo」"]);
-    expect(eventParts({ type: "script", name: "echo", what: ["run", "on"], by: "kumo" }, w)).toEqual(["kumo 修改了脚本「echo」"]);
-    expect(eventParts({ type: "script", name: "echo2", from: "echo", what: ["name"], by: "kumo" }, w)).toEqual(["kumo 把脚本「echo」改名为「echo2」"]);
-    expect(eventParts({ type: "script", name: "echo", what: ["remove"] }, w)).toEqual(["删除了脚本「echo」"]);
+    expect(eventParts({ type: "script", name: "echo", what: ["add"], by: "kumo" }, w)).toEqual(["kumo 添加了命令「echo」"]);
+    expect(eventParts({ type: "script", name: "echo", what: ["disabled"], by: "kumo" }, w)).toEqual(["kumo 停用了命令「echo」"]);
+    expect(eventParts({ type: "script", name: "echo", what: ["run", "on"], by: "kumo" }, w)).toEqual(["kumo 修改了命令「echo」"]);
+    expect(eventParts({ type: "script", name: "echo2", from: "echo", what: ["name"], by: "kumo" }, w)).toEqual(["kumo 把命令「echo」改名为「echo2」"]);
+    expect(eventParts({ type: "script", name: "echo", what: ["remove"] }, w)).toEqual(["删除了命令「echo」"]);
     expect(eventParts({ type: "script", what: ["add"] }, w)).toBeUndefined();
   });
   test("people: everyone, or those added and removed", () => {

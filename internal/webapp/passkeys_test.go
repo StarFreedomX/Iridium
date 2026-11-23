@@ -144,8 +144,8 @@ func TestPlatformOf(t *testing.T) {
 		uaIPhone:  "iPhone · Safari",
 		uaWindows: "Windows · Edge",
 		"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36": "Mac · Chrome",
-		"Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36":           "Android · Chrome",
-		"Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0":                                                 "Linux · Firefox",
+		"Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36":          "Android · Chrome",
+		"Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0":                                                "Linux · Firefox",
 		"curl/8.5.0": "",
 	} {
 		if got := platformOf(ua); got != want {

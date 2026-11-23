@@ -29,7 +29,7 @@ import type { AgentRow } from "./lib";
 import { MemberAsks, MemberItems, type Ask } from "./members";
 import { useRecvLabel } from "./recv";
 import { ScriptFace, ScriptPop, scriptState, useScripts, type ScriptPage } from "./script";
-import { recvOf } from "./scripts";
+import { onOf } from "./scripts";
 import { actsOf } from "./menu";
 import { subName, SubTag } from "../subwork";
 import { appAll, hasApp, hasLogin, loginOf, peopleCount, peopleOf, pressApp, pressLogin } from "./setup";
@@ -167,9 +167,9 @@ function MemberList({ id, ask, script }: { id: string; ask: (a: Ask) => void; sc
       {agents.map((m) => {
         const row = list?.find((x) => x.id === m.session);
         const agent = m.agent ?? row?.agent ?? "claude";
-        const a: AgentRow = { session: m.session!, member: m.member, agent, nick: m.nick ?? "", name: m.name ?? agentName(agent), status: m.status ?? row?.status ?? "idle", recv: recvOf(m.recv) };
+        const a: AgentRow = { session: m.session!, member: m.member, agent, nick: m.nick ?? "", name: m.name ?? agentName(agent), status: m.status ?? row?.status ?? "idle", on: onOf(m.on) };
         return (
-          <Sub key={m.member} icon={<Face id={m.session!} agent={agent} size={16} />} lead={<ContextMark session={m.session!} />} label={m.nick || agentName(agent)} now={short(a.recv)} i={0}>
+          <Sub key={m.member} icon={<Face id={m.session!} agent={agent} size={16} />} lead={<ContextMark session={m.session!} />} label={m.nick || agentName(agent)} now={short(a.on)} i={0}>
             <MemberItems channel={id} a={a} may={may} call={lent.call} record={lent.record} ask={(kind) => ask({ kind, a })} />
           </Sub>
         );

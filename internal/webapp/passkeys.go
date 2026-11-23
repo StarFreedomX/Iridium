@@ -11,11 +11,11 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
+	"github.com/kumoSleeping/iridium/internal/gate"
 	"net/http"
 	"slices"
 	"strings"
 	"time"
-	"github.com/kumoSleeping/iridium/internal/gate"
 )
 
 // Devices a passkey may be set to (api.Device's); "" is by the browser.

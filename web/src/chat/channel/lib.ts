@@ -4,9 +4,9 @@
 // (internal/deliver Mentions) and put into the composer; the agents listed under a channel's row;
 // a channel's lamp.
 import type { ChannelMessage } from "../../api/client";
-import type { Agent, Device, FileRef, Recv, Session, Status } from "../../api/types.gen";
+import type { Agent, Device, FileRef, Session, Status, Trigger } from "../../api/types.gen";
 import { blockOf } from "../../satori";
-import { recvOf, scriptOfUser } from "./scripts";
+import { onOf, recvOf, scriptOfUser } from "./scripts";
 
 /** Who said a message: an agent of the channel (its session, the nick it is called by, what it
  *  ran as), a person (their tag), a script of the channel's IR (its name), or Iridium itself. */
@@ -120,26 +120,26 @@ export function liveParts<B extends { at: string; kind: string; text?: string }>
 }
 
 /** Something that happened to a channel, a line of Iridium's own in it (internal/channel Event):
- *  join, leave (nick), rename (from, nick), recv (nick, recv: its receive set; before 2026-11-17
- *  "all" or "at"), script (name, what: add, remove, enabled, disabled or the fields changed;
+ *  join, leave (nick), rename (from, nick), on (nick, on: its subscriptions now), recv (before
+ *  2026-11-23: nick, recv: its receive set; before 2026-11-17 "all" or "at"), script (name, what: add, remove, enabled, disabled or the fields changed;
  *  from: its old name), people (added, removed: member
  *  strings; everyone), undelivered (seq, nick), stopped (seq), silent (seq, nick: called for it,
  *  it said nothing in the channel; reason: why, its turn ending in an error), profile (a card
  *  changed: member's, by nick, or the channel's own with no member; what: the fields, "name",
  *  "intro", "avatar", "background"). by: who did it, by
  *  name (the host's as Iridium, however it was kept: 主机 before 2026-11-15). */
-export type ChEvent = { type: string; member?: string; nick?: string; name?: string; from?: string; recv?: string[] | string; added?: string[]; removed?: string[]; everyone?: boolean; seq?: number; reason?: string; by?: string; what?: string[] };
+export type ChEvent = { type: string; member?: string; nick?: string; name?: string; from?: string; recv?: string[] | string; on?: Trigger[]; added?: string[]; removed?: string[]; everyone?: boolean; seq?: number; reason?: string; by?: string; what?: string[] };
 
 /** A piece of an event's line: words, an agent by its nick, people by their member strings, a
  *  receive set (named as the page names its entries). */
-export type EventPart = string | { nick: string } | { people: string[] } | { recv: Recv };
+export type EventPart = string | { nick: string } | { people: string[] } | { recv: string[] } | { on: Trigger[] };
 
 /** What a script's line says, by what was done to it (ChEvent what; renamed: from is set). */
 export type ScriptDone = "add" | "remove" | "enabled" | "disabled" | "changed" | "renamed";
 
 /** The line's words by event (i18n: channel.event.*), their slots in braces: {nick} {from}
  *  {recv} {people} {seq} {reason} {by} {script} {old}; reasons: the server's usual reasons (余额不足…) in them. */
-export type EventWords = Record<"join" | "leave" | "rename" | "recv" | "everyone" | "added" | "removed" | "undelivered" | "stopped" | "silent" | "silentWhy" | "by" | "sep", string> & {
+export type EventWords = Record<"join" | "leave" | "rename" | "recv" | "on" | "everyone" | "added" | "removed" | "undelivered" | "stopped" | "silent" | "silentWhy" | "by" | "sep", string> & {
   /** A script added, removed, turned on or off, changed, renamed: each with who did it in its words. */
   script?: Record<ScriptDone, string>;
   reasons?: Record<string, string>;
@@ -168,6 +168,8 @@ export function eventParts(e: ChEvent, w: EventWords): EventPart[] | undefined {
             return `@${e.from ?? ""}`;
           case "{recv}":
             return { recv: recvOf(e.recv) };
+          case "{on}":
+            return { on: onOf(e.on) };
           case "{script}":
             return e.name ?? "";
           case "{old}":
@@ -193,6 +195,7 @@ export function eventParts(e: ChEvent, w: EventWords): EventPart[] | undefined {
     case "leave":
     case "rename":
     case "recv":
+    case "on":
     case "undelivered":
     case "stopped":
       out = fill(w[e.type]);
@@ -454,7 +457,7 @@ export function quoteAt(m: Pick<Msg, "author">, mine: boolean): string | undefin
 
 /** A member as the @ list and the words that name it show it: an agent; or (person) a login or
  *  an app, its name as nick, its app (or 应用) as name, its avatar. */
-export type AgentRow = { session: string; member: string; agent: Agent; nick: string; name: string; status: Status; recv: Recv; avatar?: string; person?: boolean };
+export type AgentRow = { session: string; member: string; agent: Agent; nick: string; name: string; status: Status; on: Trigger[]; avatar?: string; person?: boolean };
 
 /** Whether user (a Satori user id) may be talked to alone (docs/channels.md "私聊"): the host, or
  *  one of logins; not an app, nor an author that is no login (the server has no one to open the

@@ -18,19 +18,28 @@ type Script struct {
 	Made    ScriptBy   `json:"made"`
 	Changed ScriptBy   `json:"changed"`
 	Last    *ScriptRun `json:"last,omitempty"`
+	// Warn: what a change just made may lead to (a loop of subscriptions), a line each.
+	Warn []string `json:"warn,omitempty"`
 }
 
-// Trigger is one way a script is run; one of its fields is set. Message: a message said in the
-// channel (MessageTrigger). Command: a message that begins "/<command>" (a person's; it goes to
-// the script, not to the agents). Cron: a time, as cron writes it ("m h dom mon dow", the
-// host's time zone). Event: a line of Iridium's own of these types (join, leave, rename,
-// recv, people, script).
+// Trigger is one subscription of a member of a channel (docs/channels.md "订阅事件"): what
+// wakes an agent or runs a script; one of Message, Command, Cron, Event is set. Message: a
+// message said in the channel (MessageTrigger). Command: a message that begins "/<command>" (a
+// person's). Cron: a time, as cron writes it ("m h dom mon dow", the host's time zone). Event:
+// a line of the channel's own or a message of an agent of these kinds (Events). Text: words an
+// agent woken by it is given beside what woke it.
 type Trigger struct {
 	Message *MessageTrigger `json:"message,omitempty"`
 	Command string          `json:"command,omitempty"`
 	Cron    string          `json:"cron,omitempty"`
 	Event   []string        `json:"event,omitempty"`
+	Text    string          `json:"text,omitempty"`
 }
+
+// Events are what an event subscription may wait for: a member joined or left (an agent, or
+// people added or taken away), an agent renamed, someone's subscriptions changed (an agent's,
+// a script's), an agent's process ended badly, an agent asks (a question, an approval, a plan).
+var Events = []string{"join", "leave", "rename", "on", "error", "ask"}
 
 // MessageTrigger: a message of a sender in From (as a receive set names them, Recv: "*" every
 // person; none: anyone, an agent's turn's last words too) that has one of Words (none: any

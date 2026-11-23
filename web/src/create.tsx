@@ -7,7 +7,7 @@ import { Tooltip } from "@base-ui/react/tooltip";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bot, Check, ChevronDown, ChevronLeft, ChevronRight, Folder, FolderPlus, LoaderCircle, Play, UserMinus } from "lucide-react";
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactElement, type ReactNode } from "react";
-import type { NewMember, NewSession as NewSessionReq, Recv, Workspace } from "./api/types.gen";
+import type { NewMember, NewSession as NewSessionReq, Trigger, Workspace } from "./api/types.gen";
 import { api, missing } from "./api/client";
 import { openChat } from "./route";
 import type { Agent, Role } from "./api/types.gen";
@@ -345,7 +345,7 @@ export function NewSession({ ws, folder, onFolder, onPick, busy, onMake }: { ws:
     const ps = people ?? undefined;
     if (bareOn) return onPick("" as Agent, to, ps, shown.length ? { agents: shown.map(member) } : undefined);
     const [first, ...rest] = shown;
-    const as: As = { ...runs(first!), ...(typed(first!) ? { nick: typed(first!) } : {}), ...(!everyone(first!.recv) ? { recv: first!.recv } : {}), ...(rest.length ? { agents: rest.map(member) } : {}) };
+    const as: As = { ...runs(first!), ...(typed(first!) ? { nick: typed(first!) } : {}), ...(!everyone(first!.recv) ? { on: [] } : {}), ...(rest.length ? { agents: rest.map(member) } : {}) };
     onPick(first!.agent, to, ps, as);
   };
   // A subfolder being named, in the folder's line (the user, 2026-11-10). What it holds now is read
@@ -487,7 +487,11 @@ type Seat = { key: number; agent: Agent; role?: Role; pick: RolePick; nick: stri
 
 /** Whether a seat's receive set is 全部 (every person's words), not 点名 (only what names it):
  *  the two the lineup offers (docs/channels.md "接收"). */
+/** Whose words wake a seat's agent beside @: everyone's ("*"), or none (@ only). */
+type Recv = string[];
 const everyone = (r: Recv) => r.includes("*");
+/** A seat's senders as its subscriptions (docs/channels.md "订阅事件"). */
+const onOfRecv = (r: Recv): Trigger[] => (r.length ? [{ message: { from: r } }] : []);
 const RECV: Record<"all" | "at", Recv> = { all: ["*"], at: [] };
 
 /** What a seat starts with: as its role (what pick changes of it), else its agent's model,
@@ -496,12 +500,12 @@ const runs = (x: Seat): { role?: string; model?: string; effort?: string; preset
   x.role ? roleStart(x.role, x.pick) : { ...(x.pick.model ? { model: x.pick.model } : {}), ...(x.pick.effort ? { effort: x.pick.effort } : {}), ...(x.pick.preset ? { preset: x.pick.preset } : {}) };
 
 /** A seat invited with the session (NewSession members.agents). */
-const member = (x: Seat): NewMember => ({ agent: x.agent, ...runs(x), ...(x.nick.trim() ? { nick: x.nick.trim() } : {}), recv: x.recv, ...(x.m ? { machine: x.m.id, cwd: x.m.home } : {}) });
+const member = (x: Seat): NewMember => ({ agent: x.agent, ...runs(x), ...(x.nick.trim() ? { nick: x.nick.trim() } : {}), on: onOfRecv(x.recv), ...(x.m ? { machine: x.m.id, cwd: x.m.home } : {}) });
 
 /** What a start adds: its 称呼 (nick); as a role, the role and what this one session changes of
  *  it (roles.tsx roleStart); its model, effort, preset; what its own agent receives (recv); the
  *  agents invited with it (agents). */
-export type As = Partial<ReturnType<typeof roleStart>> & { nick?: string; recv?: Recv; agents?: NewMember[] };
+export type As = Partial<ReturnType<typeof roleStart>> & { nick?: string; on?: Trigger[]; agents?: NewMember[] };
 
 /** What opens and shuts in the "+" (开始): its height glides, nothing jumps. */
 function Fold({ open, children }: { open: boolean; children: ReactNode }) {
@@ -741,8 +745,8 @@ function RolePreview({ role, nick, at }: { role: Role; nick: string; at: object 
 /** What starting a session sends (channel.create's _data): the agent in the folder, in its
  *  group, at its machine, with its people; as a role, the role and what was changed of it. */
 export const startRequest = (agent: Agent, cwd: string, workspace?: number, machine?: string, people?: string[], as?: As): NewSessionReq => {
-  const { agents, recv, ...card } = as ?? {};
-  const members = people || agents?.length || recv ? { ...(people ? { people } : {}), ...(agents?.length ? { agents } : {}), ...(recv ? { recv } : {}) } : undefined;
+  const { agents, on, ...card } = as ?? {};
+  const members = people || agents?.length || on ? { ...(people ? { people } : {}), ...(agents?.length ? { agents } : {}), ...(on ? { on } : {}) } : undefined;
   return { agent, cwd, ...(workspace ? { workspace } : {}), ...(machine ? { machine } : {}), ...(members ? { members } : {}), ...card };
 };
 

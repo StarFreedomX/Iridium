@@ -217,7 +217,7 @@ func TestSubscriptions(t *testing.T) {
 		t.Fatalf("before anyone joined")
 	}
 	m, err := s.Join("a", "b", nil, "", base, nil)
-	if err != nil || m.Nick != "claude2" || m.Recv != "[]" || m.Direct() {
+	if err != nil || m.Nick != "claude2" || m.Triggers != "[]" || m.Direct() {
 		t.Fatalf("join: %+v %v", m, err)
 	}
 	if _, err := s.Join("a", "b", nil, "", base, nil); !errors.Is(err, ErrMember) {
@@ -231,7 +231,7 @@ func TestSubscriptions(t *testing.T) {
 		t.Fatalf("members: %+v", ms)
 	}
 	// The same nick in another channel; a third agent's is its own.
-	if m, err := s.Join("c", "b", []string{Everyone}, "", base, nil); err != nil || m.Nick != "claude2" {
+	if m, err := s.Join("c", "b", EveryoneOn, "", base, nil); err != nil || m.Nick != "claude2" {
 		t.Fatalf("join another: %+v %v", m, err)
 	}
 	if s.Nick("c") != "claude3" || fmt.Sprint(s.In("b")) != "[a c]" || !s.Speaks("c", "b") {
@@ -315,5 +315,35 @@ func TestDefaultNick(t *testing.T) {
 	}
 	if !IsDefaultNick("Claude-b134") || IsDefaultNick("大肥鱼") || IsDefaultNick("claude2") {
 		t.Error("IsDefaultNick")
+	}
+}
+
+// A row's subscriptions read from what rows kept before them, and checked as they are set.
+func TestTriggersOf(t *testing.T) {
+	for raw, want := range map[string]string{
+		"all":                              `[{"message":{"from":["*"]}}]`,
+		"at":                               `[]`,
+		"":                                 `[]`,
+		`["*","agent:x"]`:                  `[{"message":{"from":["*","agent:x"]}}]`,
+		`[{"event":["join"],"text":"hi"}]`: `[{"event":["join"],"text":"hi"}]`,
+	} {
+		if got := EncodeTriggers(TriggersOf(raw)); got != want {
+			t.Errorf("%q: %s, want %s", raw, got, want)
+		}
+	}
+	on, err := CleanOn([]api.Trigger{{Event: []string{"people", "join"}}, {Message: &api.MessageTrigger{Words: []string{" a ", "a"}}}}, "agent:me")
+	if err != nil || EncodeTriggers(on) != `[{"event":["join"]},{"message":{"words":["a"]}}]` {
+		t.Fatalf("%s %v", EncodeTriggers(on), err)
+	}
+	for _, bad := range [][]api.Trigger{
+		{{Event: []string{"joinn"}}},
+		{{Message: &api.MessageTrigger{From: []string{"agent:me"}}}},
+		{{Cron: "61 * * * *"}},
+		{{Cron: "0 9 * * *", Command: "x"}},
+		{{}},
+	} {
+		if _, err := CleanOn(bad, "agent:me"); !errors.Is(err, ErrOn) {
+			t.Errorf("%+v: %v", bad, err)
+		}
 	}
 }

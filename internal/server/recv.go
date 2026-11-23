@@ -5,41 +5,34 @@ import (
 	"strings"
 
 	"github.com/kumoSleeping/iridium/internal/api"
-
 	"github.com/kumoSleeping/iridium/internal/channel"
 	"github.com/kumoSleeping/iridium/internal/store"
 )
 
-// recvWords says receive set as a line of the channel says it: "仅 @我" for none, else whom it
-// has, by name ("所有人" for every person).
-func (s *Server) recvWords(ch string, set []string) string {
-	if len(set) == 0 {
-		return "仅 @我"
+// senderWords names an entry of a subscription's from: zh in Chinese for a line of the channel,
+// else in English as the agents are told it.
+func (s *Server) senderWords(e string, zh bool) string {
+	switch {
+	case e == channel.Everyone:
+		return cond(zh, "全体成员", "every person")
+	case strings.HasPrefix(e, "agent:"):
+		id, _ := store.SessionOfMember(e)
+		if n := s.ch.Nick(id); n != "" {
+			return "@" + n
+		}
+		return e
+	case strings.HasPrefix(e, scriptMemberPrefix):
+		return "「" + strings.TrimPrefix(e, scriptMemberPrefix) + "」"
+	case strings.HasSuffix(e, "/*"):
+		app := strings.TrimSuffix(e, "/*")
+		return cond(zh, cmpOr(s.Tag(app), app)+" 全部", "the people of "+cmpOr(s.Tag(app), app))
 	}
-	names := map[string]string{}
 	for _, p := range s.persons() {
-		names[p.member] = p.name
-	}
-	var out []string
-	for _, e := range set {
-		switch {
-		case e == channel.Everyone:
-			out = append(out, "所有人")
-		case strings.HasPrefix(e, "agent:"):
-			id, _ := store.SessionOfMember(e)
-			if n := s.ch.Nick(id); n != "" {
-				out = append(out, "@"+n)
-			} else {
-				out = append(out, e)
-			}
-		case strings.HasSuffix(e, "/*"):
-			app := strings.TrimSuffix(e, "/*")
-			out = append(out, cmpOr(s.Tag(app), app)+" 的所有人")
-		default:
-			out = append(out, cmpOr(names[e], e))
+		if p.member == e {
+			return p.name
 		}
 	}
-	return "@我、" + strings.Join(out, "、")
+	return e
 }
 
 func cmpOr(a, b string) string {
@@ -49,55 +42,65 @@ func cmpOr(a, b string) string {
 	return b
 }
 
-// recvForAgents says receive set as the agents are told it: whom it names, in English; "" for
-// none (only what names it).
-func (s *Server) recvForAgents(set []string) string {
-	if len(set) == 0 {
-		return ""
+// onWords says subscriptions as a line of the channel says them: "仅 @" for none.
+func (s *Server) onWords(on []api.Trigger) string {
+	if len(on) == 0 {
+		return "仅 @"
 	}
-	names := map[string]string{}
-	for _, p := range s.persons() {
-		names[p.member] = p.name
-	}
-	var out []string
-	for _, e := range set {
-		switch {
-		case e == channel.Everyone:
-			out = append(out, "every person")
-		case strings.HasPrefix(e, "agent:"):
-			id, _ := store.SessionOfMember(e)
-			out = append(out, cmpOr(s.ch.Nick(id), e)+"'s last words")
-		case strings.HasSuffix(e, "/*"):
-			app := strings.TrimSuffix(e, "/*")
-			out = append(out, "the people of "+cmpOr(s.Tag(app), app))
-		default:
-			out = append(out, cmpOr(names[e], e))
-		}
-	}
-	return strings.Join(out, ", ")
-}
-
-// triggerWords says a script's triggers as the agents are told them.
-func triggerWords(on []api.Trigger) string {
 	var out []string
 	for _, t := range on {
+		var w string
 		switch {
 		case t.Command != "":
-			out = append(out, "/"+t.Command)
+			w = "/" + t.Command
 		case t.Cron != "":
-			out = append(out, fmt.Sprintf("at %q", t.Cron))
+			w = "定时 " + t.Cron
 		case len(t.Event) > 0:
-			out = append(out, "on "+strings.Join(t.Event, ", "))
+			w = "事件 " + strings.Join(t.Event, "、")
 		case t.Message != nil:
-			w := "messages"
+			w = "消息"
 			if len(t.Message.From) > 0 {
-				w += " of " + strings.Join(t.Message.From, ", ")
+				var from []string
+				for _, e := range t.Message.From {
+					from = append(from, s.senderWords(e, true))
+				}
+				w = strings.Join(from, "、") + " 的消息"
+			}
+			if len(t.Message.Words) > 0 {
+				w += "（含「" + strings.Join(t.Message.Words, "」或「") + "」）"
+			}
+		}
+		out = append(out, w)
+	}
+	return "@、" + strings.Join(out, "；")
+}
+
+// triggerWords says subscriptions as the agents are told them: "" for none.
+func (s *Server) triggerWords(on []api.Trigger) string {
+	var out []string
+	for _, t := range on {
+		var w string
+		switch {
+		case t.Command != "":
+			w = "/" + t.Command
+		case t.Cron != "":
+			w = fmt.Sprintf("at %q", t.Cron)
+		case len(t.Event) > 0:
+			w = "on " + strings.Join(t.Event, ", ")
+		case t.Message != nil:
+			w = "messages"
+			if len(t.Message.From) > 0 {
+				var from []string
+				for _, e := range t.Message.From {
+					from = append(from, s.senderWords(e, false))
+				}
+				w += " of " + strings.Join(from, ", ")
 			}
 			if len(t.Message.Words) > 0 {
 				w += fmt.Sprintf(" with %q", strings.Join(t.Message.Words, `" or "`))
 			}
-			out = append(out, w)
 		}
+		out = append(out, w)
 	}
 	return strings.Join(out, "; ")
 }

@@ -8,11 +8,11 @@
 import { Menu } from "@base-ui/react/menu";
 import { Popover } from "@base-ui/react/popover";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AtSign, MessageCircle, Box, Check, ChevronRight, CircleStop, Eraser, FoldVertical, Mail, PencilLine, Inbox, ScrollText, ShieldCheck, UserMinus } from "lucide-react";
+import { AtSign, MessageCircle, Box, Check, ChevronRight, CircleStop, Eraser, FoldVertical, Mail, PencilLine, Inbox, ScrollText, ShieldCheck, SlidersHorizontal, UserMinus } from "lucide-react";
 import { useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 import { api } from "../../api/client";
 import { stopTurn } from "../live";
-import type { ChannelMembers, Recv, SessionState as LiveSession, Session } from "../../api/types.gen";
+import type { ChannelMembers, SessionState as LiveSession, Session, Trigger } from "../../api/types.gen";
 import { CardHead, MainKey, SecondKey } from "../../card";
 import { t, useLang } from "../../i18n";
 import { ModeMark, modeName } from "../../modes";
@@ -29,8 +29,9 @@ import { useMembers } from "./gate";
 import { memberError } from "./key";
 import { givenKind, givenParts, givenText, ownAgent, type AgentRow, type GivenKind } from "./lib";
 import { memberMenu, type MenuKey } from "./menu";
-import { useRecvLabel, useRecvOptions } from "./recv";
-import { toggle } from "./scripts";
+import { triggerWords, useRecvLabel, useRecvName, useRecvOptions } from "./recv";
+import { OnEditor } from "./script";
+import { fromOf, toggle, triggerLine, withFrom } from "./scripts";
 import { CARD_POP, ProfileCard, useCard, type CardKey } from "./profilecard";
 
 const ITEM = "flex h-8 cursor-default items-center gap-2.5 rounded-md px-2.5 text-base outline-none select-none data-highlighted:bg-fill data-popup-open:bg-fill pointer-coarse:h-11";
@@ -185,12 +186,16 @@ function Pick({ icon, label, now, value, options, set, i }: { icon: ReactNode; l
   );
 }
 
-/** 接收消息 (docs/channels.md "接收"): whom a message that names nobody wakes it by, several at
- *  once. What names it always does (its row checked, not to be pressed); then every person, the
- *  channel's people, its other agents, each pressed in or out, the menu left open. */
-function RecvPick({ channel, a, set, i }: { channel: string; a: AgentRow; set: (r: Recv) => void; i: number }) {
+/** 订阅事件 (docs/channels.md "订阅事件"): what wakes it beside @. What names it always does (its
+ *  row checked, not to be pressed); then whose words do (its plain message subscription): every
+ *  member, the channel's people, its other agents, each pressed in or out, the menu left open;
+ *  its other subscriptions, a line each; 编辑, all of them (edit). */
+function OnPick({ channel, a, set, edit, i }: { channel: string; a: AgentRow; set: (on: Trigger[]) => void; edit: () => void; i: number }) {
   const options = useRecvOptions(channel, a.session);
   const { short } = useRecvLabel(channel);
+  const name = useRecvName(channel);
+  const from = fromOf(a.on);
+  const others = a.on.filter((x) => !(x.message && !x.message.words?.length && !x.text));
   const row = (key: string, on: boolean, face: ReactNode, label: string, run?: () => void, j = 0) => (
     <Menu.Item key={key} closeOnClick={false} disabled={!run} onClick={run} style={{ "--i": j } as CSSProperties} className={cn(ITEM, "data-disabled:text-ink-2")}>
       <span className="grid size-3.5 shrink-0 place-items-center text-ink">{on && <Check size={14} />}</span>
@@ -198,6 +203,7 @@ function RecvPick({ channel, a, set, i }: { channel: string; a: AgentRow; set: (
       <span className="min-w-0 flex-1 truncate">{label}</span>
     </Menu.Item>
   );
+  const n = options.length + 1;
   return (
     <Menu.SubmenuRoot>
       <Menu.SubmenuTrigger style={{ "--i": i } as CSSProperties} className={ITEM}>
@@ -205,7 +211,7 @@ function RecvPick({ channel, a, set, i }: { channel: string; a: AgentRow; set: (
           <Mail size={15} />
         </span>
         <span className="flex-1">{t("channel.recv")}</span>
-        <span className="max-w-36 truncate text-xs text-ink-3">{short(a.recv)}</span>
+        <span className="max-w-36 truncate text-xs text-ink-3">{short(a.on)}</span>
         <ChevronRight size={14} className="text-ink-4" />
       </Menu.SubmenuTrigger>
       <Menu.Portal>
@@ -213,7 +219,14 @@ function RecvPick({ channel, a, set, i }: { channel: string; a: AgentRow; set: (
           <Menu.Popup className={cn(POPUP, "no-bar max-h-[min(480px,var(--available-height))] min-w-52 max-w-[calc(100vw-16px)] overflow-y-auto p-1.5")}>
             <div className="g-stagger flex flex-col">
               {row("@", true, <AtSign size={15} className="shrink-0 text-ink-2" />, t("channel.recvMention"))}
-              {options.map((o, j) => row(o.entry, a.recv.includes(o.entry), o.face, o.label, () => set(toggle(a.recv, o.entry)), j + 1))}
+              {options.map((o, j) => row(o.entry, from.includes(o.entry), o.face, o.label, () => set(withFrom(a.on, toggle(from, o.entry))), j + 1))}
+              {others.map((x, j) => row(`on${j}`, true, <span className="size-4 shrink-0" />, triggerLine(x, name, triggerWords()), undefined, n + j))}
+              <Menu.Item onClick={() => requestAnimationFrame(edit)} style={{ "--i": n + others.length } as CSSProperties} className={ITEM}>
+                <span className="grid size-3.5 shrink-0 place-items-center text-ink-2">
+                  <SlidersHorizontal size={14} />
+                </span>
+                <span className="min-w-0 flex-1 truncate">{t("channel.onEdit")}</span>
+              </Menu.Item>
             </div>
           </Menu.Popup>
         </Menu.Positioner>
@@ -223,8 +236,8 @@ function RecvPick({ channel, a, set, i }: { channel: string; a: AgentRow; set: (
 }
 
 /** What a member's menu asks with a card or a popover at its anchor: 移出 (asked first),
- *  注入记录, 编辑资料. */
-export type AskKind = "remove" | "given" | "edit";
+ *  注入记录, 编辑资料, 订阅事件 whole. */
+export type AskKind = "remove" | "given" | "edit" | "on";
 export type Ask = { kind: AskKind; a: AgentRow };
 
 /** The cards and the popover a member's menu opens, at anchor (the face; the members' key for
@@ -246,6 +259,9 @@ export function MemberAsks({ channel, anchor, asked, done }: { channel: string; 
       {/* 编辑资料 from the menu: out of the face (or the members' key), as the card's own. */}
       <At anchor={anchor} open={open("edit")} onOpenChange={set} className={CARD_POP}>
         <EditBody editing={{ channel, agent: x.a.session }} done={done} />
+      </At>
+      <At anchor={anchor} open={open("on")} onOpenChange={set} className={CARD_POP}>
+        <OnEditor key={x.a.member + JSON.stringify(x.a.on)} channel={channel} member={x.a.member} on={x.a.on} done={done} />
       </At>
     </>
   );
@@ -290,12 +306,13 @@ function Items({ channel, a, s, may, call, record, ask }: Parameters<typeof Memb
   const m = useModelMenu(s);
   const mine = ownAgent(channel, a);
   const act = (f: () => Promise<unknown>, err: string) => () => void f().catch((e) => toast(err, { error: true, description: errText(e) }));
-  // A receive set, whole, as each entry is pressed: shown at once, then as the server has it.
-  const recv = (r: Recv) => {
+  // Its subscriptions, whole, as each sender is pressed: shown at once, then as the server has
+  // them; a ring they make told.
+  const setOn = (on: Trigger[]) => {
     const was = qc.getQueryData<ChannelMembers>(["members", channel]);
-    if (was) qc.setQueryData<ChannelMembers>(["members", channel], { ...was, members: was.members.map((m) => (m.member === a.member ? { ...m, recv: r } : m)) });
-    void api.patchMember(channel, a.member, { recv: r }).then(
-      (ms) => qc.setQueryData<ChannelMembers>(["members", channel], ms),
+    if (was) qc.setQueryData<ChannelMembers>(["members", channel], { ...was, members: was.members.map((m) => (m.member === a.member ? { ...m, on } : m)) });
+    void api.patchMember(channel, a.member, { on }).then(
+      (ms) => (qc.setQueryData<ChannelMembers>(["members", channel], ms), ms.warn?.length && toast(t("script.loop"), { description: ms.warn.join("\n") })),
       (e) => (was && qc.setQueryData<ChannelMembers>(["members", channel], was), toast(t("err.action"), { error: true, description: memberError(e) })),
     );
   };
@@ -353,7 +370,7 @@ function Items({ channel, a, s, may, call, record, ask }: Parameters<typeof Memb
       />
     ),
     stop: (i) => item(i, <CircleStop size={15} />, t("channel.stop"), () => void stopTurn(a.session)),
-    recv: (i) => <RecvPick key="recv" channel={channel} a={a} set={recv} i={i} />,
+    recv: (i) => <OnPick key="recv" channel={channel} a={a} set={setOn} edit={() => ask("on")} i={i} />,
     edit: (i) => item(i, <PencilLine size={15} />, t("profile.edit"), later(() => ask("edit"))),
     session: (i) => item(i, <ScrollText size={15} />, t("channel.session"), () => view?.()),
     given: (i) => item(i, <Inbox size={15} />, t("channel.given"), later(() => ask("given"))),

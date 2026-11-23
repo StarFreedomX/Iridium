@@ -12,14 +12,18 @@ import (
 	"cmp"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/kumoSleeping/iridium/internal/activity"
 	"github.com/kumoSleeping/iridium/internal/api"
+	"github.com/kumoSleeping/iridium/internal/cron"
+	"github.com/kumoSleeping/iridium/internal/deliver"
 	"github.com/kumoSleeping/iridium/internal/store"
 	"github.com/kumoSleeping/iridium/internal/transcript"
 )
@@ -33,44 +37,52 @@ const (
 	KindNote  = "note"  // Iridium's own line: who joined, a message not passed on
 )
 
-// What a person member is shown: RecvAll, everything said. An agent's row keeps its receive
-// set instead (RecvSet), as JSON; RecvAll and RecvAt are what rows said before (["*"], []).
-const (
-	RecvAll = "all"
-	RecvAt  = "at"
-)
+// PersonRow is what a person member's row keeps where an agent's keeps its subscriptions.
+const PersonRow = "all"
 
-// RecvSet is the receive set an agent's row keeps (docs/channels.md "接收"): the senders whose
-// messages that name nobody wake it. Rows from before the sets: "all" is ["*"], "at" none.
-func RecvSet(recv string) []string {
-	switch recv {
-	case RecvAll:
-		return []string{Everyone}
-	case RecvAt, "":
-		return []string{}
+// EveryoneOn is the subscription an agent of its own channel has by default where nobody chose
+// one (the sessions from before 2026-11-23): the words of every person wake it.
+var EveryoneOn = []api.Trigger{{Message: &api.MessageTrigger{From: []string{Everyone}}}}
+
+// TriggersOf are the subscriptions an agent's row keeps (docs/channels.md "订阅事件"): what
+// wakes it beside what names it. Rows from before them: a receive set ["*", …] is one message
+// subscription from those, "all" every person's words, "at" or none nothing.
+func TriggersOf(raw string) []api.Trigger {
+	switch raw {
+	case PersonRow:
+		return slices.Clone(EveryoneOn)
+	case "at", "":
+		return []api.Trigger{}
 	}
-	var out []string
-	if json.Unmarshal([]byte(recv), &out) != nil || out == nil {
-		return []string{}
+	var on []api.Trigger
+	if json.Unmarshal([]byte(raw), &on) == nil && on != nil {
+		return on
 	}
-	return out
+	var set []string
+	if json.Unmarshal([]byte(raw), &set) == nil && len(set) > 0 {
+		return []api.Trigger{{Message: &api.MessageTrigger{From: set}}}
+	}
+	return []api.Trigger{}
 }
 
-// EncodeRecv is set as an agent's row keeps it.
-func EncodeRecv(set []string) string {
-	if set == nil {
-		set = []string{}
+// EncodeTriggers is on as a row keeps it.
+func EncodeTriggers(on []api.Trigger) string {
+	if on == nil {
+		on = []api.Trigger{}
 	}
-	b, _ := json.Marshal(set)
+	b, _ := json.Marshal(on)
 	return string(b)
 }
 
-// ErrRecv: an entry of a receive set is none of the senders there are.
-var ErrRecv = errors.New(`recv: a list of "*" (every person), "<app>/*", "<app>/<login>", "agent:<session>"`)
+// ErrOn: a subscription is none there may be.
+var ErrOn = errors.New("on")
 
-// CleanRecv checks set's entries and drops those twice; self (an agent's own member) may not be
+// errFrom: an entry of a message subscription's from is none of the senders there are.
+var errFrom = errors.New("from")
+
+// cleanFrom checks set's entries and drops those twice; self (an agent's own member) may not be
 // one, nor may the agents' "agent:*".
-func CleanRecv(set []string, self string) ([]string, error) {
+func cleanFrom(set []string, self string) ([]string, error) {
 	out := []string{}
 	for _, e := range set {
 		e = strings.TrimSpace(e)
@@ -81,13 +93,96 @@ func CleanRecv(set []string, self string) ([]string, error) {
 			ok = app != "" && login != "" && !strings.Contains(login, "/")
 		}
 		if !ok {
-			return nil, ErrRecv
+			return nil, errFrom
 		}
 		if !slices.Contains(out, e) {
 			out = append(out, e)
 		}
 	}
 	return out, nil
+}
+
+// TextMax is the most an event's Text may be, in characters.
+const TextMax = 2000
+
+// CleanOn checks the subscriptions of self (an agent's member, a script's: what it may not
+// subscribe to of its own; "" none), each of one kind: Message (from as cleanFrom, words
+// trimmed and each once), Command (a name), Cron (as cron reads it), Event (of api.Events).
+// The kinds from before them (recv, script, people) are read as theirs now (on, join).
+func CleanOn(on []api.Trigger, self string) ([]api.Trigger, error) {
+	out := make([]api.Trigger, 0, len(on))
+	for i, t := range on {
+		at := func(f string, a ...any) error {
+			return fmt.Errorf("%w[%d].%s", ErrOn, i, fmt.Sprintf(f, a...))
+		}
+		kinds := 0
+		if t.Message != nil {
+			kinds++
+			from, err := cleanFrom(t.Message.From, self)
+			if err != nil {
+				return nil, at(`message.from: a list of "*" (every person), "<app>/*", "<app>/<login>", "agent:<session>", not its own`)
+			}
+			var words []string
+			for _, w := range t.Message.Words {
+				if w = strings.TrimSpace(w); w != "" && !slices.Contains(words, w) {
+					words = append(words, w)
+				}
+			}
+			t.Message = &api.MessageTrigger{Words: words}
+			if len(from) > 0 {
+				t.Message.From = from
+			}
+		}
+		if t.Command != "" {
+			kinds++
+			t.Command = strings.TrimPrefix(strings.TrimSpace(t.Command), "/")
+			if !deliver.ValidNick(t.Command) {
+				return nil, at("command: a name, letters, digits, _ and -")
+			}
+		}
+		if t.Cron != "" {
+			kinds++
+			t.Cron = strings.Join(strings.Fields(t.Cron), " ")
+			if _, err := cron.Parse(t.Cron); err != nil {
+				return nil, at("cron: %v", err)
+			}
+		}
+		if len(t.Event) > 0 {
+			kinds++
+			var evs []string
+			for _, e := range t.Event {
+				e = EventKind(e)
+				if !slices.Contains(api.Events, e) {
+					return nil, at("event %q: of %s", e, strings.Join(api.Events, " "))
+				}
+				if !slices.Contains(evs, e) {
+					evs = append(evs, e)
+				}
+			}
+			t.Event = evs
+		}
+		if kinds != 1 {
+			return nil, at("each one of message, command, cron, event")
+		}
+		t.Text = strings.TrimSpace(t.Text)
+		if utf8.RuneCountInString(t.Text) > TextMax {
+			return nil, at("text: at most %d characters", TextMax)
+		}
+		out = append(out, t)
+	}
+	return out, nil
+}
+
+// EventKind is the subscription's name of a kind of line from before the subscriptions:
+// "recv" and "script" are "on", "people" "join" (and "leave").
+func EventKind(e string) string {
+	switch e = strings.TrimSpace(e); e {
+	case "recv", "script":
+		return "on"
+	case "people":
+		return "join"
+	}
+	return e
 }
 
 // Everyone is the member that is every login of every app: a channel nobody chose the people
@@ -112,7 +207,7 @@ type Data struct {
 	// stretch of its own record (Session's) that led to it: the lines it spans. From nil: not
 	// known where it began (0 is a place: a session called first, its record empty then).
 	From *int64 `json:"from,omitempty"`
-	To   int64 `json:"to,omitempty"`
+	To   int64  `json:"to,omitempty"`
 	// Final: the last thing the agent said in its turn.
 	Final bool `json:"final,omitempty"`
 	// Sent: an agent's words said with ir, or for it as its turn ended (then Final), not read
@@ -132,28 +227,32 @@ type Data struct {
 	Device string `json:"device,omitempty"`
 	// Script: the script of the channel's IR that said it (its author "script:<name>").
 	Script string `json:"script,omitempty"`
+	// Held: said in a session's own channel without waking its agent (none of its subscriptions
+	// was for it): given to it before what next wakes it there.
+	Held bool `json:"held,omitempty"`
 }
 
 // Event is something that happened to a channel, kept as a line of it. Type: "join" (an agent
 // joined: Member, Nick, Name), "leave" (Member, Nick), "rename" (Member, Nick its new one, From
-// its old), "recv" (Member, Nick, Recv: its receive set now), "people" (Added, Removed: member strings; Everyone:
+// its old), "on" (Member, Nick, On: its subscriptions now; "recv" before them, Recv its receive set), "people" (Added, Removed: member strings; Everyone:
 // now everyone), "undelivered" (Seq not given to Nick), "stopped" (Seq not passed on: too many
 // agents in a row), "silent" (Member, Nick was called for Seq and said nothing in the channel;
 // Reason: why, when its turn ended in an error: 余额不足, an API's words…), "recall" (Seq was
 // taken back by Member: recall.go). By: who did it, by name.
 type Event struct {
-	Type     string   `json:"type"`
-	Member   string   `json:"member,omitempty"`
-	Nick     string   `json:"nick,omitempty"`
-	Name     string   `json:"name,omitempty"`
-	From     string   `json:"from,omitempty"`
-	Recv     []string `json:"recv,omitempty"`
-	Added    []string `json:"added,omitempty"`
-	Removed  []string `json:"removed,omitempty"`
-	Everyone bool     `json:"everyone,omitempty"`
-	Seq      int64    `json:"seq,omitempty"`
-	Reason   string   `json:"reason,omitempty"`
-	By       string   `json:"by,omitempty"`
+	Type     string        `json:"type"`
+	Member   string        `json:"member,omitempty"`
+	Nick     string        `json:"nick,omitempty"`
+	Name     string        `json:"name,omitempty"`
+	From     string        `json:"from,omitempty"`
+	Recv     []string      `json:"recv,omitempty"`
+	On       []api.Trigger `json:"on,omitempty"`
+	Added    []string      `json:"added,omitempty"`
+	Removed  []string      `json:"removed,omitempty"`
+	Everyone bool          `json:"everyone,omitempty"`
+	Seq      int64         `json:"seq,omitempty"`
+	Reason   string        `json:"reason,omitempty"`
+	By       string        `json:"by,omitempty"`
 	// What: for "profile" (a card changed: Member's, or the channel's when there is none), the
 	// fields that did: "name", "intro", "avatar", "background".
 	What []string `json:"what,omitempty"`
@@ -174,7 +273,7 @@ func read(m store.ChannelMessage) Message {
 }
 
 func (d Data) encode() string {
-	if d.Session == "" && d.Block == "" && d.From == nil && d.To == 0 && len(d.Files) == 0 && !d.Final && !d.Sent && d.Quote == 0 && d.Card == "" && d.Activity == nil && d.Event == nil && d.Script == "" {
+	if d.Session == "" && d.Block == "" && d.From == nil && d.To == 0 && len(d.Files) == 0 && !d.Final && !d.Sent && d.Quote == 0 && d.Card == "" && d.Activity == nil && d.Event == nil && d.Script == "" && !d.Held {
 		return ""
 	}
 	b, _ := json.Marshal(d)
@@ -191,8 +290,8 @@ type Member struct {
 
 func (m Member) Agent() bool { return m.Session != "" }
 
-// RecvSet is an agent member's receive set.
-func (m Member) RecvSet() []string { return RecvSet(m.Recv) }
+// On are an agent member's subscriptions.
+func (m Member) On() []api.Trigger { return TriggersOf(m.Triggers) }
 
 // Direct: the channel is the agent's own session's: what it was given there is in its record as
 // the channel's own words, not as a channel's message (every agent's words go where it was
@@ -268,6 +367,23 @@ func (s *Service) members() *index {
 	return ix
 }
 
+// Subscribers are the agents of every channel that have subscriptions of their own, as written
+// (a channel nobody changed the members of keeps its own agent's default: words alone).
+func (s *Service) Subscribers() []Member {
+	ix := s.members()
+	var out []Member
+	for _, rows := range ix.rows {
+		for _, r := range rows {
+			id, ok := store.SessionOfMember(r.Member)
+			if !ok || r.Triggers == "" || r.Triggers == "[]" {
+				continue
+			}
+			out = append(out, Member{ChannelMember: r, Session: id, Nick: ix.nicks[id]})
+		}
+	}
+	return out
+}
+
 // changed: the members were written; read them again.
 func (s *Service) changed() {
 	s.imu.Lock()
@@ -307,7 +423,9 @@ func (s *Service) Owns() []store.Channel {
 	for _, c := range ix.own {
 		out = append(out, c)
 	}
-	slices.SortFunc(out, func(a, b store.Channel) int { return cmp.Or(cmp.Compare(a.Created, b.Created), cmp.Compare(a.ID, b.ID)) })
+	slices.SortFunc(out, func(a, b store.Channel) int {
+		return cmp.Or(cmp.Compare(a.Created, b.Created), cmp.Compare(a.ID, b.ID))
+	})
 	return out
 }
 
@@ -336,9 +454,9 @@ func (s *Service) Members(channel string) ([]Member, error) {
 	ix := s.members()
 	rows := ix.rows[channel]
 	if len(rows) == 0 {
-		rows = []store.ChannelMember{{Channel: channel, Member: Everyone, Recv: RecvAll}}
+		rows = []store.ChannelMember{{Channel: channel, Member: Everyone, Triggers: PersonRow}}
 		if _, own := ix.own[channel]; !own {
-			rows = append(rows, store.ChannelMember{Channel: channel, Member: store.AgentMember(channel), Recv: EncodeRecv([]string{Everyone}), Send: store.SendDirect})
+			rows = append(rows, store.ChannelMember{Channel: channel, Member: store.AgentMember(channel), Triggers: EncodeTriggers(EveryoneOn), Send: store.SendDirect})
 		}
 	}
 	out := make([]Member, len(rows))

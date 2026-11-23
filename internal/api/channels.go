@@ -5,21 +5,21 @@ import "encoding/json"
 // ChannelMember is a member of a channel (docs/channels.md). Member: "agent:<session>", an
 // app's login "<app>/<login>", or all of an app's "<app>/*". An agent's: Session, the session
 // it is; Agent, its harness; Name, what it runs as now ("Claude Opus 5.5 High"); Nick, what it is
-// called by, in every channel (@nick); Status, its lamp; Cwd, Machine, where it runs. Recv: an
-// agent's receive set (Recv), what wakes it beside what names it. What an agent writes in a turn
+// called by, in every channel (@nick); Status, its lamp; Cwd, Machine, where it runs. On: an
+// agent's subscriptions (Trigger), what wakes it beside what names it. What an agent writes in a turn
 // a channel called is said in that channel. Seen: the number of the last message the agent was
 // given.
 type ChannelMember struct {
-	Member  string `json:"member"`
-	Session string `json:"session,omitempty"`
-	Agent   Agent  `json:"agent,omitempty"`
-	Name    string `json:"name,omitempty"`
-	Nick    string `json:"nick,omitempty"`
-	Recv    Recv   `json:"recv,omitempty"`
-	Seen    int64  `json:"seen,omitempty"`
-	Status  Status `json:"status,omitempty"`
-	Cwd     string `json:"cwd,omitempty"`
-	Machine string `json:"machine,omitempty"`
+	Member  string    `json:"member"`
+	Session string    `json:"session,omitempty"`
+	Agent   Agent     `json:"agent,omitempty"`
+	Name    string    `json:"name,omitempty"`
+	Nick    string    `json:"nick,omitempty"`
+	On      []Trigger `json:"on,omitempty"`
+	Seen    int64     `json:"seen,omitempty"`
+	Status  Status    `json:"status,omitempty"`
+	Cwd     string    `json:"cwd,omitempty"`
+	Machine string    `json:"machine,omitempty"`
 	// Its card (Profile): Intro; Avatar, Background where they are an emoji or a colour, or the
 	// background's image; Role, the role its session was started as.
 	Intro      string `json:"intro,omitempty"`
@@ -38,23 +38,25 @@ type ChannelMembers struct {
 	// joined, it only reads. Me: the member the caller is as a login ("<app>/<login>").
 	Joined bool   `json:"joined"`
 	Me     string `json:"me,omitempty"`
+	// Warn: what a change just made may lead to (a loop of subscriptions), a line each.
+	Warn []string `json:"warn,omitempty"`
 }
 
 // NewMember adds an agent to a channel: Session, a session there is; else a new session of
 // Agent (Model, Mode, Effort, Preset as NewSession's) started in Cwd at Machine (none: the
 // channel's folder), listed there as any session. Nick: what it is called by ("": the one it
-// has, else one made); Recv: what wakes it beside what names it (none: nothing).
+// has, else one made); On: what wakes it beside what names it (none: nothing).
 type NewMember struct {
-	Session string `json:"session,omitempty"`
-	Agent   Agent  `json:"agent,omitempty"`
-	Cwd     string `json:"cwd,omitempty"`
-	Machine string `json:"machine,omitempty"`
-	Model   string `json:"model,omitempty"`
-	Mode    string `json:"mode,omitempty"`
-	Effort  string `json:"effort,omitempty"`
-	Preset  string `json:"preset,omitempty"`
-	Nick    string `json:"nick,omitempty"`
-	Recv    Recv   `json:"recv,omitempty"`
+	Session string    `json:"session,omitempty"`
+	Agent   Agent     `json:"agent,omitempty"`
+	Cwd     string    `json:"cwd,omitempty"`
+	Machine string    `json:"machine,omitempty"`
+	Model   string    `json:"model,omitempty"`
+	Mode    string    `json:"mode,omitempty"`
+	Effort  string    `json:"effort,omitempty"`
+	Preset  string    `json:"preset,omitempty"`
+	Nick    string    `json:"nick,omitempty"`
+	On      []Trigger `json:"on,omitempty"`
 	// Role: start it as this role (its id or name): the role's agent, model, preset and card,
 	// where the fields above say nothing; its effort and mode are these fields' or the agent's
 	// own. Intro, Persona, Avatar, Background: its card (ProfilePatch).
@@ -71,41 +73,10 @@ type NewMember struct {
 	Greet bool `json:"greet,omitempty"`
 }
 
-// MemberPatch changes a member: its nick, an agent's receive set (Recv; [] only what names it).
+// MemberPatch changes a member: its nick, an agent's subscriptions (On; [] only what names it).
 type MemberPatch struct {
-	Nick *string `json:"nick,omitempty"`
-	Recv *Recv   `json:"recv,omitempty"`
-}
-
-// Recv is what wakes an agent of a channel beside what names it (docs/channels.md "接收"): the
-// senders whose messages that name nobody it is given. "*" every person (not an agent),
-// "<app>/*" an app's logins, "<app>/<login>" one login, "agent:<session>" an agent (its turn's
-// last words). Empty: only what names it. Read from JSON, the old words go too: "all" is ["*"],
-// "at" is [].
-type Recv []string
-
-func (r *Recv) UnmarshalJSON(b []byte) error {
-	var word string
-	if json.Unmarshal(b, &word) == nil {
-		switch word {
-		case "all":
-			*r = Recv{"*"}
-		case "at", "":
-			*r = Recv{}
-		default:
-			*r = Recv{word}
-		}
-		return nil
-	}
-	var list []string
-	if err := json.Unmarshal(b, &list); err != nil {
-		return err
-	}
-	*r = Recv(list)
-	if *r == nil {
-		*r = Recv{}
-	}
-	return nil
+	Nick *string    `json:"nick,omitempty"`
+	On   *[]Trigger `json:"on,omitempty"`
 }
 
 // Injection is what an agent was given once (docs/channels.md "可追溯"): for message Seq of
@@ -144,9 +115,10 @@ type Spawned struct {
 type ChannelSetup struct {
 	Agents []NewMember `json:"agents,omitempty"`
 	People []string    `json:"people,omitempty"`
-	// Nick, Recv: the first agent's own (the session's), as NewMember's; none: made, ["*"].
-	Nick string `json:"nick,omitempty"`
-	Recv Recv   `json:"recv,omitempty"`
+	// Nick, On: the first agent's own (the session's), as NewMember's; On none: the messages of
+	// whoever makes it (docs/channels.md "订阅事件").
+	Nick string    `json:"nick,omitempty"`
+	On   []Trigger `json:"on,omitempty"`
 }
 
 // ChannelReads is how far each member has read a channel (GET …/reads, the carried state
