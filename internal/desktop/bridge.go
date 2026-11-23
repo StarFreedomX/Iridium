@@ -230,9 +230,25 @@ func (u *ui) hideOnClose(w *mygo.Window) {
 //     the page go there, and did nothing for target=_blank: kumo, 2026-11-23);
 //   - a download is saved in Downloads, then shown in Finder or Explorer (Wails dropped them);
 //   - the microphone, the camera and notifications are its own Iridium's (voice rooms), nothing
-//     else is; no other page gets anything.
+//     else is; no other page gets anything;
+//   - its web process gone (killed by the system: WebKit's 8 GB a page, kumo, 2026-11-23, the
+//     window white from then on, its keys dead with the page), the page is loaded again, and
+//     the log says so. Not one gone again within a minute: that page does not stay up, and the
+//     window is left as it is rather than loaded over and over.
+// pageLog is the app's log (appLog), for what has no logf handed to it.
+var pageLog = sync.OnceValue(appLog)
+
 func guard(w *mygo.Window, origin string) {
 	p := w.Page()
+	var gone time.Time
+	p.OnRenderProcessGone(func(reason string) {
+		again := time.Since(gone) < time.Minute
+		gone = time.Now()
+		pageLog()("page %s: web process gone (%s), reload: %v", origin, reason, !again)
+		if !again {
+			p.Reload()
+		}
+	})
 	p.OnPageTitleUpdated(func(e *mygo.TitleEvent) { e.PreventDefault() })
 	p.OnWillNavigate(func(e *mygo.NavigateEvent) {
 		o := originOf(e.URL)

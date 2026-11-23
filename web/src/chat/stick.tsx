@@ -61,6 +61,49 @@ export const letGo = (el: HTMLElement | null) => el && goes.get(el)?.();
 const rests = new WeakMap<HTMLElement, () => boolean>();
 export const restsAtEnd = (el: HTMLElement) => rests.get(el)?.() ?? false;
 
+/** What of the column is seen in the list at some moment of a glide from y px off its place to it
+ *  (and a little past it, the spring's swing): its rows, from the end up, as the glide is mostly at
+ *  the end, so a long conversation is not measured whole. A row much taller than the list (a turn
+ *  at work, its steps open) is not taken whole either: what is seen of its own rows is, as far
+ *  down as it is only a box around them (nothing drawn of its own, nothing clipped). */
+const seenIn = (list: HTMLElement, col: HTMLElement, y: number) => {
+  const view = list.getBoundingClientRect();
+  const swing = Math.abs(y) / 4 + 48;
+  const top = view.top + Math.min(0, -y) - swing;
+  const bottom = view.bottom + Math.max(0, -y) + swing;
+  const tall = view.height * 2;
+  const out: HTMLElement[] = [];
+  const take = (box: Element, depth: number) => {
+    for (let r = box.lastElementChild; r; r = r.previousElementSibling) {
+      if (!(r instanceof HTMLElement)) continue;
+      const b = r.getBoundingClientRect();
+      // No box of its own (display: contents): its rows are the box's.
+      if (!b.width && !b.height) {
+        if (r.firstElementChild && depth < 8) take(r, depth + 1);
+        continue;
+      }
+      if (b.bottom < top) {
+        // The column's rows are one under another: none above this one is seen.
+        if (!depth) break;
+        continue;
+      }
+      if (b.top > bottom) continue;
+      if (b.height > tall && depth < 8 && onlyABox(r)) take(r, depth + 1);
+      else out.push(r);
+    }
+  };
+  take(col, 0);
+  return out;
+};
+/** Whether el is only a box around its rows: they can be moved in its stead. */
+const onlyABox = (el: HTMLElement) => {
+  if (!el.firstElementChild) return false;
+  for (const n of el.childNodes) if (n.nodeType === Node.TEXT_NODE && n.nodeValue?.trim()) return false;
+  const cs = getComputedStyle(el);
+  const clear = (c: string) => c === "transparent" || /,\s*0\)$/.test(c);
+  return cs.overflowX === "visible" && cs.overflowY === "visible" && cs.backgroundImage === "none" && clear(cs.backgroundColor) && !parseFloat(cs.borderTopWidth) && !parseFloat(cs.borderBottomWidth) && !parseFloat(cs.borderLeftWidth) && !parseFloat(cs.borderRightWidth) && cs.boxShadow === "none" && !/^(inline|table)/.test(cs.display);
+};
+
 /** Whether a box inside the list, between it and target, takes a scroll up itself (a long output
  *  scrolled in place): the list does not move, so the newest is not let go. */
 const inner = (target: EventTarget | null, list: HTMLElement) => {
@@ -107,6 +150,42 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
   // to the glide's transform), and glided from there once it is. Rows changing places in it
   // (moves.ts) and the glide wait for each other the same way.
   const anim = useRef<Animation | null>(null);
+  // The glide moves the rows it is seen on, each by the same keyframes, not the column: a whole
+  // conversation (tens of thousands of px) as one animated layer had WebKit keep drawn buffers for
+  // all of it, each glide again (kumo, 2026-11-23: a page at 8 GB in an hour, killed, the window
+  // white; measured there: a column of 90000px, 250 MB at rest, 1600 MB gliding whole). anim is
+  // the first of them, by which the glide is timed; glides, all of them, and what each is on.
+  const glides = useRef<Animation[]>([]);
+  const gliding = useRef<HTMLElement[]>([]);
+  const path = useRef<{ frames: Keyframe[]; opts: KeyframeAnimationOptions } | null>(null);
+  const stopGlide = () => {
+    for (const a of glides.current) a.cancel();
+    glides.current = [];
+    gliding.current = [];
+    path.current = null;
+    anim.current = null;
+  };
+  /** What came into the conversation while a glide is under way that goes on as it is (held):
+   *  it moves with the rows around it, not drawn at its place among them still on their way. */
+  const join = (el: HTMLElement, col: HTMLElement) => {
+    const a = anim.current;
+    const p = path.current;
+    if (!p || a?.playState !== "running") return;
+    const now = (document.timeline.currentTime as number | null) ?? performance.now();
+    const on = gliding.current;
+    for (const r of seenIn(el, col, springAt(spring.current, now, springW()).y)) {
+      // Not one moving already, nor in one or around one.
+      if (on.some((o) => o === r || o.contains(r) || r.contains(o))) continue;
+      const b = r.animate(p.frames, p.opts);
+      try {
+        b.startTime = a.startTime;
+      } catch {
+        // No timeline time.
+      }
+      glides.current.push(b);
+      on.push(r);
+    }
+  };
   const heldBy = useRef(0);
   const setHeld = (col: HTMLElement, px: number) => {
     heldBy.current = px;
@@ -292,7 +371,8 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
   const glide = (by: number, settling = false, send = false) => {
     const el = list.current;
     const col = el && colOf(el);
-    if (!el || !col || !by || reduced() || document.hidden) return;
+    if (!el || !col || reduced() || document.hidden) return;
+    if (!by) return join(el, col);
     // By the timeline's clock: where the one running is, is where the compositor draws it.
     const now = (document.timeline.currentTime as number | null) ?? performance.now();
     const w = springW();
@@ -308,11 +388,10 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     const cur = running ? springAt(spring.current, now, w) : { y: 0, v: 0 };
     // Against the glide under way: held till that is done. So is anything while a message sent
     // goes up: the send is one move, what comes meanwhile comes after it (kumo, 2026-11-23).
-    if (!together && running && ((by * cur.y < 0 && Math.abs(cur.y) >= 0.5) || sending.current === anim.current)) return setHeld(col, heldBy.current + by);
+    if (!together && running && ((by * cur.y < 0 && Math.abs(cur.y) >= 0.5) || sending.current === anim.current)) return (setHeld(col, heldBy.current + by), join(el, col));
     // The send's glide, gone on by what came with it (that frame), is still the send's.
     const wasSend = together && !!anim.current && sending.current === anim.current;
-    anim.current?.cancel();
-    anim.current = null;
+    stopGlide();
     const y = Math.max(-el.clientHeight, Math.min(el.clientHeight, cur.y + by));
     // Never past its place and back: at most as fast towards it as comes to rest there.
     const v = (cur.v + w * y) * y < 0 ? -w * y : cur.v;
@@ -331,7 +410,13 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     const frames: Keyframe[] = [];
     for (let i = 0; i < N; i++) frames.push({ transform: `translateY(${springAt(spring.current, now + wait + (T * i) / N, w).y.toFixed(2)}px)` });
     frames.push({ transform: "none" });
-    const a = col.animate(frames, { duration: T, easing: "linear", delay: wait, fill: "backwards" });
+    const rows = seenIn(el, col, y);
+    if (!rows.length) return;
+    // Waiting for rows changing places (moves.ts), it is added to their move, as the column's
+    // transform was; else it is the row's only one, and the compositor's to run.
+    const opts: KeyframeAnimationOptions = { duration: T, easing: "linear", delay: wait, fill: "backwards", composite: wait ? "add" : "replace" };
+    const all = rows.map((r) => r.animate(frames, opts));
+    const a = all[0];
     occupy(col, "push", wait + T);
     // Done: what was held meanwhile glides from where it is drawn.
     a.onfinish = () => {
@@ -344,10 +429,13 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     // Begun now, not when the page next has time for it: a page busy drawing what came (several
     // agents' rows) held each new glide at its first frame meanwhile.
     try {
-      a.startTime = now;
+      for (const b of all) b.startTime = now;
     } catch {
       // No timeline time (a page not shown): it begins when it can.
     }
+    glides.current = all;
+    gliding.current = rows;
+    path.current = { frames, opts };
     anim.current = a;
     begun.current = now;
     if (send || wasSend) sending.current = a;
@@ -400,10 +488,9 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     const el = list.current;
     const col = el?.firstElementChild as HTMLElement | null;
     if (!el || !col || anim.current?.playState !== "running") return;
-    const tr = getComputedStyle(col).transform;
-    const at = (tr && tr !== "none" ? new DOMMatrixReadOnly(tr).m42 : 0) + heldBy.current;
-    anim.current.cancel();
-    anim.current = null;
+    const now = (document.timeline.currentTime as number | null) ?? performance.now();
+    const at = springAt(spring.current, now, springW()).y + heldBy.current;
+    stopGlide();
     setHeld(col, 0);
     if (Math.abs(at) < 0.5) return;
     el.scrollTop -= at;
@@ -519,7 +606,7 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
       el.removeEventListener("wheel", wheel);
       for (const k of ["touchstart", "touchmove", "touchend", "touchcancel"] as const) el.removeEventListener(k, touch);
       el.removeEventListener("keydown", key);
-      anim.current?.cancel();
+      stopGlide();
       const end = bottomOf(el) - el.scrollTop < END;
       place.top = end ? null : el.scrollTop;
     };
