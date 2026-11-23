@@ -49,6 +49,7 @@ func (u *ui) showPicker() {
 	}
 	c, _ := loadConfig()
 	reply(p, u.pageState(c))
+	u.keepOnScreen() // left on a screen taken away: on the main one
 	// On the screen of the window used last (kumo, 2026-11-22: it came back on the screen it was
 	// last on, away from where one works), in the middle of it.
 	u.mu.Lock()

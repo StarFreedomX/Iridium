@@ -87,6 +87,14 @@ func (u *ui) newWindow(address, link string) {
 		opts.Width, opts.Height = front.Size()
 		opts.X, opts.Y = x+28, y+28
 	}
+	// A place left on a screen no longer there (a second screen taken away) is not kept: the
+	// window comes in the middle of the main screen instead (QGI, 2026-11-23: off every screen).
+	if !onScreen(mygo.Rectangle{X: opts.X, Y: opts.Y, Width: opts.Width, Height: opts.Height}) {
+		opts.X, opts.Y = 0, 0 // mygo centres it
+		if wa := mygo.Screen.PrimaryDisplay().WorkArea; wa.Width > 0 {
+			opts.Width, opts.Height = min(opts.Width, wa.Width), min(opts.Height, wa.Height)
+		}
+	}
 	w := mygo.NewWindow(opts)
 	if runtime.GOOS != "darwin" && len(u.icon) > 0 {
 		_ = w.SetIcon(u.icon)
@@ -95,4 +103,43 @@ func (u *ui) newWindow(address, link string) {
 	u.watch(w, name)
 	followMax(w)
 	w.Focus()
+}
+
+// onScreen: is enough of r on a screen there now to take hold of it (its top strip, which drags
+// it: 120 by 40 points of it)? A zero place (X and Y 0) is mygo's centred, always on one.
+func onScreen(r mygo.Rectangle) bool {
+	if r.X == 0 && r.Y == 0 {
+		return true
+	}
+	top := mygo.Rectangle{X: r.X, Y: r.Y, Width: r.Width, Height: 40}
+	for _, d := range mygo.Screen.Displays() {
+		wa := d.WorkArea
+		w := min(top.X+top.Width, wa.X+wa.Width) - max(top.X, wa.X)
+		h := min(top.Y+top.Height, wa.Y+wa.Height) - max(top.Y, wa.Y)
+		if w >= 120 && h >= 20 {
+			return true
+		}
+	}
+	return false
+}
+
+// keepOnScreen brings back every window of the app left off the screens there now: as the
+// screens change (one taken away), and as the app starts.
+func (u *ui) keepOnScreen() {
+	u.mu.Lock()
+	ws := append([]*mygo.Window(nil), u.wins...)
+	if u.picker != nil {
+		ws = append(ws, u.picker)
+	}
+	u.mu.Unlock()
+	wa := mygo.Screen.PrimaryDisplay().WorkArea
+	for _, w := range ws {
+		r := w.Bounds()
+		if onScreen(r) || wa.Width == 0 {
+			continue
+		}
+		r.Width, r.Height = min(r.Width, wa.Width), min(r.Height, wa.Height)
+		r.X, r.Y = wa.X+(wa.Width-r.Width)/2, wa.Y+(wa.Height-r.Height)/2
+		w.SetBounds(r)
+	}
 }

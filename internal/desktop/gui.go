@@ -153,6 +153,8 @@ func gui(o Options) int {
 	})
 	mygo.App.WhenReady(func() {
 		u.makePicker()
+		// A screen taken away: the windows on it come back to the main one.
+		mygo.Screen.OnDisplaysChanged(func() { go u.keepOnScreen() })
 		icon, tmpl := trayIcon, false
 		if runtime.GOOS == "darwin" {
 			// The menu bar's own kind of icon: the mark's shape alone, the bar tinting it, at its
