@@ -1,8 +1,9 @@
 // The work of motion.ts useMoves and usePaced (the rules are said there). Its own file: brought
 // after the first screen.
 import { createElement, useEffect, useRef, useState, type ReactNode } from "react";
-import { movedFor } from "./seen";
+import { drift, movedFor } from "./seen";
 import { motion, reduced } from "./motion";
+import { moveLog } from "./motionlog";
 
 /** A list's rows as useMoves follows them: the order last drawn and the one being drawn; where
  *  the rows were, read before a change of order; which list it is. */
@@ -48,9 +49,10 @@ export function spotsOf(root: HTMLElement): Spots | null {
   if (root.offsetParent === null) return null;
   const o = root.getBoundingClientRect();
   const out: Spots = new Map();
+  const off = drift.get(root);
   for (const el of root.querySelectorAll<HTMLElement>("[data-flip]")) {
     const r = el.getBoundingClientRect();
-    out.set(el.dataset.flip!, { x: r.left - o.left + root.scrollLeft, y: r.top - o.top + root.scrollTop });
+    out.set(el.dataset.flip!, { x: r.left - o.left + root.scrollLeft, y: r.top - o.top + root.scrollTop - (off?.(el) ?? 0) });
   }
   return out;
 }
@@ -91,6 +93,7 @@ export function play(root: HTMLElement, before: Spots, enter: boolean) {
   // After what else moves the list (the conversation's glide): the rows stay as they were till then.
   const delay = calm ? 0 : freeIn(root, "move");
   let long = 0;
+  const played: number[] = [];
   for (const el of rows) {
     const was = before.get(el.dataset.flip!);
     const at = now.get(el.dataset.flip!)!;
@@ -108,9 +111,11 @@ export function play(root: HTMLElement, before: Spots, enter: boolean) {
     const on = movedFor(el, Math.min(0, -dy), innerHeight + Math.max(0, -dy), innerHeight * 2);
     if (!on.length) continue;
     moving.set(el, on.map((x) => x.animate(m.frames, { duration: m.duration, easing: ease, delay, fill: "backwards" })));
+    played.push(Math.round(dy));
     long = Math.max(long, m.duration);
   }
   if (long) occupy(root, "move", delay + long);
+  moveLog("moves.play", "reorder", { ms: Math.round(delay + long), n: played.length, dy: played.reduce((m, d) => (Math.abs(d) > Math.abs(m) ? d : m), 0), note: `${root.getAttribute("role") ?? root.tagName.toLowerCase()}${delay ? ` wait ${Math.round(delay)}` : ""}` });
 }
 
 /** How long one leaving takes (motion.css g-depart): its fading, then its room shutting. */
@@ -130,7 +135,7 @@ export function useLeaving<T>(items: T[], key: (x: T) => string): { item: T; lea
     const k = key(x.item);
     if (now.has(k)) out.push({ item: fresh.get(k)!, leaving: false });
     else {
-      if (!gone.current.has(k)) gone.current.set(k, performance.now());
+      if (!gone.current.has(k)) (gone.current.set(k, performance.now()), moveLog("leaving", "leave", { note: k.slice(0, 16), ms: Math.round(departs()) }));
       if (performance.now() - gone.current.get(k)! < departs()) out.push({ item: x.item, leaving: true });
     }
   }

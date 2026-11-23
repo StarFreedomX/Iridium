@@ -8,6 +8,7 @@ import { flushSync } from "react-dom";
 import { ahead, isWhole, peekChat, since, stateAhead } from "./chats";
 import { getCarried } from "./store";
 import type { Turn } from "./route";
+import { moveLog } from "./motionlog";
 
 export const reduced = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -114,6 +115,7 @@ export function useGlide(ref: RefObject<HTMLElement | null>) {
 /** Send: the new bubble fades in as the conversation is pushed up by it (the chat's glide,
  *  chat/stick.tsx), in the same move and the same time: begun together, done together. */
 export function pushIn(bubble: HTMLElement, from?: number): number {
+  moveLog("pushIn", "send", { ms: Math.round(motion.move()) });
   const a = reduced()
     ? bubble.animate([{ opacity: 0 }, { opacity: 1 }], { duration: motion.fade() })
     : bubble.animate([{ opacity: 0, transform: "translateY(6px) scale(0.98)" }, { opacity: 1, transform: "none" }], { duration: motion.move(), easing: motion.ease("out"), fill: "backwards" });

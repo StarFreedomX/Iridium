@@ -8,6 +8,7 @@ import { useLayoutEffect, useRef, useState, type ReactNode, type RefObject } fro
 import { flushSync } from "react-dom";
 import { t, useLang } from "../i18n";
 import { motion, reduced } from "../motion";
+import { moveLog } from "../motionlog";
 import { layoutMoves } from "./stick";
 import { cn } from "../ui";
 import { FOLD_AT, FOLD_SHOW } from "./channel/merge";
@@ -17,7 +18,7 @@ import { FoldMenu, useFold, type Fold } from "./foldstate";
 const LINE = 23;
 
 /** el's height glides from what it was (from) to what it is now. */
-const glide = (el: HTMLElement, from: number) => el.animate([{ height: `${from}px` }, { height: `${el.offsetHeight}px` }], { duration: motion.dur(2), easing: motion.ease("out") });
+const glide = (el: HTMLElement, from: number) => (moveLog("longwords", "fold", { dy: el.offsetHeight - from }), el).animate([{ height: `${from}px` }, { height: `${el.offsetHeight}px` }], { duration: motion.dur(2), easing: motion.ease("out") });
 
 /** A fold set from elsewhere (its message's menu): how tall it was just before (0: nothing to
  *  glide), whether it was set by its own key (mine), its element. */

@@ -8,7 +8,8 @@ import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, 
 import { flushSync } from "react-dom";
 import { t } from "../i18n";
 import { motion, reduced } from "../motion";
-import { partsSeen } from "../seen";
+import { moveLog } from "../motionlog";
+import { drift, partsSeen } from "../seen";
 
 // Who else moves the conversation's rows, and for how long (moves.ts, brought apart from the first
 // screen; till it is here nothing else moves them).
@@ -52,6 +53,8 @@ export function springAt(s: Spring, now: number, w: number): { y: number; v: num
 }
 
 // The pane's bottom padding: as the page set it (its style), without a style pass of the page.
+/** What an element is, for the record: its row's key and its own class's first words. */
+const nameOf = (el: HTMLElement) => `${el.closest<HTMLElement>("[data-flip]")?.dataset.flip?.slice(0, 16) ?? ""} ${el.tagName.toLowerCase()}.${String(el.className).split(" ").slice(0, 2).join(".")}`;
 const padOf = (el: HTMLElement) => parseFloat(el.style.paddingBottom) || parseFloat(getComputedStyle(el).paddingBottom) || 0;
 
 /** el, inside a chat, changes its own height from now for ms (an animation of its own, which says
@@ -167,6 +170,7 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
   };
   const heldBy = useRef(0);
   const setHeld = (col: HTMLElement, px: number) => {
+    if (px !== heldBy.current) moveLog("stick.held", whyNow.current, { dy: Math.round(px) });
     heldBy.current = px;
     col.style.translate = px ? `0 ${px}px` : "";
   };
@@ -179,6 +183,7 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
   const spacer = useRef<HTMLDivElement>(null);
   const floor = useRef(0);
   const setFloor = (px: number) => {
+    if (Math.abs((px < 0.5 ? 0 : px) - floor.current) >= 0.5) moveLog("stick.floor", whyNow.current, { dy: Math.round((px < 0.5 ? 0 : px) - floor.current) });
     floor.current = px < 0.5 ? 0 : px;
     if (spacer.current) spacer.current.style.height = floor.current ? `${floor.current}px` : "";
   };
@@ -212,11 +217,13 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     el.scrollTop = bottomOf(el);
     ours.current = el.scrollTop;
     mark(el);
+    if (Math.abs(el.scrollTop - was) >= 0.5) moveLog("stick.pin", whyNow.current, { dy: -Math.round(el.scrollTop - was) });
     return el.scrollTop - was;
   };
   /** To the newest, gliding up by as far as that scrolled it (a message sent): that glide, and the
    *  one already begun this frame by the bubble coming, is the send's. */
   const toBottom = (el: HTMLElement) => {
+    whyNow.current = "send";
     glide(pin(el), true, true);
     if (anim.current?.playState === "running") sending.current = anim.current;
   };
@@ -243,8 +250,10 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     const r = moving.current.get(m);
     if (r) return void (r.till = performance.now() + ms);
     moving.current.set(m, { h: m.offsetHeight, till: performance.now() + ms });
-    follow(el, false, true);
+    follow(el, false, true, "own-height");
   };
+  /** Why the conversation is being followed now, for the record (motionlog.ts). */
+  const whyNow = useRef("?");
   const floorTimer = useRef(0);
   const settleSoon = () => {
     clearTimeout(floorTimer.current);
@@ -261,6 +270,7 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     const col = colOf(el);
     if (touching.current || moving.current.size || anim.current?.playState === "running" || (col && freeIn(col, "push"))) return settleSoon();
     const top = el.scrollTop;
+    whyNow.current = "floor-close";
     setFloor(0);
     // Let go of meanwhile, it may still have pulled the scroll up, at its foot: that glides too.
     if (atEnd.current) pin(el);
@@ -273,8 +283,9 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
    *  keyboard) glides nothing: the conversation goes with the pane's foot as it moves.
    *  settling: a push even as the chat settles (new blocks or drafts, not a picture loading).
    *  own: all of the change is what moves of itself (moves). */
-  const follow = (el: HTMLElement, settling = false, own = false) => {
+  const follow = (el: HTMLElement, settling = false, own = false, why = "?") => {
     const col = colOf(el);
+    whyNow.current = why;
     const was = height.current;
     const padWas = pad.current;
     height.current = col?.offsetHeight ?? 0;
@@ -394,6 +405,7 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     for (let i = 0; i < N; i++) frames.push({ transform: `translateY(${springAt(spring.current, now + wait + (T * i) / N, w).y.toFixed(2)}px)` });
     frames.push({ transform: "none" });
     const rows = seenIn(el, col, y);
+    moveLog("stick.glide", whyNow.current, { dy: Math.round(y), ms: Math.round(T + wait), n: rows.length, note: `by ${Math.round(by)}${running ? " running" : ""}${quick ? " quick" : ""}${wait ? ` wait ${Math.round(wait)}` : ""}` });
     if (!rows.length) return;
     // Waiting for rows changing places (moves.ts), it is added to their move, as the column's
     // transform was; else it is the row's only one, and the compositor's to run.
@@ -418,6 +430,12 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     }
     glides.current = all;
     gliding.current = rows;
+    // Where the glide has a row just now is no place of its own (seen.ts drift).
+    drift.set(col, (row) => {
+      if (anim.current?.playState !== "running" || !gliding.current.some((o) => o === row || o.contains(row) || row.contains(o))) return 0;
+      const t = (document.timeline.currentTime as number | null) ?? performance.now();
+      return springAt(spring.current, t, spring.current.w ?? springW()).y;
+    });
     path.current = { frames, opts };
     anim.current = a;
     begun.current = now;
@@ -431,6 +449,7 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
   const toggleFold = (d: HTMLDetailsElement) => {
     if (d.dataset.anim !== undefined) return;
     const opening = !d.open;
+    moveLog("stick.fold", opening ? "fold-open" : "fold-shut");
     moves(d, motion.move() + motion.fade() + 100);
     const from = d.offsetHeight;
     if (opening) d.open = true;
@@ -489,6 +508,7 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
         const h = el.scrollHeight;
         flushSync(() => (draw(), redraw((n) => n + 1)));
         el.scrollTop += el.scrollHeight - h;
+        moveLog("stick.back", "page", { dy: 0, note: `+${el.scrollHeight - h}px over` });
         // Placed here: what the column grew by is no push at the newest (follow).
         height.current = (el.firstElementChild as HTMLElement | null)?.offsetHeight ?? 0;
         if (atEnd.current) ours.current = el.scrollTop;
@@ -511,11 +531,11 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     // while to draw, and what fills in meanwhile is still its opening.
     if (first) born.current = performance.now();
     if (first && place.top !== null) el.scrollTop = place.top;
-    else if (first || atEnd.current) follow(el, true);
+    else if (first || atEnd.current) follow(el, true, false, first ? "open" : "tail");
     // Let go of at the very end (a wheel nudged up there, a box inside scrolled), and what came
     // grew nothing below it (a draft's line run on): nothing to go down to, no key that only
     // scrolling up and back down would take away (the user, 2026-11-08).
-    else if (atFoot(el)) (hold(), follow(el, true));
+    else if (atFoot(el)) (hold(), follow(el, true, false, "tail"));
     else setFresh(true);
     void back().catch(() => {});
   });
@@ -528,7 +548,7 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     const col = el.firstElementChild as HTMLElement | null;
     height.current = col?.offsetHeight ?? 0;
     pad.current = padOf(el);
-    const ro = new ResizeObserver(() => follow(el));
+    const ro = new ResizeObserver(() => follow(el, false, false, "?"));
     ro.observe(el);
     if (col) ro.observe(col);
     // A row drawn anew while the glide runs (what is being written become its block, a message
@@ -570,18 +590,18 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     // (said.tsx Earlier, a forward's rules), opened or shut, pressed or as its turn ends; what
     // says so itself (layoutMoves). Shut at the newest it is not held as tall and settled after,
     // the answer under it going up and then down (kumo, 2026-11-16).
-    const runs = (e: TransitionEvent) => (e.propertyName === "grid-template-rows" || e.propertyName === "height") && e.target instanceof HTMLElement && moves(e.target, 1000);
+    const runs = (e: TransitionEvent) => (e.propertyName === "grid-template-rows" || e.propertyName === "height") && e.target instanceof HTMLElement && (moveLog("css.transition", e.propertyName, { note: nameOf(e.target) }), moves(e.target, 1000));
     const ran = (e: TransitionEvent) => {
       const r = e.target instanceof HTMLElement && moving.current.get(e.target);
       if (r) r.till = performance.now() + 60;
     };
-    const told = (e: Event) => e.target instanceof HTMLElement && moves(e.target, (e as CustomEvent<number>).detail + 100);
+    const told = (e: Event) => e.target instanceof HTMLElement && (moveLog("layoutMoves", "own-height", { note: nameOf(e.target) }), moves(e.target, (e as CustomEvent<number>).detail + 100));
     el.addEventListener("transitionrun", runs);
     el.addEventListener("transitionend", ran);
     el.addEventListener("transitioncancel", ran);
     el.addEventListener(MOVES, told);
     // One leaving (motion.css g-depart) shuts its room by an animation of its own.
-    const departing = (e: AnimationEvent) => e.animationName === "g-depart-room" && e.target instanceof HTMLElement && moves(e.target, motion.fade() + motion.move() + 100);
+    const departing = (e: AnimationEvent) => (moveLog("css.animation", e.animationName, { note: e.target instanceof HTMLElement ? nameOf(e.target) : "" }), e.animationName === "g-depart-room" && e.target instanceof HTMLElement && moves(e.target, motion.fade() + motion.move() + 100));
     el.addEventListener("animationstart", departing);
     el.addEventListener("wheel", wheel, { passive: true });
     for (const k of ["touchstart", "touchmove", "touchend", "touchcancel"] as const) el.addEventListener(k, touch, { passive: true });
@@ -610,7 +630,7 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
   const padNow = style?.paddingBottom;
   useLayoutEffect(() => {
     const el = list.current;
-    if (el && height.current) follow(el);
+    if (el && height.current) follow(el, false, false, "pad");
   }, [padNow]);
 
   const scrolled = () => {
