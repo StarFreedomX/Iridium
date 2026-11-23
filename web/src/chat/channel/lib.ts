@@ -29,14 +29,24 @@ export const lineOf = (at: string) => Number.parseInt(at, 10);
 /** The work under an agent's message from what its record has around it (newest last): with ir,
  *  the blocks of lines from..to; said straight out, those after the last thing it said or was
  *  given before the block. Its thinking, tool calls, and words it said on the way. */
-export function workOf<B extends { at: string; kind: string; text?: string }>(blocks: B[], src: Src, said?: string): B[] {
+export function workOf<B extends { at: string; kind: string; text?: string }>(blocks: B[], src: Src, said?: string, prev?: string): B[] {
   // The words said themselves are drawn under the work: not again in it (a reply said for the
   // agent at its turn's end is the last words of its stretch).
   const same = (b: B) => b.kind === "assistant" && !!said?.trim() && b.text?.trim() === said.trim();
   // A stretch begins where the one before ended (its to): words said for the agent as it wrote
   // them are at that line, the message before this one, drawn there and not again here.
+  // Not always at that very line: where a stretch ends is where the record had been read to as
+  // the words were heard, and a line with nothing to draw (thinking kept to itself) may stand
+  // between that and the words. They are then the first words of this stretch, the same as the
+  // message before (prev): not drawn again here, a second time under themselves (kumo,
+  // 2026-11-23).
   const before = (b: B) => b.kind === "assistant" && lineOf(b.at) === src.from;
-  if (src.from !== undefined && src.to !== undefined) return blocks.filter((b) => lineOf(b.at) >= src.from! && lineOf(b.at) < src.to! && b.kind !== "user" && b.kind !== "system" && !same(b) && !before(b));
+  if (src.from !== undefined && src.to !== undefined) {
+    const out = blocks.filter((b) => lineOf(b.at) >= src.from! && lineOf(b.at) < src.to! && b.kind !== "user" && b.kind !== "system" && !same(b) && !before(b));
+    const first = out.findIndex((b) => b.kind === "assistant" && !!b.text?.trim());
+    if (first >= 0 && !!prev?.trim() && out[first]!.text!.trim() === prev.trim()) out.splice(first, 1);
+    return out;
+  }
   if (!src.block) return [];
   const end = lineOf(src.block);
   const out: B[] = [];
@@ -47,6 +57,13 @@ export function workOf<B extends { at: string; kind: string; text?: string }>(bl
     out.unshift(b);
   }
   return out;
+}
+
+/** The words of the message before the one src is of: the same agent's, its stretch ending where
+ *  this one begins (workOf's prev). */
+export function saidBefore(msgs: Msg[], src: Src): string | undefined {
+  if (src.from === undefined) return undefined;
+  return msgs.findLast((m) => m.src?.session === src.session && m.src.to === src.from)?.text;
 }
 
 /** Whether a block's at ("<line>.<n>") comes after another's. */

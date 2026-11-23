@@ -326,6 +326,12 @@ describe("workOf", () => {
   test("a reply said for it at its turn's end: its words drawn once, under the work, not in it", () => {
     expect(workOf(bs, { session: "s", from: 10, to: 16 }, " done\n").map((b) => b.at)).toEqual(["11.0", "12.0", "13.0", "14.0"]);
   });
+  test("the stretch before ended a line short of its words (a line with nothing to draw between): those words, the message before, are not drawn again in this one", () => {
+    // The message before was "half way" (13.0), its stretch ending at 12: this one begins at 12.
+    expect(workOf(bs, { session: "s", from: 12, to: 15 }, "done", "half way").map((b) => b.at)).toEqual(["12.0", "14.0"]);
+    // Words on the way that are not the message before stay.
+    expect(workOf(bs, { session: "s", from: 12, to: 15 }, "done", "other").map((b) => b.at)).toEqual(["12.0", "13.0", "14.0"]);
+  });
   test("words said on the way end one stretch and begin the next: drawn under the one before only", () => {
     expect(workOf(bs, { session: "s", from: 10, to: 13 }).map((b) => b.at)).toEqual(["11.0", "12.0"]);
     expect(workOf(bs, { session: "s", from: 13, to: 15 }, "done").map((b) => b.at)).toEqual(["14.0"]);

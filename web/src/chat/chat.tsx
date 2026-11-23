@@ -479,6 +479,8 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
   // work only once what called it is on the page (merge.ts held), at most HOLD after.
   const othersAt = agents.filter((a) => a.session !== id && WORKING.has(stateOf(a.session)?.status ?? ""));
   const atSince = useRef(new Map<string, number>());
+  // How far each of the others at work has been given the channel (givenOf, below), as last known.
+  const givenAt = useRef(new Map<string, number>());
   for (const a of othersAt) if (!atSince.current.has(a.session)) atSince.current.set(a.session, Date.now());
   for (const k of [...atSince.current.keys()]) if (!othersAt.some((a) => a.session === k)) atSince.current.delete(k);
   const [, tick] = useState(0);
@@ -640,7 +642,21 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
   const shownSeq = new Set<number>();
   if (ready && P && who) {
     const inputs = new Set(log.blocks.flatMap((b) => (b.kind === "user" && b.id ? [b.id] : [])));
-    const foreign = foreignOf(msgs, id, inputs, log.more ? log.blocks[0]?.time : undefined);
+    // Each of the others at work stays where it was set to work, and works there (kumo,
+    // 2026-11-23: one said a line and went down under the other, who said a line and went down
+    // under it; and a message naming one went up over it before it had been given it). Its place
+    // is under what it was given: what called it as it began, then what the server says it has
+    // been given since (its place read, never a name in a message's words). What it says
+    // meanwhile is drawn there with its work, from its own record, not down among the others'
+    // words: once it is given something more, or stops, those words are the channel's as any.
+    for (const a of othersAt) {
+      const read = side.reads?.readers.find((r) => r.member === a.member)?.seq ?? 0;
+      const was = givenAt.current.get(a.session) ?? Math.max(read, callerOf(msgs, a.nick, a.session) ?? 0);
+      if (was > 0 || read > 0) givenAt.current.set(a.session, Math.max(was, read));
+    }
+    for (const k of [...givenAt.current.keys()]) if (!othersAt.some((a) => a.session === k)) givenAt.current.delete(k);
+    const atPlace = (m: Msg) => m.author.kind === "agent" && m.n > (givenAt.current.get(m.author.session) ?? Infinity);
+    const foreign = foreignOf(msgs, id, inputs, log.more ? log.blocks[0]?.time : undefined).filter((m) => !atPlace(m));
     const slots = slotsOf(rowTimes, foreign, cuts);
     merged = [];
     for (let i = 0; i <= rows.length; i++) {
@@ -765,7 +781,7 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
     if (i !== undefined) turnSeq[i] = Math.min(turnSeq[i] ?? Infinity, a.seq);
   }
   const placeAt = (slot: number) => rowPlace(slot, tailAt, pendingBefore.length > 0);
-  const readOf = (a: AgentRow) => Math.max(side.reads?.readers.find((r) => r.member === a.member)?.seq ?? 0, callerOf(msgs, a.nick, a.session) ?? 0, msgs.findLast((m) => m.author.kind === "agent" && m.author.session === a.session)?.n ?? 0);
+  const readOf = (a: AgentRow) => givenAt.current.get(a.session) ?? Math.max(side.reads?.readers.find((r) => r.member === a.member)?.seq ?? 0, callerOf(msgs, a.nick, a.session) ?? 0, msgs.findLast((m) => m.author.kind === "agent" && m.author.session === a.session)?.n ?? 0);
   const lastKey0 = turns.length ? turnKey(turns[turns.length - 1]!) : "";
   for (const k of [...atWork.map((a) => a.session), ...subs.map((x) => x.id)]) if (!seen.n.has(k)) (seen.n.set(k, seen.n.size), seen.at.set(k, lastKey0));
   const boxes: Box[] = [
@@ -781,7 +797,7 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
         draw: (leaving: boolean) => (
           <Arrive on={!alone} off={leaving} className="-mt-2">
             <div>
-              <OtherTurn spoken={new Set(msgs.slice(-12).flatMap((m) => (m.author.kind === "agent" && m.author.session === a.session && m.text.trim() ? [m.text.trim()] : [])))} a={a} channel={id} st={stateOf(a.session)} said={msgs.findLast((m) => m.author.kind === "agent" && m.author.session === a.session && !!m.src)?.src} alone={alone} bars={barsOf(a.session)} call={may ? callAt : undefined} record={openChat} may={may} />
+              <OtherTurn spoken={new Set(msgs.slice(-12).flatMap((m) => (m.author.kind === "agent" && m.author.session === a.session && m.n <= readOf(a) && m.text.trim() ? [m.text.trim()] : [])))} a={a} channel={id} st={stateOf(a.session)} said={msgs.findLast((m) => m.author.kind === "agent" && m.author.session === a.session && m.n <= readOf(a) && !!m.src)?.src} alone={alone} bars={barsOf(a.session)} call={may ? callAt : undefined} record={openChat} may={may} />
             </div>
           </Arrive>
         ),

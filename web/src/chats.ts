@@ -6,7 +6,7 @@
 // warms of its own (src/warm.ts picks them): each one's newest page, held apart till it is visited.
 import { api, queryClient, type First } from "./api/client";
 import type { Block, DraftEvent, MessagePage, Session, SessionState } from "./api/types.gen";
-import { workKey, workOf, type Src } from "./chat/channel/lib";
+import { saidBefore, workKey, workOf, type Src } from "./chat/channel/lib";
 import { channelLog, heldLog, several } from "./chat/channel/log";
 import { getCarried, setCarried } from "./store";
 
@@ -539,7 +539,7 @@ function putFirst(id: string, f: First, log: Messages): void {
   const said = new Map(ch.msgs.flatMap((m) => (m.src ? [[workKey(m.src).join(" "), m.text] as const] : [])));
   for (const w of f.work ?? []) {
     const src: Src = { session: w.session, ...(w.block ? { block: w.block } : {}), ...(typeof w.from === "number" ? { from: w.from } : {}), ...(w.to ? { to: w.to } : {}) };
-    queryClient.setQueryData(workKey(src), workOf(w.blocks, src, said.get(workKey(src).join(" "))));
+    queryClient.setQueryData(workKey(src), workOf(w.blocks, src, said.get(workKey(src).join(" ")), saidBefore(ch.msgs, src)));
   }
 }
 

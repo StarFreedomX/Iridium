@@ -33,7 +33,7 @@ import { fromSatori, PLACE_DRAG, SESSION_DRAG, sourceOf, withDevice, yours } fro
 import { Assistant, Attached, Line, MsgRow, Pending, Said, When, YouBubble } from "../said";
 import { folded } from "../fold";
 import { Stick, toEnd } from "../stick";
-import { askQueue, groupMessages, quoteAt, readMarks, stillWaiting, watchExtra, type AgentRow, type Did, type Group, type Msg, type Src, lineOf, workOf, workKey, eventParts, personName, type EventWords } from "./lib";
+import { askQueue, groupMessages, quoteAt, readMarks, stillWaiting, watchExtra, type AgentRow, type Did, type Group, type Msg, type Src, lineOf, workOf, saidBefore, workKey, eventParts, personName, type EventWords } from "./lib";
 import { channelLog } from "./log";
 import { recvOf } from "./scripts";
 import { useRecvLabel } from "./recv";
@@ -665,7 +665,7 @@ function Work({ src, did, said, channel }: { src: Src; did?: Did; said?: string;
     queryKey: workKey(src),
     queryFn: async () => {
       const page = src.from !== undefined ? await api.messages(src.session, { after: Math.max(0, src.from - 1) }) : await api.messages(src.session, { before: lineOf(src.block!) + 1 });
-      return workOf(page.blocks, src, said);
+      return workOf(page.blocks, src, said, saidBefore(channelLog(channel).log.msgs, src));
     },
     // What its record kept here already has (it was just drawn at work from it): no asking, no
     // line of counts in between while the answer comes over a slow link.
