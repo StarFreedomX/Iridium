@@ -13,7 +13,7 @@ import { ChevronLeft, ChevronRight, LoaderCircle, LogOut, MonitorDown, RefreshCw
 import { useEffect, useState, type ReactNode } from "react";
 import { api } from "./api/client";
 import type { PushEvents, PushState, Settings, SettingsPatch, UpdateState } from "./api/types.gen";
-import { CachePage, CacheTotal } from "./device/page";
+import { CacheTotal } from "./device/total";
 import { ahead as cacheAhead } from "./device/state";
 import { manages as managesApps, pushQ, useApps, useMe, useSettings, useUpdate } from "./data";
 import { t, useLang } from "./i18n";
@@ -27,8 +27,8 @@ import { errText, toast } from "./toast";
 import { cn, IconKey, Switch, Tip } from "./ui";
 import { UpdateAsk } from "./updateask";
 
-/** The panel's own pages: the avatar's crop, what this device keeps (device/page.tsx). */
-export type Page = "main" | "crop" | "cache";
+/** The panel's own pages: the avatar's crop. */
+export type Page = "main" | "crop";
 
 /** In a small dialog rising from the me key (app.tsx); on a phone a sheet from the window's foot (the
  *  user, 2026-11-06). No close key: a press anywhere else puts it away (the user, 2026-11-06).
@@ -94,23 +94,6 @@ export function SettingsPage({ theme, setTheme, initial = "main" }: { theme: The
     </button>
   );
 
-  if (page === "cache")
-    return (
-      <div key={page} className="g-slide flex h-full flex-col">
-        <header className="flex h-10.5 shrink-0 items-center gap-1 px-1.5 pt-1.5">
-          <IconKey label={t("nav.me")} onClick={back} tipSide="bottom" className="size-7">
-            <ChevronLeft size={16} />
-          </IconKey>
-          <h1 className="m-0 min-w-0 flex-1 truncate text-base font-semibold">{t("cache.title")}</h1>
-        </header>
-        <div className="no-bar min-h-0 flex-1 overflow-y-auto pt-2 pb-4">
-          <div className="flex flex-col px-3">
-            <CachePage Item={Item} />
-          </div>
-        </div>
-      </div>
-    );
-
   if (page === "crop")
     return (
       <div key={page} className="g-slide flex h-full flex-col">
@@ -151,7 +134,7 @@ export function SettingsPage({ theme, setTheme, initial = "main" }: { theme: The
             )}
           {me?.host && nav(t("secrets.title"), () => go({ name: "secrets" }))}
           {nav(t("role.title"), () => go({ name: "roles" }))}
-          {nav(t("cache.title"), () => setPage("cache"), <CacheTotal />, cacheAhead)}
+          {nav(t("cache.title"), () => go({ name: "cache" }), <CacheTotal />, cacheAhead)}
           <InstallItem />
           <Item label={t("settings.pushOn")}>
             {pushing ? <LoaderCircle size={16} className="animate-spin text-ink-3" /> : <Switch label={t("settings.pushOn")} disabled={!push || !("PushManager" in window)} on={pushed} onChange={(v) => void pushOn(v)} />}
