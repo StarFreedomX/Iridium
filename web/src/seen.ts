@@ -5,14 +5,6 @@
 // is, and what is not seen is not moved at all. For the conversation's glide (chat/stick.tsx)
 // and rows changing places (moves.ts).
 
-/** How far off its place a row of a list is drawn just now by what glides the list as a whole
- *  (the conversation pushed up, chat/stick.tsx), px down, by the list's root: no change of place,
- *  and not to be read as one by what moves rows that change places (moves.ts spotsOf). A work box
- *  come in as the conversation was pushed up for it had every row seen read 58px off, held there
- *  half a second for the push to end and then slid back down (measured 2026-11-24: the record,
- *  motionlog.ts, showed both on the same rows). */
-export const drift = new WeakMap<Element, (row: Element) => number>();
-
 /** What of box is seen between top and bottom (the viewport's px): its rows; of a row taller than
  *  tall, what is seen of its own rows, as far down as it is only a box around them. ordered: box's
  *  rows are one under another, read from the end up, and none above the first one not seen is. */

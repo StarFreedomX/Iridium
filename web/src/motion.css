@@ -222,25 +222,21 @@ details[data-shut] > summary .fold-chev {
 .g-arrive > * {
   animation: g-rise var(--dur-2) var(--ease-out) both;
 }
-/* --- depart: a reveal backwards (moves.ts useLeaving): what is in it fades out, then its room
-   shuts, the gap over it too (--depart-gap, the list's), and it is gone with nothing left to
-   jump; the chat keeps its end under it as it shuts (stick.tsx moves). One child. --- */
+/* --- depart: one that goes (moves.ts useLeaving) gives up its room at once, the gap over it too
+   (--depart-gap, the list's), and fades where it stood, over what takes its place: the layout
+   is as it will stay from the frame it leaves in, and nothing is moved twice for it (its room
+   shut by an animation after its fading had the conversation follow a row a part of a pixel
+   shorter each frame, a turn's end going up and down; kumo, 2026-11-24). One child. --- */
 .g-depart {
   pointer-events: none;
-  display: grid !important;
-  grid-template-rows: 1fr;
-  animation: g-depart-room var(--move) var(--ease-out) calc(var(--fade) - var(--reveal)) both;
+  display: block !important;
+  height: 0;
+  min-height: 0;
+  margin-top: calc(-1 * var(--depart-gap, 0px));
+  overflow: visible;
 }
 .g-depart > * {
-  min-height: 0;
-  overflow: hidden;
   animation: g-fade-out var(--fade) var(--ease-out) both;
-}
-@keyframes g-depart-room {
-  to {
-    grid-template-rows: 0fr;
-    margin-top: calc(-1 * var(--depart-gap, 0px));
-  }
 }
 @keyframes g-fade-out {
   to {

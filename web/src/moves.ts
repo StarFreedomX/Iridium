@@ -1,7 +1,7 @@
 // The work of motion.ts useMoves and usePaced (the rules are said there). Its own file: brought
 // after the first screen.
 import { createElement, useEffect, useRef, useState, type ReactNode } from "react";
-import { drift, movedFor } from "./seen";
+import { movedFor } from "./seen";
 import { motion, reduced } from "./motion";
 import { moveLog } from "./motionlog";
 
@@ -49,10 +49,9 @@ export function spotsOf(root: HTMLElement): Spots | null {
   if (root.offsetParent === null) return null;
   const o = root.getBoundingClientRect();
   const out: Spots = new Map();
-  const off = drift.get(root);
   for (const el of root.querySelectorAll<HTMLElement>("[data-flip]")) {
     const r = el.getBoundingClientRect();
-    out.set(el.dataset.flip!, { x: r.left - o.left + root.scrollLeft, y: r.top - o.top + root.scrollTop - (off?.(el) ?? 0) });
+    out.set(el.dataset.flip!, { x: r.left - o.left + root.scrollLeft, y: r.top - o.top + root.scrollTop });
   }
   return out;
 }
@@ -62,23 +61,6 @@ export function spotsOf(root: HTMLElement): Spots | null {
 export const moveOf = (dx: number, dy: number): { frames: Keyframe[]; duration: number } => ({ frames: [{ transform: `translate(${dx}px,${dy}px)` }, { transform: "none" }], duration: motion.dur(Math.abs(dy) > 160 ? 4 : 3) });
 
 const moving = new WeakMap<Element, Animation[]>();
-
-/** One thing at a time moves what is in a container (kumo, 2026-11-21: one animation not yet
- *  done, another changed the same rows under it): whoever moves it says so, and for how long
- *  (occupy); another asks how long till it is free of the others (freeIn) and begins then, drawn
- *  meanwhile as it was (an animation's delay, filled backwards: nothing jumps to wait). who: the
- *  kind of move, which does not wait for itself: "push" the conversation's glide (chat/stick.tsx),
- *  "move" rows changing places. */
-const lanes = new WeakMap<Element, Map<string, number>>();
-export function occupy(el: Element, who: string, ms: number) {
-  const l = lanes.get(el) ?? new Map<string, number>();
-  lanes.set(el, l.set(who, performance.now() + ms));
-}
-export function freeIn(el: Element, who: string): number {
-  let till = 0;
-  for (const [k, t] of lanes.get(el) ?? []) if (k !== who) till = Math.max(till, t);
-  return Math.max(0, till - performance.now());
-}
 
 /** The rows of root, drawn in their new places, moved there from where before has them. */
 export function play(root: HTMLElement, before: Spots, enter: boolean) {
@@ -90,8 +72,7 @@ export function play(root: HTMLElement, before: Spots, enter: boolean) {
   const now = spotsOf(root);
   if (!now) return;
   const ease = motion.ease("out");
-  // After what else moves the list (the conversation's glide): the rows stay as they were till then.
-  const delay = calm ? 0 : freeIn(root, "move");
+  const delay = 0;
   let long = 0;
   const played: number[] = [];
   for (const el of rows) {
@@ -114,12 +95,11 @@ export function play(root: HTMLElement, before: Spots, enter: boolean) {
     played.push(Math.round(dy));
     long = Math.max(long, m.duration);
   }
-  if (long) occupy(root, "move", delay + long);
   moveLog("moves.play", "reorder", { ms: Math.round(delay + long), n: played.length, dy: played.reduce((m, d) => (Math.abs(d) > Math.abs(m) ? d : m), 0), note: `${root.getAttribute("role") ?? root.tagName.toLowerCase()}${delay ? ` wait ${Math.round(delay)}` : ""}` });
 }
 
-/** How long one leaving takes (motion.css g-depart): its fading, then its room shutting. */
-export const departs = () => motion.fade() - motion.reveal() + motion.move();
+/** How long one leaving takes (motion.css g-depart): its fading. */
+export const departs = () => motion.fade();
 
 /** items, with those just gone kept a while where they were, marked leaving (drawn .g-depart: they
  *  fade), so that a row that goes does not vanish at once. key names an item. */

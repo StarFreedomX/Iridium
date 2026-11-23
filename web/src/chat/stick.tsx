@@ -9,14 +9,6 @@ import { flushSync } from "react-dom";
 import { t } from "../i18n";
 import { motion, reduced } from "../motion";
 import { moveLog } from "../motionlog";
-import { drift, partsSeen } from "../seen";
-
-// Who else moves the conversation's rows, and for how long (moves.ts, brought apart from the first
-// screen; till it is here nothing else moves them).
-let lanes: typeof import("../moves") | undefined;
-void import("../moves").then((m) => (lanes = m));
-const freeIn = (el: Element, who: string) => lanes?.freeIn(el, who) ?? 0;
-const occupy = (el: Element, who: string, ms: number) => lanes?.occupy(el, who, ms);
 
 // How near the top the page before is put in: two screens, at least 600px. It was asked for ahead
 // (chats.ts), so this is drawing only.
@@ -24,25 +16,20 @@ const occupy = (el: Element, who: string, ms: number) => lanes?.occupy(el, who, 
  *  screen is room enough, and less is kept drawn. */
 const near = (el: HTMLElement, held = false) => (held ? Math.max(500, el.clientHeight) : Math.max(600, el.clientHeight * 2));
 const END = 40; // px from the bottom that count as at the newest
-const SETTLE = 600; // ms after a chat opens that what grows does not glide
+const SETTLE = 600; // ms after a chat opens that what fills in is put in place at once, not followed
 const REST = 500; // ms since the user last scrolled it that a chat at its newest is at rest there
-const HOLD = 350; // ms with nothing changing before the room what shrank at the newest left is closed
-const SLACK = 32; // px of such room that is not worth moving the conversation for: it stays till filled
-const NEW = 400; // ms after something new came that what grows or shrinks is still its doing
-const RESIZED = 400; // ms after the pane itself changed height (the keyboard) that nothing glides
-const FRAME = 17; // ms: a frame, at 60 a second (less at more)
+const SLACK = 32; // px of room not worth bringing the conversation down for: left till what grows next fills it, or let go unseen as the user goes up
+const QUIET = 250; // ms with nothing changing, the turn over, before the room kept under the conversation is closed: a turn ends in several draws (its box gone, its answer come, its steps folded), and the room is closed for all of them once
 
-/** The glide's spring, critically damped: it comes to rest once, without a bounce, and one pushed
- *  again while it moves goes on at the speed it had. W: its stiffness, per ms: at rest (all but
- *  half a percent of the way) in one move's time (motion.css --move), as every other move is. */
+/** The follow's spring, critically damped: it comes to rest once, without a bounce, and one whose
+ *  end moves on while it runs goes on at the speed it had. W: its stiffness, per ms: at rest (all
+ *  but half a percent of the way) in one move's time (motion.css --move), as every other move is. */
 const springW = (quick = true) => 7.5 / (quick ? motion.move() : motion.move() * FOLLOW);
 /** How many moves' time what comes of itself takes to come to rest (the agent's lines, a row, a
- *  picture): each line that came was its own quick move, done before the next line was there, a
- *  step and a stand and a step (kumo, 2026-11-23: no glide to be seen, and a stutter). Slower than
- *  the lines come, the glide never stands between them: one movement, its speed kept. What the
- *  user does (a message sent, the composer's height) is a move as any, in one move's time. */
+ *  picture): slower than the lines come, so the conversation never stands between them: one
+ *  movement, its speed kept (kumo, 2026-11-23). What the user does (a message sent, the composer's
+ *  height) is a move as any, in one move's time. */
 const FOLLOW = 3;
-/** w: its stiffness, as it was let go with. */
 type Spring = { y: number; v: number; t: number; w?: number };
 /** Where a spring let go at s is at time now, and how fast (px, px/ms). */
 export function springAt(s: Spring, now: number, w: number): { y: number; v: number } {
@@ -52,9 +39,9 @@ export function springAt(s: Spring, now: number, w: number): { y: number; v: num
   return { y: (s.y + c * dt) * e, v: (s.v - w * c * dt) * e };
 }
 
-// The pane's bottom padding: as the page set it (its style), without a style pass of the page.
 /** What an element is, for the record: its row's key and its own class's first words. */
 const nameOf = (el: HTMLElement) => `${el.closest<HTMLElement>("[data-flip]")?.dataset.flip?.slice(0, 16) ?? ""} ${el.tagName.toLowerCase()}.${String(el.className).split(" ").slice(0, 2).join(".")}`;
+// The pane's bottom padding: as the page set it (its style), without a style pass of the page.
 const padOf = (el: HTMLElement) => parseFloat(el.style.paddingBottom) || parseFloat(getComputedStyle(el).paddingBottom) || 0;
 
 /** el, inside a chat, changes its own height from now for ms (an animation of its own, which says
@@ -74,15 +61,6 @@ export const letGo = (el: HTMLElement | null) => el && goes.get(el)?.();
 const rests = new WeakMap<HTMLElement, () => boolean>();
 export const restsAtEnd = (el: HTMLElement) => rests.get(el)?.() ?? false;
 
-/** What of the column is seen in the list at some moment of a glide from y px off its place to it
- *  (and a little past it, the spring's swing): its rows, from the end up, as the glide is mostly at
- *  the end, so a long conversation is not measured whole (seen.ts). */
-const seenIn = (list: HTMLElement, col: HTMLElement, y: number) => {
-  const view = list.getBoundingClientRect();
-  const swing = Math.abs(y) / 4 + 48;
-  return partsSeen(col, view.top + Math.min(0, -y) - swing, view.bottom + Math.max(0, -y) + swing, view.height * 2, true);
-};
-
 /** Whether a box inside the list, between it and target, takes a scroll up itself (a long output
  *  scrolled in place): the list does not move, so the newest is not let go. */
 const inner = (target: EventTarget | null, list: HTMLElement) => {
@@ -94,14 +72,14 @@ const inner = (target: EventTarget | null, list: HTMLElement) => {
 /** quiet: no 新消息 key (an ask under it, the newest thing already in view: the key sat over it and
  *  could not be put away, the user 2026-11-08). */
 /** draw: draws the page that holds the conversation again, now: the page before, once older has
- *  brought it, is put in at once and the scroll moved by as much in the same frame. Stick's own
- *  redraw draws nothing of it (its children are the page's), and drawn whenever the page next
- *  drew, the page before came in unplaced: the conversation a page off for a frame, then gliding
- *  back (as a chat opened, as a message was sent). */
+ *  brought it, is put in at once and the scroll moved by as much in the same frame. */
 /** held: turns the page holds and has not drawn are over what is drawn (older draws them). */
-export function Stick({ tail, older, draw, place, style, children, scroller, bottom, quiet, held }: { tail: unknown; older: () => Promise<boolean>; draw: () => void; place: { top: number | null }; style?: CSSProperties; children: ReactNode; scroller?: RefObject<HTMLDivElement | null>; bottom: number; quiet?: boolean; held?: boolean }) {
+/** busy: a turn is on (the chat's own agent's, another's): what shrinks meanwhile moves nothing. */
+export function Stick({ tail, older, draw, place, style, children, scroller, bottom, quiet, held, busy }: { tail: unknown; older: () => Promise<boolean>; draw: () => void; place: { top: number | null }; style?: CSSProperties; children: ReactNode; scroller?: RefObject<HTMLDivElement | null>; bottom: number; quiet?: boolean; held?: boolean; busy?: boolean }) {
   const heldNow = useRef(held);
   heldNow.current = held;
+  const busyNow = useRef(busy);
+  busyNow.current = busy;
   const own = useRef<HTMLDivElement>(null);
   const list = scroller ?? own;
   const atEnd = useRef(place.top === null);
@@ -109,101 +87,40 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
   const paging = useRef(false);
   const [fresh, setFresh] = useState(false);
   const [, redraw] = useState(0);
-  // One rule for whatever changes the conversation's height at the newest (kumo, 2026-11-17: the
-  // glide, the hold and the folds each moved it their own way, against each other):
-  //   - what grows there pushes the conversation up, gliding (glide);
-  //   - what shrinks there moves nothing: the room it leaves is kept under the conversation (the
-  //     floor) till nothing has changed for HOLD, then closed once, gliding; what grows meanwhile
-  //     fills the floor first, moving nothing;
-  //   - what changes its own height over time (a fold opening, moves) is drawn by itself, frame by
-  //     frame: the end is only kept under it, for its part of the change.
-  // The end is kept each time (pin), so no scroll the browser made of its own (a column a moment
-  // shorter) is read as the user's.
-  // The glide: the conversation drawn as far below its place as it was pushed, coming to it as a
-  // spring does, on the compositor (not a frame drawn by script each time: the keyboard and the
-  // phone's sheet keep the page busy as they move). A push while one runs adds to where that one
-  // is and keeps its speed (kumo, 2026-11-19: two agents called at once, each row that came began
-  // the glide again from a standstill: it went a step, stood a frame, went a step), so a draft
-  // growing line by line, or several rows coming one after another, flow on as one movement.
-  // One movement of the conversation at a time (kumo, 2026-11-21: never two at odds). What pushes
-  // the same way as the glide under way is that glide going on (above). What would move it the
-  // other way (the composer made shorter, the floor closed) waits till the glide is wholly done:
-  // held, the conversation drawn as far off its place meanwhile (the column's translate, which adds
-  // to the glide's transform), and glided from there once it is. Rows changing places in it
-  // (moves.ts) and the glide wait for each other the same way.
-  const anim = useRef<Animation | null>(null);
-  // The glide moves the rows it is seen on, each by the same keyframes, not the column: a whole
-  // conversation (tens of thousands of px) as one animated layer had WebKit keep drawn buffers for
-  // all of it, each glide again (kumo, 2026-11-23: a page at 8 GB in an hour, killed, the window
-  // white; measured there: a column of 90000px, 250 MB at rest, 1600 MB gliding whole). anim is
-  // the first of them, by which the glide is timed; glides, all of them, and what each is on.
-  const glides = useRef<Animation[]>([]);
-  const gliding = useRef<HTMLElement[]>([]);
-  const path = useRef<{ frames: Keyframe[]; opts: KeyframeAnimationOptions } | null>(null);
-  const stopGlide = () => {
-    for (const a of glides.current) a.cancel();
-    glides.current = [];
-    gliding.current = [];
-    path.current = null;
-    anim.current = null;
-  };
-  /** What came into the conversation while a glide is under way that goes on as it is (held):
-   *  it moves with the rows around it, not drawn at its place among them still on their way. */
-  const join = (el: HTMLElement, col: HTMLElement) => {
-    const a = anim.current;
-    const p = path.current;
-    if (!p || a?.playState !== "running") return;
-    const now = (document.timeline.currentTime as number | null) ?? performance.now();
-    const on = gliding.current;
-    for (const r of seenIn(el, col, springAt(spring.current, now, spring.current.w ?? springW()).y)) {
-      // Not one moving already, nor in one or around one.
-      if (on.some((o) => o === r || o.contains(r) || r.contains(o))) continue;
-      const b = r.animate(p.frames, p.opts);
-      try {
-        b.startTime = a.startTime;
-      } catch {
-        // No timeline time.
-      }
-      glides.current.push(b);
-      on.push(r);
-    }
-  };
-  const heldBy = useRef(0);
-  const setHeld = (col: HTMLElement, px: number) => {
-    if (px !== heldBy.current) moveLog("stick.held", whyNow.current, { dy: Math.round(px) });
-    heldBy.current = px;
-    col.style.translate = px ? `0 ${px}px` : "";
-  };
-  const spring = useRef<Spring>({ y: 0, v: 0, t: 0 });
-  /** When the pane itself last changed height, and its height then. */
-  const paneH = useRef(0);
-  const resized = useRef(-1e9);
+  // One rule for the conversation at its newest (docs/动画.md): the layout is always as it will
+  // stay, and the only thing that moves the conversation is its scroll place going to its end.
+  //   - what grows at the end is scrolled into view, the scroll place on a spring to the end:
+  //     it only ever goes towards the end, so the conversation only ever goes up for it;
+  //   - what shrinks moves nothing: as much room is kept under the conversation (the room),
+  //     what grows next fills that first, and what is left is closed once, the conversation
+  //     coming down in one move, when the turn is over and nothing has changed for QUIET, or at
+  //     once for what the user did (the composer made shorter);
+  //   - what changes over what is seen (a card far up filled in, a picture there) moves nothing
+  //     seen: the scroll place goes with it at once;
+  // No row is moved for any of it (no transform): rows that change places (moves.ts) are another
+  // thing, on another property, and neither waits for the other.
   const colOf = (el: HTMLElement) => el.firstElementChild as HTMLElement | null;
-  /** The floor: room kept under the conversation for what shrank at its end, px. */
+  /** The room kept under the conversation, px, and where it is going (0 as it closes). */
   const spacer = useRef<HTMLDivElement>(null);
-  const floor = useRef(0);
-  const setFloor = (px: number) => {
-    if (Math.abs((px < 0.5 ? 0 : px) - floor.current) >= 0.5) moveLog("stick.floor", whyNow.current, { dy: Math.round((px < 0.5 ? 0 : px) - floor.current) });
-    floor.current = px < 0.5 ? 0 : px;
-    if (spacer.current) spacer.current.style.height = floor.current ? `${floor.current}px` : "";
+  const room = useRef(0);
+  const setRoom = (px: number) => {
+    room.current = px < 0.5 ? 0 : px;
+    if (spacer.current) spacer.current.style.height = room.current ? `${room.current}px` : "";
   };
-  /** The very end, by the layout alone: not the glide's overhang below it, which a transform adds
-   *  to scrollHeight. */
+  /** The column's height, to the part of a pixel: a row shutting by an animation is a part of
+   *  one shorter each frame, and by whole ones the end was a pixel or two off, there and back. */
+  const tall = (col: HTMLElement | null) => col?.getBoundingClientRect().height ?? 0;
+  /** The very end, by the layout. */
   const bottomOf = (el: HTMLElement) => {
     const col = colOf(el);
     if (!col) return el.scrollHeight - el.clientHeight;
-    return Math.max(0, col.offsetTop + col.offsetHeight + floor.current + padOf(el) - el.clientHeight);
+    return Math.max(0, col.offsetTop + tall(col) + room.current + padOf(el) - el.clientHeight);
   };
-  // The column's height and the pane's bottom padding (the stack under it) as last measured: 0
-  // till the first page is in.
+  // The column's height, the pane's bottom padding and height as last seen: 0 till the first page is in.
   const height = useRef(0);
   const pad = useRef(0);
+  const paneH = useRef(0);
   const born = useRef(performance.now());
-  // When something new last came to the conversation (its tail changed). What changes its height
-  // with nothing new (a picture loading late, a card filled in, a mark coming) moves nothing: the
-  // end is kept, at once, no glide and no room held (kumo, 2026-11-21: a page just opened, or a
-  // message just sent, went up and down by itself; still till something new is there to add).
-  const came = useRef(-1e9);
   // Where this put the scroll last, and when the user last scrolled: a chat at rest at its newest
   // may be swiped on to bring the phone's sheet (sheet.tsx).
   const ours = useRef(-1);
@@ -212,234 +129,172 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
   const atFoot = (el: HTMLElement) => bottomOf(el) - el.scrollTop <= 1;
   /** Back at the newest: kept there again, the key to go down gone. */
   const hold = () => ((atEnd.current = true), setFresh(false));
-  const pin = (el: HTMLElement) => {
-    const was = el.scrollTop;
-    el.scrollTop = bottomOf(el);
-    ours.current = el.scrollTop;
-    mark(el);
-    if (Math.abs(el.scrollTop - was) >= 0.5) moveLog("stick.pin", whyNow.current, { dy: -Math.round(el.scrollTop - was) });
-    return el.scrollTop - was;
-  };
-  /** To the newest, gliding up by as far as that scrolled it (a message sent): that glide, and the
-   *  one already begun this frame by the bubble coming, is the send's. */
-  const toBottom = (el: HTMLElement) => {
-    whyNow.current = "send";
-    glide(pin(el), true, true);
-    if (anim.current?.playState === "running") sending.current = anim.current;
-  };
-  /** What changes its own height over time inside the conversation (a fold's track, a fold
-   *  pressed, long words opened), each with its height as last read, and till when at most. */
-  const moving = useRef(new Map<HTMLElement, { h: number; till: number }>());
-  /** By how much those grew (or shrank) since last read; those done or gone are let go. */
-  const movedBy = () => {
-    let by = 0;
-    const now = performance.now();
-    for (const [m, r] of moving.current) {
-      const h = m.isConnected ? m.offsetHeight : 0;
-      by += h - r.h;
-      r.h = h;
-      if (!m.isConnected || now > r.till) moving.current.delete(m);
-    }
-    return by;
-  };
-  /** m's height changes of itself from now, for ms at most. What the column has changed by and
-   *  was not seen yet is its already (a transition is a frame in when it says it runs). */
-  const moves = (m: HTMLElement, ms: number) => {
-    const el = list.current;
-    if (!el || !colOf(el)?.contains(m)) return;
-    const r = moving.current.get(m);
-    if (r) return void (r.till = performance.now() + ms);
-    moving.current.set(m, { h: m.offsetHeight, till: performance.now() + ms });
-    follow(el, false, true, "own-height");
-  };
-  /** Why the conversation is being followed now, for the record (motionlog.ts). */
-  const whyNow = useRef("?");
-  const floorTimer = useRef(0);
-  const settleSoon = () => {
-    clearTimeout(floorTimer.current);
-    floorTimer.current = window.setTimeout(settleFloor, HOLD);
-  };
-  /** The floor closes: nothing has changed for HOLD. Once, gliding (the user, 2026-11-08: not a
-   *  bounce down and back up each time something shrinks and grows again). */
-  const settleFloor = () => {
-    const el = list.current;
-    if (!el || !floor.current) return;
-    // Not under a finger, nor while something still moves of itself: then once that is over.
-    for (const [m, r] of moving.current) if (!m.isConnected || performance.now() > r.till) moving.current.delete(m);
-    // Nor while the conversation glides, or rows in it change places: one movement at a time.
-    const col = colOf(el);
-    if (touching.current || moving.current.size || anim.current?.playState === "running" || (col && freeIn(col, "push"))) return settleSoon();
-    const top = el.scrollTop;
-    whyNow.current = "floor-close";
-    setFloor(0);
-    // Let go of meanwhile, it may still have pulled the scroll up, at its foot: that glides too.
-    if (atEnd.current) pin(el);
-    else kept.current = el.scrollTop;
-    glide(el.scrollTop - top);
-  };
-  /** Kept at the newest: what came at the end, or the stack under it grown (the composer a line
-   *  taller, the phone's sheet out), pushes the conversation up by as much, gliding; a short chat
-   *  that does not scroll does not move at all. The pane itself shorter or taller (the phone's
-   *  keyboard) glides nothing: the conversation goes with the pane's foot as it moves.
-   *  settling: a push even as the chat settles (new blocks or drafts, not a picture loading).
-   *  own: all of the change is what moves of itself (moves). */
-  const follow = (el: HTMLElement, settling = false, own = false, why = "?") => {
-    const col = colOf(el);
-    whyNow.current = why;
-    const was = height.current;
-    const padWas = pad.current;
-    height.current = col?.offsetHeight ?? 0;
-    pad.current = padOf(el);
-    const self = movedBy();
-    if (paneH.current && el.clientHeight !== paneH.current) resized.current = performance.now();
-    paneH.current = el.clientHeight;
-    if (!atEnd.current) return;
-    // The pane itself made shorter or taller (the keyboard, the window): the conversation goes with
-    // its foot, and what changes with it (the stack's padding as the safe area comes back under a
-    // keyboard put away) glides nothing after it: one move, not there and back.
-    if (performance.now() - resized.current < RESIZED) return void pin(el);
-    // Not the first page coming into an empty chat, nor the page before put in (back): those are
-    // drawn in place.
-    const live = was > 0 && !paging.current;
-    // The stack under it taller or shorter (the composer's lines), and all of the change.
-    const dPad = live ? pad.current - padWas : 0;
-    const d = live ? height.current - was + dPad : 0;
-    // All of the column's change above what is seen (a card far up filled in late, a picture there
-    // loading): what is seen from its top row to the end is as it was, so it is kept where it is,
-    // the end pinned; nothing held, nothing glides (otae-c, 2026-11-19: a card at the top of a long
-    // channel shrank seconds after it opened, and the end went up and then down again).
-    const a = anchor.current;
-    if (live && !dPad && height.current !== was && a && a.el.isConnected && col && Math.abs(lastTop.current - a.at) <= 1 && Math.abs(fromEnd(col, a.el) - a.h) < 0.5) return void pin(el);
-    // Shrunk with nothing new (a card filled in shorter): the end kept, at once. Grown so at the
-    // newest (a picture come in late, a card filled in), it pushes up as anything new does,
-    // gliding: not a jump (kumo, 2026-11-23).
-    if (live && !own && !dPad && !settling && height.current < was && performance.now() - came.current > NEW) return void pin(el);
-    const its = own ? d : d > 0 ? Math.min(d, Math.max(0, self)) : Math.max(d, Math.min(0, self));
-    let push = d - its;
-    // What the conversation itself shrank by is held as the floor: something in it may grow back.
-    // Not as the chat opens: it is drawn whole at once. The stack made shorter is not held: the
-    // conversation comes down with the composer's top at once, gliding (kumo, 2026-11-19: the
-    // composer emptied left a hole over it for a moment, then the conversation dropped).
-    const shrank = own ? 0 : push - dPad;
-    if (shrank < -0.5 && performance.now() - born.current >= SETTLE) {
-      setFloor(floor.current - shrank);
-      push -= shrank;
-    } else if (push > 0 && floor.current) {
-      const take = Math.min(floor.current, push);
-      setFloor(floor.current - take);
-      push -= take;
-    }
-    if (floor.current > SLACK) settleSoon();
-    // From where this last put it: the browser has by now pulled the scroll up itself to an end
-    // made shorter, and from there nothing would be seen to move.
-    const before = ours.current;
-    pin(el);
-    const by = before >= 0 ? el.scrollTop - before : 0;
-    glide(push > 0 ? Math.min(push, Math.max(0, by)) : Math.max(push, Math.min(0, by)), settling, false, dPad !== 0);
-  };
-  /** The column's row at the top of what is seen as pin last put the end there (at: the scroll
-   *  then), and how far its top is from the column's end: what follow tells a change above what is
-   *  seen by. */
-  const anchor = useRef<{ el: Element; h: number; at: number } | null>(null);
-  const fromEnd = (col: HTMLElement, row: Element) => col.getBoundingClientRect().bottom - row.getBoundingClientRect().top;
+  /** The row at the top of what is seen, and where the layout has it: what changes over it is
+   *  told from what changes at the end by it. */
+  const anchor = useRef<{ el: HTMLElement; top: number } | null>(null);
   const mark = (el: HTMLElement) => {
     const col = colOf(el);
     anchor.current = null;
     if (!col) return;
     const top = el.getBoundingClientRect().top;
     // From the end up: the rows seen are the last few.
-    for (let row = col.lastElementChild; row; row = row.previousElementSibling) {
-      if (row.getBoundingClientRect().top <= top) {
-        anchor.current = { el: row, h: fromEnd(col, row), at: el.scrollTop };
-        return;
-      }
+    for (let row = col.lastElementChild as HTMLElement | null; row; row = row.previousElementSibling as HTMLElement | null) {
+      if (row.getBoundingClientRect().top <= top) return void (anchor.current = { el: row, top: row.offsetTop });
     }
+    const first = col.firstElementChild as HTMLElement | null;
+    if (first) anchor.current = { el: first, top: first.offsetTop };
   };
-  /** The timeline's time the glide under way began at; the glide that is a message sent. */
-  const begun = useRef(-1);
-  const sending = useRef<Animation | null>(null);
-  /** quick: the user's own doing (a message sent, the composer's height): one move's time; else
-   *  what came of itself, slower (FOLLOW). */
-  const glide = (by: number, settling = false, send = false, quick = send) => {
+  // The follow: the scroll place (at) on its way to the end, and the room on its way shut, each a
+  // spring, drawn a frame at a time while either has somewhere to go.
+  const at = useRef({ y: 0, v: 0 });
+  const quick = useRef(false);
+  const closing = useRef<{ v: number; quick: boolean } | null>(null);
+  const frame = useRef(0);
+  const last = useRef(0);
+  const put = (el: HTMLElement, top: number) => {
+    el.scrollTop = top;
+    ours.current = el.scrollTop;
+  };
+  /** To the end at once: no follow under way. */
+  const pin = (el: HTMLElement) => {
+    at.current = { y: 0, v: 0 };
+    put(el, bottomOf(el));
+    mark(el);
+  };
+  const step = (now: number) => {
+    frame.current = 0;
     const el = list.current;
-    const col = el && colOf(el);
-    if (!el || !col || reduced() || document.hidden) return;
-    if (!by) return join(el, col);
-    // By the timeline's clock: where the one running is, is where the compositor draws it.
-    const now = (document.timeline.currentTime as number | null) ?? performance.now();
-    const running = anim.current?.playState === "running";
-    const was = spring.current.w ?? springW();
-    // What changed by the frame the glide under way is first drawn in is the same change (a message
-    // sent: its bubble come in the key's own task, the composer emptied as the observer tells it,
-    // a frame on): one move by all of it, whichever way each went, not one way and then back
-    // (kumo, 2026-11-23). Within a frame of its start nothing of it has been seen.
-    const together = running && now - begun.current <= FRAME;
-    // A chat just opened settles in place (its pictures, the composer's cards): nothing glides. What
-    // came since it was last seen, brought as it opens, still does (the user, 2026-11-06).
-    if (!together && !settling && performance.now() - born.current < SETTLE) return;
-    const cur = running ? springAt(spring.current, now, was) : { y: 0, v: 0 };
-    // One spring, whatever pushes it and whichever way: a push is added to where it is, its speed
-    // kept, so it goes on to its new place in one movement. Nothing is held back to go after it:
-    // held, the conversation stood off its place meanwhile (a message of many lines sent, the
-    // composer made shorter a frame or two after the bubble came: a hole over the composer till
-    // the glide was done, then the conversation dropped into it; kumo, 2026-11-23). A quick one
-    // under way stays quick till it is nearly there.
-    const w = quick || (running && was === springW() && Math.abs(cur.y) > 8) ? springW() : springW(false);
-    stopGlide();
-    const y = Math.max(-el.clientHeight, Math.min(el.clientHeight, cur.y + by));
-    // Never past its place and back: at most as fast towards it as comes to rest there.
-    const v = (cur.v + w * y) * y < 0 ? -w * y : cur.v;
-    if (Math.abs(y) < 0.5) {
-      // At its place with something held: that goes now.
-      const h = heldBy.current;
-      if (h) (setHeld(col, 0), glide(h, settling));
-      return;
+    if (!el || !atEnd.current) return;
+    const dt = Math.min(64, Math.max(1, now - last.current));
+    last.current = now;
+    let more = false;
+    // What changed height since the last frame is taken in first (the observer tells of it only
+    // after this): put by the new end before that, the scroll place went back by as much as
+    // something had shrunk, and the conversation down with it for a frame.
+    const col = colOf(el);
+    if (col && (Math.abs(tall(col) - height.current) > 0.01 || padOf(el) !== pad.current || el.clientHeight !== paneH.current)) {
+      stepping.current = true;
+      follow(el, "?", performance.now() - actedAt.current < USER);
+      stepping.current = false;
     }
-    // Rows changing places in it are let finish first: drawn where it is till then.
-    const wait = freeIn(col, "push");
-    spring.current = { y, v, t: now + wait, w };
-    // The spring's path as linear keyframes, to rest (half a percent of the way left).
-    const T = 7.5 / w;
-    const N = Math.max(16, Math.round(T / 12));
-    const frames: Keyframe[] = [];
-    for (let i = 0; i < N; i++) frames.push({ transform: `translateY(${springAt(spring.current, now + wait + (T * i) / N, w).y.toFixed(2)}px)` });
-    frames.push({ transform: "none" });
-    const rows = seenIn(el, col, y);
-    moveLog("stick.glide", whyNow.current, { dy: Math.round(y), ms: Math.round(T + wait), n: rows.length, note: `by ${Math.round(by)}${running ? " running" : ""}${quick ? " quick" : ""}${wait ? ` wait ${Math.round(wait)}` : ""}` });
-    if (!rows.length) return;
-    // Waiting for rows changing places (moves.ts), it is added to their move, as the column's
-    // transform was; else it is the row's only one, and the compositor's to run.
-    const opts: KeyframeAnimationOptions = { duration: T, easing: "linear", delay: wait, fill: "backwards", composite: wait ? "add" : "replace" };
-    const all = rows.map((r) => r.animate(frames, opts));
-    const a = all[0];
-    occupy(col, "push", wait + T);
-    // Done: what was held meanwhile glides from where it is drawn.
-    a.onfinish = () => {
-      if (sending.current === a) sending.current = null;
-      const h = heldBy.current;
-      if (anim.current !== a || !h) return;
-      setHeld(col, 0);
-      glide(h, true);
-    };
-    // Begun now, not when the page next has time for it: a page busy drawing what came (several
-    // agents' rows) held each new glide at its first frame meanwhile.
-    try {
-      for (const b of all) b.startTime = now;
-    } catch {
-      // No timeline time (a page not shown): it begins when it can.
+    // The room shutting: the conversation comes down with it, the end kept.
+    const c = closing.current;
+    if (c && room.current) {
+      const s = springAt({ y: room.current, v: c.v, t: 0 }, dt, springW(c.quick));
+      c.v = s.v;
+      setRoom(s.y < 0.5 ? 0 : s.y);
+      if (room.current) more = true;
+      else closing.current = null;
+      put(el, bottomOf(el) - at.current.y);
+    } else closing.current = null;
+    // The scroll place going to the end: y, how far it has yet to go.
+    if (at.current.y > 0) {
+      const s = springAt({ y: at.current.y, v: at.current.v, t: 0 }, dt, springW(quick.current));
+      at.current = s.y < 0.5 ? { y: 0, v: 0 } : { y: s.y, v: Math.min(0, s.v) };
+      put(el, bottomOf(el) - at.current.y);
+      if (at.current.y) more = true;
     }
-    glides.current = all;
-    gliding.current = rows;
-    // Where the glide has a row just now is no place of its own (seen.ts drift).
-    drift.set(col, (row) => {
-      if (anim.current?.playState !== "running" || !gliding.current.some((o) => o === row || o.contains(row) || row.contains(o))) return 0;
-      const t = (document.timeline.currentTime as number | null) ?? performance.now();
-      return springAt(spring.current, t, spring.current.w ?? springW()).y;
-    });
-    path.current = { frames, opts };
-    anim.current = a;
-    begun.current = now;
-    if (send) sending.current = a;
+    if (more) frame.current = requestAnimationFrame(step);
+    else mark(el);
+  };
+  const stepping = useRef(false);
+  /** When the user last did something (a press, a key): what changes height right after is
+   *  theirs, in one move's time, and what shrank comes down at once. USER: as long as a fold
+   *  pressed takes to open or shut (motion.css --move and --fade), and a frame or two. */
+  const actedAt = useRef(-1e9);
+  const USER = 400;
+  /** Each row's height as last seen, for the record: which row it was that changed with no one
+   *  saying why. */
+  const rowsH = useRef(new Map<Element, number>());
+  const whichRows = (col: HTMLElement | null) => {
+    const out: string[] = [];
+    const now = new Map<Element, number>();
+    for (const r of col?.children ?? []) {
+      const h = (r as HTMLElement).offsetHeight;
+      now.set(r, h);
+      const was = rowsH.current.get(r);
+      if (was === undefined) out.push(`+${(r as HTMLElement).dataset.flip?.slice(0, 14) ?? "row"}:${h}`);
+      else if (was !== h) out.push(`${(r as HTMLElement).dataset.flip?.slice(0, 14) ?? "row"}:${h - was > 0 ? "+" : ""}${h - was}`);
+    }
+    for (const [r, h] of rowsH.current) if (!now.has(r)) out.push(`-${(r as HTMLElement).dataset.flip?.slice(0, 14) ?? "row"}:${h}`);
+    rowsH.current = now;
+    return out.slice(0, 4).join(" ");
+  };
+  const run = () => {
+    if (frame.current || stepping.current) return;
+    last.current = performance.now();
+    frame.current = requestAnimationFrame(step);
+  };
+  /** The room shuts from now. */
+  const close = (isQuick: boolean) => {
+    if (!room.current) return;
+    if (reduced() || document.hidden) return void (setRoom(0), list.current && atEnd.current && pin(list.current));
+    moveLog("follow.close", whyNow.current, { dy: Math.round(room.current), note: isQuick ? "quick" : "" });
+    closing.current = { v: closing.current?.v ?? 0, quick: isQuick || !!closing.current?.quick };
+    run();
+  };
+  /** Why the conversation is being followed now, for the record (motionlog.ts). */
+  const whyNow = useRef("?");
+  const quietTimer = useRef(0);
+  const closeSoon = () => {
+    clearTimeout(quietTimer.current);
+    if (room.current > SLACK) quietTimer.current = window.setTimeout(() => (busyNow.current ? closeSoon() : ((whyNow.current = "rest"), close(false))), QUIET);
+  };
+  /** The conversation or the stack under it changed height, the chat at its newest. why: what
+   *  for; user: the user's own doing (one move's time, and what shrank comes down at once). */
+  const follow = (el: HTMLElement, why: string, user = false) => {
+    const col = colOf(el);
+    const was = height.current;
+    const padWas = pad.current;
+    const paneWas = paneH.current;
+    height.current = tall(col);
+    pad.current = padOf(el);
+    paneH.current = el.clientHeight;
+    whyNow.current = why;
+    if (!atEnd.current) return;
+    // The first page into an empty chat, the page before put in, the pane itself another height
+    // (the keyboard, the window), a chat still settling as it opens, no motion wanted: in place.
+    const settling = performance.now() - born.current < SETTLE && why !== "tail";
+    if (!was || paging.current || (paneWas && paneWas !== paneH.current) || settling || reduced() || document.hidden) {
+      if (!was || paging.current) setRoom(0);
+      return void pin(el);
+    }
+    const dPad = pad.current - padWas;
+    let d = height.current - was;
+    // What changed over what is seen moves nothing seen: the scroll place goes with it.
+    const a = anchor.current;
+    const over = a && a.el.isConnected ? a.el.offsetTop - a.top : 0;
+    if (a && over) a.top += over;
+    d -= over;
+    let grow = Math.max(0, d) + Math.max(0, dPad);
+    const shrink = Math.max(0, -d) + Math.max(0, -dPad);
+    // What shrank: as much room kept (nothing moves).
+    if (shrink) setRoom(room.current + shrink);
+    // What grew fills the room first.
+    if (grow && room.current) {
+      const take = Math.min(room.current, grow);
+      setRoom(room.current - take);
+      grow -= take;
+    }
+    // And what the scroll place has yet to go is as much less as there is room left: one way only.
+    if (room.current && at.current.y > 0) {
+      const take = Math.min(room.current, at.current.y);
+      setRoom(room.current - take);
+      at.current.y -= take;
+    }
+    // From where this last put it: the browser may have pulled the scroll up to a shorter end.
+    const end = bottomOf(el);
+    const from = Math.min(end, Math.max(0, (ours.current >= 0 ? ours.current : el.scrollTop) + over));
+    at.current.y = Math.max(0, end - from);
+    if (grow > 0.5) quick.current = user;
+    put(el, from);
+    if (at.current.y > 0.5) (moveLog("follow.up", why, { dy: -Math.round(at.current.y), note: user ? "quick" : "" }), run());
+    else pin(el);
+    const rows = d || over ? whichRows(col) : "";
+    if (shrink) moveLog("follow.room", why, { dy: Math.round(shrink), note: `room ${Math.round(room.current)} ${rows}` });
+    else if (why === "?" && (d || over)) moveLog("follow.grew", why, { dy: Math.round(d), note: `${over ? `over ${over} ` : ""}${rows}` });
+    if (room.current) user && shrink ? close(true) : closeSoon();
+    if (Math.abs(over) > 0.5) moveLog("follow.over", why, { dy: Math.round(over) });
   };
 
   /** Fold d opened or shut by a press (the user, 2026-11-08: clean, no jump at either end): its
@@ -450,7 +305,6 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     if (d.dataset.anim !== undefined) return;
     const opening = !d.open;
     moveLog("stick.fold", opening ? "fold-open" : "fold-shut");
-    moves(d, motion.move() + motion.fade() + 100);
     const from = d.offsetHeight;
     if (opening) d.open = true;
     else d.dataset.shut = "";
@@ -478,25 +332,16 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
       .catch(() => {});
   };
 
-  /** Where the scroll was at the last scroll event; a finger on the list; a place leave scrolled
-   *  to, no move of the user's. */
+  /** Where the scroll was at the last scroll event. */
   const lastTop = useRef(0);
-  const touching = useRef(false);
-  const kept = useRef(-1);
-  /** The user goes up: the newest is let go, and a glide under way stops where it is drawn, the
-   *  conversation not moving on under the finger. */
+  /** The user goes up: the newest is let go, and a follow under way stops where it is. */
   const leave = () => {
     atEnd.current = false;
-    const el = list.current;
-    const col = el?.firstElementChild as HTMLElement | null;
-    if (!el || !col || anim.current?.playState !== "running") return;
-    const now = (document.timeline.currentTime as number | null) ?? performance.now();
-    const at = springAt(spring.current, now, spring.current.w ?? springW()).y + heldBy.current;
-    stopGlide();
-    setHeld(col, 0);
-    if (Math.abs(at) < 0.5) return;
-    el.scrollTop -= at;
-    kept.current = lastTop.current = el.scrollTop;
+    cancelAnimationFrame(frame.current);
+    frame.current = 0;
+    at.current = { y: 0, v: 0 };
+    closing.current = null;
+    clearTimeout(quietTimer.current);
   };
 
   const back = async () => {
@@ -507,11 +352,13 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
       while (el.isConnected && el.scrollTop < near(el, heldNow.current) && (await older())) {
         const h = el.scrollHeight;
         flushSync(() => (draw(), redraw((n) => n + 1)));
-        el.scrollTop += el.scrollHeight - h;
-        moveLog("stick.back", "page", { dy: 0, note: `+${el.scrollHeight - h}px over` });
-        // Placed here: what the column grew by is no push at the newest (follow).
-        height.current = (el.firstElementChild as HTMLElement | null)?.offsetHeight ?? 0;
+        const by = el.scrollHeight - h;
+        el.scrollTop += by;
+        moveLog("stick.back", "page", { dy: 0, note: `+${by}px over` });
+        // Placed here: what the column grew by is nothing to follow.
+        height.current = tall(colOf(el));
         if (atEnd.current) ours.current = el.scrollTop;
+        mark(el);
       }
     } finally {
       paging.current = false;
@@ -526,16 +373,15 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     // Only as the conversation grew: a draw that changed nothing in it (the page around it drawn
     // again) forces no layout of the whole page; what grows without it the observer below sees.
     if (!first && was === tail) return;
-    came.current = performance.now();
     // The chat settles from its first draw, not from when it began to be made: a long one takes a
     // while to draw, and what fills in meanwhile is still its opening.
     if (first) born.current = performance.now();
     if (first && place.top !== null) el.scrollTop = place.top;
-    else if (first || atEnd.current) follow(el, true, false, first ? "open" : "tail");
+    else if (first || atEnd.current) follow(el, first ? "open" : "tail");
     // Let go of at the very end (a wheel nudged up there, a box inside scrolled), and what came
     // grew nothing below it (a draft's line run on): nothing to go down to, no key that only
     // scrolling up and back down would take away (the user, 2026-11-08).
-    else if (atFoot(el)) (hold(), follow(el, true, false, "tail"));
+    else if (atFoot(el)) (hold(), follow(el, "tail"));
     else setFresh(true);
     void back().catch(() => {});
   });
@@ -545,21 +391,18 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
   // its new place first.
   useLayoutEffect(() => {
     const el = list.current!;
-    const col = el.firstElementChild as HTMLElement | null;
-    height.current = col?.offsetHeight ?? 0;
+    const col = colOf(el);
+    height.current = tall(col);
     pad.current = padOf(el);
-    const ro = new ResizeObserver(() => follow(el, false, false, "?"));
+    paneH.current = el.clientHeight;
+    const act = () => (actedAt.current = performance.now());
+    const ro = new ResizeObserver(() => {
+      const user = performance.now() - actedAt.current < USER;
+      follow(el, user ? "user" : "?", user);
+    });
     ro.observe(el);
     if (col) ro.observe(col);
-    // A row drawn anew while the glide runs (what is being written become its block, a message
-    // sent become its row) joins it before it is first drawn: on its own it stood at its place
-    // among rows still on their way.
-    const mo = new MutationObserver(() => {
-      const c = colOf(el);
-      if (c && anim.current?.playState === "running") join(el, c);
-    });
-    if (col) mo.observe(col, { childList: true, subtree: true });
-    ends.set(el, () => ((atEnd.current = true), setFresh(false), toBottom(el)));
+    ends.set(el, () => ((atEnd.current = true), setFresh(false), (whyNow.current = "send"), close(true), follow(el, "send", true)));
     goes.set(el, leave);
     rests.set(el, () => atEnd.current && bottomOf(el) - el.scrollTop < 2 && performance.now() - moved.current > REST);
     lastTop.current = el.scrollTop;
@@ -574,7 +417,6 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
       if (atEnd.current && !inner(e.target, el)) leave();
     };
     const touch = (e: TouchEvent) => {
-      touching.current = e.type === "touchstart" || e.type === "touchmove";
       const p = e.touches[0];
       if (!p) return;
       if (e.type === "touchmove" && p.clientY - y > 2 && atEnd.current && bottomOf(el) > 0 && !inner(e.target, el)) leave();
@@ -586,39 +428,29 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
       if (["PageUp", "ArrowUp", "Home"].includes(e.key)) return void (atEnd.current && leave());
       if (["PageDown", "ArrowDown", "End", " "].includes(e.key)) down();
     };
-    // What changes its own height over time (moves): a fold whose height is a grid track's
-    // (said.tsx Earlier, a forward's rules), opened or shut, pressed or as its turn ends; what
-    // says so itself (layoutMoves). Shut at the newest it is not held as tall and settled after,
-    // the answer under it going up and then down (kumo, 2026-11-16).
-    const runs = (e: TransitionEvent) => (e.propertyName === "grid-template-rows" || e.propertyName === "height") && e.target instanceof HTMLElement && (moveLog("css.transition", e.propertyName, { note: nameOf(e.target) }), moves(e.target, 1000));
-    const ran = (e: TransitionEvent) => {
-      const r = e.target instanceof HTMLElement && moving.current.get(e.target);
-      if (r) r.till = performance.now() + 60;
-    };
-    const told = (e: Event) => e.target instanceof HTMLElement && (moveLog("layoutMoves", "own-height", { note: nameOf(e.target) }), moves(e.target, (e as CustomEvent<number>).detail + 100));
+    // For the record (motionlog.ts): what in the conversation changes its own height or moves by
+    // an animation of its own.
+    const runs = (e: TransitionEvent) => (e.propertyName === "grid-template-rows" || e.propertyName === "height") && e.target instanceof HTMLElement && moveLog("css.transition", e.propertyName, { note: nameOf(e.target) });
+    const told = (e: Event) => e.target instanceof HTMLElement && moveLog("layoutMoves", "own-height", { note: nameOf(e.target) });
+    const animates = (e: AnimationEvent) => moveLog("css.animation", e.animationName, { note: e.target instanceof HTMLElement ? nameOf(e.target) : "" });
     el.addEventListener("transitionrun", runs);
-    el.addEventListener("transitionend", ran);
-    el.addEventListener("transitioncancel", ran);
     el.addEventListener(MOVES, told);
-    // One leaving (motion.css g-depart) shuts its room by an animation of its own.
-    const departing = (e: AnimationEvent) => (moveLog("css.animation", e.animationName, { note: e.target instanceof HTMLElement ? nameOf(e.target) : "" }), e.animationName === "g-depart-room" && e.target instanceof HTMLElement && moves(e.target, motion.fade() + motion.move() + 100));
-    el.addEventListener("animationstart", departing);
+    el.addEventListener("animationstart", animates);
     el.addEventListener("wheel", wheel, { passive: true });
     for (const k of ["touchstart", "touchmove", "touchend", "touchcancel"] as const) el.addEventListener(k, touch, { passive: true });
     el.addEventListener("keydown", key);
+    for (const k of ["pointerup", "keydown"] as const) addEventListener(k, act, true);
     return () => {
       ro.disconnect();
-      mo.disconnect();
-      clearTimeout(floorTimer.current);
+      clearTimeout(quietTimer.current);
+      cancelAnimationFrame(frame.current);
       el.removeEventListener("transitionrun", runs);
-      el.removeEventListener("transitionend", ran);
-      el.removeEventListener("transitioncancel", ran);
       el.removeEventListener(MOVES, told);
-      el.removeEventListener("animationstart", departing);
+      el.removeEventListener("animationstart", animates);
       el.removeEventListener("wheel", wheel);
       for (const k of ["touchstart", "touchmove", "touchend", "touchcancel"] as const) el.removeEventListener(k, touch);
       el.removeEventListener("keydown", key);
-      stopGlide();
+      for (const k of ["pointerup", "keydown"] as const) removeEventListener(k, act, true);
       const end = bottomOf(el) - el.scrollTop < END;
       place.top = end ? null : el.scrollTop;
     };
@@ -630,7 +462,7 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
   const padNow = style?.paddingBottom;
   useLayoutEffect(() => {
     const el = list.current;
-    if (el && height.current) follow(el, false, false, "pad");
+    if (el && height.current) follow(el, "pad", true);
   }, [padNow]);
 
   const scrolled = () => {
@@ -638,10 +470,19 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     const top = el.scrollTop;
     const d = top - lastTop.current;
     lastTop.current = top;
-    // Where this put it is no move of the user's: the pane may have shrunk again since (the
-    // keyboard coming in steps), and it is still to keep at the newest.
-    if (atEnd.current && Math.abs(top - ours.current) <= 1) return;
-    if (Math.abs(top - kept.current) <= 1) return void (kept.current = -1);
+    // Where this put it, or is putting it, is no move of the user's (who goes up by the wheel, a
+    // finger or a key, seen before the scroll comes).
+    if (atEnd.current && (frame.current || Math.abs(top - ours.current) <= 1)) return;
+    // Nor where the browser pulled it to as the conversation got shorter: that is taken in first
+    // (the scroll's event comes before the observer's word of it; read as the user's, the scroll
+    // place was left a little short of the end, and the conversation went down and came back).
+    const col = colOf(el);
+    if (atEnd.current && col && (Math.abs(tall(col) - height.current) > 0.01 || padOf(el) !== pad.current || el.clientHeight !== paneH.current)) {
+      follow(el, "?", performance.now() - actedAt.current < USER);
+      lastTop.current = el.scrollTop;
+      return;
+    }
+    const wasAtEnd = atEnd.current;
     moved.current = performance.now();
     // Any way up lets go of the newest at once, not only past END: a slow drag up was pulled back
     // down each time more came (the user, 2026-11-08). Only going down near it holds on again.
@@ -649,9 +490,11 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     if (atEnd.current) {
       if (d < -0.5 && gap > 1) leave();
     } else if ((gap < END && d >= 0) || gap <= 1) atEnd.current = true; // at the very end too as what shrank below pulled it there
-    if (atEnd.current) setFresh(false);
+    // The user's own scrolling near the end (a smooth scroll down still on its way as it comes
+    // within END): the scroll place is theirs, and what comes next is followed from there.
+    if (atEnd.current) (setFresh(false), (ours.current = top), !wasAtEnd && mark(el), closeSoon());
     // Gone up from the newest: the room kept under it is let go, unseen from here.
-    else if (floor.current && gap > floor.current + 1) (clearTimeout(floorTimer.current), setFloor(0));
+    else if (room.current && gap > room.current + 1) setRoom(0);
     void back().catch(() => {});
   };
 
@@ -667,7 +510,7 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
           toggleFold(fold);
         }} className="gapless absolute inset-0 overflow-y-auto [overflow-anchor:none] [scrollbar-gutter:stable_both-edges]" style={style}>
         {children}
-        {/* The floor: the room kept for what shrank at the end (follow). */}
+        {/* The room kept for what shrank at the end (follow). */}
         <div ref={spacer} aria-hidden className="gapless" />
       </div>
       {fresh && !quiet && (
