@@ -733,7 +733,7 @@ function RoleBeside({ open, anchor, children }: { open: boolean; anchor: Element
 function RolePreview({ role, nick, at }: { role: Role; nick: string; at: object }) {
   return (
     <div key={role.id} className="g-fade">
-      <ProfileCard face={<RoleFace role={role} size={56} />} name={nick || role.name} sub={<RoleLine role={role} at={at} logo className="min-w-0" />} intro={role.intro} background={role.background} keys={[]} />
+      <ProfileCard face={<RoleFace role={role} size={56} />} name={nick || role.name} sub={<RoleLine role={role} at={at} logo className="min-w-0" />} background={role.background} keys={[]} />
     </div>
   );
 }

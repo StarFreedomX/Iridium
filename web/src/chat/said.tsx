@@ -789,11 +789,12 @@ function Fold({ steps, session, cwd }: { steps: Step[]; session: string; cwd: st
 
 /** A step's line; pressed, what it was given and what came back open in a card at the press, like a
  *  context menu, instead of under the line (the user, 2026-11-08): the conversation stays put.
- *  The pictures its result gave the model show under it, open at first; its icon, hovered, turns
- *  to the chevron that folds them (the user, 2026-11-09: the tool's own icon otherwise). */
+ *  One whose result gave the model pictures is otherwise (otae, 2026-11-10, again 2026-11-23):
+ *  they are shut at first, and the whole line opens and shuts them, no card; its icon, hovered,
+ *  turns to the chevron (the user, 2026-11-09: the tool's own icon otherwise). */
 function StepView({ s, session, cwd, lifted }: { s: Step; session: string; cwd: string; lifted?: boolean }) {
   const images = s.kind === "tool" ? s.result?.images : undefined;
-  const [shown, setShown] = useState(true);
+  const [shown, setShown] = useState(false);
   const opened = !lifted && s.kind === "tool" ? newOfCall(s) : undefined;
   if (!images?.length)
     return opened ? (
@@ -806,21 +807,22 @@ function StepView({ s, session, cwd, lifted }: { s: Step; session: string; cwd: 
     );
   return (
     <div className="min-w-0">
-      <div className="group/step flex min-w-0 items-center gap-2">
-        {/* Touch has no hover: the chevron shows always, its key as wide as a finger, the line
-            where it was. */}
-        <button
-          type="button"
-          aria-expanded={shown}
-          aria-label={t(shown ? "msg.hidePictures" : "msg.showPictures")}
-          onClick={() => setShown(!shown)}
-          className="group/pic grid h-7 shrink-0 place-items-center rounded-sm outline-none hover:bg-fill focus-visible:bg-fill pointer-coarse:-mx-3 pointer-coarse:h-9 pointer-coarse:px-3 [&>*]:[grid-area:1/1] [&>*]:transition-[opacity,rotate] [&>*]:duration-(--dur-1)"
-        >
-          <StepIcon s={s} className="group-hover/step:opacity-0 group-focus-visible/pic:opacity-0 pointer-coarse:opacity-0" />
-          <ChevronRight size={14} aria-hidden className={cn("text-ink-3 opacity-0 group-hover/step:opacity-100 group-focus-visible/pic:opacity-100 pointer-coarse:opacity-100", shown && "rotate-90")} />
-        </button>
-        <StepCall s={s} session={session} cwd={cwd} bare />
-      </div>
+      {/* Touch has no hover: the chevron shows always, the line where it was. */}
+      <button
+        type="button"
+        aria-expanded={shown}
+        aria-label={t(shown ? "msg.hidePictures" : "msg.showPictures")}
+        onClick={() => setShown(!shown)}
+        className="group/step flex w-full min-w-0 items-center gap-2 text-left outline-none"
+      >
+        <span className="grid h-7 shrink-0 place-items-center rounded-sm group-hover/step:bg-fill group-focus-visible/step:bg-fill pointer-coarse:h-9 [&>*]:[grid-area:1/1] [&>*]:transition-[opacity,rotate] [&>*]:duration-(--dur-1)">
+          <StepIcon s={s} className="group-hover/step:opacity-0 group-focus-visible/step:opacity-0 pointer-coarse:opacity-0" />
+          <ChevronRight size={14} aria-hidden className={cn("text-ink-3 opacity-0 group-hover/step:opacity-100 group-focus-visible/step:opacity-100 pointer-coarse:opacity-100", shown && "rotate-90")} />
+        </span>
+        <span className={cn(ROW, "min-w-0 flex-1 group-hover/step:text-ink-2", shown && "text-ink-2")}>
+          <StepLine s={s} cwd={cwd} bare />
+        </span>
+      </button>
       {shown && <Pictures session={session} s={s} />}
     </div>
   );

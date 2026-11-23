@@ -1,7 +1,9 @@
 package agy
 
 import (
+	"encoding/base64"
 	"encoding/json"
+	"path/filepath"
 	"strings"
 )
 
@@ -104,4 +106,41 @@ func resultOf(u *update) string {
 		text = rest
 	}
 	return strings.ReplaceAll(text, "\r\n", "\n")
+}
+
+// pictureMax is the most of a picture agy read that is kept with its result.
+const pictureMax = 8 << 20
+
+// pictureTypes are the pictures by the end of their name, as the model is given them.
+var pictureTypes = map[string]string{".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp"}
+
+// pictureOf is the picture a read of u gave the model, as content blocks the record keeps
+// (transcript.Entry.Content): agy's ACP says only the file's path, so it is read where agy runs
+// as the read ends, the picture it was just given (otae, 2026-11-23: agy's 读图片 had nothing to
+// open). Nil for anything else, a failed read, or one not to be read.
+func (d *Driver) pictureOf(u *update) json.RawMessage {
+	if u.Status != "completed" || u.ToolKind != "read" || d.readFile == nil {
+		return nil
+	}
+	path := ""
+	if len(u.Locations) > 0 {
+		path = u.Locations[0].Path
+	}
+	if path == "" {
+		var in struct {
+			Path string `json:"Path"`
+		}
+		_ = json.Unmarshal(u.RawInput, &in)
+		path = in.Path
+	}
+	mime := pictureTypes[strings.ToLower(filepath.Ext(path))]
+	if mime == "" {
+		return nil
+	}
+	data, err := d.readFile(path)
+	if err != nil || len(data) == 0 || len(data) > pictureMax {
+		return nil
+	}
+	b, _ := json.Marshal([]map[string]string{{"type": "image", "data": base64.StdEncoding.EncodeToString(data), "mimeType": mime}})
+	return b
 }

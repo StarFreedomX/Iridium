@@ -39,8 +39,7 @@ func (s *Server) roleRoutes(mux *http.ServeMux) {
 func (s *Server) roleOut(r store.Role) api.Role {
 	key := store.RoleProfileKey(r.ID)
 	out := api.Role{ID: r.ID, Name: r.Name, Agent: api.Agent(r.Agent), Model: r.Model, Preset: r.Preset, Machine: r.Machine}
-	p := s.st.Profile(key)
-	out.Intro, out.Persona = p.Intro, p.Persona
+	out.Persona = s.st.Profile(key).Persona
 	info, _ := agents.Get(out.Agent)
 	out.ModelName = strings.TrimSpace(cmp.Or(info.Name, r.Agent) + " " + r.Model)
 	if _, v, ok := s.face(key, false, roleModelKey(r)); ok {
@@ -187,10 +186,7 @@ func (s *Server) rolePost(w http.ResponseWriter, r *http.Request) {
 	} else {
 		prof := store.Profile{}
 		var err error
-		if prof.Intro, err = intro(req.Intro); err == nil {
-			prof.Persona, err = persona(req.Persona)
-		}
-		if err == nil {
+		if prof.Persona, err = persona(req.Persona); err == nil {
 			_, err = s.setFaces(c, key, &prof, strp(req.Avatar), strp(req.Background), "", "")
 		}
 		if err == nil {
@@ -206,11 +202,15 @@ func (s *Server) rolePost(w http.ResponseWriter, r *http.Request) {
 	reply(w, http.StatusOK, s.roleOut(role))
 }
 
-// keepCard makes session id's card the one kept under key (a role's): its intro, persona, background
+// keepCard makes session id's card the one kept under key (a role's): its persona, background
 // and the face it is drawn with, its own or, with none, its model's (kumo, 2026-11-17: a role
-// kept from a session that had its model's face had none).
+// kept from a session that had its model's face had none). Not its intro: a role has none
+// (otae, 2026-11-23: who it is is its persona's; what it does here each session writes).
 func (s *Server) keepCard(id, key string) error {
 	if err := s.st.CopyProfile(store.ChannelProfileKey(id), key); err != nil {
+		return err
+	}
+	if err := s.noIntro(key); err != nil {
 		return err
 	}
 	if _, _, ok := s.face(key, false, ""); ok {
@@ -229,6 +229,16 @@ func (s *Server) keepCard(id, key string) error {
 		return err
 	}
 	return s.st.PutAvatar(key, img, v)
+}
+
+// noIntro takes the intro off the profile under key, if it has one.
+func (s *Server) noIntro(key string) error {
+	p := s.st.Profile(key)
+	if p.Intro == "" {
+		return nil
+	}
+	p.Intro = ""
+	return s.st.SetProfile(key, p)
 }
 
 // strp is v as a patch's field: nil for none.
@@ -297,14 +307,7 @@ func (s *Server) rolePatch(w http.ResponseWriter, r *http.Request) {
 		role.Sort = *p.Sort
 	}
 	prof := s.st.Profile(key)
-	if p.Intro != nil {
-		v, err := intro(*p.Intro)
-		if err != nil {
-			s.error(w, err)
-			return
-		}
-		prof.Intro = v
-	}
+	prof.Intro = "" // a role has none (keepCard)
 	if p.Persona != nil {
 		v, err := persona(*p.Persona)
 		if err != nil {
@@ -401,6 +404,10 @@ func (s *Server) carded(c caller, id string, req api.NewSession) error {
 	if req.Role != "" {
 		if role, ok := s.roleBy(req.Role); ok {
 			if err := s.st.CopyProfile(store.RoleProfileKey(role.ID), key); err != nil {
+				return err
+			}
+			// Kept from before roles had none: not handed on.
+			if err := s.noIntro(key); err != nil {
 				return err
 			}
 			if err := s.st.SetRoleOf(id, role.ID); err != nil {

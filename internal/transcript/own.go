@@ -32,6 +32,9 @@ type Entry struct {
 	Input json.RawMessage `json:"input,omitempty"`
 	Error bool            `json:"error,omitempty"`
 	Event string          `json:"event,omitempty"` // system: its api.SystemEvent
+	// Content: result, the pictures it gave the model, as content blocks ({type: image, data,
+	// mimeType}: what pictures reads), beside its Text.
+	Content json.RawMessage `json:"content,omitempty"`
 }
 
 // Entry kinds besides api.BlockKind's: the agent's own title for the session.
@@ -84,6 +87,7 @@ func ownBlocks(off int64, raw []byte, max int, sources Sources) []api.Block {
 	case api.BlockKindResult:
 		b.Kind, b.ID, b.Error = api.BlockKindResult, e.ID, e.Error
 		b.Text, b.Length = clip(e.Text, max)
+		b.Images = pictures(e.Content, max < 0)
 	case api.BlockKindSystem:
 		if strings.TrimSpace(e.Text) == "" {
 			return nil

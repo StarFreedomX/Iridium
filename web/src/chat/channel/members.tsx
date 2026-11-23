@@ -360,22 +360,37 @@ function Items({ channel, a, s, may, call, record, ask }: Parameters<typeof Memb
   return <>{list.map((x, i) => draw[x.key](i, x.disabled))}</>;
 }
 
+/** The sessions archiving session id archives too: those it started that hang under it (its ir
+ *  new, not taken out), and theirs (the server's cascade, SessionPatch.archived). */
+const hungUnder = (id: string, list: Session[]): number => {
+  const kids = list.filter((s) => s.launcher === id && !s.own && !s.archived);
+  return kids.reduce((n, s) => n + 1 + hungUnder(s.id, list), 0);
+};
+
 /** 移出, from wherever it is asked (the face's menu, the members' list at the bar's right): the
  *  one card at anchor, the member out only once it is confirmed (docs/前端设计规范.md "一样东西
- *  一个实现"). The session stays: only its place in the channel goes. */
+ *  一个实现"). A session started for this channel (spawned here) is archived with it, the main
+ *  key, those it started too, how many said; 仅移出 keeps it (it shows in its folder then). One
+ *  that was not (brought in by an ir) only leaves: its session stays (otae, 2026-11-23). */
 export function RemoveAsk({ channel, member, nick, anchor, open, onOpenChange }: { channel: string; member: string; nick: string; anchor: RefObject<HTMLElement | null>; open: boolean; onOpenChange: (o: boolean) => void }) {
   const qc = useQueryClient();
-  const [busy, setBusy] = useState(false);
+  const list = useList();
+  const [busy, setBusy] = useState<"" | "out" | "archive">("");
   const done = () => onOpenChange(false);
-  const out = async () => {
-    setBusy(true);
+  const id = member.startsWith("agent:") ? member.slice("agent:".length) : "";
+  const s = id ? list?.find((x) => x.id === id) : undefined;
+  const forHere = !!s && s.spawned?.channel === channel;
+  const hung = forHere && list ? hungUnder(id, list) : 0;
+  const out = async (archive: boolean) => {
+    setBusy(archive ? "archive" : "out");
     try {
       qc.setQueryData<ChannelMembers>(["members", channel], await api.removeMember(channel, member));
+      if (archive) await api.patch(id, { archived: true });
       done();
     } catch (e) {
       toast(t("err.action"), { error: true, description: memberError(e) });
     } finally {
-      setBusy(false);
+      setBusy("");
     }
   };
   const title = t("channel.removeTitle", { nick });
@@ -385,14 +400,26 @@ export function RemoveAsk({ channel, member, nick, anchor, open, onOpenChange }:
         <CardHead
           icon={<UserMinus size={16} />}
           title={title}
-          summary={t("channel.removeHint")}
+          summary={forHere ? (hung ? t("channel.removeArchiveHintN", { n: hung }) : t("channel.removeArchiveHint")) : t("channel.removeHint")}
           keys={
-            <>
-              <SecondKey onClick={done}>{t("me.cancel")}</SecondKey>
-              <MainKey busy={busy} onClick={() => void out()}>
-                {t("channel.remove")}
-              </MainKey>
-            </>
+            forHere ? (
+              <>
+                <SecondKey onClick={done}>{t("me.cancel")}</SecondKey>
+                <SecondKey disabled={!!busy} onClick={() => void out(false)}>
+                  {t("channel.removeOnly")}
+                </SecondKey>
+                <MainKey busy={busy === "archive"} disabled={!!busy} onClick={() => void out(true)}>
+                  {t("channel.removeArchive")}
+                </MainKey>
+              </>
+            ) : (
+              <>
+                <SecondKey onClick={done}>{t("me.cancel")}</SecondKey>
+                <MainKey busy={busy === "out"} onClick={() => void out(false)}>
+                  {t("channel.remove")}
+                </MainKey>
+              </>
+            )
           }
         />
       </div>

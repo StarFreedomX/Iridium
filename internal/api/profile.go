@@ -132,8 +132,8 @@ type MemberCard struct {
 }
 
 // Role is an agent kept to start sessions as: its name (the nick its sessions take), what it
-// runs (Agent, its default Model and dsh's Preset, at Machine), its card (Intro, Persona, Avatar,
-// Background as Profile's). ModelName: the model as shown. No effort and no mode: they are the
+// runs (Agent, its default Model and dsh's Preset, at Machine), its card (Persona, Avatar,
+// Background as Profile's; no intro: what it does each of its sessions writes, otae, 2026-11-23). ModelName: the model as shown. No effort and no mode: they are the
 // task's, chosen as a session starts (otae, 2026-11-21).
 type Role struct {
 	ID         string `json:"id"`
@@ -143,7 +143,6 @@ type Role struct {
 	ModelName  string `json:"modelName,omitempty"`
 	Preset     string `json:"preset,omitempty"`
 	Machine    string `json:"machine,omitempty"`
-	Intro      string `json:"intro,omitempty"`
 	Persona    string `json:"persona,omitempty"`
 	Avatar     string `json:"avatar,omitempty"`
 	Background string `json:"background,omitempty"`
@@ -173,13 +172,12 @@ type NewRole struct {
 }
 
 // RolePatch changes a role; a nil field stays. Avatar, Background as ProfilePatch's. Session:
-// take the card from this session, as it is now (its name, intro, persona, face, background;
-// not its model or preset: those change here alone).
+// take the card from this session, as it is now (its persona, face, background; not its intro,
+// nick, model or preset: those change here alone).
 type RolePatch struct {
 	Name       *string  `json:"name,omitempty"`
 	Model      *string  `json:"model,omitempty"`
 	Preset     *string  `json:"preset,omitempty"`
-	Intro      *string  `json:"intro,omitempty"`
 	Persona    *string  `json:"persona,omitempty"`
 	Avatar     *string  `json:"avatar,omitempty"`
 	Background *string  `json:"background,omitempty"`

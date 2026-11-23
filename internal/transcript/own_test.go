@@ -57,3 +57,31 @@ func TestOwn(t *testing.T) {
 		t.Errorf("last %+v", last)
 	}
 }
+
+// A result kept with the picture it gave the model (agy's read of one): on the page with its
+// size, read again whole by Image.
+func TestOwnPicture(t *testing.T) {
+	path := filepath.Join(t.TempDir(), OwnFile)
+	// A 1×1 PNG.
+	png := "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
+	lines := []string{
+		`{"o":10,"t":1000,"kind":"tool","id":"c1","name":"read","input":{"file_path":"/w/a.png"}}`,
+		`{"o":20,"t":1001,"kind":"result","id":"c1","content":[{"type":"image","data":"` + png + `","mimeType":"image/png"}]}`,
+	}
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f := OpenAs(path, Own, nil)
+	page, err := f.Latest()
+	if err != nil || len(page.Blocks) != 1 || page.Blocks[0].Result == nil {
+		t.Fatalf("%v %+v", err, page.Blocks)
+	}
+	r := page.Blocks[0].Result
+	if len(r.Images) != 1 || r.Images[0].Mime != "image/png" || r.Images[0].W != 1 || r.Images[0].Data != "" {
+		t.Fatalf("its picture on the page: %+v", r.Images)
+	}
+	img, data, err := f.Image(r.At, 0)
+	if err != nil || img.Mime != "image/png" || len(data) == 0 {
+		t.Errorf("read again: %+v %d %v", img, len(data), err)
+	}
+}
