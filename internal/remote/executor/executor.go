@@ -407,10 +407,6 @@ func (e *Executor) handle(ctx context.Context, method string, params json.RawMes
 	if err := json.Unmarshal(params, &p); err != nil {
 		return nil, bad("%v", err)
 	}
-	// ".scoped" calls must carry at least one root; empty scope would otherwise mean unrestricted.
-	if strings.HasSuffix(method, ".scoped") && len(p.Scope) == 0 {
-		return nil, bad("missing file scope")
-	}
 	// ".browser" calls enforce the web file browser's dot-name rules on top of scope; an older
 	// executor rejects the unknown method so those rules are never silently skipped.
 	read := fileRead{scope: p.Scope, browser: strings.HasSuffix(method, ".browser")}
@@ -461,11 +457,11 @@ func (e *Executor) handle(ctx context.Context, method string, params json.RawMes
 			}
 		}
 		return struct{}{}, nil
-	case "fs.stat", "fs.stat.scoped", "fs.stat.browser":
+	case "fs.stat", "fs.stat.browser":
 		return e.stat(p.Path, p.Head, read)
-	case "fs.list", "fs.list.scoped", "fs.list.browser":
+	case "fs.list", "fs.list.browser":
 		return e.list(p.Path, read)
-	case "fs.read", "fs.read.scoped", "fs.read.browser":
+	case "fs.read", "fs.read.browser":
 		return e.read(p.Path, p.Offset, p.Length, read)
 	case "fs.write":
 		return struct{}{}, e.write(p.Path, p.Data, p.SHA256, p.Replace)
@@ -795,8 +791,8 @@ func errTail(dir string) string {
 
 // ---- files ----
 
-// fileRead narrows one fs.stat, fs.list or fs.read call: scope bounds the resolved path to a
-// login's roots, and browser enforces the web file browser's dot-name filter.
+// fileRead narrows one file read call (fs.*.browser): scope bounds the resolved path to a login's
+// roots, and browser enforces the web file browser's dot-name filter.
 type fileRead struct {
 	scope   []string
 	browser bool
