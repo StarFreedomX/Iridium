@@ -708,7 +708,18 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
       const was = givenAt.current.get(a.session) ?? Math.max(read, callerOf(msgs, a.nick, a.session) ?? 0);
       if (!givenFrom.current.has(a.session)) givenFrom.current.set(a.session, was);
       const taken = (peekChat(a.session)?.log.blocks ?? []).reduce((n, b) => Math.max(n, (b.kind === "user" && givenSeq(b)) || 0), 0);
-      if (was > 0 || taken > 0) givenAt.current.set(a.session, Math.max(was, taken));
+      // What it says itself is the channel's as it is said, as the server's place has it: on
+      // through its own words, up to the first thing of another's it has not taken (left at what
+      // its record was given, each thing it said stayed in its work till its turn ended, then
+      // came into the channel too, and the page dropped by as much as that went away; measured
+      // 2026-11-24, 958 px at a turn's end).
+      let given = Math.max(was, taken);
+      for (const m of msgs) {
+        if (m.n <= given || m.author.kind === "iridium") continue;
+        if (m.author.kind !== "agent" || m.author.session !== a.session) break;
+        given = m.n;
+      }
+      if (given > 0) givenAt.current.set(a.session, given);
     }
     for (const k of [...givenFrom.current.keys()]) if (!othersAt.some((a) => a.session === k)) (givenFrom.current.delete(k), plainAt.current.delete(k));
     for (const k of [...givenAt.current.keys()]) if (!othersAt.some((a) => a.session === k)) givenAt.current.delete(k);
