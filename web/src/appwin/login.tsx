@@ -10,6 +10,8 @@
 import {
   ChevronLeft,
   ChevronRight,
+  CornerDownLeft,
+  EyeOff,
   Folder,
   FolderPlus,
   Globe,
@@ -571,6 +573,17 @@ function Servers({
           onClick={local && on ? () => ask("ir:open:" + local.url) : undefined}
           end={
             <>
+              {/* 隐藏, as another Iridium's 移除 is (there as the row is pointed at): it leaves the
+                  list, back from 添加服务器's key (kumo, 2026-11-23). Nothing of it stops. */}
+              <span className="opacity-0 transition-opacity duration-(--dur-1) group-hover:opacity-100 focus-within:opacity-100">
+                <IconKey
+                  label="隐藏"
+                  onClick={() => ask("ir:hidelocal:on")}
+                  className="size-7"
+                >
+                  <EyeOff size={14} />
+                </IconKey>
+              </span>
               {on &&
                 (p?.busy ? (
                   <span className="grid size-8 place-items-center">
@@ -720,12 +733,30 @@ function Servers({
             autoComplete="url"
             className="h-9 min-w-0 flex-1 rounded-md bg-fill px-2.5 text-sm outline-none select-text placeholder:text-ink-3"
           />
-          {busy === "+" && (
+          {/* Its key (kumo, 2026-11-23): an address typed, as Enter; none, with 此电脑 hidden,
+              此电脑 back. Pressed, the field keeps the focus: it would go, and the key with it. */}
+          {busy === "+" ? (
             <LoaderCircle
               size={16}
               className="shrink-0 animate-spin text-ink-3"
             />
-          )}
+          ) : address.trim() ? (
+            <IconKey
+              label="连接"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => login(address.trim(), "+")}
+            >
+              <CornerDownLeft size={15} />
+            </IconKey>
+          ) : st.hideLocal ? (
+            <IconKey
+              label="添加此电脑"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => (ask("ir:hidelocal:off"), setAdding(false))}
+            >
+              <Monitor size={15} />
+            </IconKey>
+          ) : null}
         </form>
       ) : (
         <Row

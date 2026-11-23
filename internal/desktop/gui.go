@@ -455,6 +455,13 @@ func (u *ui) local(w *mygo.Window, verb, arg string) {
 		reply(w, st)
 	case "answer":
 		answerAsk(arg)
+	case "hidelocal":
+		// 此电脑 out of the list (its row's 隐藏) or back (添加服务器's key; kumo, 2026-11-23), as
+		// the tray's 此电脑 › 隐藏. Nothing of it starts or stops.
+		_, _ = updateConfig(func(c *Config) { c.HideLocal = arg == "on" })
+		c, _ := loadConfig()
+		reply(w, state(c))
+		u.redraw()
 	case "title":
 		// An Iridium's name in this app, from the picker (any Iridium, of any version).
 		var t struct{ URL, Title string }
