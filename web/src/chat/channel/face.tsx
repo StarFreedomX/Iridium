@@ -8,6 +8,12 @@ import { useApps } from "../../data";
 import { useCarried } from "../../store";
 import { Avatar, cn, isHost, Logo } from "../../ui";
 
+// The pictures that have come to this page: a face drawn anew (a
+// row of the sidebar as a folder is opened or shut) is its picture at once, not the logo for a
+// moment and then the picture (kumo, 2026-11-23: every face in the sidebar blinked so at each
+// fold).
+const came = new Set<string>();
+
 /** The face of session id's agent, or with channel of channel id as a channel; round, size
  *  across; none given: the agent's logo, as large as logo, or what else stands for it. */
 export function Face({ id, agent, size, logo, className, none: instead, low, channel }: { id: string; agent: Agent; size: number; logo?: number; className?: string; none?: ReactNode; low?: boolean; channel?: boolean }) {
@@ -16,14 +22,14 @@ export function Face({ id, agent, size, logo, className, none: instead, low, cha
   const src = `/v1/internal/channels/${encodeURIComponent(id)}/avatar?${channel ? "of=channel&" : ""}v=${v}`;
   const [none, setNone] = useState<string | null>(null);
   // Something else standing for it (wider than the face): shown until the picture has come.
-  const [got, setGot] = useState<string | null>(null);
+  const [got, setGot] = useState<string | null>(() => (came.has(src) ? src : null));
   // The picture shown: the last that came, kept while the next one loads, so that a face asked
   // for again does not blank and come back (kumo, 2026-11-16: every face in the list blinked).
-  const [shown, setShown] = useState<string | null>(null);
+  const [shown, setShown] = useState<string | null>(() => (came.has(src) ? src : null));
   if (none === src) return instead ? <span className={cn("grid", className)}>{instead}</span> : <Logo agent={agent} size={logo ?? size} className={className} />;
-  const came = () => (setGot(src), setShown(src));
+  const here = () => (came.add(src), setGot(src), setShown(src));
   // low: one of many (the sidebar's rows), fetched after what the open page asks for.
-  const next = <img key={src} src={src} alt="" draggable={false} fetchPriority={low ? "low" : undefined} onLoad={came} onError={() => setNone(src)} className={cn("absolute inset-0 size-full rounded-full object-cover", shown && shown !== src && "opacity-0")} />;
+  const next = <img key={src} src={src} alt="" draggable={false} fetchPriority={low ? "low" : undefined} onLoad={here} onError={() => setNone(src)} className={cn("absolute inset-0 size-full rounded-full object-cover", shown && shown !== src && "opacity-0")} />;
   const was = shown && shown !== src ? <img key={shown} src={shown} alt="" draggable={false} className="absolute inset-0 size-full rounded-full object-cover" /> : null;
   if (instead && got !== src && !shown)
     return (
