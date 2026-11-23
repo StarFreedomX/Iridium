@@ -149,6 +149,8 @@ GET internal/machines/{id}/dsh/workspaces - -> DshWorkspace[]  dsh workspaces at
 POST internal/machines/{id}/dsh/sync - -> {ok}  re-read the dsh at that computer
 
 # files
+GET internal/web/files?path&machine - -> DirListing  list a directory in the login's scope (allowed root or home by default); person only  view=entries.name,entries.size,entries.type
+GET internal/web/files/content?path&machine&download - -> file  read a regular file in the login's scope (Range works); person only
 GET internal/sessions/{id}/files/{ref}?download - -> file  a file of the session (Range works)
 GET internal/sessions/{id}/files/{ref}/thumb?size - -> image  thumbnail, longest side 32-4096 (1024)
 GET internal/sessions/{id}/files/{ref}/info - -> FileRef  name, path, size, mime, sha256

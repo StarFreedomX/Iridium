@@ -8,7 +8,7 @@ import { homeAt } from "../machines";
 import { isHostName, splitPlace, type Place } from "../places";
 import { listedRemote, machineOf, remotePath, standing } from "../tree";
 import { tilde } from "../ui";
-import { atSessions } from "./refs";
+import { atSessions, placeLink } from "./refs";
 
 /** A place named: machine its ID (none for this machine), path '/'-separated, name as it is said. */
 export type NamedPlace = Place & { name: string };
@@ -31,6 +31,16 @@ export const baseName = (path: string) => path.replace(/(.)\/+$/, "$1").split("/
 
 /** A '/'-separated path as machine m writes it (none: this machine's, as it is). */
 export const nativeAt = (m: Pick<Machine, "sep"> | undefined, path: string) => (m?.sep === "\\" ? path.replaceAll("/", "\\") : path);
+
+/** How the composer and file browser name place p: a folder here by its path; one at another
+ *  machine by the machine's name (its ID if the name has what would end it) and the path as it
+ *  writes it. */
+export function placeMention(p: Place & { name?: string }, ms: readonly Machine[]): string {
+  const name = p.name || baseName(p.path) || "/";
+  const m = ms.find((x) => x.id === (p.machine ?? ""));
+  const machine = p.machine && (m && !/[\s:/]/.test(m.name) ? m.name : p.machine);
+  return placeLink(name, nativeAt(m, p.path), machine);
+}
 
 /** A head of the list: 会话, 本机, a machine (its face, name, lamp), a typed path at a machine. */
 export type AtHead = { kind: "sessions" } | { kind: "local" } | { kind: "machine"; m: Machine } | { kind: "path"; m?: Machine; path: string };

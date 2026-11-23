@@ -15,9 +15,12 @@ import { api, queryClient } from "./api/client";
 import { firstScreen, watchTurns } from "./chats";
 import { CreatePopover, WsPlus } from "./create";
 import { agentsQ, LOCAL_ME, pushQ, useApps, useHome, useMe, useSettings, useUpdate, useWorkspaces } from "./data";
+import { FileWindow } from "./file-window";
+import { FileBrowserHandle, loadFileBrowser } from "./filebrowser-trigger";
 import { t, useLang } from "./i18n";
 import { applyTheme, initialTheme, keepTheme, MeKey, useTellLang, type ThemePref } from "./me";
 import { motion, movesAhead, pageTurn, usePaced } from "./motion";
+import type { Place } from "./places";
 import { prefetch, settled } from "./prefetch";
 import { prefetchRoles } from "./roles";
 import { close, go, onTurn, openChat, over, quietDialog, route, setUsageMachine, usagePoint, useRoute, type Route } from "./route";
@@ -56,6 +59,8 @@ const SecretsPage = part(() => import("./credentials").then((m) => m.SecretsPage
 const RolesPage = part(() => import("./rolespage").then((m) => m.RolesPage));
 const CachePage = part(() => import("./device/page").then((m) => m.CachePage));
 const UsagePage = part(() => import("./usage").then((m) => m.UsagePage));
+const FileBrowserKey = part(() => import("./filebrowser-key").then((m) => m.FileBrowserKey));
+const FileBrowser = part(() => loadFileBrowser().then((m) => m.default));
 /** The page of the settings' dialog a route is: the settings, or one of their own pages. */
 type SetsPage = "settings" | "apps" | "secrets" | "roles" | "cache" | "usage";
 const setsPageOf = (r: Route): SetsPage => (r.name === "apps" || r.name === "secrets" || r.name === "roles" || r.name === "cache" || r.name === "usage" ? r.name : "settings");
@@ -293,6 +298,36 @@ export function App() {
 
   const onSettings = () => (over(r) ? close(under) : go({ name: "settings" }));
   const me = <MeKey open={over(r)} onOpen={onSettings} dot={!!update.data?.available} code={loadPanels} />;
+  const session = open ? list?.find((s) => s.id === open) : undefined;
+  // Sidebar key and chat folder links share one dialog; bumping filesRound remounts a fresh
+  // browser on each open, even if reopened mid-exit.
+  const [filesHandle] = useState(() => Dialog.createHandle<Place>());
+  const [filesRound, setFilesRound] = useState(0);
+  // Any host or web login sees the key; the file routes enforce the login's scope per request.
+  const filesAllowed = meNow?.host || meNow?.web;
+  const filesKey = filesAllowed ? (
+    <FileBrowserHandle.Provider value={filesHandle}>
+      <Suspense fallback={<span className="size-8 pointer-coarse:size-10" />}>
+        <FileBrowserKey path={session?.cwd ?? ""} machine={session?.machine ?? ""} />
+      </Suspense>
+    </FileBrowserHandle.Provider>
+  ) : undefined;
+  const filesWindow = filesAllowed ? (
+    <Dialog.Root handle={filesHandle} onOpenChange={(on) => { if (on) setFilesRound((round) => round + 1); }}>
+      {({ payload }) => payload && (
+        <FileWindow className="@container h-[min(640px,86dvh)]">
+          <Suspense fallback={
+            <>
+              <Dialog.Title className="sr-only">{t("browse.title")}</Dialog.Title>
+              <p role="status" className="m-auto text-sm text-ink-3">{t("msg.loading")}</p>
+            </>
+          }>
+            <FileBrowser key={filesRound} machine={payload.machine ?? ""} path={payload.path} />
+          </Suspense>
+        </FileWindow>
+      )}
+    </Dialog.Root>
+  ) : undefined;
   const sidebar = (
     <Sidebar
       tree={tree}
@@ -317,6 +352,7 @@ export function App() {
       chatCode={chatCode}
       panelsCode={loadPanels}
       createKey={(trigger) => <CreatePopover trigger={trigger} />}
+      filesKey={filesKey}
       wsPlus={(w, trigger, o, setO) => <WsPlus key={w.key} w={{ id: w.id, name: w.name, path: w.root }} trigger={trigger} open={o} setOpen={setO} opened={(id) => openChat(id)} />}
       me={me}
       reveal={phone ? onSheet : undefined}
@@ -327,13 +363,15 @@ export function App() {
     // On a phone a tap on the chat puts the sheet away, the composer back (the user, 2026-11-06);
     // not one on its top bar: its ⋯ opens over the sheet (the user, 2026-11-06).
     <main className={cn("relative h-full min-w-0 flex-1 bg-paper", !phone && "g-turn")} onClickCapture={phone && ((sheetOut && open) || setsOut) ? (e) => !(e.target as Element).closest?.("header") && setSheet(false) : undefined}>
-      <Suspense fallback={<Waiting />}>
-        {under.name === "chat" ? (
-          <ChatPage key={under.id} id={under.id} sheet={below} onSheet={phone ? onSheet : undefined} onMe={phone ? onMe : undefined} />
-        ) : (
-          <Empty below={below} />
-        )}
-      </Suspense>
+      <FileBrowserHandle.Provider value={filesAllowed ? filesHandle : null}>
+        <Suspense fallback={<Waiting />}>
+          {under.name === "chat" ? (
+            <ChatPage key={under.id} id={under.id} sheet={below} onSheet={phone ? onSheet : undefined} onMe={phone ? onMe : undefined} />
+          ) : (
+            <Empty below={below} />
+          )}
+        </Suspense>
+      </FileBrowserHandle.Provider>
     </main>
   );
 
@@ -448,7 +486,7 @@ export function App() {
               <Pager
                 // The tabs' bar is px-3, the list's rows end 4px further right: its "+" in line with
                 // theirs (the user, 2026-11-08).
-                ends={[null, null, <span key="s" className="-mr-1 flex"><HeadKeys createKey={(trigger) => <CreatePopover trigger={trigger} />} /></span>]}
+                ends={[null, null, <span key="s" className="-mr-1 flex"><HeadKeys filesKey={filesKey} createKey={(trigger) => <CreatePopover trigger={trigger} />} /></span>]}
                 page={sheetPage}
                 still={turnStill}
                 onPage={toPage}
@@ -468,6 +506,7 @@ export function App() {
           )}
         </div>
         {settings}
+        {filesWindow}
         <Toast.Portal>
           <Toast.Viewport className={cn("fixed top-[60px] left-1/2 z-60 flex w-[min(400px,calc(100vw-24px))] -translate-x-1/2 flex-col items-center gap-2 outline-none")}>
             <ToastList onJump={(id) => openChat(id)} />

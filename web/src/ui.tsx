@@ -97,11 +97,13 @@ export function holdMenu(close: () => void) {
   return () => void (shut === close && (shut = null));
 }
 
-/** Long-press on touch: fires after 450 ms held still, and swallows the click that follows. Not for
- *  a press in a portal of its children (a row's "+" popover): React may hand one pointerdown to a
- *  row twice from there, from the portal's container and from <body>, and the first timer would be
- *  lost, never cleared, opening the row's menu after a plain tap (the user, 2026-11-06). */
-export function useLongPress(onLong: (at: { x: number; y: number }) => void) {
+/** Long-press on touch: fires after 450 ms held still, and swallows the click that follows.
+ *  suppressTouchClick: also prevent touchend once it has fired, so a nonmodal menu is not shut by
+ *  the synthetic mouse press that comes before click. Not for a press in a portal of its children
+ *  (a row's "+" popover): React may hand one pointerdown to a row twice from there, from the
+ *  portal's container and from <body>, and the first timer would be lost, never cleared, opening the
+ *  row's menu after a plain tap (the user, 2026-11-06). */
+export function useLongPress(onLong: (at: { x: number; y: number }) => void, { suppressTouchClick = false } = {}) {
   const timer = useRef<number | undefined>(undefined);
   const fired = useRef(false);
   const start = useRef({ x: 0, y: 0 });
@@ -123,6 +125,13 @@ export function useLongPress(onLong: (at: { x: number; y: number }) => void) {
     },
     onPointerUp: clear,
     onPointerCancel: clear,
+    // Once fired, stop the synthetic mouse press that follows a touch from shutting a nonmodal
+    // menu before onClickCapture can swallow the click.
+    onTouchEnd: suppressTouchClick ? (e: React.TouchEvent) => {
+      if (!fired.current || !e.cancelable) return;
+      e.preventDefault();
+      fired.current = false;
+    } : undefined,
     /** true: the finger held has opened the menu already (Android says contextmenu after it):
      *  the caller opens nothing again, at another place. */
     onContextMenu: (e: React.MouseEvent): boolean => {

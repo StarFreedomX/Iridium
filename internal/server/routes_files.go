@@ -47,7 +47,7 @@ func (a sessionsOf) After(id string, at int64) (api.MessagePage, error) {
 }
 
 // fileRoutes are the files a session names, uploads, and (local: the unix socket only)
-// attaching, listing and copying by path.
+// attaching, listing and copying by path; on HTTP, read-only browsing within a login's scope.
 func (s *Server) fileRoutes(mux *http.ServeMux, local bool) {
 	// Every terminal reads every session's files; one goes into a session only from a terminal
 	// that may use it (access.go: Claude's, the owner's own). The files service guards the paths.
@@ -64,6 +64,9 @@ func (s *Server) fileRoutes(mux *http.ServeMux, local bool) {
 		mux.HandleFunc("POST /v1/internal/links", s.linkPath)
 		mux.HandleFunc("GET /v1/internal/files", s.listDir)
 		mux.HandleFunc("POST /v1/internal/files/copy", s.copyFile)
+	} else {
+		mux.HandleFunc("GET /v1/internal/web/files", s.panelOnly(s.browseFiles))
+		mux.HandleFunc("GET /v1/internal/web/files/content", s.panelOnly(s.browseFile))
 	}
 }
 
@@ -228,11 +231,16 @@ func (s *Server) linkPath(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listDir(w http.ResponseWriter, r *http.Request) {
-	if m := r.URL.Query().Get("machine"); m != "" {
-		s.listAt(w, r, m, r.URL.Query().Get("path"))
+	q := r.URL.Query()
+	if m := q.Get("machine"); m != "" {
+		s.listAt(w, r, m, q.Get("path"))
 		return
 	}
-	p := r.URL.Query().Get("path")
+	s.listHostDir(w, r, q.Get("path"))
+}
+
+// listHostDir answers one level of a directory on the host, checked against caller and guard.
+func (s *Server) listHostDir(w http.ResponseWriter, r *http.Request, p string) {
 	if p != "" {
 		var err error
 		if p, err = s.hostPath(callerOf(r), p); err != nil {

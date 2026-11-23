@@ -4,40 +4,32 @@
 // 2026-11-09): a session named among the words (older messages, letters) or by its id (an agent's
 // words, ir send 4ceb1321 in a step) is the same card, in a row under it; the words stay as they
 // were written. Each goes there. A place named (docs/plan.md "@", 2026-11-10) is a card of the same
-// kind: its folder (a cloud on it at another machine), its name, where it is; pressed, the list
-// shows it (places.ts).
+// kind: its folder (a cloud on it at another machine), its name, where it is. It opens the file
+// browser when the page has one.
 // Sessions and places named in what is written (docs/plan.md "@"; the user, 2026-11-12): a link of
 // Iridium's among the words (refs.ts Mention), where it was put, drawn there as a download link is:
-// its agent's logo (a folder for a place), its name, underlined; pressed, it goes there (a place:
-// the list shows it, places.ts). In the composer's box the same, under its letters (MentionMarks).
+// its agent's logo (a folder for a place), its name, underlined; pressed, a session opens it and a
+// folder opens the file browser (or openPlace outside a page with one). In the composer's box the
+// same, under its letters (MentionMarks).
 // A step's sessions (ir new, ir send 4ceb1321) are cards under it (MentionCard, NamedCards).
 import { useLayoutEffect, useMemo, useRef, type ReactNode, type RefObject } from "react";
 import type { Agent, Session } from "../api/types.gen";
 import { openChat } from "../route";
 import { useList } from "../store";
 import { useMachines } from "../data";
+import { FileBrowserTrigger } from "../filebrowser-trigger";
 import { t } from "../i18n";
 import { Folder, MessageSquare } from "lucide-react";
 import { CloudBadge, MachineFace, type Machine } from "../machines";
-import { openPlace, type Place } from "../places";
+import type { Place } from "../places";
 import { AGENTS, agentName, cn, Logo, tilde, Tip, titleOf } from "../ui";
-import { baseName, nativeAt, type NamedPlace } from "./at";
 import { Face, FaceStack } from "./channel/face";
 import { isMulti } from "./channel/lib";
-import { mentions, placeLink, sessionIds, sessionLink, shortId, type Mention } from "./refs";
+import { mentions, sessionIds, sessionLink, shortId, type Mention } from "./refs";
 import { boxed, MARK } from "./boxed";
 
 /** How the composer names session to, among list: what a row dropped or picked after @ puts in. */
 export const mentionOf = (to: Session, list: Session[]) => sessionLink(titleOf(to) || tilde(to.cwd), shortId(to.id, list.map((x) => x.id)));
-
-/** How the composer names place p: a folder here by its path; one at another machine by the
- *  machine's name (its ID if the name has what would end it) and the path as it writes it. */
-export function placeMention(p: NamedPlace, ms: Machine[]): string {
-  const name = p.name || baseName(p.path) || "/";
-  if (!p.machine) return placeLink(name, p.path);
-  const m = ms.find((x) => x.id === p.machine);
-  return placeLink(name, nativeAt(m, p.path), m && !/[\s:/]/.test(m.name) ? m.name : p.machine);
-}
 
 /** The machine a mention names: by its ID, else its name in any case. */
 export const machineNamed = (name: string, ms: Machine[]) => ms.find((m) => m.id === name) ?? ms.find((m) => m.name.toLowerCase() === name.toLowerCase());
@@ -47,7 +39,7 @@ export const machineNamed = (name: string, ms: Machine[]) => ms.find((m) => m.id
 export function placeOf(m: { machine?: string; path: string }, ms: Machine[]): Place | undefined {
   if (!m.machine) return { path: m.path };
   const x = machineNamed(m.machine, ms);
-  return x && { machine: x.id, path: m.path.replaceAll("\\", "/") };
+  return x && { machine: x.id, path: x.sep === "\\" ? m.path.replaceAll("\\", "/") : m.path };
 }
 
 /** A folder's mark, a cloud on it at another machine. */
@@ -169,21 +161,23 @@ export function NamedLink({ m }: { m: Mention }) {
   const s = m.kind === "session" ? list?.find((x) => x.id.startsWith(m.id)) : undefined;
   const at = m.kind === "place" ? placeOf(m, ms) : undefined;
   const name = m.kind === "place" ? m.name : (s && (titleOf(s) || tilde(s.cwd))) || m.title || m.id;
-  const go = s ? () => openChat(s.id) : at ? () => openPlace(at) : undefined;
   const tip = m.kind === "place" ? `${m.machine ?? t("new.local")} · ${m.path}` : s ? `${agentName(s.agent)} · ${shortId(s.id, (list ?? []).map((x) => x.id))}` : t("composer.goneSession");
+  const button = {
+    className: "inline-flex max-w-full items-baseline gap-1 rounded-sm align-baseline text-ink underline decoration-ink-4 underline-offset-2 enabled:hover:decoration-ink-2 disabled:text-ink-3 disabled:no-underline",
+    children: (
+      <>
+        <span className="self-center"><Mark m={m} size={14} /></span>
+        <span className="min-w-0 [overflow-wrap:anywhere]">{name}</span>
+      </>
+    ),
+  };
   return (
     <Tip label={tip}>
-      <button
-        type="button"
-        disabled={!go}
-        onClick={go}
-        className="inline-flex max-w-full items-baseline gap-1 rounded-sm align-baseline text-ink underline decoration-ink-4 underline-offset-2 enabled:hover:decoration-ink-2 disabled:text-ink-3 disabled:no-underline"
-      >
-        <span className="self-center">
-          <Mark m={m} size={14} />
-        </span>
-        <span className="min-w-0 [overflow-wrap:anywhere]">{name}</span>
-      </button>
+      {m.kind === "place" ? (
+        <FileBrowserTrigger place={at} {...button} />
+      ) : (
+        <button type="button" disabled={!s} onClick={() => s && openChat(s.id)} {...button} />
+      )}
     </Tip>
   );
 }
@@ -200,8 +194,8 @@ export function Worded({ text }: { text: string }) {
 const CARD = "g-press flex h-11 w-44 max-w-full items-center gap-2 rounded-lg bg-paper/70 px-2.5 text-left shadow-[0_0_0_0.5px_var(--edge)] enabled:hover:bg-paper disabled:opacity-60";
 
 /** A session named before a message's words, as its card was in the composer: its logo, its title
- *  (as the sidebar has it now), its agent and short id; pressed, it goes there. A place: its card;
- *  pressed, the list shows it, or the "+" opens there (places.ts). */
+ *  (as the sidebar has it now), its agent and short id. A folder's card opens the same browser
+ *  as a folder named in the words. */
 export function MentionCard({ m }: { m: Mention }) {
   return m.kind === "place" ? <PlaceCard m={m} /> : <SessionCard m={m} />;
 }
@@ -211,9 +205,9 @@ function PlaceCard({ m }: { m: Extract<Mention, { kind: "place" }> }) {
   const at = placeOf(m, ms);
   const machine = at?.machine ? ms.find((x) => x.id === at.machine) : undefined;
   return (
-    <button type="button" disabled={!at} onClick={() => at && openPlace(at)} className={CARD}>
+    <FileBrowserTrigger place={at} className={CARD}>
       <PlaceLines name={m.name} remote={!!m.machine} machine={machine} machineName={m.machine} path={m.path} />
-    </button>
+    </FileBrowserTrigger>
   );
 }
 

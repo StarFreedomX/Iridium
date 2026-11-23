@@ -36,11 +36,16 @@ func (s *Server) listAt(w http.ResponseWriter, r *http.Request, machine, path st
 		s.remoteFileError(w, err)
 		return
 	}
-	l := api.DirListing{Path: path, Entries: []api.DirEntry{}}
+	reply(w, http.StatusOK, remoteDirListing(path, ents))
+}
+
+// remoteDirListing turns executor entries into an API directory listing at path.
+func remoteDirListing(path string, ents []wire.Entry) api.DirListing {
+	l := api.DirListing{Path: path, Entries: make([]api.DirEntry, 0, len(ents))}
 	for _, e := range ents {
-		l.Entries = append(l.Entries, api.DirEntry{Name: e.Name, Size: e.Size, Mtime: e.Mtime, Type: e.Type})
+		l.Entries = append(l.Entries, api.DirEntry(e))
 	}
-	reply(w, http.StatusOK, l)
+	return l
 }
 
 func (s *Server) remoteFileError(w http.ResponseWriter, err error) {

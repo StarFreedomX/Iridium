@@ -1,8 +1,8 @@
 import { describe, expect, test } from "vitest";
 import type { DshWorkspace, Session, Workspace } from "../src/api/types.gen";
 import type { Machine } from "../src/machines";
-import { arrowInto, atPath, atSections, baseName, pathSection, typedPath } from "../src/chat/at";
-import { placeMention, placeOf } from "../src/chat/mention";
+import { arrowInto, atPath, atSections, baseName, pathSection, placeMention, typedPath } from "../src/chat/at";
+import { placeOf } from "../src/chat/mention";
 import { mentions, placesIn } from "../src/chat/refs";
 
 const win = { id: "m1", name: "otae-2", os: "windows", home: "C:\\Users\\o", sep: "\\", agents: [{ agent: "dsh" }], online: true } as Machine;
@@ -12,6 +12,13 @@ describe("place mentions", () => {
   test("a folder here and a workspace at another machine, as links", () => {
     expect(mentions("看 [ir](ir:folder//home/otae/ir) 吧")).toEqual(["看 ", { kind: "place", name: "ir", path: "/home/otae/ir", text: "[ir](ir:folder//home/otae/ir)" }, " 吧"]);
     expect(mentions("[Ds_Benchmark](ir:folder/otae-2:C:\\Code\\Ds_Benchmark)")).toEqual([{ kind: "place", name: "Ds_Benchmark", machine: "otae-2", path: "C:\\Code\\Ds_Benchmark", text: "[Ds_Benchmark](ir:folder/otae-2:C:\\Code\\Ds_Benchmark)" }]);
+  });
+  test("Windows paths and the host prefix name local folders", () => {
+    expect(placesIn("[code](ir:folder/C:/Code) [share](ir:folder/\\\\pc\\share) [work](ir:folder/host:/work)")).toEqual([
+      { kind: "local", path: "C:/Code", name: "code" },
+      { kind: "local", path: "\\\\pc\\share", name: "share" },
+      { kind: "local", path: "/work", name: "work" },
+    ]);
   });
   test("a path with spaces or brackets in <>, links side by side, words after", () => {
     expect(mentions("[a (copy)](<ir:folder//x/a (copy)>)")[0]).toMatchObject({ path: "/x/a (copy)" });

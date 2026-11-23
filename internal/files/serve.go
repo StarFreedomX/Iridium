@@ -2,11 +2,14 @@ package files
 
 import (
 	"fmt"
+	"io"
 	"mime"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Files whose bytes are hashed for the sha256 header on first serving; larger ones get it once
@@ -38,14 +41,12 @@ func (s *Service) serve(w http.ResponseWriter, r *http.Request, path, typ string
 		return
 	}
 	h := w.Header()
-	h.Set("Content-Type", typ)
 	h.Set("ETag", ETag(st))
 	h.Set("Cache-Control", "private, no-cache")
 	if kept, _ := r.Context().Value(keptKey{}).(bool); kept {
 		h.Set("Cache-Control", "private, max-age=31536000, immutable")
 	}
 	h.Set("Content-Security-Policy", sandbox)
-	h.Set("X-Content-Type-Options", "nosniff")
 	h.Set("Accept-Ranges", "bytes")
 	sum, ok := s.knownSum(path, st)
 	if !ok && st.Size() <= sumOnServe && r.Method == http.MethodGet && r.Header.Get("Range") == "" {
@@ -58,12 +59,38 @@ func (s *Service) serve(w http.ResponseWriter, r *http.Request, path, typ string
 			h.Set("Repr-Digest", "sha-256=:"+b+":")
 		}
 	}
-	disp := "attachment"
-	if !download && inline(typ) {
-		disp = "inline"
+	serveContent(w, r, st.Name(), typ, st.ModTime(), f, download || !inline(typ))
+}
+
+// ServePathContent serves a regular file read by path (checked by the caller, local or remote):
+// Range via http.ServeContent, no-store, same-origin CORP and a strict sandbox CSP. Only raster
+// images and PDF show inline; everything else, and any with ?download, downloads as
+// application/octet-stream.
+func ServePathContent(w http.ResponseWriter, r *http.Request, name string, mtime time.Time, src io.ReadSeeker) {
+	h := w.Header()
+	h.Set("Cache-Control", "no-store")
+	h.Set("Cross-Origin-Resource-Policy", "same-origin")
+	h.Set("Content-Security-Policy", "default-src 'none'; sandbox")
+	typ := "application/octet-stream"
+	if !r.URL.Query().Has("download") {
+		switch candidate := mime.TypeByExtension(strings.ToLower(filepath.Ext(name))); candidate {
+		case "image/png", "image/jpeg", "image/gif", "image/webp", "image/avif", "image/bmp", "application/pdf":
+			typ = candidate
+		}
 	}
-	h.Set("Content-Disposition", mime.FormatMediaType(disp, map[string]string{"filename": st.Name()}))
-	http.ServeContent(w, r, st.Name(), st.ModTime(), f)
+	serveContent(w, r, name, typ, mtime, src, typ == "application/octet-stream")
+}
+
+func serveContent(w http.ResponseWriter, r *http.Request, name, typ string, mtime time.Time, src io.ReadSeeker, download bool) {
+	disp := "inline"
+	if download {
+		disp = "attachment"
+	}
+	h := w.Header()
+	h.Set("Content-Type", typ)
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("Content-Disposition", mime.FormatMediaType(disp, map[string]string{"filename": name}))
+	http.ServeContent(w, r, name, mtime, src)
 }
 
 // keptKey marks a request whose answer may be kept for good (Thumb).

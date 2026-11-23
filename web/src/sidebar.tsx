@@ -65,6 +65,7 @@ type Props = {
   confirms: Need[];
   onConfirm: (c: Need) => void;
   createKey: (trigger: ReactElement) => ReactNode;
+  filesKey?: ReactNode;
   wsPlus: (ws: WsNode, trigger: ReactElement, open: boolean, setOpen: (o: boolean) => void) => ReactNode;
   me: ReactNode;
   /** The chat's code, fetched as a row is pressed. */
@@ -500,12 +501,12 @@ export function Sidebar(p: Props) {
   );
 }
 
-/** The head's key: a new workspace, a "+" (the user, 2026-11-08: back from a folder). No search key
- *  (the user, 2026-11-08): the jump box is a keyboard's (nav.searchKey). On a phone it stands right
- *  of the sheet's tabs. */
-export function HeadKeys(p: Pick<Props, "createKey">) {
+/** The file browser and the "+" for a new workspace. On a phone the keys stand right of the
+ *  sheet's tabs. The jump box is a keyboard's (nav.searchKey, the user, 2026-11-08). */
+export function HeadKeys(p: Pick<Props, "createKey" | "filesKey">) {
   return (
     <span className="flex shrink-0 items-center gap-0.5">
+      {p.filesKey}
       {p.createKey(
         <button type="button" aria-label={t("menu.new")} className="g-press grid size-8 place-items-center rounded-md text-ink-3 hover:bg-fill hover:text-ink-2 data-popup-open:bg-fill data-popup-open:text-ink-2 pointer-coarse:size-10">
           <Plus size={18} />
@@ -1230,27 +1231,52 @@ function PushFoot({ levels, i }: { levels: PushLevel[]; i: number }) {
 /** A colour tag and how to set it ("" takes it off). */
 export type Tags = { value?: Color; set: (c: Color | "") => void };
 
-/** sure: what its words become once pressed, in red, the menu staying open: only a second press
- *  runs it (docs/前端设计规范.md "确认在原处"). No card is opened for it elsewhere: one under its row
- *  was out of sight below the fold for the last row of a list (kumo, 2026-11-19). */
-export type MenuItem = { icon: ReactNode; label: string; run: () => void; sure?: string };
+/** One item of a menu: run, or a link (href, optional download). sure: what its words become once
+ *  pressed, in red, the menu staying open: only a second press runs it (docs/前端设计规范.md
+ *  "确认在原处"). No card is opened for it elsewhere: one under its row was out of sight below the
+ *  fold for the last row of a list (kumo, 2026-11-19). */
+export type MenuItem = { icon: ReactNode; label: string } & (
+  | { run: () => void; sure?: string; href?: never; download?: never }
+  | { href: string; download?: string; run?: never; sure?: never }
+);
 
-/** A menu's items; lead: before the children, at its top; foot: after the items, over the tags. */
-export function MenuItems({ lead = [], items, tags, children, foot }: { lead?: MenuItem[]; items: MenuItem[]; tags?: Tags; children?: ReactNode; foot?: ReactNode }) {
+/** A menu's items; lead: before the children, at its top; foot: after the items, over the tags;
+ *  label, finalFocus: on the popup itself (finalFocus defaults off). */
+export function MenuItems({ lead = [], items, tags, children, foot, label, finalFocus = false }: {
+  lead?: MenuItem[];
+  items: MenuItem[];
+  tags?: Tags;
+  children?: ReactNode;
+  foot?: ReactNode;
+  label?: string;
+  finalFocus?: Menu.Popup.Props["finalFocus"];
+}) {
   // The item pressed once that asks to be pressed again; the popup gone, so is this.
   const [armed, setArmed] = useState<string>();
   const item = (it: MenuItem, i: number) => {
     const asks = !!it.sure && armed !== it.label;
     const red = !!it.sure && armed === it.label;
-    return (
-      <Menu.Item key={it.label} closeOnClick={!asks} onClick={asks ? () => setArmed(it.label) : it.run} style={{ "--i": i } as CSSProperties} className={cn("flex h-8 cursor-default items-center gap-2.5 rounded-md px-2.5 text-base outline-none select-none data-highlighted:bg-fill pointer-coarse:h-11", red && "text-err")}>
+    const props = {
+      style: { "--i": i } as CSSProperties,
+      className: cn("flex h-8 cursor-default items-center gap-2.5 rounded-md px-2.5 text-base outline-none select-none data-highlighted:bg-fill pointer-coarse:h-11", red && "text-err"),
+    };
+    const label = (
+      <>
         <span className={red ? "text-err" : "text-ink-2"}>{it.icon}</span>
         <span className="min-w-0 truncate">{red ? it.sure : it.label}</span>
+      </>
+    );
+    if (it.href !== undefined) {
+      return <Menu.LinkItem key={it.label} closeOnClick href={it.href} download={it.download} {...props}>{label}</Menu.LinkItem>;
+    }
+    return (
+      <Menu.Item key={it.label} closeOnClick={!asks} onClick={asks ? () => setArmed(it.label) : it.run} {...props}>
+        {label}
       </Menu.Item>
     );
   };
   return (
-    <Menu.Popup finalFocus={false} className="g-unfold glass thick float no-bar max-h-(--available-height) max-w-[calc(100vw-16px)] min-w-48 overflow-y-auto rounded-lg p-1.5 text-ink outline-none">
+    <Menu.Popup aria-label={label} finalFocus={finalFocus} className="g-unfold glass thick float no-bar max-h-(--available-height) max-w-[calc(100vw-16px)] min-w-48 overflow-y-auto rounded-lg p-1.5 text-ink outline-none">
       <div className="g-stagger flex flex-col">
         {lead.map(item)}
         {children}

@@ -125,8 +125,9 @@ func resolve(p string, depth int) (string, error) {
 
 // Check is the resolved path, or why p may not be used. p must be absolute; it need not exist.
 // Both the path as given and as resolved must be outside every denied directory (an exception
-// aside), and the resolved one inside an allowed root.
-func (g *Guard) Check(p string) (string, error) {
+// aside), and the resolved one inside an allowed root. When scope is given, the resolved path
+// must also lie inside one of those roots.
+func (g *Guard) Check(p string, scope ...string) (string, error) {
 	if !filepath.IsAbs(p) {
 		return "", ErrRelative
 	}
@@ -152,7 +153,50 @@ func (g *Guard) Check(p string) (string, error) {
 			return "", fmt.Errorf("%w: %s", ErrOutside, p)
 		}
 	}
+	if len(scope) > 0 && !InRoots(r, scope) {
+		return "", fmt.Errorf("%w: %s", ErrOutside, p)
+	}
 	return r, nil
+}
+
+// InRoots reports whether resolved path lies under one of roots, resolving each root too.
+func InRoots(path string, roots []string) bool {
+	for _, root := range roots {
+		real, err := Resolve(root)
+		if err != nil {
+			continue
+		}
+		rel, err := filepath.Rel(real, path)
+		if err == nil && filepath.IsLocal(rel) {
+			return true
+		}
+	}
+	return false
+}
+
+// BrowserHidden reports whether name is a dot-prefixed entry omitted by the web file browser,
+// matching ordinary ls.
+func BrowserHidden(name string) bool {
+	return strings.HasPrefix(name, ".")
+}
+
+// CheckBrowser denies any requested or resolved path with a dot-prefixed component, so neither
+// direct paths nor symlinks into dot directories can be read through the file browser.
+func CheckBrowser(path, resolved string) error {
+	for _, p := range []string{path, resolved} {
+		p = filepath.Clean(p)
+		for {
+			if BrowserHidden(filepath.Base(p)) {
+				return fmt.Errorf("%w: %s", ErrDenied, path)
+			}
+			parent := filepath.Dir(p)
+			if parent == p {
+				break
+			}
+			p = parent
+		}
+	}
+	return nil
 }
 
 func (g *Guard) denied(p string) bool {

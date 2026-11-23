@@ -2,6 +2,7 @@
 // "消息来源"), and the files a reply names (plan "网页": `![](路径)`, `[名](路径)` and absolute paths
 // in inline code).
 import type { Agent, Device, Session } from "../api/types.gen";
+import { isHostName, splitPlace } from "../places";
 import { titleOf } from "../ui";
 
 /** A user block's source as the page draws it (QQ-like: a face, a name, a badge on the face):
@@ -105,10 +106,13 @@ export function refOf(url: string, label: string, text = ""): Mention | undefine
   if (sid) return { kind: "session", title: label, id: sid, text };
   const where = /^ir:folder\/(.+)$/.exec(url)?.[1];
   if (!where) return undefined;
-  if (where.startsWith("/")) return { kind: "place", name: label, path: where, text };
-  const i = where.indexOf(":");
-  const machine = where.slice(0, i), path = where.slice(i + 1);
-  return i > 0 && !machine.includes("/") && path ? { kind: "place", name: label, machine, path, text } : undefined;
+  // Local POSIX, UNC, or Windows drive paths before checking for a "<machine>:<path>" prefix.
+  if (where.startsWith("/") || where.startsWith("\\\\") || /^[A-Za-z]:[/\\]/.test(where)) {
+    return { kind: "place", name: label, path: where, text };
+  }
+  const place = splitPlace(where);
+  if (!place?.path) return undefined;
+  return { kind: "place", name: label, ...(!isHostName(place.name) && { machine: place.name }), path: place.path, text };
 }
 
 /** A message's text cut at the sessions and places it names: plain runs and mentions, in order. */

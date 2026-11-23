@@ -35,7 +35,7 @@ func TestGrant(t *testing.T) {
 
 	// Outside its roots: denied, the reason said, the terminal told once a minute.
 	for range 2 {
-		if _, err := e.read(f, 0, 10); !wire.IsCode(err, wire.CodeDenied) || !strings.Contains(err.Error(), "not under the folders") {
+		if _, err := e.read(f, 0, 10, fileRead{}); !wire.IsCode(err, wire.CodeDenied) || !strings.Contains(err.Error(), "not under the folders") {
 			t.Fatalf("read outside the roots: %v", err)
 		}
 	}
@@ -70,7 +70,7 @@ func TestGrant(t *testing.T) {
 	if g := res.(wire.Grant); !g.Shell || !slices.Equal(g.Roots, []string{root, other}) {
 		t.Fatalf("grant %+v", g)
 	}
-	if _, err := e.read(f, 0, 10); err != nil {
+	if _, err := e.read(f, 0, 10, fileRead{}); err != nil {
 		t.Fatalf("read after the grant: %v", err)
 	}
 	if hi := e.hello(); !hi.ShellOn() || len(hi.Roots) != 2 || !slices.Contains(hi.Caps, wire.CapGrant) {
@@ -125,10 +125,10 @@ func TestAgentScopeIsRead(t *testing.T) {
 		t.Fatal(err)
 	}
 	f := filepath.Join(scope, "package.json")
-	if _, err := e.read(f, 0, 10); err != nil {
+	if _, err := e.read(f, 0, 10, fileRead{}); err != nil {
 		t.Fatalf("read in an agent's scope: %v", err)
 	}
-	if _, err := e.list(scope); err != nil {
+	if _, err := e.list(scope, fileRead{}); err != nil {
 		t.Fatalf("list an agent's scope: %v", err)
 	}
 	if err := e.write(filepath.Join(scope, "x"), []byte("x"), "", false); !wire.IsCode(err, wire.CodeDenied) {

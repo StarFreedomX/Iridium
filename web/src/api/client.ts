@@ -4,6 +4,7 @@ import { QueryClient } from "@tanstack/react-query";
 import { blockOf, type SatoriMessage } from "../satori";
 import type {
   DshWorkspace,
+  DirListing,
   AgentInfo,
   AllowRule,
   ApplyUpdate,
@@ -421,6 +422,17 @@ export const api = {
   dshSync: (machine: string) => write<{ ok: boolean }>("POST", `/v1/internal/machines/${enc(machine)}/dsh/sync`),
   /** A session renamed, archived, pinned, tagged, put, moved or taken out from under its launcher: Satori's channel.update. */
   patch: (id: string, p: SessionPatch) => sat<object>("channel.update", channelPatch(id, p), true),
+
+  // --- file browser ---
+  /** One level of a folder at a computer; an empty path asks for the login's starting folder. */
+  browseFiles: (path: string, machine: string, signal: AbortSignal) => get<DirListing>(`/v1/internal/web/files?${new URLSearchParams({ path, machine })}`, { signal }),
+  /** A file's content URL for the file browser; v (mtime-size) busts the browser cache on rewrite. */
+  browseFileURL: (path: string, machine: string, download = false, v?: string) => {
+    const q = new URLSearchParams({ path, machine });
+    if (download) q.set("download", "1");
+    if (v) q.set("v", v);
+    return `/v1/internal/web/files/content?${q}`;
+  },
 
   // --- files in messages, uploads ---
   // v: the file's version (its mtime): a file written again at its path is another address, not

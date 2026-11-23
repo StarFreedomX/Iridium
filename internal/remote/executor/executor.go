@@ -28,6 +28,7 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/kumoSleeping/iridium/internal/machineid"
+	"github.com/kumoSleeping/iridium/internal/pathsafe"
 	"github.com/kumoSleeping/iridium/internal/remote/wire"
 )
 
@@ -398,7 +399,7 @@ func (e *Executor) handle(ctx context.Context, method string, params json.RawMes
 		Hold, Path, Line, Cwd, SHA256 string
 		Seq, From, Offset, Length     int64
 		Head                          int
-		Argv, Env                     []string
+		Argv, Env, Scope              []string
 		StopGraceMS                   int `json:"stopGraceMs"`
 		Data                          []byte
 		Replace                       bool
@@ -406,6 +407,9 @@ func (e *Executor) handle(ctx context.Context, method string, params json.RawMes
 	if err := json.Unmarshal(params, &p); err != nil {
 		return nil, bad("%v", err)
 	}
+	// ".browser" calls enforce the web file browser's dot-name rules on top of scope; an older
+	// executor rejects the unknown method so those rules are never silently skipped.
+	read := fileRead{scope: p.Scope, browser: strings.HasSuffix(method, ".browser")}
 	switch method {
 	case "run":
 		var rp wire.RunParams
@@ -453,12 +457,12 @@ func (e *Executor) handle(ctx context.Context, method string, params json.RawMes
 			}
 		}
 		return struct{}{}, nil
-	case "fs.stat":
-		return e.stat(p.Path, p.Head)
-	case "fs.list":
-		return e.list(p.Path)
-	case "fs.read":
-		return e.read(p.Path, p.Offset, p.Length)
+	case "fs.stat", "fs.stat.browser":
+		return e.stat(p.Path, p.Head, read)
+	case "fs.list", "fs.list.browser":
+		return e.list(p.Path, read)
+	case "fs.read", "fs.read.browser":
+		return e.read(p.Path, p.Offset, p.Length, read)
 	case "fs.write":
 		return struct{}{}, e.write(p.Path, p.Data, p.SHA256, p.Replace)
 	case "fs.mkdir":
@@ -787,6 +791,13 @@ func errTail(dir string) string {
 
 // ---- files ----
 
+// fileRead narrows one file read call (fs.*.browser): scope bounds the resolved path to a login's
+// roots, and browser enforces the web file browser's dot-name filter.
+type fileRead struct {
+	scope   []string
+	browser bool
+}
+
 // allowed is path cleaned, its links resolved, if under a root and not denied.
 func (e *Executor) allowed(path string) (string, error) { return e.allowedIn(path, nil) }
 
@@ -794,15 +805,28 @@ func (e *Executor) allowed(path string) (string, error) { return e.allowedIn(pat
 // agent's Scope: dsh's packages, which the Iridium reads its presets from to start it). They
 // are the programs this computer offered to run, not a person's files, and often outside the
 // folders it serves (kumo, 2026-11-18: dsh under /opt/homebrew would not start, home alone
-// served).
-func (e *Executor) readable(path string) (string, error) {
+// served). When read.scope is given, the resolved path must also lie inside one of those roots;
+// when read.browser is set, dot-prefixed paths are denied.
+func (e *Executor) readable(path string, read fileRead) (string, error) {
 	var more []string
 	for _, a := range e.o.Agents {
 		if a.Scope != "" {
 			more = append(more, a.Scope)
 		}
 	}
-	return e.allowedIn(path, more)
+	real, err := e.allowedIn(path, more)
+	if err != nil {
+		return "", err
+	}
+	if len(read.scope) > 0 && !pathsafe.InRoots(real, read.scope) {
+		return "", &wire.Error{Code: wire.CodeDenied, Message: path + " is out of this login's scope"}
+	}
+	if read.browser {
+		if err := pathsafe.CheckBrowser(path, real); err != nil {
+			return "", &wire.Error{Code: wire.CodeDenied, Message: err.Error()}
+		}
+	}
+	return real, nil
 }
 
 // allowedIn is allowed, the folders in more served beside the roots.
@@ -867,8 +891,8 @@ func notFound(err error) error {
 	return err
 }
 
-func (e *Executor) stat(path string, head int) (any, error) {
-	p, err := e.readable(path)
+func (e *Executor) stat(path string, head int, read fileRead) (any, error) {
+	p, err := e.readable(path, read)
 	if err != nil {
 		return nil, err
 	}
@@ -890,8 +914,8 @@ func (e *Executor) stat(path string, head int) (any, error) {
 	return out, nil
 }
 
-func (e *Executor) list(path string) (any, error) {
-	p, err := e.readable(path)
+func (e *Executor) list(path string, read fileRead) (any, error) {
+	p, err := e.readable(path, read)
 	if err != nil {
 		return nil, err
 	}
@@ -901,6 +925,9 @@ func (e *Executor) list(path string) (any, error) {
 	}
 	out := []wire.Entry{}
 	for _, d := range ents {
+		if read.browser && pathsafe.BrowserHidden(d.Name()) {
+			continue
+		}
 		info, err := d.Info()
 		if err != nil {
 			continue
@@ -910,8 +937,8 @@ func (e *Executor) list(path string) (any, error) {
 	return map[string]any{"entries": out}, nil
 }
 
-func (e *Executor) read(path string, off, n int64) (any, error) {
-	p, err := e.readable(path)
+func (e *Executor) read(path string, off, n int64, read fileRead) (any, error) {
+	p, err := e.readable(path, read)
 	if err != nil {
 		return nil, err
 	}
