@@ -26,6 +26,7 @@ import { LinkDot } from "./link";
 import { errText, toast } from "./toast";
 import { manages, useMachines, useMe, useSaidLine, useUpdate } from "./data";
 import { agentName, ago, cn, fine, IconKey, IrMark, keep, kept, Lamp, lampOf, Logo, own, sessionStatusText, statusText, tilde, Tip, titleOf, untitled, useLongPress, useMenuAt, useMinute, usePointAnchor } from "./ui";
+import { AppName } from "./appkey";
 import { PLACE_DRAG, SESSION_DRAG } from "./chat/refs";
 import { badge, isQuiet, setQuiet, useAt, useQuiet, useUnread } from "./unread";
 import { Face, FaceStack } from "./chat/channel/face";
@@ -429,12 +430,13 @@ export function Sidebar(p: Props) {
 
   // On a phone no head of its own: its keys stand by the sheet's tabs (app.tsx, pager.tsx).
   const head = !p.phone && (
-    <div className="flex h-12 shrink-0 items-center gap-0.5 px-2">
+    <div data-app-drag className="flex h-12 shrink-0 items-center gap-0.5 px-2">
       {/* The name at the left, the keys at the right (the user, 2026-11-06); no switch of machines
           (the user, 2026-11-10: a group at another is listed as a session is opened there). */}
       <div className="flex min-w-0 flex-1 items-center gap-2 pl-2">
         <IrMark size={18} className="text-ink" />
-        <span className="truncate text-base font-semibold tracking-[-0.01em]">Iridium</span>
+        {/* In the app, the name this Iridium goes by there, pressed to change (appkey.tsx). */}
+        <AppName />
         {/* The link's dot and latency, by the name (the user, 2026-11-08). */}
         <LinkDot className="shrink-0" />
       </div>

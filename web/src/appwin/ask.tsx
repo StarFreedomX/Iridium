@@ -40,7 +40,7 @@ export function AskPanel() {
   }, [req, on, always]);
   if (!req) return null;
   return (
-    <div className="h-full bg-paper select-none">
+    <div data-app-drag className="h-full bg-paper select-none">
       <div className="flex h-full flex-col p-4 text-ink">
         <h1 className="m-0 truncate text-sm font-medium">
           {req.by ? `${req.by} 请求` : `${req.server} 请求`}

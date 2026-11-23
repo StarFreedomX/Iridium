@@ -64,18 +64,20 @@ func (u *ui) newWindow(address, link string) {
 	}
 	u.shows[name] = address
 	u.mu.Unlock()
-	opts := mygo.WindowOptions{
-		Title: "Iridium", Width: 1200, Height: 800, MinWidth: 360, MinHeight: 480,
+	title := "Iridium"
+	if s := c.server(address); s != nil {
+		title = windowTitle(s.Title)
+	}
+	// No title bar on any system (chrome.go): the page goes up to the window's top, its own keys
+	// at its top right.
+	opts := bare(mygo.WindowOptions{
+		Title: title, Width: 1200, Height: 800, MinWidth: 360, MinHeight: 480,
 		URL: themed(link),
 		// Trusted: this window's Iridium, no other (Wails took any origin's message and looked).
 		Page: pageOptions(originOf(address), css(pageCSS)+pageJS, c.Zoom),
-	}
-	if runtime.GOOS == "darwin" {
-		// No title bar of its own on macOS (kumo, 2026-11-20: no line under it): the page goes up
-		// to the window's top, the window dragged by that strip (pageCSS keeps it clear).
-		opts.TitleBarStyle = mygo.TitleBarHidden
-	} else {
-		opts.AutoHideMenuBar = true // the menu only for its keys (gui)
+	})
+	if runtime.GOOS != "darwin" {
+		opts.AutoHideMenuBar = true // the menu only for its keys (bridge.go menuBar)
 	}
 	if f := c.Frame; f.W >= 360 && f.H >= 480 {
 		opts.Width, opts.Height, opts.X, opts.Y = f.W, f.H, f.X, f.Y
@@ -89,6 +91,8 @@ func (u *ui) newWindow(address, link string) {
 	if runtime.GOOS != "darwin" && len(u.icon) > 0 {
 		_ = w.SetIcon(u.icon)
 	}
+	guard(w, originOf(address))
 	u.watch(w, name)
+	followMax(w)
 	w.Focus()
 }

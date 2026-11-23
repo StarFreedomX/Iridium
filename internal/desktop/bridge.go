@@ -51,10 +51,9 @@ func ownPage(origin string) bool {
 
 // shim is the preload of every window: window._wails.invoke over mygo's bound method, messages
 // queued till mygo's bridge is there, and the event the pages wait for (wails:runtime-config-ready)
-// once the page has loaded. On a Mac the top strip drags the window (Wails gave it as
-// InvisibleTitleBarHeight): the page's root is a handle, what is in it is not.
-var shim = func() string {
-	s := `(function(){
+// once the page has loaded. Only "ir:" messages go: Wails's own (wails:drag) are mygo's CSS here
+// (data-app-drag, chrome.go).
+var shim = `(function(){
 if(window._wails)return;
 var q=[];
 function flush(){var g=window.mygo;if(!g||!g.call)return false;while(q.length){g.call("IRApp.Invoke",q.shift()).catch(function(){})}return true}
@@ -62,12 +61,7 @@ function wait(){if(!flush())setTimeout(wait,50)}
 window._wails={invoke:function(m){m=String(m);if(m.indexOf("ir:")!==0)return;q.push(m);wait()}};
 function fire(){window.dispatchEvent(new Event("wails:runtime-config-ready"))}
 if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",fire);else fire();
-})();`
-	if runtime.GOOS == "darwin" {
-		s += css("#root{--app-region:drag}#root>*{--app-region:no-drag}")
-	}
-	return s
-}()
+})();` + css(`[data-app-drag]{--app-region:drag}`)
 
 // css is JavaScript that puts style in the page as it starts.
 func css(style string) string {
@@ -137,14 +131,28 @@ func (u *ui) menuBar() *mygo.Menu {
 	click := func(f func()) func(*mygo.MenuItem, *mygo.Window) {
 		return func(*mygo.MenuItem, *mygo.Window) { f() }
 	}
+	// The window the keys are for: the one a menu says, else the one in front.
+	on := func(f func(*mygo.Window)) func(*mygo.MenuItem, *mygo.Window) {
+		return func(_ *mygo.MenuItem, w *mygo.Window) {
+			if w == nil {
+				w = mygo.FocusedWindow()
+			}
+			f(w)
+		}
+	}
+	// ⌘W closes the page in front, the window only from its first page; ⌘R, F5 reload (chrome.go).
+	closeItem := &item{Label: "关闭", Accelerator: "CmdOrCtrl+W", Click: on(u.closePage)}
 	view := []*item{
+		{Label: "重新载入", Accelerator: "CmdOrCtrl+R", Click: on(u.reload)},
+		{Label: "重新载入", Accelerator: "F5", Hidden: true, Click: on(u.reload)},
+		mygo.Separator(),
 		{Label: "放大", Accelerator: "CmdOrCtrl+=", Click: click(func() { u.zoom(+1) })},
 		{Label: "放大", Accelerator: "CmdOrCtrl+Plus", Hidden: true, Click: click(func() { u.zoom(+1) })},
 		{Label: "缩小", Accelerator: "CmdOrCtrl+-", Click: click(func() { u.zoom(-1) })},
 		{Label: "实际大小", Accelerator: "CmdOrCtrl+0", Click: click(func() { u.zoom(0) })},
 	}
 	if runtime.GOOS != "darwin" {
-		return mygo.NewMenu([]*item{{Label: "显示", Submenu: view}})
+		return mygo.NewMenu([]*item{{Label: "文件", Submenu: []*item{closeItem}}, {Label: "显示", Submenu: view}})
 	}
 	view = append(view, mygo.Separator(), &item{Role: mygo.RoleToggleFullScreen})
 	return mygo.NewMenu([]*item{
@@ -156,7 +164,7 @@ func (u *ui) menuBar() *mygo.Menu {
 		}},
 		{Label: "文件", Submenu: []*item{
 			{Label: "打开服务器…", Accelerator: "CmdOrCtrl+N", Click: click(func() { go u.showPicker() })},
-			{Role: mygo.RoleClose},
+			closeItem,
 		}},
 		{Role: mygo.RoleEditMenu},
 		{Label: "显示", Submenu: view},
@@ -210,5 +218,44 @@ func (u *ui) hideOnClose(w *mygo.Window) {
 		}
 		e.PreventDefault()
 		go w.Hide()
+	})
+}
+
+// guard sets up the page of a window on the Iridium at origin ("": the app's own pages):
+//
+//   - its title stays the window's (the Iridium's name here, retitle), not the page's <title>;
+//   - a link to another site opens in the browser, the window staying on its Iridium (Wails let
+//     the page go there, and did nothing for target=_blank: kumo, 2026-11-23);
+//   - a download is saved in Downloads, then shown in Finder or Explorer (Wails dropped them);
+//   - the microphone, the camera and notifications are its own Iridium's (voice rooms), nothing
+//     else is; no other page gets anything.
+func guard(w *mygo.Window, origin string) {
+	p := w.Page()
+	p.OnPageTitleUpdated(func(e *mygo.TitleEvent) { e.PreventDefault() })
+	p.OnWillNavigate(func(e *mygo.NavigateEvent) {
+		o := originOf(e.URL)
+		if !e.UserInitiated || o == "" || o == origin || ownPage(o) {
+			return
+		}
+		if u, err := url.Parse(e.URL); err == nil && (u.Scheme == "http" || u.Scheme == "https") {
+			e.PreventDefault()
+			go func() { _ = mygo.Shell.OpenExternal(e.URL) }()
+		}
+	})
+	p.OnDownloadDone(func(d *mygo.Download) {
+		if d.Err == nil && d.Path != "" {
+			go mygo.Shell.ShowItemInFolder(d.Path)
+		}
+	})
+	p.SetPermissionHandler(func(r mygo.PermissionRequest) bool {
+		if origin == "" || r.Origin != origin {
+			return false
+		}
+		for _, k := range r.Permissions {
+			if k != mygo.PermissionMicrophone && k != mygo.PermissionCamera && k != mygo.PermissionNotifications {
+				return false
+			}
+		}
+		return true
 	})
 }

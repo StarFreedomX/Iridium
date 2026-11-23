@@ -21,14 +21,13 @@ const (
 // makePicker makes the picker's window, shown. Closed, it hides: its page keeps its state and is
 // whole as it shows again.
 func (u *ui) makePicker() {
-	opts := mygo.WindowOptions{
+	// No title bar (chrome.go): its own strip at the top, the mark and the name at the left, its
+	// keys at the right, a Mac as Windows.
+	w := mygo.NewWindow(bare(mygo.WindowOptions{
 		Title: "Iridium", Width: pickerW, Height: pickerH, DisableResize: true, DisableMaximize: true,
 		URL: themed("/"), Page: pageOptions("", "", 0),
-	}
-	if runtime.GOOS == "darwin" {
-		opts.TitleBarStyle = mygo.TitleBarHidden
-	}
-	w := mygo.NewWindow(opts)
+	}))
+	guard(w, "")
 	if runtime.GOOS != "darwin" && len(u.icon) > 0 {
 		_ = w.SetIcon(u.icon)
 	}
@@ -39,7 +38,8 @@ func (u *ui) makePicker() {
 	u.mu.Unlock()
 }
 
-// showPicker shows the picker with the state as it is now.
+// showPicker shows the picker with the state as it is now, on the screen of the window used last
+// (kumo, 2026-11-22: it came back on the screen it was last on, away from where one works).
 func (u *ui) showPicker() {
 	u.mu.Lock()
 	p := u.picker
@@ -49,6 +49,19 @@ func (u *ui) showPicker() {
 	}
 	c, _ := loadConfig()
 	reply(p, u.pageState(c))
+	// On the screen of the window used last (kumo, 2026-11-22: it came back on the screen it was
+	// last on, away from where one works), in the middle of it.
+	u.mu.Lock()
+	front := u.win
+	u.mu.Unlock()
+	if front != nil && !p.IsVisible() {
+		to := mygo.Screen.DisplayMatching(front.Bounds())
+		at := mygo.Screen.DisplayMatching(p.Bounds())
+		if to.ID != at.ID {
+			r, wa := p.Bounds(), to.WorkArea
+			p.SetBounds(mygo.Rectangle{X: wa.X + (wa.Width-r.Width)/2, Y: wa.Y + (wa.Height-r.Height)/2, Width: r.Width, Height: r.Height})
+		}
+	}
 	p.Show()
 	p.Focus()
 }

@@ -41,12 +41,13 @@ func (u *ui) askEach(ctx context.Context, server, by string, items []executor.It
 	asks.mu.Lock()
 	asks.now = a
 	asks.mu.Unlock()
-	// An ordinary window, in front of the others: no frameless, see-through one (kumo, 2026-11-22).
-	win := mygo.NewWindow(mygo.WindowOptions{
+	// In front of the others. No title bar (chrome.go): 拒绝 and 允许 are its keys, Esc 拒绝.
+	win := mygo.NewWindow(bare(mygo.WindowOptions{
 		Title: "Iridium", URL: themed("/#ask"), Page: pageOptions("", "", 0),
 		Width: 360, Height: 150 + 44*len(items), DisableResize: true, AlwaysOnTop: true,
 		DisableMaximize: true, DisableMinimize: true,
-	})
+	}))
+	guard(win, "")
 	u.named(win, "ask")
 	asks.mu.Lock()
 	asks.win = win

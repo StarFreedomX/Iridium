@@ -4,6 +4,9 @@
 type Wails = { invoke: (msg: string) => void };
 const wails = () => (window as unknown as { _wails?: Wails })._wails;
 
+/* The app's windows have no title bar (internal/desktop/chrome.go): an element marked
+ * data-app-drag drags the window (mygo's --app-region), its keys and fields excepted. */
+
 /** Asks the app: false when its bridge is not here. */
 export function ask(msg: string): boolean {
   const w = wails();
