@@ -14,6 +14,7 @@ import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo,
 import { api, queryClient } from "./api/client";
 import { firstScreen, watchTurns } from "./chats";
 import { CreatePopover, WsPlus } from "./create";
+import { listFromDevice } from "./device/first";
 import { agentsQ, LOCAL_ME, pushQ, useApps, useHome, useMe, useSettings, useUpdate, useWorkspaces } from "./data";
 import { FileWindow } from "./file-window";
 import { FileBrowserHandle, loadFileBrowser } from "./filebrowser-trigger";
@@ -197,7 +198,8 @@ export function App() {
   }, []);
   const turns = useRef(new Map<string, string>());
   useEffect(() => {
-    if (!list) return;
+    // The list as this device kept it (device/first.ts): no turn is read as ended from it.
+    if (!list || listFromDevice()) return;
     // Not those the list leaves out (a group at another machine no one opened): no count for them.
     unread.current?.take(list.filter((s) => !tree.unlisted.has(s.id)), meNow ?? LOCAL_ME);
     watchTurns(list, turns.current, open);

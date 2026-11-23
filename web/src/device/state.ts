@@ -1,6 +1,7 @@
 // What the 缓存 page shows (device/page.tsx): the usage by kind and the rules, read ahead (at
 // start, after the sweep; as its row is pointed at or pressed) so the page is whole as it opens.
 import { useSyncExternalStore } from "react";
+import { keepChats } from "./first";
 import { clear, entries, getConf, setConf, sweep, usageOf, type Cat, type Conf, type Usage } from "./store";
 
 export interface DeviceState {
@@ -45,6 +46,7 @@ export async function changeConf(c: Conf) {
     subs.forEach((f) => f());
   }
   await setConf(c).catch(() => {});
+  keepChats(c.chats);
   if (!c.chats) await clear("chat").catch(() => {});
   await sweep().catch(() => {});
   await refresh();

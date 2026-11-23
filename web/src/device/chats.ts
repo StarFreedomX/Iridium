@@ -12,6 +12,7 @@ import { keptChats, lineOf, peekChat, type Chat } from "../chats";
 import { workKey, type Msg } from "../chat/channel/lib";
 import { channelLog, heldLog, several } from "../chat/channel/log";
 import { getCarried, onCarried, setCarried } from "../store";
+import { listFromDevice } from "./first";
 import { asked, db, done, drop, entries, getConf } from "./store";
 
 /** The copy's format: one that is not this is dropped whole. */
@@ -196,7 +197,7 @@ export function watch() {
     else setTimeout(go, 500);
   };
   onCarried((k) => {
-    if (k !== "list") return;
+    if (k !== "list" || listFromDevice()) return;
     const list = getCarried<Session[]>("list") ?? [];
     const ended: string[] = [];
     for (const s of list) {

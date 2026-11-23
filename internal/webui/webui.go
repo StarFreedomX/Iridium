@@ -125,6 +125,10 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.Set("X-Content-Type-Options", "nosniff")
 	if strings.HasPrefix(p, "/assets/") {
 		h.Set("Cache-Control", "public, max-age=31536000, immutable")
+	} else if p == "/theme.js" {
+		// Read before the first paint, not under a hashed name: the copy kept is run at once and
+		// asked for again behind it, not a round trip before the page can start (kumo, 2026-11-23).
+		h.Set("Cache-Control", "max-age=0, stale-while-revalidate=2592000")
 	} else {
 		h.Set("Cache-Control", "no-cache")
 	}
