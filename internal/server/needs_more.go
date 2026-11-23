@@ -115,6 +115,9 @@ func (s *Server) streamFilter(c caller) func(key string, v []byte) []byte {
 		if key == "ats" {
 			return s.atsFor(c, v) // its own marks alone (ats.go)
 		}
+		if key == facesKey {
+			return s.facesFor(c, v) // the faces of the channels it sees (faces.go)
+		}
 		if f == nil {
 			return v
 		}

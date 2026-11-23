@@ -50,7 +50,7 @@ func (s *Server) serverFacePut(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	s.hub.Set("avatars", s.avatarsSeq.Add(1))
+	s.facesChanged()
 	w.WriteHeader(http.StatusNoContent)
 }
 

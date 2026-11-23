@@ -27,7 +27,7 @@ func (s *Server) faceFollows(n session.Notice) {
 		s.faceSeen[id] = v
 		s.faceMu.Unlock()
 		if v != was {
-			s.hub.Set("avatars", s.avatarsSeq.Add(1))
+			s.facesChanged()
 		}
 	}(n.Session)
 }

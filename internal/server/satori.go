@@ -265,6 +265,7 @@ func (s *Server) watchList(ctx context.Context) {
 		var l []api.Session
 		if json.Unmarshal(st.Value, &l) == nil {
 			s.sat.Sessions(l)
+			s.facesOnList(l)
 		}
 		return nil
 	}, func() error { return nil }, func() {})

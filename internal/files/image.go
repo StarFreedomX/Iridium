@@ -2,6 +2,7 @@ package files
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
@@ -17,6 +18,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	xdraw "golang.org/x/image/draw"
 	_ "golang.org/x/image/webp" // registers the WebP decoder
@@ -39,8 +41,13 @@ const (
 
 // Thumb serves the thumbnail of the image at path (checked by the caller), its longest side at
 // most side: made once, kept in the state directory by path, size, modification time and side.
-// An SVG is served as it is, under the sandbox CSP.
+// An SVG is served as it is, under the sandbox CSP. Asked for under the file's modification time
+// (?v=, ms since the epoch, as its FileRef has it), the answer is kept for good: the file changed
+// is another address.
 func (s *Service) Thumb(w http.ResponseWriter, r *http.Request, path string, side int) {
+	if st, err := os.Stat(path); err == nil && r.URL.Query().Get("v") == strconv.FormatInt(st.ModTime().UnixMilli(), 10) {
+		r = r.WithContext(context.WithValue(r.Context(), keptKey{}, true))
+	}
 	typ := sniff(path)
 	if baseType(typ) == "image/svg+xml" {
 		s.serve(w, r, path, typ, false)
