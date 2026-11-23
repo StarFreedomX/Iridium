@@ -348,7 +348,11 @@ function SignOut() {
     const t = setTimeout(() => setSure(false), 3000);
     return () => clearTimeout(t);
   }, [sure]);
-  const out = () => void api.logout().then(() => location.assign("/_ir/login"), (e) => toast(t("me.logout"), { error: true, description: errText(e) }));
+  const out = () =>
+    void api.logout().then(
+      () => void import("./device/forget").then((m) => m.forget()).finally(() => location.assign("/_ir/login")),
+      (e) => toast(t("me.logout"), { error: true, description: errText(e) }),
+    );
   return (
     <button type="button" onClick={() => (sure ? out() : setSure(true))} onBlur={() => setSure(false)} className={cn("g-press -mr-1.5 mt-2 flex h-8 max-w-full items-center gap-1.5 self-end rounded-md px-2 text-sm hover:bg-fill hover:text-ink pointer-coarse:h-10", sure ? "text-ink" : "text-ink-3")}>
       <LogOut size={14} className="shrink-0" />
