@@ -20,14 +20,66 @@
     $tmp = Join-Path ([IO.Path]::GetTempPath()) ('iridium-' + [Guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Force -Path $tmp, $prefix | Out-Null
     try {
+        # Fetch: one line that fills as the file comes (kumo, 2026-11-23: curl's bar shook), redrawn
+        # only as the percent changes, as wide as the console lets. Blocks where the console writes
+        # UTF-8 (Windows Terminal, a console set to 65001), # and - elsewhere (an old console's
+        # font may have no blocks). Output not to a console (a pipe, a log): one line, no bar.
+        function Fetch($name, $url, $out) {
+            Add-Type -AssemblyName System.Net.Http
+            $client = New-Object System.Net.Http.HttpClient
+            $client.Timeout = [TimeSpan]::FromMinutes(15)
+            try {
+                $res = $client.GetAsync($url, [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead).Result
+                if (-not $res.IsSuccessStatusCode) { throw "download failed: $url ($([int]$res.StatusCode))" }
+                $total = [long]0
+                if ($res.Content.Headers.ContentLength) { $total = [long]$res.Content.Headers.ContentLength }
+                $mb = '{0:N1} MB' -f ($total / 1MB)
+                $bar = $true
+                try { if ([Console]::IsOutputRedirected) { $bar = $false } } catch { $bar = $false }
+                if (-not $bar) {
+                    if ($total -gt 0) { Write-Host "Downloading $name ($mb)" } else { Write-Host "Downloading $name" }
+                }
+                $full = '#'; $empty = '-'
+                if ($env:WT_SESSION -or [Console]::OutputEncoding.CodePage -eq 65001) { $full = [string][char]0x2588; $empty = [string][char]0x2591 }
+                $cols = 80
+                try { $cols = $Host.UI.RawUI.WindowSize.Width } catch { }
+                if ($cols -le 0) { $cols = 80 }
+                $width = [Math]::Max(10, [Math]::Min(40, $cols - $name.Length - 26))
+                $in = $res.Content.ReadAsStreamAsync().Result
+                $file = [IO.File]::Create($out)
+                try {
+                    $buf = New-Object byte[] 81920
+                    $have = [long]0
+                    $shown = -1
+                    while (($n = $in.Read($buf, 0, $buf.Length)) -gt 0) {
+                        $file.Write($buf, 0, $n)
+                        $have += $n
+                        if ($bar) {
+                            if ($total -gt 0) {
+                                $pct = [int][Math]::Min(100, [Math]::Floor($have * 100 / $total))
+                                if ($pct -ne $shown) {
+                                    $shown = $pct
+                                    $k = [int][Math]::Floor($pct * $width / 100)
+                                    $line = '  {0}  {1}{2} {3,3}%  {4}' -f $name, ($full * $k), ($empty * ($width - $k)), $pct, $mb
+                                    Write-Host -NoNewline ("`r" + $line)
+                                }
+                            } else {
+                                Write-Host -NoNewline ("`r  {0}  {1:N1} MB" -f $name, ($have / 1MB))
+                            }
+                        }
+                    }
+                } finally { $file.Close(); $in.Close() }
+                if ($bar) { Write-Host '' }
+            } finally { $client.Dispose() }
+        }
         function Get-File($name) {
             $out = Join-Path $tmp $name
-            # Quiet, one line before it (kumo, 2026-11-23: curl's bar shook, and drew badly in some consoles).
-            if ($name -ne 'SHA256SUMS') { Write-Host "Downloading $name" }
-            if (Get-Command curl.exe -ErrorAction SilentlyContinue) {
-                curl.exe -fsSL -o $out ($base + $name)
-                if ($LASTEXITCODE) { throw "download failed: $base$name" }
-            } else { Invoke-WebRequest -UseBasicParsing -Uri ($base + $name) -OutFile $out }
+            if ($name -eq 'SHA256SUMS') {
+                if (Get-Command curl.exe -ErrorAction SilentlyContinue) {
+                    curl.exe -fsSL -o $out ($base + $name)
+                    if ($LASTEXITCODE) { throw "download failed: $base$name" }
+                } else { Invoke-WebRequest -UseBasicParsing -Uri ($base + $name) -OutFile $out }
+            } else { Fetch $name ($base + $name) $out | Out-Null }
             $out
         }
         $sums = Get-Content (Get-File 'SHA256SUMS')
