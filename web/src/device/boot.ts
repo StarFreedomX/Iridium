@@ -13,6 +13,8 @@ export function start() {
     .catch(() => {})
     .then(refresh);
   setInterval(() => void sweepDue().catch(() => {}), 3_600_000);
+  // The chats' copies, written as turns end, the page hides, and when idle (device/chats.ts).
+  void import("./chats").then((m) => m.watch());
 }
 
 start();

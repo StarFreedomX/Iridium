@@ -3,6 +3,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
+import type { Block } from "../src/api/types.gen";
 import { DB, DB_VERSION, DEFAULTS, IMAGES, plan, STORES, usageOf, type Entry } from "../src/device/store";
 
 const DAY = 86_400_000;
@@ -67,5 +68,58 @@ describe("the worker", () => {
       "/": null,
     };
     for (const [path, kind] of Object.entries(kinds)) expect([path, worker.category(path)]).toEqual([path, kind]);
+  });
+});
+
+describe("a chat's copy", async () => {
+  const { newestPage } = await import("../src/device/chats");
+  const { Messages } = await import("../src/chats");
+  const { ChannelLog } = await import("../src/chat/channel/log");
+  const blk = (line: number, kind: Block["kind"], text?: string, sub = 0): Block => ({ at: `${line}.${sub}`, kind, text });
+
+  test("keeps the newest page: back to 20 things said, from a line's first block", () => {
+    const blocks: Block[] = [];
+    for (let i = 0; i < 30; i++) blocks.push(blk(i * 2, "user", `q${i}`), blk(i * 2 + 1, "tool", undefined, 0), blk(i * 2 + 1, "assistant", `a${i}`, 1));
+    const p = newestPage(blocks, 0, false);
+    expect(p.blocks[0]!.at).toBe("40.0");
+    expect(p.blocks.length).toBe(30);
+    expect([p.start, p.end, p.more]).toEqual([40, 60, true]);
+    // A short chat whole.
+    const few = blocks.slice(0, 6);
+    expect(newestPage(few, 0, false)).toEqual({ blocks: few, start: 0, end: 4, more: false });
+  });
+
+  test("the server's page where it differs; only what is new where it agrees", () => {
+    const mine = { blocks: [blk(0, "user", "hi"), blk(1, "assistant", "hello")], start: 0, end: 2, more: false };
+    const m = new Messages("s", async () => ({ blocks: [], start: 0, end: 2, more: false }));
+    m.take(mine);
+    m.restored = true;
+    const v = m.version;
+    m.take({ blocks: [...mine.blocks, blk(2, "user", "more")], start: 0, end: 3, more: false });
+    expect(m.blocks.map((b) => b.text)).toEqual(["hi", "hello", "more"]);
+    expect(m.version).toBeGreaterThan(v);
+    expect(m.restored).toBe(false);
+    // Taken again, held: nothing.
+    m.take({ blocks: [blk(9, "user", "x")], start: 9, end: 10, more: false });
+    expect(m.blocks.length).toBe(3);
+
+    const n = new Messages("s", async () => ({ blocks: [], start: 0, end: 2, more: false }));
+    n.take(mine);
+    n.restored = true;
+    // Compacted meanwhile: the block at 1 is another.
+    n.take({ blocks: [blk(0, "user", "hi"), blk(1, "assistant", "summary")], start: 0, end: 2, more: true });
+    expect(n.blocks.map((b) => b.text)).toEqual(["hi", "summary"]);
+    expect(n.more).toBe(true);
+  });
+
+  test("the channel's copy: a message taken back since goes, a reaction since comes", async () => {
+    const msg = (n: number, text: string, reactions?: { emoji: string; count: number; users: { id: string }[] }[]) => ({ id: String(n), content: text, user: { id: "u", name: "u" }, _data: { ...(reactions ? { reactions } : {}) } });
+    const log = new ChannelLog("c", async () => ({ data: [], start: 0, end: 0, more: false }) as never);
+    const { msgOf } = await import("../src/chat/channel/lib");
+    log.restore([msgOf(msg(1, "a") as never)!, msgOf(msg(2, "b") as never)!, msgOf(msg(3, "c") as never)!], false);
+    expect(log.msgs.map((m) => m.n)).toEqual([1, 2, 3]);
+    log.take({ data: [msg(1, "a"), msg(3, "c"), msg(4, "d")], start: 1, end: 4, more: false } as never);
+    expect(log.msgs.map((m) => m.n)).toEqual([1, 3, 4]);
+    expect(log.restored).toBe(false);
   });
 });

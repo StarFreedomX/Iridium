@@ -174,10 +174,41 @@ export class Messages {
     }
   }
 
-  /** The newest page, read here or elsewhere (the first screen's): nothing if one came already. */
+  /** The newest page put in from this device's copy (device/chats.ts), not yet the server's: the
+   *  server's newest, as it comes (take), is what stays. */
+  restored = false;
+
+  /** The newest page, read here or elsewhere (the first screen's): nothing if one came already;
+   *  over this device's copy, the server's where they differ. */
   take(p: MessagePage) {
+    if (this.restored) return this.retake(p);
     if (this.loaded) return;
     Object.assign(this, { blocks: p.blocks, start: p.start, end: p.end, more: p.more, loaded: true, came: Date.now() });
+    this.took(p.blocks, false);
+    if (this.back) this.prefetch();
+  }
+
+  /** The server's newest page over this device's copy: where they meet the same, only what is new
+   *  goes on; a block there changed or gone (compacted, rewritten), the server's whole. */
+  private retake(p: MessagePage) {
+    this.restored = false;
+    const key = (b: Block) => JSON.stringify(b);
+    const theirs = new Map(p.blocks.map((b) => [b.at, key(b)]));
+    const mine = new Map(this.blocks.map((b) => [b.at, key(b)]));
+    const agree =
+      p.end >= this.end &&
+      p.start <= this.end &&
+      this.blocks.every((b) => lineOf(b) < p.start || theirs.get(b.at) === mine.get(b.at)) &&
+      p.blocks.every((b) => lineOf(b) >= this.end || mine.get(b.at) === theirs.get(b.at));
+    this.came = Date.now();
+    if (agree) {
+      const added = p.blocks.filter((b) => lineOf(b) >= this.end);
+      if (!added.length) return;
+      this.blocks = [...this.blocks, ...added];
+      this.end = p.end;
+      return this.took(added, true);
+    }
+    Object.assign(this, { blocks: p.blocks, start: p.start, end: p.end, more: p.more });
     this.took(p.blocks, false);
     if (this.back) this.prefetch();
   }
@@ -488,6 +519,21 @@ export function firstScreen(id: string, it: Chat = chatOf(id), init?: RequestIni
   const have = log.loaded;
   const top = log.blocks[0]?.time;
   p = (async () => {
+    // This device's copy (device/chats.ts): drawn at once, the server's first screen taking its
+    // place as it comes, apart from this promise.
+    if (!have && (await fromDevice(id, it))) {
+      whole.add(id);
+      const mine = getCarried<SessionState>(key);
+      it.coming = api
+        .first(id, {}, init)
+        .then((f) => {
+          if (getCarried(key) === mine) setCarried(key, f.session);
+          putFirst(id, f, log);
+        })
+        .catch(() => {})
+        .finally(() => (it.coming = undefined));
+      return;
+    }
     try {
       const [f] = await Promise.all([api.first(id, have ? { have, ...(top !== undefined ? { since: log.more ? top : 0 } : {}) } : {}, init), have ? log.newer().catch(() => {}) : undefined]);
       if (getCarried(key) === was) setCarried(key, f.session);
@@ -504,6 +550,18 @@ export function firstScreen(id: string, it: Chat = chatOf(id), init?: RequestIni
   firsts.set(id, p);
   it.coming ??= p;
   return p;
+}
+
+/** Puts this device's copy of session id's first screen into chat it (device/chats.ts), in time
+ *  for its first draw (DEVICE_WAIT at most); says whether there was one. */
+const DEVICE_WAIT = 300;
+async function fromDevice(id: string, it: Chat): Promise<boolean> {
+  try {
+    const m = await import("./device/chats");
+    return await Promise.race([m.restore(id, it), new Promise<boolean>((r) => setTimeout(() => r(false), DEVICE_WAIT))]);
+  } catch {
+    return false;
+  }
 }
 
 /** Puts a first screen's parts in. */

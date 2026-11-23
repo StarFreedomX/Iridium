@@ -54,9 +54,32 @@ export class ChannelLog {
     this.put([]);
   }
 
+  /** The messages put in from this device's copy (device/chats.ts), not yet the server's. */
+  restored = false;
+  /** This device's copy of the newest messages, before the server's. */
+  restore(msgs: Msg[], more: boolean) {
+    if (this.loaded) return;
+    Object.assign(this, { msgs, more, loaded: true, restored: true });
+    this.version++;
+  }
+
   /** A page read elsewhere (the first screen's, chats.ts): the newest, with those before it that
-   *  came along. Held already: what it has that is new goes in. */
+   *  came along. Held already: what it has that is new goes in; over this device's copy, the
+   *  server's in its place (taken back, reacted to since). */
   take(p: ChannelPage) {
+    if (this.restored) {
+      this.restored = false;
+      this.more = p.more;
+      const next = read(p.data);
+      const theirs = new Map(next.map((m) => [m.n, JSON.stringify(m)]));
+      const from = next[0]?.n ?? Infinity;
+      // Mine from where the server's begin: those it has the same, nothing more.
+      const same = this.msgs.every((m) => m.n < from || theirs.get(m.n) === JSON.stringify(m));
+      if (!same) this.msgs = this.msgs.filter((m) => m.n < from);
+      this.put(next);
+      this.came = Date.now();
+      return;
+    }
     const first = this.msgs[0]?.n;
     if (!this.loaded || (first !== undefined && p.start < first)) this.more = p.more;
     if (!this.loaded) this.version++;
