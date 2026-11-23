@@ -147,4 +147,45 @@ func TestFileBrowserScope(t *testing.T) {
 		req(t, "", "pc", link, http.StatusForbidden)
 		req(t, "/content", "pc", filepath.Join(link, name), http.StatusForbidden)
 	})
+	t.Run("hidden paths", func(t *testing.T) {
+		for machine, root := range map[string]string{"": here, "pc": there} {
+			dir := filepath.Join(root, "project")
+			dot := filepath.Join(dir, ".hidden")
+			if err := os.MkdirAll(dot, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dot, name), []byte(content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			dotFile := filepath.Join(dir, ".private")
+			if err := os.WriteFile(dotFile, []byte(content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			w := req(t, "", machine, dir, http.StatusOK)
+			var list api.DirListing
+			if err := json.Unmarshal(w.Body.Bytes(), &list); err != nil {
+				t.Fatal(err)
+			}
+			for _, entry := range list.Entries {
+				if entry.Name == filepath.Base(dot) || entry.Name == filepath.Base(dotFile) {
+					t.Errorf("browser at %q listed hidden entry %q", machine, entry.Name)
+				}
+			}
+			req(t, "", machine, dot, http.StatusForbidden)
+			req(t, "/content", machine, filepath.Join(dot, name), http.StatusForbidden)
+			req(t, "/content", machine, dotFile, http.StatusForbidden)
+			t.Run("alias "+dir, func(t *testing.T) {
+				link := filepath.Join(dir, "alias")
+				if err := os.Symlink(dot, link); err != nil {
+					t.Skipf("no directory links: %v", err)
+				}
+				req(t, "", machine, link, http.StatusForbidden)
+				req(t, "/content", machine, filepath.Join(link, name), http.StatusForbidden)
+			})
+		}
+		// Other executor callers retain their own permissions.
+		if _, err := hub.Machine(tok.App.ID).ReadAt(ctx, filepath.Join(there, "project", ".hidden", name), 0, 1); err != nil {
+			t.Fatalf("ordinary executor read: %v", err)
+		}
+	})
 }

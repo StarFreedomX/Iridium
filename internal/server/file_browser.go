@@ -12,6 +12,7 @@ import (
 	"github.com/kumoSleeping/iridium/internal/api"
 	"github.com/kumoSleeping/iridium/internal/files"
 	"github.com/kumoSleeping/iridium/internal/gate"
+	"github.com/kumoSleeping/iridium/internal/pathsafe"
 	"github.com/kumoSleeping/iridium/internal/remote"
 	"github.com/kumoSleeping/iridium/internal/remote/wire"
 )
@@ -111,7 +112,7 @@ func (s *Server) browseFiles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if at.machine == nil {
-		out, err := s.files.List(at.path, at.scope...)
+		out, err := s.files.Browse(at.path, at.scope...)
 		if err != nil {
 			s.fileError(w, err)
 			return
@@ -121,13 +122,12 @@ func (s *Server) browseFiles(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), browseTimeout)
 	defer cancel()
-	out, err := listRemoteDir(ctx, at.machine, at.path, at.scope...)
-	if err != nil {
+	var out wire.ListReply
+	if err := at.machine.Call(ctx, "fs.list.browser", wire.PathParams{Path: at.path, Scope: at.scope}, &out); err != nil {
 		s.browserRemoteError(w, err)
 		return
 	}
-	out.Path = pagePath(at.hello, out.Path)
-	reply(w, http.StatusOK, out)
+	reply(w, http.StatusOK, remoteDirListing(pagePath(at.hello, at.path), out.Entries))
 }
 
 // browseFile is GET /v1/internal/web/files/content: one regular file on the host or a connected
@@ -140,8 +140,8 @@ func (s *Server) browseFile(w http.ResponseWriter, r *http.Request) {
 	if at.machine != nil {
 		ctx, cancel := context.WithTimeout(r.Context(), browseTimeout)
 		defer cancel()
-		st, err := at.machine.Stat(ctx, at.path, at.scope...)
-		if err != nil {
+		var st wire.Stat
+		if err := at.machine.Call(ctx, "fs.stat.browser", wire.StatParams{Path: at.path, Scope: at.scope}, &st); err != nil {
 			s.browserRemoteError(w, err)
 			return
 		}
@@ -154,6 +154,9 @@ func (s *Server) browseFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p, err := s.files.Guarded(at.path, at.scope...)
+	if err == nil {
+		err = pathsafe.CheckBrowser(at.path, p)
+	}
 	if err != nil {
 		s.fileError(w, err)
 		return
@@ -232,11 +235,11 @@ func (w *browserFileResponse) ReadFrom(src io.Reader) (int64, error) {
 	return n, err
 }
 
-// browserRemoteError maps executor errors for the web file browser: an older executor without
-// ".scoped" reads answers 409 so the caller knows to update it.
+// browserRemoteError maps executor errors for the web file browser. Older executors must update
+// before browsing so both the login scope and the browser's path rules are enforced there.
 func (s *Server) browserRemoteError(w http.ResponseWriter, err error) {
 	if wire.IsCode(err, wire.CodeUnsupported) {
-		refuse(w, http.StatusConflict, "scoped_files_unsupported", "update the connected computer to browse within a login's scope")
+		refuse(w, http.StatusConflict, "scoped_files_unsupported", "update the connected computer to use the file browser")
 		return
 	}
 	s.remoteFileError(w, err)
@@ -261,7 +264,7 @@ func (w browserRemoteWriter) ReadFrom(src io.Reader) (int64, error) {
 }
 
 // browserRemoteFile adapts a remote file to io.ReaderAt for http.ServeContent via io.SectionReader,
-// splitting reads across wire.MaxRead chunks and forwarding scope on each read.
+// splitting fs.read.browser calls across wire.MaxRead chunks and forwarding scope on each read.
 type browserRemoteFile struct {
 	ctx     context.Context
 	machine *remote.Machine
@@ -275,11 +278,12 @@ func (f browserRemoteFile) ReadAt(dst []byte, offset int64) (int, error) {
 	total := 0
 	for total < len(dst) {
 		chunk := dst[total : total+min(len(dst)-total, wire.MaxRead)]
-		b, err := f.machine.ReadAt(ctx, f.path, offset+int64(total), int64(len(chunk)), f.scope...)
-		if err != nil {
+		var reply wire.ReadReply
+		params := wire.ReadParams{Path: f.path, Offset: offset + int64(total), Length: int64(len(chunk)), Scope: f.scope}
+		if err := f.machine.Call(ctx, "fs.read.browser", params, &reply); err != nil {
 			return total, err
 		}
-		n := copy(chunk, b)
+		n := copy(chunk, reply.Data)
 		total += n
 		if n < len(chunk) {
 			return total, io.ErrUnexpectedEOF

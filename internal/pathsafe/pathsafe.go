@@ -174,6 +174,31 @@ func InRoots(path string, roots []string) bool {
 	return false
 }
 
+// BrowserHidden reports whether name is a dot-prefixed entry omitted by the web file browser,
+// matching ordinary ls.
+func BrowserHidden(name string) bool {
+	return strings.HasPrefix(name, ".")
+}
+
+// CheckBrowser denies any requested or resolved path with a dot-prefixed component, so neither
+// direct paths nor symlinks into dot directories can be read through the file browser.
+func CheckBrowser(path, resolved string) error {
+	for _, p := range []string{path, resolved} {
+		p = filepath.Clean(p)
+		for {
+			if BrowserHidden(filepath.Base(p)) {
+				return fmt.Errorf("%w: %s", ErrDenied, path)
+			}
+			parent := filepath.Dir(p)
+			if parent == p {
+				break
+			}
+			p = parent
+		}
+	}
+	return nil
+}
+
 func (g *Guard) denied(p string) bool {
 	for _, d := range g.deny {
 		if Within(p, d) {

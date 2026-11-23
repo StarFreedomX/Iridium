@@ -411,6 +411,9 @@ func (e *Executor) handle(ctx context.Context, method string, params json.RawMes
 	if strings.HasSuffix(method, ".scoped") && len(p.Scope) == 0 {
 		return nil, bad("missing file scope")
 	}
+	// ".browser" calls enforce the web file browser's dot-name rules on top of scope; an older
+	// executor rejects the unknown method so those rules are never silently skipped.
+	read := fileRead{scope: p.Scope, browser: strings.HasSuffix(method, ".browser")}
 	switch method {
 	case "run":
 		var rp wire.RunParams
@@ -458,12 +461,12 @@ func (e *Executor) handle(ctx context.Context, method string, params json.RawMes
 			}
 		}
 		return struct{}{}, nil
-	case "fs.stat", "fs.stat.scoped":
-		return e.stat(p.Path, p.Head, p.Scope...)
-	case "fs.list", "fs.list.scoped":
-		return e.list(p.Path, p.Scope...)
-	case "fs.read", "fs.read.scoped":
-		return e.read(p.Path, p.Offset, p.Length, p.Scope...)
+	case "fs.stat", "fs.stat.scoped", "fs.stat.browser":
+		return e.stat(p.Path, p.Head, read)
+	case "fs.list", "fs.list.scoped", "fs.list.browser":
+		return e.list(p.Path, read)
+	case "fs.read", "fs.read.scoped", "fs.read.browser":
+		return e.read(p.Path, p.Offset, p.Length, read)
 	case "fs.write":
 		return struct{}{}, e.write(p.Path, p.Data, p.SHA256, p.Replace)
 	case "fs.mkdir":
@@ -792,6 +795,13 @@ func errTail(dir string) string {
 
 // ---- files ----
 
+// fileRead narrows one fs.stat, fs.list or fs.read call: scope bounds the resolved path to a
+// login's roots, and browser enforces the web file browser's dot-name filter.
+type fileRead struct {
+	scope   []string
+	browser bool
+}
+
 // allowed is path cleaned, its links resolved, if under a root and not denied.
 func (e *Executor) allowed(path string) (string, error) { return e.allowedIn(path, nil) }
 
@@ -799,8 +809,9 @@ func (e *Executor) allowed(path string) (string, error) { return e.allowedIn(pat
 // agent's Scope: dsh's packages, which the Iridium reads its presets from to start it). They
 // are the programs this computer offered to run, not a person's files, and often outside the
 // folders it serves (kumo, 2026-11-18: dsh under /opt/homebrew would not start, home alone
-// served). When scope is given, the resolved path must also lie inside one of those roots.
-func (e *Executor) readable(path string, scope ...string) (string, error) {
+// served). When read.scope is given, the resolved path must also lie inside one of those roots;
+// when read.browser is set, dot-prefixed paths are denied.
+func (e *Executor) readable(path string, read fileRead) (string, error) {
 	var more []string
 	for _, a := range e.o.Agents {
 		if a.Scope != "" {
@@ -808,10 +819,18 @@ func (e *Executor) readable(path string, scope ...string) (string, error) {
 		}
 	}
 	real, err := e.allowedIn(path, more)
-	if err == nil && len(scope) > 0 && !pathsafe.InRoots(real, scope) {
+	if err != nil {
+		return "", err
+	}
+	if len(read.scope) > 0 && !pathsafe.InRoots(real, read.scope) {
 		return "", &wire.Error{Code: wire.CodeDenied, Message: path + " is out of this login's scope"}
 	}
-	return real, err
+	if read.browser {
+		if err := pathsafe.CheckBrowser(path, real); err != nil {
+			return "", &wire.Error{Code: wire.CodeDenied, Message: err.Error()}
+		}
+	}
+	return real, nil
 }
 
 // allowedIn is allowed, the folders in more served beside the roots.
@@ -876,8 +895,8 @@ func notFound(err error) error {
 	return err
 }
 
-func (e *Executor) stat(path string, head int, scope ...string) (any, error) {
-	p, err := e.readable(path, scope...)
+func (e *Executor) stat(path string, head int, read fileRead) (any, error) {
+	p, err := e.readable(path, read)
 	if err != nil {
 		return nil, err
 	}
@@ -899,8 +918,8 @@ func (e *Executor) stat(path string, head int, scope ...string) (any, error) {
 	return out, nil
 }
 
-func (e *Executor) list(path string, scope ...string) (any, error) {
-	p, err := e.readable(path, scope...)
+func (e *Executor) list(path string, read fileRead) (any, error) {
+	p, err := e.readable(path, read)
 	if err != nil {
 		return nil, err
 	}
@@ -910,6 +929,9 @@ func (e *Executor) list(path string, scope ...string) (any, error) {
 	}
 	out := []wire.Entry{}
 	for _, d := range ents {
+		if read.browser && pathsafe.BrowserHidden(d.Name()) {
+			continue
+		}
 		info, err := d.Info()
 		if err != nil {
 			continue
@@ -919,8 +941,8 @@ func (e *Executor) list(path string, scope ...string) (any, error) {
 	return map[string]any{"entries": out}, nil
 }
 
-func (e *Executor) read(path string, off, n int64, scope ...string) (any, error) {
-	p, err := e.readable(path, scope...)
+func (e *Executor) read(path string, off, n int64, read fileRead) (any, error) {
+	p, err := e.readable(path, read)
 	if err != nil {
 		return nil, err
 	}
