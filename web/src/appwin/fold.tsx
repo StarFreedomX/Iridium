@@ -33,7 +33,10 @@ export function useFolding<T>(
       });
       return next;
     });
-  }, [items]); // eslint-disable-line react-hooks/exhaustive-deps
+    // By the keys, not the list itself: a list made anew at each draw (a filter) drew the page
+    // again without end, the picker's web process at 86% of a core, shown or hidden (kumo,
+    // 2026-11-23).
+  }, [items === null ? null : items.map(key).join("\n")]); // eslint-disable-line react-hooks/exhaustive-deps
   // Those folded shut go once the fold is done.
   useEffect(() => {
     if (!shown.some((s) => s.state === "out")) return;
@@ -43,7 +46,11 @@ export function useFolding<T>(
     );
     return () => clearTimeout(t);
   }, [shown]);
-  return shown;
+  // Each row as it is now: what changed in one (its name) is drawn without the keys changing.
+  const now = new Map((items ?? []).map((item) => [key(item), item]));
+  return shown.map((s) =>
+    now.has(s.key) ? { ...s, item: now.get(s.key)! } : s,
+  );
 }
 
 /** One row folding: open when "in", opening when "new", shutting when "out" (or hidden). */
