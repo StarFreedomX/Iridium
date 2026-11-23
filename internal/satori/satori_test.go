@@ -980,3 +980,22 @@ func TestFoldersPlacesAndQueue(t *testing.T) {
 		t.Errorf("edits: %q", r.f.edits)
 	}
 }
+
+// A result on its call's line (Codex's) is in its call's block on the page; block.get finds it
+// by its own id all the same.
+func TestBlockGetPairedResult(t *testing.T) {
+	r := newRig(t)
+	r.f.addSession("s1", 2)
+	r.f.addBlock("s1", api.Block{Kind: api.BlockKindTool, ID: "call1", Name: "exec_command", Input: "{}"})
+	r.f.mu.Lock()
+	call := &r.f.blocks["s1"][2]
+	call.Result = &api.Result{At: "20.1", Text: "the output"}
+	r.f.mu.Unlock()
+	var m Message
+	if code, e := r.as("u1", "internal/block.get", map[string]string{"channel_id": "s1", "message_id": "20.1"}, &m); code != 200 || m.ID != "20.1" || !strings.Contains(m.Content, "the output") || !strings.Contains(m.Content, "call1") {
+		t.Errorf("block.get of a paired result: %d %+v %+v", code, e, m)
+	}
+	if code, _ := r.as("u1", "internal/block.get", map[string]string{"channel_id": "s1", "message_id": "20.2"}, nil); code != 422 {
+		t.Errorf("block.get of nothing: %d", code)
+	}
+}
