@@ -2,6 +2,7 @@ package agy
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -704,5 +705,38 @@ func TestNoEchoAnsweredAtOnce(t *testing.T) {
 	}
 	if r.d.State() != agent.Idle {
 		t.Error("not idle")
+	}
+}
+
+// A picture agy read: its ACP says the path only, so the file is read where agy runs and kept
+// with the result, as pictures does for the page (otae, 2026-11-23); not a text file, a
+// failed read, nor one too big.
+func TestPictureOfRead(t *testing.T) {
+	dir := t.TempDir()
+	png := filepath.Join(dir, "a.PNG")
+	os.WriteFile(png, []byte("\x89PNG\r\n\x1a\nfake"), 0o600)
+	os.WriteFile(filepath.Join(dir, "a.txt"), []byte("hi"), 0o600)
+	d := &Driver{readFile: os.ReadFile}
+	read := func(status, kind, path string) json.RawMessage {
+		u := &update{Status: status, ToolKind: kind, RawInput: json.RawMessage(`{"Path":"` + path + `"}`)}
+		return d.pictureOf(u)
+	}
+	got := read("completed", "read", png)
+	var blocks []map[string]string
+	if json.Unmarshal(got, &blocks) != nil || len(blocks) != 1 || blocks[0]["type"] != "image" || blocks[0]["mimeType"] != "image/png" || blocks[0]["data"] != base64.StdEncoding.EncodeToString([]byte("\x89PNG\r\n\x1a\nfake")) {
+		t.Fatalf("the picture: %s", got)
+	}
+	for _, c := range [][3]string{{"completed", "read", filepath.Join(dir, "a.txt")}, {"failed", "read", png}, {"completed", "execute", png}, {"completed", "read", filepath.Join(dir, "gone.png")}} {
+		if b := read(c[0], c[1], c[2]); b != nil {
+			t.Errorf("%v: %s", c, b)
+		}
+	}
+	// By the location agy gives, too.
+	u := &update{Status: "completed", ToolKind: "read"}
+	u.Locations = append(u.Locations, struct {
+		Path string `json:"path"`
+	}{png})
+	if d.pictureOf(u) == nil {
+		t.Errorf("by its location: none")
 	}
 }

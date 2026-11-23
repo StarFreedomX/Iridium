@@ -143,6 +143,9 @@ type Driver struct {
 	pick     struct{ model, effort string }
 	mode     string
 	remote   bool // agy runs at an executor: its login is there, not read here
+	// readFile reads a file where agy runs (here, or at its executor): a picture it read, whose
+	// bytes its ACP does not carry.
+	readFile func(string) ([]byte, error)
 	models   []agent.Model
 	commands []agent.Command
 	plan     string
@@ -262,6 +265,10 @@ func (d *Driver) Spawn(o agent.SpawnOptions) (hold.Spec, error) {
 	model, effort := SplitEffort(o.Model)
 	d.mu.Lock()
 	d.want, d.mode, d.remote = w, mode, o.Remote != nil
+	d.readFile = os.ReadFile
+	if o.Remote != nil {
+		d.readFile = o.Remote.ReadFile
+	}
 	d.pick.model, d.pick.effort = model, cmp.Or(effort, o.Effort)
 	d.mu.Unlock()
 	env = agent.SetEnv(env, "AGY_CLI_DISABLE_AUTO_UPDATE", "1")
@@ -1119,6 +1126,10 @@ type update struct {
 	Status     string          `json:"status"`
 	RawInput   json.RawMessage `json:"rawInput"`
 	RawOutput  json.RawMessage `json:"rawOutput"`
+	ToolKind   string          `json:"kind"` // read, edit, execute…
+	Locations  []struct {
+		Path string `json:"path"`
+	} `json:"locations"`
 	// usage_update
 	Used int `json:"used"`
 	Size int `json:"size"`
@@ -1223,7 +1234,7 @@ func (d *Driver) update(raw json.RawMessage, replay bool) {
 			}
 			delete(d.tools, u.ToolCallID)
 			d.withdrawFor(u.ToolCallID)
-			d.record(transcript.Entry{Kind: string(api.BlockKindResult), ID: u.ToolCallID, Text: resultOf(u), Error: u.Status == "failed"})
+			d.record(transcript.Entry{Kind: string(api.BlockKindResult), ID: u.ToolCallID, Text: resultOf(u), Error: u.Status == "failed", Content: d.pictureOf(u)})
 			if !d.loading {
 				d.emitLocked(agent.ToolDone{ID: u.ToolCallID, Name: t.name})
 			}
