@@ -460,6 +460,12 @@ func (u *ui) local(w *mygo.Window, verb, arg string) {
 		reply(w, st)
 	case "answer":
 		answerAsk(arg)
+	case "autostart":
+		// The picker's 登录时打开 (kumo, 2026-11-23: out of the tray's menu).
+		_ = mygo.App.SetOpenAtLogin(arg == "on")
+		c, _ := loadConfig()
+		reply(w, state(c))
+		u.redraw()
 	case "title":
 		// An Iridium's name in this app, from the picker (any Iridium, of any version).
 		var t struct{ URL, Title string }
@@ -693,7 +699,7 @@ func (u *ui) pageState(c Config) map[string]any {
 	cu, _ := user.Current()
 	return map[string]any{"os": runtime.GOOS, "servers": list, "current": c.current(), "theme": c.Theme, "hasLocal": c.local() != nil,
 		"me": c.Me, "sysName": ownName(cu), "agents": agents, "server": c.serverOn(), "public": publicOn(), "publicState": u.pub.view(),
-		"publicAddress": publicAddress()}
+		"publicAddress": publicAddress(), "hideLocal": c.HideLocal, "autostart": mygo.App.OpenAtLogin()}
 }
 
 // hello is what an Iridium's page learns of the app: that it is in it, and the Iridiums in its
@@ -982,6 +988,11 @@ func (u *ui) drawMenu(c Config, auto bool, autoErr error) {
 	// The same two kinds as the app's pages (kumo, 2026-11-22): 服务器 (此电脑 and each Iridium:
 	// pressed, its window; the picker to add one), then 授权操作 (each Iridium logged in to, ticked
 	// when it may work on this computer).
+	// 隐藏: 此电脑 out of the picker's list, the tray keeping it (kumo, 2026-11-23).
+	hide := check("隐藏", c.HideLocal, func() {
+		_, _ = updateConfig(func(c *Config) { c.HideLocal = !c.HideLocal })
+		u.redraw()
+	})
 	m := []*item{{Label: "服务器", Disabled: true}}
 	if l := c.local(); l != nil {
 		state := u.localStatus()
@@ -997,7 +1008,7 @@ func (u *ui) drawMenu(c Config, auto bool, autoErr error) {
 					go u.startLocal(l.URL, appLog())
 				}
 				u.redraw()
-			})}})
+			}), hide}})
 	} else {
 		m = append(m, &item{Label: "此电脑  已停止", Submenu: []*item{check("运行", false, func() {
 			if SetServer(true) == nil {
@@ -1006,7 +1017,7 @@ func (u *ui) drawMenu(c Config, auto bool, autoErr error) {
 				}
 			}
 			u.redraw()
-		})}})
+		}), hide}})
 	}
 	for _, s := range c.Servers {
 		if s.Local {
@@ -1018,7 +1029,9 @@ func (u *ui) drawMenu(c Config, auto bool, autoErr error) {
 		}
 		m = append(m, check(name, s.URL == cur, func() { u.switchTo(s.URL) }))
 	}
-	m = append(m, &item{Label: "添加服务器…", Click: click(u.showPicker)}, mygo.Separator(), &item{Label: "授权操作", Disabled: true})
+	// One key for a window on another Iridium, or one added (kumo, 2026-11-23: 添加服务器… and
+	// 打开窗口 were one thing): the picker.
+	m = append(m, &item{Label: "新建窗口…", Click: click(func() { go u.showPicker() })}, mygo.Separator(), &item{Label: "授权操作", Disabled: true})
 	for _, s := range c.Servers {
 		if s.Local || !s.LoggedIn {
 			continue
@@ -1032,13 +1045,8 @@ func (u *ui) drawMenu(c Config, auto bool, autoErr error) {
 			u.redraw()
 		}))
 	}
-	m = append(m, mygo.Separator(), &item{Label: "打开窗口", Click: click(func() { go u.show() })})
-	if on, err := auto, autoErr; err == nil {
-		m = append(m, check("登录时打开", on, func() {
-			_ = mygo.App.SetOpenAtLogin(!on)
-			u.redraw()
-		}))
-	}
+	// 登录时打开 is the picker's (kumo, 2026-11-23).
+	_, _ = auto, autoErr
 	u.mu.Lock()
 	ready := u.ready
 	u.mu.Unlock()

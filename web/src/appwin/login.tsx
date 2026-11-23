@@ -18,6 +18,7 @@ import {
   Pause,
   Play,
   Plus,
+  Power,
   ShieldCheck,
   SquareTerminal,
   Trash2,
@@ -77,6 +78,8 @@ type State = {
   public?: boolean;
   publicState?: Pub;
   publicAddress?: string;
+  hideLocal?: boolean; // 此电脑 hidden here (the tray's 此电脑 › 隐藏)
+  autostart?: boolean; // the app opens as one logs in
 };
 type Note = { text: string; error?: boolean; server?: string };
 type Part = "who" | "servers" | { server: string };
@@ -197,6 +200,21 @@ export function Login() {
                     back={st.servers.length === 0 ? () => go("who") : undefined}
                   />
                   <Grants st={st} open={(s) => go({ server: s.url })} />
+                  {/* The app's own, out of the tray's menu (kumo, 2026-11-23). */}
+                  <div className="mt-4" />
+                  <Row
+                    icon={<Power size={16} className="text-ink-2" />}
+                    title="登录时打开"
+                    end={
+                      <Switch
+                        label="登录时打开"
+                        on={!!st.autostart}
+                        onChange={(v) =>
+                          ask("ir:autostart:" + (v ? "on" : "off"))
+                        }
+                      />
+                    }
+                  />
                 </>
               ) : (
                 <ServerPage
@@ -530,102 +548,108 @@ function Servers({
       )}
 
       <Heading>服务器</Heading>
-      {/* 此电脑 (kumo, 2026-11-22): one row. Its lamp and state, the public address after it; at
+      {/* Hidden from the tray's 此电脑 › 隐藏 (kumo, 2026-11-23): neither it nor what unfolds under it. */}
+      <Fold state={st.hideLocal ? "out" : "in"}>
+        {/* 此电脑 (kumo, 2026-11-22): one row. Its lamp and state, the public address after it; at
           its right two keys, no switches: 公网访问 (lit when on) and run or stop. Stopping, and
           closing the public address, are pressed twice (docs/前端设计规范.md "确认在原处"). */}
-      <Row
-        icon={
-          <span className="grid size-9 place-items-center rounded-full bg-fill text-ink-2">
-            <Monitor size={16} />
-          </span>
-        }
-        title="此电脑"
-        sub={
-          localNote ? (
-            <span className={localNote.error ? "text-err" : undefined}>
-              {localNote.text}
+        <Row
+          icon={
+            <span className="grid size-9 place-items-center rounded-full bg-fill text-ink-2">
+              <Monitor size={16} />
             </span>
-          ) : (
+          }
+          title="此电脑"
+          sub={
+            localNote ? (
+              <span className={localNote.error ? "text-err" : undefined}>
+                {localNote.text}
+              </span>
+            ) : (
+              <>
+                <Lamp
+                  color={
+                    !on
+                      ? DOT.none
+                      : (local?.status ?? "运行中") === "运行中"
+                        ? DOT.on
+                        : DOT.slow
+                  }
+                />
+                {on ? (local?.status ?? "运行中") : "已停止"}
+                {on && p?.busy && p.note
+                  ? " · " + p.note
+                  : on && st.public && st.publicAddress
+                    ? " · " + st.publicAddress.replace(/^https?:\/\//, "")
+                    : ""}
+              </>
+            )
+          }
+          onClick={local && on ? () => ask("ir:open:" + local.url) : undefined}
+          end={
             <>
-              <Lamp
-                color={
-                  !on
-                    ? DOT.none
-                    : (local?.status ?? "运行中") === "运行中"
-                      ? DOT.on
-                      : DOT.slow
-                }
-              />
-              {on ? (local?.status ?? "运行中") : "已停止"}
-              {on && p?.busy && p.note
-                ? " · " + p.note
-                : on && st.public && st.publicAddress
-                  ? " · " + st.publicAddress.replace(/^https?:\/\//, "")
-                  : ""}
-            </>
-          )
-        }
-        onClick={local && on ? () => ask("ir:open:" + local.url) : undefined}
-        end={
-          <>
-            {on &&
-              (p?.busy ? (
-                <span className="grid size-8 place-items-center">
-                  <LoaderCircle size={15} className="animate-spin text-ink-3" />
-                </span>
-              ) : st.public ? (
+              {on &&
+                (p?.busy ? (
+                  <span className="grid size-8 place-items-center">
+                    <LoaderCircle
+                      size={15}
+                      className="animate-spin text-ink-3"
+                    />
+                  </span>
+                ) : st.public ? (
+                  <SureKey
+                    label="公网访问：已开启"
+                    sure="确认关闭公网访问"
+                    run={() => ask("ir:public:off")}
+                    className="text-plus hover:text-plus"
+                  >
+                    <Globe size={16} />
+                  </SureKey>
+                ) : (
+                  <IconKey
+                    label="开启公网访问"
+                    onClick={() => ask("ir:public:on")}
+                    className="text-ink-4"
+                  >
+                    <Globe size={16} />
+                  </IconKey>
+                ))}
+              {on ? (
                 <SureKey
-                  label="公网访问：已开启"
-                  sure="确认关闭公网访问"
-                  run={() => ask("ir:public:off")}
-                  className="text-plus hover:text-plus"
+                  label="停止"
+                  sure="确认停止"
+                  run={() => ask("ir:server:off")}
                 >
-                  <Globe size={16} />
+                  <Pause size={15} />
                 </SureKey>
               ) : (
-                <IconKey
-                  label="开启公网访问"
-                  onClick={() => ask("ir:public:on")}
-                  className="text-ink-4"
-                >
-                  <Globe size={16} />
+                <IconKey label="启动" onClick={() => ask("ir:server:on")}>
+                  <Play size={15} />
                 </IconKey>
-              ))}
-            {on ? (
-              <SureKey
-                label="停止"
-                sure="确认停止"
-                run={() => ask("ir:server:off")}
-              >
-                <Pause size={15} />
-              </SureKey>
-            ) : (
-              <IconKey label="启动" onClick={() => ask("ir:server:on")}>
-                <Play size={15} />
-              </IconKey>
-            )}
-          </>
-        }
-      />
-      <Fold state={on ? "in" : "out"}>
-        <Fold state={p?.link ? "in" : "out"}>
-          <Row
-            icon={<span />}
-            title="Cloudflare 授权"
-            sub={p?.link}
-            end={p?.link && <CopyKey text={p.link} />}
-          />
-        </Fold>
-        <Fold state={p?.invite ? "in" : "out"}>
-          <Row
-            icon={<span />}
-            title="邀请"
-            sub={p?.invite}
-            end={p?.invite && <CopyKey text={p.invite} />}
-          />
-        </Fold>
-        <Fold state={p?.error ? "in" : "out"}>
-          <Row icon={<span />} title={p?.error} tone="text-err" />
+              )}
+            </>
+          }
+        />
+        <Fold state={on ? "in" : "out"}>
+          <Fold state={p?.link ? "in" : "out"}>
+            <Row
+              icon={<span />}
+              title="Cloudflare 授权"
+              sub={p?.link}
+              end={p?.link && <CopyKey text={p.link} />}
+            />
+          </Fold>
+          <Fold state={p?.invite ? "in" : "out"}>
+            <Row
+              icon={<span />}
+              title="邀请"
+              sub={p?.invite}
+              end={p?.invite && <CopyKey text={p.invite} />}
+            />
+          </Fold>
+          <Fold state={p?.error ? "in" : "out"}>
+            <Row icon={<span />} title={p?.error} tone="text-err" />
+          </Fold>
         </Fold>
       </Fold>
       {rows.map(({ item: s, key, state }) => {
