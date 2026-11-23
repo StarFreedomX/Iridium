@@ -42,6 +42,7 @@ func (u *ui) winKey(w *mygo.Window, key string) {
 	case "full":
 		w.ToggleFullScreen()
 	case "close":
+		appLog()("window %q closed by its page's key", name)
 		if name == "picker" {
 			w.Hide()
 		} else if name != "ask" {
@@ -74,6 +75,7 @@ func followMax(w *mygo.Window) {
 // reload loads the page in w again (⌘R, Ctrl+R, F5; kumo, 2026-11-22).
 func (u *ui) reload(w *mygo.Window) {
 	if w != nil && u.nameOf(w) != "ask" {
+		appLog()("reload %q", u.nameOf(w))
 		go w.Page().Reload()
 	}
 }
@@ -93,7 +95,8 @@ func (u *ui) closePage(w *mygo.Window) {
 		return
 	}
 	go func() {
-		_, _ = w.Page().Eval(`if(window.__irClosePage){window.__irClosePage()}else{window._wails.invoke("ir:win:close")}`)
+		v, err := w.Page().Eval(`if(window.__irClosePage){window.__irClosePage();return "page"}window._wails.invoke("ir:win:close");return "window"`)
+		appLog()("close page in %q: %v %v", u.nameOf(w), v, err)
 	}()
 }
 

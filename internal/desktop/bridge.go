@@ -133,10 +133,12 @@ func (u *ui) menuBar() *mygo.Menu {
 	}
 	// The window the keys are for: the one a menu says, else the one in front.
 	on := func(f func(*mygo.Window)) func(*mygo.MenuItem, *mygo.Window) {
-		return func(_ *mygo.MenuItem, w *mygo.Window) {
+		return func(it *mygo.MenuItem, w *mygo.Window) {
+			given := w != nil
 			if w == nil {
 				w = mygo.FocusedWindow()
 			}
+			appLog()("key %s %s: window %q (given %v)", it.Label, it.Accelerator, u.nameOf(w), given)
 			f(w)
 		}
 	}
