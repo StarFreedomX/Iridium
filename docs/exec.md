@@ -65,7 +65,7 @@
 
 - 执行端拒绝时在自己终端打一行（同一件事一分钟一次）：`已拒绝访问 /Applications/…：不在可访问的文件夹内`、`已拒绝执行命令（会话「…」）：命令行未开`；第一次再打一行怎么放开。连上时打一行现状：`可访问 ~；命令行未开`。
 - agent 的请求被拒（`fs.*` 返回 `denied`，或命令行关着的 `no_shell`），它的会话里出一张卡（需要 `machine_grant`：`machine`、`shell` 或 `path`；`path` 是被拒路径所在的文件夹，`fs.list`、`fs.mkdir` 是它本身）。同一会话同一件事只出一张。命令行被拒时这边还发事件 `denied` `{what: "shell", by}` 给执行端，让它在终端里打出来。
-- 卡上点“放开”，或应用管理里电脑行的菜单（开启/关闭命令行、开放文件夹，`POST /v1/internal/machines/{id}/grant {shell?, roots?}`），这边调执行端的 `grant` `{shell?, roots?, by}`。比现有更宽的，执行端在终端里问 `<by> 请求开启命令行，访问 /x。允许？[y/N]`（读 `/dev/tty`，Windows `CONIN$`；80 秒没回答算拒绝），y 才生效；关命令行不问。回 `{shell, roots}`，这边据此改记下的握手，网页随之更新。拒绝回 `denied`，卡片结果为 denied，路由回 403 `declined`；没有 `grant` 能力的旧执行端回 422 `no_grant`。
+- 卡上点“放开”，或应用管理里电脑行的菜单（开启/关闭命令行、开放文件夹，`POST /v1/internal/computers/{id}/grant {shell?, roots?}`），这边调执行端的 `grant` `{shell?, roots?, by}`。比现有更宽的，执行端在终端里问 `<by> 请求开启命令行，访问 /x。允许？[y/N]`（读 `/dev/tty`，Windows `CONIN$`；80 秒没回答算拒绝），y 才生效；关命令行不问。回 `{shell, roots}`，这边据此改记下的握手，网页随之更新。拒绝回 `denied`，卡片结果为 denied，路由回 403 `declined`；没有 `grant` 能力的旧执行端回 422 `no_grant`。
 - 默认已全开，只有带了 `--roots`、`--no-shell` 的执行端才有可放开的。放开只在这次运行中有效，不写盘；重新运行按命令行参数来。主人定的规矩不变：这边只能请求，确认在那台电脑上。
 
 ## 进程（必需）
@@ -105,7 +105,7 @@ agent 的 `ir sh`：每条命令一个新进程，不经托管进程，不写文
 
 - 连接断了，执行端结束这条连接要的全部命令；这边告诉 `ir sh` 连接断了、命令已停。
 - 进程退出后它留在后台、还占着输出的（`x &`），2 秒后一起结束。
-- 这边：`POST /v1/internal/machines/{id}/shell` 带 `Accept: application/x-ndjson`，执行端有 `run` 时回 NDJSON 流（`api.ShellEvent`：`out`、`err`，最后一行 `done` 带 `exit`、`signal` 或 `error`）；没有 `run` 时回 `ShellStarted`，照旧轮询 `GET /v1/internal/shell/{run}`。`ir sh` 断开（`--timeout` 到了）就 `run.stop`。
+- 这边：`POST /v1/internal/computers/{id}/shell` 带 `Accept: application/x-ndjson`，执行端有 `run` 时回 NDJSON 流（`api.ShellEvent`：`out`、`err`，最后一行 `done` 带 `exit`、`signal` 或 `error`）；没有 `run` 时回 `ShellStarted`，照旧轮询 `GET /v1/internal/shell/{run}`。`ir sh` 断开（`--timeout` 到了）就 `run.stop`。
 
 ## 文件（必需）
 
@@ -194,7 +194,7 @@ agent 的 `ir sh`：每条命令一个新进程，不经托管进程，不写文
 - 连上后跟上版本（用户，2026-11-17）：只当执行端时，握手的回答带这边的版本（`HelloReply.version`），两边是不同的发布版就下载那个版本的压缩包（默认 GitHub；`--proxy` 接入的经这边），按 `SHA256SUMS` 校验，取出 `iridium`，确认它说的版本对，替换正在运行的自己（Windows 先改名为 `.old`；在 `Iridium.app` 里的，换完用 `codesign --force --deep -s -` 把整个应用重新签名），再问“现在重启？”；y 就原样参数重新运行，否则下次运行时生效。同一个进程里还跑着 Iridium 时不这样做：跟着那个 Iridium 自己的更新。
 - 那边 agent 用的 `ir` 是它自己（按名字 `ir` 进命令行模式）。
 - 那边 agent 的 `ir` 和主机上 agent 的 `ir` 权限一样（kumo，2026-11-18；此前按那台电脑的应用权限算，看不到主机、别的电脑和同频道的会话）：主机的，或这一回合所属登录的。只有两样不同：Claude 仍只给“本人的”电脑（Claude 的条款）；只在套接字上有的（凭据 `ir run`、读主机本地路径的 `files`）仍没有。
-- 主机上的命令行：`POST /v1/internal/machines/host/shell`，给不在主机上的 agent 用（它自己的工具只够得到它那台电脑）。别的电脑上的会话，提示词的 `Where:` 一行写了这条命令。
+- 主机上的命令行：`POST /v1/internal/computers/host/shell`，给不在主机上的 agent 用（它自己的工具只够得到它那台电脑）。别的电脑上的会话，提示词的 `Where:` 一行写了这条命令。
 - Mac 用 curl 下载的不带隔离标记，可直接运行；从终端起，文件夹的访问授权算在终端名下。
 
 **ir-computer（待删）**：`/join`、`/join.ps1` 和 `/join/ir-computer-*` 已删（用户，2026-11-22），之前给出去的旧命令不再能用。`cmd/ir-computer` 还在源码里、发布里还有 `ir-computer-*`，已经在跑的 ir-computer 更新时从 GitHub 下裸二进制；之后连同 `release.sh` 里那段一起删掉。
@@ -258,8 +258,8 @@ agent 的 `ir sh`：每条命令一个新进程，不经托管进程，不写文
 - 分组（用户，2026-11-08；2026-11-10 改）：Desktop 里不在任何工作区的会话（它的“未分组”）不归组（`workspace` 0，`loose`），不列，除非人开的或挂在拉起者下面；以前自动放进组的留在原组。读不到工作区登记表时照文件夹分组。执行端重新配对换了机器 ID，自动归到旧 ID 分组的会话改归新 ID 的分组。
 - 不同步（用户，2026-11-08）：插件在 dsh 设置里有自己的一页“Iridium”（`settings.section`，不在“插件”里；dsh web 和 DSH Desktop 共用这套设置外壳），上面是地址，下面每个工作区一个开关“同步到 Iridium”，最后一行是“未分组”（不在任何工作区里的会话，多是一次性的对话）。关掉的工作区按文件夹记在插件配置的 `unsynced`，未分组记在 `ungrouped: false`，随 `held.list` 报给这边（`unsynced`、`unsyncedUngrouped`）；这些会话（连同它们的子 agent）不列出，新会话的工作区列表里也没有，改了几秒内生效。只是这边不列，执行端照样能读那些文件。
 - 隐藏：撤了（2026-11-10）：组列不列由里面有没有人开的会话定，组的 `hidden`（库、`PATCH`）删掉。
-- 同步（用户，2026-11-09）：远端组右键菜单的“同步 DSH”（那台机器装了 dsh 才有，`POST /v1/internal/machines/{id}/dsh/sync`）立刻重读那台机器：工作区和会话（不等 30 秒的扫描）、模型和供应商（带 Desktop 此刻的设置重新探测，不用 3 分钟的缓存）、预设；那台机器的会话随即刷新。在跑的 agent 用的还是启动时的，下次启动才换。
-- 新会话：目录选择器在装了 dsh 的远端机器上，最上面列它的工作区（`GET /v1/internal/machines/{id}/dsh/workspaces`），每行名字、路径、会话数，点一下就在那里开（2026-11-10，见“远端工作区”）。
+- 同步（用户，2026-11-09）：远端组右键菜单的“同步 DSH”（那台机器装了 dsh 才有，`POST /v1/internal/computers/{id}/dsh/sync`）立刻重读那台机器：工作区和会话（不等 30 秒的扫描）、模型和供应商（带 Desktop 此刻的设置重新探测，不用 3 分钟的缓存）、预设；那台机器的会话随即刷新。在跑的 agent 用的还是启动时的，下次启动才换。
+- 新会话：目录选择器在装了 dsh 的远端机器上，最上面列它的工作区（`GET /v1/internal/computers/{id}/dsh/workspaces`），每行名字、路径、会话数，点一下就在那里开（2026-11-10，见“远端工作区”）。
 - 插件在 Desktop 进程里用 dsh 自己的服务：`sessions.list()`、`agents.get()`、`sessionController.selectModel`（`plugins/dsh-remote-iridium/held.js`），`workspaceRegistry` 的 `resolveByPath`、`create`、`attachSession`。`ir join` 没有 `held.list`：不显示 Desktop 里开着的。
 
 ## 挂元素（2026-11-11）

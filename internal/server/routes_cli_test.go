@@ -62,7 +62,7 @@ func TestCLIAtMachine(t *testing.T) {
 		t.Fatalf("channel.list: %d %d %q %q", code, exit, out, errs)
 	}
 	// As an agent at the host (kumo, 2026-11-18): the apps, and a command line at the host.
-	if _, out, errs, exit := run(tok, "api", "GET", "internal/apps"); exit != 0 || !strings.Contains(out, botID) {
+	if _, out, errs, exit := run(tok, "api", "GET", "internal/apps", "--pick", "apps.id,apps.online"); exit != 0 || !strings.Contains(out, botID) || !strings.Contains(out, "false") {
 		t.Errorf("apps from there: %d %q %q", exit, out, errs)
 	}
 	if _, out, errs, exit := run(tok, "api", "POST", "internal/machines/host/shell", "line=echo from-$((40+2))", "cwd="+l.work, "--wait"); exit != 0 || !strings.Contains(out, "from-42") {

@@ -29,6 +29,8 @@ import {
   Smartphone,
   SquareTerminal,
   Trash2,
+  UserRound,
+  UserRoundX,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -43,6 +45,7 @@ import type {
   Login,
   MachineGrant,
   Passkey,
+  SetOwner,
   PasskeyLink,
   Perms,
   PendingInvite,
@@ -81,6 +84,9 @@ import {
   SureKey,
 } from "./ui";
 import { MenuItems, type MenuItem } from "./sidebar";
+
+/** ir_web, the built-in app whose logins are people with a passkey; a computer's owner is one. */
+const WEB_APP = "ir_web";
 
 const systems: Record<string, string> = {
   windows: "Windows",
@@ -491,14 +497,17 @@ function AppRow({ a, onOpen }: { a: App; onOpen: () => void }) {
   );
 }
 
-/** A row's second line: online or when last seen; 网页's logins, a computer's system, then the
- *  agents it brings as their marks (no versions). Always one line, every row the same height: what
- *  has no room scrolls sideways, nothing cut, no "·" between (the user, 2026-11-16). The host: its
- *  system and agents only. */
+/** A row's second line: online or when last seen; whose computer it is (its owner's face and
+ *  name, kumo 2026-11-23: a computer and the login it is of told together); 网页's logins, a
+ *  computer's system, then the agents it brings as their marks (no versions). Always one line, every
+ *  row the same height: what has no room scrolls sideways, nothing cut, no "·" between (the user,
+ *  2026-11-16). The host: its system and agents only. */
 function Seen({ a }: { a: App }) {
-  // A computer is online while its executor is connected (Computer.online); another app, while it
-  // has a connection (App.online counts them).
-  const online = a.computer ? a.computer.online : !!a.online;
+  // One meaning for every app, the server's (App.online): it can be used now.
+  const online = a.online;
+  const owner = useApps().data?.logins.find(
+    (l) => l.app === WEB_APP && l.id === a.owner?.id,
+  );
   const used = a.host
     ? ""
     : online
@@ -523,7 +532,18 @@ function Seen({ a }: { a: App }) {
           aria-hidden
         />
       ) : null}
-      {words.map((w) => (
+      {words.slice(0, 1).map((w) => (
+        <span key={w} className="shrink-0">
+          {w}
+        </span>
+      ))}
+      {a.owner && (
+        <span className="flex shrink-0 items-center gap-1">
+          <Avatar src={owner?.avatar} name={a.owner.name} size={12} />
+          {t("apps.ownedBy", { name: owner?.name ?? a.owner.name })}
+        </span>
+      )}
+      {words.slice(1).map((w) => (
         <span key={w} className="shrink-0">
           {w}
         </span>
@@ -561,7 +581,7 @@ function ItemRow({ a }: { a: App }) {
   const m = a.computer;
   // What a person here may change of a computer that takes grants, connected (docs/exec.md "放开").
   const grants: MenuItem[] =
-    !a.host && m?.grant && m.online
+    !a.host && m?.grant && a.online
       ? [
           m.shell
             ? {
@@ -657,6 +677,21 @@ function ItemRow({ a }: { a: App }) {
       {!a.host &&
         menu.menu([
           ...grants,
+          ...(m && me?.web && me.login
+            ? [
+                a.owner?.id === me.login
+                  ? {
+                      icon: <UserRoundX size={15} />,
+                      label: t("apps.notMine"),
+                      run: () => void setOwner(qc, a.id, { clear: true }),
+                    }
+                  : {
+                      icon: <UserRound size={15} />,
+                      label: t("apps.mine"),
+                      run: () => void setOwner(qc, a.id, {}),
+                    },
+              ]
+            : []),
           {
             icon: <Trash2 size={15} />,
             label: remove,
@@ -666,6 +701,16 @@ function ItemRow({ a }: { a: App }) {
         ])}
     </div>
   );
+}
+
+/** Makes computer id the caller's (or o's), or nobody's. */
+async function setOwner(qc: QueryClient, id: string, o: SetOwner) {
+  try {
+    await api.setOwner(id, o);
+    void qc.invalidateQueries({ queryKey: ["apps"] });
+  } catch (e) {
+    toast(t("err.action"), { error: true, description: errText(e) });
+  }
 }
 
 /** Asks computer a's for g (api.grantMachine): anything more is confirmed at its terminal, which
@@ -935,6 +980,10 @@ function LoginRow({
 }) {
   const qc = useQueryClient();
   const me = useMe().data;
+  // The computers that are this login's (App.owner), told on its row as its own row tells whose.
+  const mine = (useApps().data?.apps ?? []).filter(
+    (a) => app === WEB_APP && a.owner?.id === l.id,
+  );
   const [renaming, setRenaming] = useState(false);
   const [perms, setPerms] = useState(false);
   const face = useFacePick((b) =>
@@ -978,7 +1027,7 @@ function LoginRow({
               </span>
             )}
           </span>
-          <span className="flex items-center gap-1.5 text-xs whitespace-nowrap text-ink-3 tabular-nums">
+          <span className="no-bar flex min-w-0 items-center gap-1.5 overflow-x-auto text-xs whitespace-nowrap text-ink-3 tabular-nums">
             {l.online ? (
               <span
                 className="size-1.5 shrink-0 rounded-full bg-run"
@@ -991,6 +1040,12 @@ function LoginRow({
             {onPasskeys && l.passkeys
               ? ` · ${t("passkey.count", { n: l.passkeys })}`
               : null}
+            {mine.map((c) => (
+              <span key={c.id} className="flex shrink-0 items-center gap-1">
+                <Monitor size={12} className="text-ink-4" aria-hidden />
+                {c.name}
+              </span>
+            ))}
           </span>
         </span>
         {!renaming && (

@@ -774,7 +774,13 @@ export interface App {
   named?: boolean;
   web?: boolean;
   logins?: number /* int */; // ir_web: its logins
-  online?: number /* int */; // live connections
+  /**
+   * Online: it can be used now, one meaning for every app: a computer's executor connected, a
+   * Bot's connection (Connections), ir_web's login online in some browser; the host always.
+   * Written out false too.
+   */
+  online: boolean;
+  connections?: number /* int */; // its live connections (a Bot's)
   createdAt?: number /* int64 */;
   lastSeenAt?: number /* int64 */;
   rules: Rules;
@@ -795,11 +801,33 @@ export interface App {
    * nil for any other app.
    */
   computer?: Computer;
+  /**
+   * Owner: whose computer it is, the login of ir_web that allowed its pairing (or set it later,
+   * PUT /v1/internal/apps/{id}/owner); nil for one paired at the host or before 0.2.60, and for
+   * any app not a computer.
+   */
+  owner?: AppOwner;
+}
+/**
+ * AppOwner is a computer's owner: a login of ir_web, by its ID and its name now.
+ */
+export interface AppOwner {
+  id: string;
+  name: string;
+}
+/**
+ * SetOwner is PUT /v1/internal/apps/{id}/owner: the computer is Login's (a login of ir_web, by its
+ * ID or name; "" the caller's own), or nobody's (Clear).
+ */
+export interface SetOwner {
+  login?: string;
+  clear?: boolean;
 }
 /**
  * Computer is a computer: the host's, or an app's as its executor last said of itself
  * (docs/exec.md "握手"), kept in the store, so one away is listed too. GET /v1/internal/apps lists
- * it with the app, to every caller. Code and routes call it a machine.
+ * it with the app, to every caller. Routes are /v1/internal/computers/{id}/… (machines/{id} still
+ * answers); older code calls it a machine.
  */
 export interface Computer {
   os: string; // windows | darwin | linux
@@ -811,7 +839,6 @@ export interface Computer {
    * (PUT /v1/internal/apps/{id}/agents): not started there, not offered for new sessions.
    */
   agents: ExecAgent[];
-  online: boolean; // its executor is connected
   seenAt: number /* int64 */; // when it last connected (ms)
   /**
    * Shell: command lines run there, a person's on the page ($) and agents' (ir sh); else it
@@ -864,7 +891,11 @@ export interface Login {
   avatar?: string;
   passkeys?: number /* int */;
   sessions?: number /* int */; // browsers logged in
-  online?: number /* int */;
+  /**
+   * Online: open in some browser now, Connections of them; false written out too.
+   */
+  online: boolean;
+  connections?: number /* int */;
   createdAt?: number /* int64 */;
   lastSeenAt?: number /* int64 */;
   approvedAt?: number /* int64 */; // 0: waits to be approved

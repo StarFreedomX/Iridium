@@ -86,7 +86,7 @@ func TestAgentsOffAndHomeScope(t *testing.T) {
 			var as api.Apps
 			l.want(200, "socket", "GET", "/v1/internal/apps", nil, &as)
 			for _, a := range as.Apps {
-				if a.ID == app.App.ID && a.Computer != nil && a.Computer.Online {
+				if a.ID == app.App.ID && a.Computer != nil && a.Online {
 					return a.Computer
 				}
 			}

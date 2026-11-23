@@ -166,14 +166,24 @@ func (s *Server) apps(w http.ResponseWriter, r *http.Request) {
 			l := s.loginOf(e)
 			out.Logins = append(out.Logins, l)
 			web.Logins++
-			web.Online += l.Online
+			web.Online = web.Online || l.Online
+			web.Connections += l.Connections
 			web.UsedToday += l.UsedToday
 			web.LastSeenAt = max(web.LastSeenAt, l.LastSeenAt)
 			continue
 		}
 		app := s.appOf(e)
 		app.Perms = s.appPerms(e.ID)
-		app.Computer = computers[e.ID]
+		if m := computers[e.ID]; m != nil {
+			app.Computer, app.Online = m, m.Online
+			// One paired before its type was said is a computer all the same: one word for it.
+			if app.Type == "" {
+				app.Type = api.TypeComputer
+			}
+			if o, ok := s.gate().Endpoint(e.Owner); ok && e.Owner != "" && o.Kind == gate.KindPanel {
+				app.Owner = &api.AppOwner{ID: o.ID, Name: o.Name}
+			}
+		}
 		apps = append(apps, app)
 	}
 	if s.web().Public() || web.Logins > 0 {
@@ -206,13 +216,13 @@ func publicApps(in api.Apps) api.Apps {
 	out := api.Apps{Apps: make([]api.App, 0, len(in.Apps)), Logins: []api.Login{}, Invites: []api.PendingInvite{}}
 	for _, a := range in.Apps {
 		out.Apps = append(out.Apps, api.App{ID: a.ID, Name: a.Name, Type: a.Type, Avatar: a.Avatar, Host: a.Host, Web: a.Web,
-			Online: a.Online, LastSeenAt: a.LastSeenAt, Device: a.Device, Computer: a.Computer})
+			Online: a.Online, Connections: a.Connections, LastSeenAt: a.LastSeenAt, Device: a.Device, Computer: a.Computer, Owner: a.Owner})
 	}
 	for _, l := range in.Logins {
 		if l.ApprovedAt == 0 && l.App != gate.WebApp {
 			continue
 		}
-		out.Logins = append(out.Logins, api.Login{App: l.App, ID: l.ID, Name: l.Name, Avatar: l.Avatar, Online: l.Online,
+		out.Logins = append(out.Logins, api.Login{App: l.App, ID: l.ID, Name: l.Name, Avatar: l.Avatar, Online: l.Online, Connections: l.Connections,
 			LastSeenAt: l.LastSeenAt, ApprovedAt: l.ApprovedAt, Device: l.Device})
 	}
 	return out
@@ -525,6 +535,14 @@ func (s *Server) joined(j webapp.Joined) {
 	}
 }
 
+// pairerOf is the login of ir_web a person allowing a pairing is on, "" for any other caller.
+func pairerOf(c caller) string {
+	if c.Web() && !c.byAgent() {
+		return c.ID()
+	}
+	return ""
+}
+
 func (s *Server) answerNeed(w http.ResponseWriter, r *http.Request) {
 	var a api.NeedAnswer
 	if !readJSON(w, r, &a) {
@@ -585,7 +603,7 @@ func (s *Server) answerNeed(w http.ResponseWriter, r *http.Request) {
 	case cf.Kind == api.NeedAppJoin, cf.Kind == api.NeedAppUpdate:
 		// The TOKEN goes to the asker alone, by its request; the person never sees it.
 		var tok *api.Token
-		if tok, err = s.pairAllowed(cf, a, owner); err == nil {
+		if tok, err = s.pairAllowed(cf, a, owner, pairerOf(c)); err == nil {
 			s.pairToken(id, tok.Token)
 			st.Name = tok.App.Name
 		}

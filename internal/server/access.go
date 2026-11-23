@@ -441,8 +441,8 @@ func (s *Server) deviceOfCaller(c caller) string {
 // appOf is an app (or the host) as the API lists it, with Claude or not and today's use.
 func (s *Server) appOf(info gate.EndpointInfo) api.App {
 	a := api.App{
-		ID: info.ID, Name: info.Name, Type: info.Type, Avatar: info.Avatar, Online: info.Online,
-		CreatedAt: ms(info.CreatedAt), LastSeenAt: ms(info.LastSeenAt),
+		ID: info.ID, Name: info.Name, Type: info.Type, Avatar: info.Avatar,
+		Online: info.Online > 0 || info.Host(), Connections: info.Online, CreatedAt: ms(info.CreatedAt), LastSeenAt: ms(info.LastSeenAt),
 		Rules: s.rulesOf(info.ID, false), UsedToday: s.usedToday(info.ID),
 	}
 	if info.Host() {
@@ -457,7 +457,7 @@ func (s *Server) loginOf(info gate.EndpointInfo) api.Login {
 	passkeys, sessions := s.web().Counts(info.ID)
 	return api.Login{
 		App: gate.WebApp, ID: info.ID, Name: info.Name, Avatar: info.Avatar, Passkeys: passkeys,
-		Sessions: sessions, Online: info.Online, CreatedAt: ms(info.CreatedAt), LastSeenAt: ms(info.LastSeenAt),
+		Sessions: sessions, Online: info.Online > 0, Connections: info.Online, CreatedAt: ms(info.CreatedAt), LastSeenAt: ms(info.LastSeenAt),
 		ApprovedAt: ms(info.ApprovedAt), Rules: s.rulesOf(info.ID, false), UsedToday: s.usedToday(info.ID), Device: s.deviceOf(info.ID),
 		Perms: s.loginPermsOf(gate.WebApp, info.ID),
 	}

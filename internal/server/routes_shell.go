@@ -28,7 +28,7 @@ func (s *Server) shellRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /v1/internal/shell/{run}", s.shellers(s.shellStop))
 	// An agent's ir sh (draft 二「远端执行命令」: agents only, and the host): at an app's computer by
 	// ID or name, where its owner lets command lines run, in a folder within the caller's scope.
-	mux.HandleFunc("POST /v1/internal/machines/{id}/shell", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /v1/internal/computers/{id}/shell", func(w http.ResponseWriter, r *http.Request) {
 		if c := callerOf(r); !c.Host() && !c.agent && c.session == "" {
 			forbid(w, errors.New("command lines at another computer are agents' (ir sh)"))
 			return

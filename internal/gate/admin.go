@@ -21,6 +21,7 @@ type EndpointInfo struct {
 	Kind       string    `json:"kind"`             // KindPanel (a login of ir_web) or KindChannel (an app)
 	Type       string    `json:"type,omitempty"`   // an app's type, display only
 	Avatar     string    `json:"avatar,omitempty"` // URL with a version, for <img src>
+	Owner      string    `json:"owner,omitempty"`  // an app's owner, a login of ir_web (Endpoint.Owner)
 	Online     int       `json:"online,omitempty"` // tracked live connections
 	CreatedAt  time.Time `json:"createdAt"`
 	LastSeenAt time.Time `json:"lastSeenAt,omitzero"`
@@ -54,7 +55,7 @@ type Profile struct {
 }
 
 func infoOf(e Endpoint) EndpointInfo {
-	info := EndpointInfo{ID: e.ID, Name: e.Name, Kind: e.Kind, Type: e.Type,
+	info := EndpointInfo{ID: e.ID, Name: e.Name, Kind: e.Kind, Type: e.Type, Owner: e.Owner,
 		CreatedAt: e.CreatedAt, LastSeenAt: e.LastSeenAt, ApprovedAt: e.ApprovedAt}
 	if e.AvatarVersion != "" {
 		info.Avatar = "/_ir/avatar/" + e.ID + "?v=" + e.AvatarVersion
@@ -139,6 +140,29 @@ func (g *Gate) CreateNewToken(name string) (EndpointInfo, string, error) {
 // allowed. ErrNameTaken if an app has name.
 func (g *Gate) CreateApp(name, typ string) (EndpointInfo, string, error) {
 	return g.createToken(name, typ, false)
+}
+
+// SetOwner makes login (an ID of a login of ir_web; "" none) app id's owner.
+func (g *Gate) SetOwner(id, login string) (EndpointInfo, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	e, ok := g.st.endpoints[id]
+	if !ok || e.Kind != KindChannel {
+		return EndpointInfo{}, ErrNotFound
+	}
+	if login != "" {
+		if o, ok := g.st.endpoints[login]; !ok || o.Kind != KindPanel {
+			return EndpointInfo{}, ErrNotFound
+		}
+	}
+	if e.Owner == login {
+		return infoOf(e), nil
+	}
+	e.Owner = login
+	if err := g.commitLocked(Change{Endpoints: []Endpoint{e}}); err != nil {
+		return EndpointInfo{}, err
+	}
+	return infoOf(e), nil
 }
 
 // RenewToken gives app id a new TOKEN (an update pairing allowed): the old one stops working and

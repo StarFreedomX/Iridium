@@ -114,7 +114,7 @@ Iridium 自己的接口都在 `/v1/internal/` 下：Satori 规范的 internal �
 | `PATCH /v1/internal/guilds/{id}` | `GuildPatch{name?, position?, split?}` → `{ok}` | 文件夹组：`name` 改名；`position` 移到第几个（0 最前，和 `guilds` 的顺序一致；拖动或菜单上移下移）；`split` 按子文件夹拆开：组只留它文件夹里直接的会话，子文件夹里的按各自文件夹重新归组（子文件夹的子文件夹仍进它的组），以后也不再收子文件夹（`flat`），从拉起者下面拖出来的仍按手动放进自己目录的组。只有面板和本机 |
 | `GET /v1/internal/folders?path=` | → `Folders` | 选择器：只列文件夹，不列隐藏的，按名字排；`path` 为空或 `~` 是家目录。`parent` 为空表示到顶了 |
 | `POST /v1/internal/folders` | `NewFolder` → `{path}` | 在 `path` 里新建文件夹 `name`（不能以 `.` 开头、不能带 `/`）。已有回 409 |
-| `GET /v1/internal/machines/{id}/dsh/workspaces` | → `DshWorkspace[]` | 那台机器上 dsh 的工作区（DSH Desktop 侧边栏那份，按它的顺序，文件夹已不在的不列），读不懂时用它会话所在的文件夹代替，最近的在前；路径用 `/`。`sessions` 是其中列出的会话数（不算子代理、这边归档的、不同步的）。新会话选文件夹时列在最上面，见 `docs/exec.md`“远端 DSH” |
+| `GET /v1/internal/computers/{id}/dsh/workspaces` | → `DshWorkspace[]` | 那台机器上 dsh 的工作区（DSH Desktop 侧边栏那份，按它的顺序，文件夹已不在的不列），读不懂时用它会话所在的文件夹代替，最近的在前；路径用 `/`。`sessions` 是其中列出的会话数（不算子代理、这边归档的、不同步的）。新会话选文件夹时列在最上面，见 `docs/exec.md`“远端 DSH” |
 
 - 选择器默认只能在家目录里（配置 `folderRoots` 可改），先解析符号链接再比；`~/.ssh`、`~/.gnupg`、`~/.claude`、`~/.codex`、`~/.pi`、`~/.dsh` 和 Iridium 的状态、配置目录一律不给（403）。不存在 422 `no_such_path`。
 
@@ -194,7 +194,7 @@ Iridium 自己的接口都在 `/v1/internal/` 下：Satori 规范的 internal �
 - 进程照托管 agent 的方式起（本机的 `platform.Launcher`，别的机器经执行端），目录是托管目录下的 `sh-<id>`；结束 10 分钟后删。
 - 机器不在线：409；机器的主人关着命令行（`Machine.shell` 为假）：403 `no_shell`；目录不存在：422 `no_such_path`。
 
-agent 用 `ir sh <机器>[:目录] [--cwd 目录] [--timeout 2m] -- 命令`（`POST /v1/internal/machines/{id}/shell`，`{id}` 是机器 ID 或名字，`cwd` 省略为那边的家目录；没有这台机器 422 `no_such_machine`）：原样打出输出，退出码就是它的；超时停掉它，退出码 124。执行端有 `run` 时请求带 `Accept: application/x-ndjson`，回 `ShellEvent` 的 NDJSON 流，边跑边出（`docs/exec.md`“命令”）；没有时照旧回 `ShellStarted` 再轮询。只在主人开了 `shell` 的机器上能用（默认关；否则 403 `no_shell`）。`ir apps` 列出应用，带电脑的另列系统、连接、agent（关掉的标“关”）、能否 `ir sh`、家目录。系统提示里只有 `ir --help` 的一行。
+agent 用 `ir sh <机器>[:目录] [--cwd 目录] [--timeout 2m] -- 命令`（`POST /v1/internal/computers/{id}/shell`，`{id}` 是机器 ID 或名字，`cwd` 省略为那边的家目录；没有这台机器 422 `no_such_machine`）：原样打出输出，退出码就是它的；超时停掉它，退出码 124。执行端有 `run` 时请求带 `Accept: application/x-ndjson`，回 `ShellEvent` 的 NDJSON 流，边跑边出（`docs/exec.md`“命令”）；没有时照旧回 `ShellStarted` 再轮询。只在主人开了 `shell` 的机器上能用（默认关；否则 403 `no_shell`）。`ir apps` 列出应用，带电脑的另列系统、连接、agent（关掉的标“关”）、能否 `ir sh`、家目录。系统提示里只有 `ir --help` 的一行。
 
 ## 会话设置
 
@@ -344,7 +344,7 @@ Web Push，总开关在配置 `push`，默认关。VAPID 密钥存在状态目�
 | `GET /v1/internal/me` | → `Me` | 调用者：`app`、`login`、`host`、`web`、`rules`、`public` |
 | `PUT /v1/internal/me/profile`、`PUT /v1/internal/apps/{id}/profile` | 资料 → `EndpointInfo` | 改名字、头像（见 `docs/gate.md`）。本机登录（`local`）也能改（2026-11-22）：没设时叫 Iridium、用 Iridium 的标；设了以后 `Me.named`、`App.named` 为真，网页照普通登录画它。名字不合法 422 `bad_name`，带 `nameError`（`empty`、`too_long`、`invalid`、`reserved`、`letter`、`taken`） |
 | `PUT /v1/internal/me/device`、`PUT /v1/internal/apps/{id}/device` | `SetDevice` | 设备 |
-| `GET /v1/internal/apps` | → `Apps` | 应用（主机在最前、网页、其余）、登录（带 `perms`）、未用的邀请。没有秘密。谁都能调：不能管理的只拿公开部分（名字、类型、头像、在线、电脑，已批准的登录；不带 `rules`、`perms`、用量、待批的登录和邀请），能管理的 `full: true`。电脑带 `computer`。主机：系统、家目录、本机可用的 agent、`shell: true`。执行端连接：系统、家目录、`sep`、上报的 agent（关闭的为 `off: true`）、`shell`、`online`、`latency`、`seenAt`、`program`；与其他连接同属一台电脑时带 `under`，值为其中最早配对的那条的应用 ID（主机为 `local`），网页据此排在一起。取代 `GET /v1/internal/machines` 和 hub 键 `machines`；电脑连上、断开、延迟变了都推 `terminals` |
+| `GET /v1/internal/apps` | → `Apps` | 应用（主机在最前、网页、其余）、登录（带 `perms`）、未用的邀请。没有秘密。谁都能调：不能管理的只拿公开部分（名字、类型、头像、在线、电脑，已批准的登录；不带 `rules`、`perms`、用量、待批的登录和邀请），能管理的 `full: true`。电脑带 `computer`。主机：系统、家目录、本机可用的 agent、`shell: true`。执行端连接：系统、家目录、`sep`、上报的 agent（关闭的为 `off: true`）、`shell`、`latency`、`seenAt`、`program`。`online` 在应用上，所有应用一个意思：现在能用（电脑：执行端连着；Bot：有连接，连接数是 `connections`；网页：有登录开着；主机：总是），假也写出。电脑的 `type` 一律 `computer`；`owner` 是这台电脑属于谁（网页的一个登录，`{id, name}`）：配对时是批准它的那个登录，之后可改（`PUT /v1/internal/apps/{id}/owner {login?, clear?}`，不给 login 就是自己）。电脑的路由是 `/v1/internal/computers/{id}/…`，0.2.60 之前的 `machines/{id}/…` 照旧能用（kumo，2026-11-23：一个东西一个词，在线一个意思）；与其他连接同属一台电脑时带 `under`，值为其中最早配对的那条的应用 ID（主机为 `local`），网页据此排在一起。取代 `GET /v1/internal/machines` 和 hub 键 `machines`；电脑连上、断开、延迟变了都推 `terminals` |
 | `PUT /v1/internal/apps/{id}/agents` | `AppAgents` → `AppAgents` | `{off: [...]}`：它带的 agent 里关掉哪些，其余开（新报的默认开）。关掉的不能在那里启动（新建、接管、重启都拒，403），网页新会话里不列；在跑的不停。能批的人。`ir apps agents <应用> [agent=on\|off …]` |
 | `DELETE /v1/internal/apps/{id}` | → `{ok}` | 删应用（连同 TOKEN、连接）或网页的登录、未用的邀请。只有人（主机、网页登录），agent 不行 |
 | `DELETE /v1/internal/apps/{id}/logins/{login}` | → `{ok}` | 删一个登录；别的应用的登录下次说话重新申请 |

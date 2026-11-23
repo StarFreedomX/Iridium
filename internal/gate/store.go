@@ -26,6 +26,9 @@ type Endpoint struct {
 	Kind string `json:"kind"` // KindPanel or KindChannel
 	// Type: an app's type as shown (computer, bot, script…); display only, no rights.
 	Type string `json:"type,omitempty"`
+	// Owner: an app's owner, the login of ir_web (its ID) that allowed its pairing or took it
+	// later; display only, no rights.
+	Owner string `json:"owner,omitempty"`
 
 	TokenHash string `json:"tokenHash,omitempty"` // channel: SHA-256 (hex) of its bearer token
 

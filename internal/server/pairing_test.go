@@ -247,7 +247,7 @@ func TestExecPair(t *testing.T) {
 					with = append(with, a)
 				}
 			}
-			if len(with) == 1 && with[0].Computer.Online == online {
+			if len(with) == 1 && with[0].Online == online {
 				return with[0]
 			}
 			if time.Now().After(deadline) {

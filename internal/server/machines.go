@@ -281,7 +281,55 @@ func (s *Server) agentOff(id string, a api.Agent) error {
 
 func (s *Server) machineRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /v1/internal/apps/{id}/agents", s.approver(s.putAgents))
-	mux.HandleFunc("POST /v1/internal/machines/{id}/grant", s.approver(s.postGrant))
-	mux.HandleFunc("GET /v1/internal/machines/{id}/dsh/workspaces", s.dshWorkspaces)
-	mux.HandleFunc("POST /v1/internal/machines/{id}/dsh/sync", s.dshSync)
+	mux.HandleFunc("PUT /v1/internal/apps/{id}/owner", s.approver(s.putOwner))
+	mux.HandleFunc("POST /v1/internal/computers/{id}/grant", s.approver(s.postGrant))
+	mux.HandleFunc("GET /v1/internal/computers/{id}/dsh/workspaces", s.dshWorkspaces)
+	mux.HandleFunc("POST /v1/internal/computers/{id}/dsh/sync", s.dshSync)
+	// The routes' names before 0.2.60 (machines/{id}/…), answered as computers/{id}/… still.
+	mux.Handle("/v1/internal/machines/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r2 := r.Clone(r.Context())
+		r2.URL.Path = "/v1/internal/computers/" + strings.TrimPrefix(r.URL.Path, "/v1/internal/machines/")
+		r2.URL.RawPath = ""
+		mux.ServeHTTP(w, r2)
+	}))
+}
+
+// putOwner is PUT /v1/internal/apps/{id}/owner: whose computer app {id} is (api.SetOwner).
+func (s *Server) putOwner(w http.ResponseWriter, r *http.Request) {
+	info, ok := s.gate().Find(r.PathValue("id"))
+	if !ok || info.Kind != gate.KindChannel || info.Host() || s.computerOf(info.ID) == nil {
+		refuse(w, http.StatusUnprocessableEntity, "no_such_computer", "no such computer")
+		return
+	}
+	var req api.SetOwner
+	if !readJSON(w, r, &req) {
+		return
+	}
+	login := ""
+	switch c := callerOf(r); {
+	case req.Clear:
+	case req.Login != "":
+		for _, e := range s.gate().Access().Endpoints {
+			if e.Kind == gate.KindPanel && (e.ID == req.Login || strings.EqualFold(e.Name, req.Login)) {
+				login = e.ID
+				break
+			}
+		}
+		if login == "" {
+			refuse(w, http.StatusUnprocessableEntity, "no_such_login", "no such login of ir_web")
+			return
+		}
+	case c.Web():
+		login = c.ID()
+	default:
+		refuse(w, http.StatusUnprocessableEntity, "no_login", "name the login it is (login), or clear")
+		return
+	}
+	if _, err := s.gate().SetOwner(info.ID, login); err != nil {
+		s.gateDone(w, err)
+		return
+	}
+	s.logf("server: %s made %s's owner %q", callerOf(r).Name, info.Name, login)
+	s.terminalsChanged()
+	reply(w, http.StatusOK, map[string]bool{"ok": true})
 }

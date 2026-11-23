@@ -279,11 +279,18 @@ func (s *Server) checkGiven(w http.ResponseWriter, nd api.Need, a api.NeedAnswer
 // pairAllowed makes what an allowed pairing need nd gives: a new app by its name (or the one
 // the answer gave), or for app_update the app there with a new TOKEN, its old one void, its
 // usage and permissions as they were. ownerBy (ownerSays's): Claude for a new app, if a.Owner.
-func (s *Server) pairAllowed(nd api.Need, a api.NeedAnswer, ownerBy string) (*api.Token, error) {
+// pairer: the login of ir_web that allowed it ("" the host's ir), a computer's owner from now.
+func (s *Server) pairAllowed(nd api.Need, a api.NeedAnswer, ownerBy, pairer string) (*api.Token, error) {
+	computer := nd.Pair != nil && nd.Pair.OS != ""
 	if nd.Kind == api.NeedAppUpdate && a.Name == "" {
 		info, tok, err := s.gate().RenewToken(nd.App.ID)
 		if err != nil {
 			return nil, err
+		}
+		if computer && pairer != "" {
+			if info, err = s.gate().SetOwner(info.ID, pairer); err != nil {
+				return nil, err
+			}
 		}
 		if s.Remote != nil {
 			s.Remote.Drop(info.ID)
@@ -301,6 +308,11 @@ func (s *Server) pairAllowed(nd api.Need, a api.NeedAnswer, ownerBy string) (*ap
 	info, tok, err := s.gate().CreateApp(cmp.Or(a.Name, nd.Name), typ)
 	if err != nil {
 		return nil, err
+	}
+	if computer && pairer != "" {
+		if info, err = s.gate().SetOwner(info.ID, pairer); err != nil {
+			return nil, err
+		}
 	}
 	perms := cmp.Or(a.Perms, nd.Wants)
 	if perms != nil {

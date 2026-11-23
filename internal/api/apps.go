@@ -37,13 +37,17 @@ type App struct {
 	// Host: the host, listed with the apps but not managed. Web: ir_web, the built-in app.
 	Host bool `json:"host,omitempty"`
 	// Named: the host has a name and face of its own (Me.Named), drawn instead of Iridium's.
-	Named      bool  `json:"named,omitempty"`
-	Web        bool  `json:"web,omitempty"`
-	Logins     int   `json:"logins,omitempty"` // ir_web: its logins
-	Online     int   `json:"online,omitempty"` // live connections
-	CreatedAt  int64 `json:"createdAt,omitempty"`
-	LastSeenAt int64 `json:"lastSeenAt,omitempty"`
-	Rules      Rules `json:"rules"`
+	Named  bool `json:"named,omitempty"`
+	Web    bool `json:"web,omitempty"`
+	Logins int  `json:"logins,omitempty"` // ir_web: its logins
+	// Online: it can be used now, one meaning for every app: a computer's executor connected, a
+	// Bot's connection (Connections), ir_web's login online in some browser; the host always.
+	// Written out false too.
+	Online      bool  `json:"online"`
+	Connections int   `json:"connections,omitempty"` // its live connections (a Bot's)
+	CreatedAt   int64 `json:"createdAt,omitempty"`
+	LastSeenAt  int64 `json:"lastSeenAt,omitempty"`
+	Rules       Rules `json:"rules"`
 	// Perms: what an app was given as it paired (nil: all, as one paired before 0.2). Not the
 	// host's or ir_web's.
 	Perms     *Perms `json:"perms,omitempty"`
@@ -55,11 +59,29 @@ type App struct {
 	// runs agents or command lines (an executor: ir join, a dsh plugin) last said in its hello;
 	// nil for any other app.
 	Computer *Computer `json:"computer,omitempty"`
+	// Owner: whose computer it is, the login of ir_web that allowed its pairing (or set it later,
+	// PUT /v1/internal/apps/{id}/owner); nil for one paired at the host or before 0.2.60, and for
+	// any app not a computer.
+	Owner *AppOwner `json:"owner,omitempty"`
+}
+
+// AppOwner is a computer's owner: a login of ir_web, by its ID and its name now.
+type AppOwner struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// SetOwner is PUT /v1/internal/apps/{id}/owner: the computer is Login's (a login of ir_web, by its
+// ID or name; "" the caller's own), or nobody's (Clear).
+type SetOwner struct {
+	Login string `json:"login,omitempty"`
+	Clear bool   `json:"clear,omitempty"`
 }
 
 // Computer is a computer: the host's, or an app's as its executor last said of itself
 // (docs/exec.md "握手"), kept in the store, so one away is listed too. GET /v1/internal/apps lists
-// it with the app, to every caller. Code and routes call it a machine.
+// it with the app, to every caller. Routes are /v1/internal/computers/{id}/… (machines/{id} still
+// answers); older code calls it a machine.
 type Computer struct {
 	OS   string `json:"os"` // windows | darwin | linux
 	Arch string `json:"arch,omitempty"`
@@ -68,8 +90,9 @@ type Computer struct {
 	// Agents: those Iridium runs there, as it reported them; Off, turned off in its app's page
 	// (PUT /v1/internal/apps/{id}/agents): not started there, not offered for new sessions.
 	Agents []ExecAgent `json:"agents"`
-	Online bool        `json:"online"` // its executor is connected
-	SeenAt int64       `json:"seenAt"` // when it last connected (ms)
+	// Online: its executor is connected; listed as its app's (App.Online), not here.
+	Online bool  `json:"-"`
+	SeenAt int64 `json:"seenAt"` // when it last connected (ms)
 	// Shell: command lines run there, a person's on the page ($) and agents' (ir sh); else it
 	// starts only its agents (docs/exec.md). Its owner's switch.
 	Shell bool `json:"shell,omitempty"`
@@ -100,19 +123,21 @@ type AppAgents struct {
 // Login is a login of an app as listed: ir_web's, a browser with a passkey; another app's, as it
 // spoke (Satori-User-ID), waiting till approved (ApprovedAt 0). No secrets.
 type Login struct {
-	App        string `json:"app"`
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	Avatar     string `json:"avatar,omitempty"`
-	Passkeys   int    `json:"passkeys,omitempty"`
-	Sessions   int    `json:"sessions,omitempty"` // browsers logged in
-	Online     int    `json:"online,omitempty"`
-	CreatedAt  int64  `json:"createdAt,omitempty"`
-	LastSeenAt int64  `json:"lastSeenAt,omitempty"`
-	ApprovedAt int64  `json:"approvedAt,omitempty"` // 0: waits to be approved
-	Rules      Rules  `json:"rules"`
-	UsedToday  int64  `json:"usedToday"`
-	Device     Device `json:"device,omitempty"`
+	App      string `json:"app"`
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Avatar   string `json:"avatar,omitempty"`
+	Passkeys int    `json:"passkeys,omitempty"`
+	Sessions int    `json:"sessions,omitempty"` // browsers logged in
+	// Online: open in some browser now, Connections of them; false written out too.
+	Online      bool   `json:"online"`
+	Connections int    `json:"connections,omitempty"`
+	CreatedAt   int64  `json:"createdAt,omitempty"`
+	LastSeenAt  int64  `json:"lastSeenAt,omitempty"`
+	ApprovedAt  int64  `json:"approvedAt,omitempty"` // 0: waits to be approved
+	Rules       Rules  `json:"rules"`
+	UsedToday   int64  `json:"usedToday"`
+	Device      Device `json:"device,omitempty"`
 	// Perms: what it was given (nil: all); what it may use is this within its app's.
 	Perms *Perms `json:"perms,omitempty"`
 }

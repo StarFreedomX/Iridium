@@ -69,12 +69,12 @@ POST internal/sessions/{id}/interrupt - -> {ok}  end the current turn (Esc); wha
 POST internal/sessions/{id}/stop - -> {ok}  stop the agent process; the next message restarts it
 POST internal/button {id, option?, choices?, words?, message?} -> {}  answer an ask: id its card (asks[].card.id); or press a button (<card>#<option>; one attached: att:<session>:<from>:<id>, SessionState.attached)
 POST internal/files/copy {from, to} -> ndjson  copy a file: from, to are paths here or app:path at an app's computer; prints path, size, sha256; run again to resume; socket only
-POST internal/machines/{id}/shell {line, cwd?} -> output  a command line at an app's computer (id or name), or at the host itself (host); --wait for its output and exit code; host or agents  [more]
+POST internal/computers/{id}/shell {line, cwd?} -> output  a command line at an app's computer (id or name), or at the host itself (host); --wait for its output and exit code; host or agents  [more]
   Command lines off there (403 no_shell), or a path outside the folders it serves (403 denied, "not under the folders"): a card in your session asks the user to allow it, and the person at that computer confirms it there. Tell the user so, wait, try again; do not work around it. A computer not connected: someone starts it there with the line in 应用管理 → 电脑 → +: curl -fsSL https://github.com/kumoSleeping/Iridium/releases/latest/download/install.sh | sh -s -- start --no-server --join <iridium url> (with ir there already: ir join <iridium url>); you cannot start it from here.
 PATCH internal/guilds/{id} {name?, position?, split?} -> {ok}  rename a folder group, move it (0 first), split it by subfolder; host or web
 GET internal/guilds/{id}/voice - -> ws  the folder group's voice: a member's connection (docs/voice.md); a login only
 GET internal/guilds/{id}/voice/members - -> Member[]  who is in the group's voice  view=id,name,app,muted
-GET internal/apps - -> Apps  apps, computers (the host's too; computer.under: one more connection of that app's computer), logins  view=apps.id,apps.name,apps.online,apps.computer.home,logins.id,logins.name
+GET internal/apps - -> Apps  apps (a computer is an app: type computer), their computers (the host's too; computer.under: one more connection of that app's computer), logins; online: usable now (a computer connected, a bot with a connection, a login in a browser), false written out; owner: whose computer, a login of ir_web  view=apps.name,apps.type,apps.owner.name,apps.online,logins.name,logins.online
 GET internal/files?path&machine - -> DirListing  list a directory; socket only  view=entries.name,entries.size,entries.type
 GET internal/usage?days&app&by - -> Usage  tokens, cost; app=id|name|me, by=hour|weekhour  view=rows.day,rows.agent,rows.model,rows.output,rows.costUsd
 
@@ -145,8 +145,8 @@ DELETE internal/shell/{run} - -> {ok}  stop a command line
 # groups and folders
 GET internal/folders?path&machine - -> Folders  subfolders (home by default)  view=path,parent,folders
 POST internal/folders {path, name, machine?} -> {path}  make a folder
-GET internal/machines/{id}/dsh/workspaces - -> DshWorkspace[]  dsh workspaces at that computer  view=title,path,sessions
-POST internal/machines/{id}/dsh/sync - -> {ok}  re-read the dsh at that computer
+GET internal/computers/{id}/dsh/workspaces - -> DshWorkspace[]  dsh workspaces at that computer  view=title,path,sessions
+POST internal/computers/{id}/dsh/sync - -> {ok}  re-read the dsh at that computer
 
 # files
 GET internal/web/files?path&machine - -> DirListing  list a directory in the login's scope (allowed root or home by default); person only  view=entries.name,entries.size,entries.type
@@ -177,7 +177,8 @@ PUT internal/me/perms {agents, scope} -> 202 {need}  an app asks for new permiss
 PUT internal/apps/{id}/profile {name?, avatar?, removeAvatar?} -> EndpointInfo  an app's name, avatar; host or web
 PUT internal/apps/{id}/device {device} -> {device}  a browser's or the host's device (an app has none); host or web
 PUT internal/apps/{id}/agents {off} -> {off}  agents turned off at an app's computer; person only
-POST internal/machines/{id}/grant {shell?, roots?} -> Computer  command lines on (or off: shell false), more folders served (whole paths there); anything more is confirmed at that computer's terminal (403 declined); person only
+PUT internal/apps/{id}/owner {login?, clear?} -> {ok}  whose computer it is: login (a login of ir_web, id or name), else the caller's own; clear: nobody's; person only
+POST internal/computers/{id}/grant {shell?, roots?} -> Computer  command lines on (or off: shell false), more folders served (whole paths there); anything more is confirmed at that computer's terminal (403 declined); person only
 PUT internal/apps/{id}/perms {agents, scope} -> Perms  an app's permissions; person only
 PUT internal/apps/{id}/logins/{login}/perms {agents, scope} -> Perms  a login's; person only
 DELETE internal/apps/{id} - -> {ok}  remove an app, an ir_web login or an invite; person only

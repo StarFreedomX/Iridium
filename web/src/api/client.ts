@@ -46,6 +46,7 @@ import type {
   SettingsPatch,
   AppAgents,
   MachineGrant,
+  SetOwner,
   Computer,
   Apps,
   PairWindow,
@@ -418,8 +419,8 @@ export const api = {
   folders: (path: string, machine?: string) => get<Folders>(`/v1/internal/folders?path=${enc(path)}${machine ? `&machine=${enc(machine)}` : ""}`),
   mkdir: (f: NewFolder) => write<FolderReply>("POST", "/v1/internal/folders", f),
   /** dsh's workspaces at another machine (DSH Desktop's), else its sessions' folders: '/'-separated. */
-  dshWorkspaces: (machine: string) => get<DshWorkspace[]>(`/v1/internal/machines/${enc(machine)}/dsh/workspaces`),
-  dshSync: (machine: string) => write<{ ok: boolean }>("POST", `/v1/internal/machines/${enc(machine)}/dsh/sync`),
+  dshWorkspaces: (machine: string) => get<DshWorkspace[]>(`/v1/internal/computers/${enc(machine)}/dsh/workspaces`),
+  dshSync: (machine: string) => write<{ ok: boolean }>("POST", `/v1/internal/computers/${enc(machine)}/dsh/sync`),
   /** A session renamed, archived, pinned, tagged, put, moved or taken out from under its launcher: Satori's channel.update. */
   patch: (id: string, p: SessionPatch) => sat<object>("channel.update", channelPatch(id, p), true),
 
@@ -508,7 +509,9 @@ export const api = {
   /** PUT /v1/internal/apps/{id}/agents: the agents an app carries turned off there. */
   appAgents: (id: string, off: string[]) => write<AppAgents>("PUT", `/v1/internal/apps/${enc(id)}/agents`, { off } satisfies AppAgents),
   /** Command lines on or off, more folders, at computer id: anything more is confirmed at its terminal (403 declined). */
-  grantMachine: (id: string, g: MachineGrant) => write<Computer>("POST", `/v1/internal/machines/${enc(id)}/grant`, g satisfies MachineGrant),
+  grantMachine: (id: string, g: MachineGrant) => write<Computer>("POST", `/v1/internal/computers/${enc(id)}/grant`, g satisfies MachineGrant),
+  /** PUT /v1/internal/apps/{id}/owner: computer id is the caller's (or o.login's), or nobody's (o.clear). */
+  setOwner: (id: string, o: SetOwner) => write<{ ok: boolean }>("PUT", `/v1/internal/apps/${enc(id)}/owner`, o satisfies SetOwner),
   /** PUT /v1/internal/apps/{app}/logins/{login}/perms: what a login may use, within its app's. */
   loginPerms: (app: string, login: string, p: Perms) => write<Perms>("PUT", `/v1/internal/apps/${enc(app)}/logins/${enc(login)}/perms`, p),
   /** A login of 网页's passkeys, one per device (docs/web.md "Passkey"), and its links to add one. */

@@ -46,7 +46,7 @@ func TestComputers(t *testing.T) {
 		l.want(200, "socket", "GET", "/v1/internal/apps", nil, &as)
 		n := 0
 		for _, a := range as.Apps {
-			if a.Computer != nil && a.Computer.Online && !a.Host {
+			if a.Computer != nil && a.Online && !a.Host {
 				n++
 			}
 		}
@@ -60,7 +60,7 @@ func TestComputers(t *testing.T) {
 	under := map[string]string{}
 	for _, a := range as.Apps {
 		if a.Host {
-			if c := a.Computer; c == nil || !c.Online || !c.Shell || c.OS == "" || c.Under != "" {
+			if c := a.Computer; c == nil || !a.Online || !c.Shell || c.OS == "" || c.Under != "" {
 				t.Fatalf("the host's computer: %+v", c)
 			}
 			continue

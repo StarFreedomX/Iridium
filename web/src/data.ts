@@ -115,7 +115,7 @@ export function useMachines(includeHost = false): Machine[] {
   if (!ms) {
     const all = d.apps
       .filter((a) => a.computer)
-      .map((a) => ({ ...a.computer!, id: a.host ? "" : a.id, name: a.name, avatar: a.avatar, agents: a.computer!.agents.filter((x) => !x.off) }))
+      .map((a) => ({ ...a.computer!, id: a.host ? "" : a.id, name: a.name, avatar: a.avatar, online: a.online, agents: a.computer!.agents.filter((x) => !x.off) }))
       .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
     ms = { all, paired: all.filter((m) => m.id) };
     machinesOf.set(d, ms);

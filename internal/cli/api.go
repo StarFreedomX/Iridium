@@ -626,7 +626,7 @@ func (e *env) render(c *apiCall, raw []byte) {
 	}
 	if len(own) > 0 || len(order) == 0 {
 		for _, x := range pickOf(flat(m), own) {
-			if x.v != nil {
+			if x.v != nil && (len(own) > 0 || x.v != false) {
 				fmt.Fprintf(e.out, "%s: %s\n", x.k, c.show(x))
 			}
 		}
@@ -679,7 +679,9 @@ func (e *env) table(c *apiCall, items []any, fields []string) {
 			continue
 		}
 		for _, x := range f {
-			cells = append(cells, x.k+"="+c.show(x))
+			if x.v != false {
+				cells = append(cells, x.k+"="+c.show(x))
+			}
 		}
 		row(strings.Join(cells, "  "))
 	}
@@ -716,7 +718,8 @@ func (x kv) text() string {
 }
 
 // flat is m's fields, nested objects' with dotted keys (keys sorted), arrays of plain values
-// joined with commas; nothing empty (null, "", false, [], {}).
+// joined with commas; nothing empty (null, "", [], {}). A false is kept: in a table it is false,
+// "-" only where a field is not there (not the same: online false is not "no such thing").
 func flat(m map[string]any) []kv {
 	var out []kv
 	var walk func(prefix string, v any)
@@ -724,9 +727,7 @@ func flat(m map[string]any) []kv {
 		switch x := v.(type) {
 		case nil:
 		case bool:
-			if x {
-				out = append(out, kv{prefix, x})
-			}
+			out = append(out, kv{prefix, x})
 		case string:
 			if x != "" {
 				out = append(out, kv{prefix, x})

@@ -12,7 +12,8 @@ import { cn, IrMark } from "./ui";
 
 /** An app's computer (GET /v1/internal/apps, its computer) as the page goes by it: its app's ID
  *  (empty for Iridium), name and avatar with it, the agents turned off there left out (data.ts useMachines). */
-export type Machine = Computer & { id: string; name: string; avatar?: string };
+/** A computer with its app's ID, name, face and whether it is connected (App.online). */
+export type Machine = Computer & { id: string; name: string; avatar?: string; online: boolean };
 
 /** The machine a session or a folder group runs at: by ID, as the carried "machines" lists them. */
 export const useMachine = (id?: string) => {
