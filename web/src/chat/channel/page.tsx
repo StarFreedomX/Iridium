@@ -16,7 +16,7 @@ import type { Block, ChannelReads, Reader, SessionState as LiveSession, Session 
 import { peekChat, stateAhead, type Sent } from "../../chats";
 import { LOCAL_ME, useApps, useMe, useWhoList, useWorkspaces } from "../../data";
 import { t, useLang } from "../../i18n";
-import { pushIn } from "../../motion";
+import { pushIn, pushing } from "../../motion";
 import { openChat } from "../../route";
 import { PULL } from "../../sheet";
 import { getCarried, onCarried, setCarried, useCarried, useConfirms, useList, useSession } from "../../store";
@@ -156,12 +156,28 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
   const bubbles = useRef(new Map<string, HTMLDivElement>());
   const fly = useRef<string | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
+  // When each one sent began to come in: its message, come from the log in the middle of that,
+  // goes on from where its bubble was (motion.ts pushIn), not drawn whole at once.
+  const flew = useRef(new Map<Sent, number>());
   useLayoutEffect(() => {
     const el = fly.current && bubbles.current.get(fly.current);
-    if (!el) return;
-    fly.current = null;
-    toEnd(scroller.current);
-    pushIn(el);
+    if (el) {
+      const x = entry.sent.find((y) => y.key === fly.current);
+      fly.current = null;
+      toEnd(scroller.current);
+      const t = pushIn(el);
+      if (x) flew.current.set(x, t);
+    }
+    for (const [x, t] of flew.current) {
+      if (!pushing(t)) {
+        flew.current.delete(x);
+        continue;
+      }
+      const row = x.seq ? scroller.current?.querySelector<HTMLElement>(`[data-seq="${x.seq}"]`) : null;
+      if (!row) continue;
+      flew.current.delete(x);
+      pushIn(row, t);
+    }
   });
   const onSent = (x: Sent) => {
     x.from = log.end;
@@ -287,7 +303,7 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
     <Nicks.Provider value={nicks}>
       <div className="relative h-full" onDragOver={(e) => files(e) || session(e) || place(e)} onDrop={drop}>
         <Stick scroller={scroller} tail={grew} older={() => log.older()} draw={changed} place={entry.place} bottom={stackH} quiet={asking} style={{ paddingTop: padTop, paddingBottom: stackH + 20 }}>
-          <div className="mx-auto flex max-w-(--chat-w) flex-col gap-5 px-4 sm:px-6">
+          <div className="mx-auto flex max-w-(--chat-w) flex-col gap-5 px-4 [--depart-gap:1.25rem] sm:px-6">
             {groups.map((g) => (
               <div key={g.key} className="relative flex min-w-0 flex-col">
                 <GroupView g={g} channel={id} agents={agents} who={who} record={record} call={call} may={may} quote={may ? quoting : undefined} quoted={quoted} bars={bars} fold={fold} old={old} jump={jump} />

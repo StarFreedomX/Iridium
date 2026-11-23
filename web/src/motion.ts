@@ -5,7 +5,7 @@
 // fall back to a short fade.
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { flushSync } from "react-dom";
-import { ahead, peekChat, since, stateAhead } from "./chats";
+import { ahead, isWhole, peekChat, since, stateAhead } from "./chats";
 import { getCarried } from "./store";
 import type { Turn } from "./route";
 
@@ -27,7 +27,12 @@ function token(name: string, fallback: string) {
 const ms = (v: string) => (v.endsWith("ms") ? parseFloat(v) : parseFloat(v) * 1000);
 
 export const motion = {
-  dur: (n: 1 | 2 | 3 | 4) => ms(token(`--dur-${n}`, ["120ms", "200ms", "280ms", "420ms"][n - 1])),
+  dur: (n: 1 | 2 | 3 | 4) => ms(token(`--dur-${n}`, ["100ms", "160ms", "160ms", "220ms"][n - 1])),
+  /** The three times (motion.css): a change of place or height; a coming or going in place; the
+   *  part of a move its content fades in over (a reveal). */
+  move: () => ms(token("--move", "160ms")),
+  fade: () => ms(token("--fade", "100ms")),
+  reveal: () => ms(token("--reveal", "40ms")),
   ease: (k: "out" | "in" | "spring") => token(`--ease-${k}`, "ease-out"),
 };
 
@@ -106,19 +111,40 @@ export function useGlide(ref: RefObject<HTMLElement | null>) {
   }, [ref]);
 }
 
-/** Send: the new bubble fades in as it comes up; the conversation pushed up by it, as a chat app
- *  does, is the chat's glide (chat/stick.tsx), as for anything else that comes at the end. */
-export function pushIn(bubble: HTMLElement) {
-  if (reduced()) {
-    bubble.animate([{ opacity: 0 }, { opacity: 1 }], { duration: motion.dur(1) });
-    return;
+/** Send: the new bubble fades in as the conversation is pushed up by it (the chat's glide,
+ *  chat/stick.tsx), in the same move and the same time: begun together, done together. */
+export function pushIn(bubble: HTMLElement, from?: number): number {
+  const a = reduced()
+    ? bubble.animate([{ opacity: 0 }, { opacity: 1 }], { duration: motion.fade() })
+    : bubble.animate([{ opacity: 0, transform: "translateY(6px) scale(0.98)" }, { opacity: 1, transform: "none" }], { duration: motion.move(), easing: motion.ease("out"), fill: "backwards" });
+  // Begun at from (the timeline's time): the message's own row, come from the record in the
+  // middle of its bubble's coming in, goes on from where that was, not drawn whole at once.
+  const now = (document.timeline.currentTime as number | null) ?? performance.now();
+  try {
+    a.startTime = from ?? now;
+  } catch {
+    // No timeline time (a page not shown).
   }
-  bubble.animate([{ opacity: 0, transform: "translateY(6px) scale(0.98)" }, { opacity: 1, transform: "none" }], { duration: motion.dur(3), easing: motion.ease("out"), delay: motion.dur(1) / 2, fill: "backwards" });
+  return from ?? now;
 }
+/** el fades in (motion.css --fade) as from it began (the timeline's time): drawn anew in the middle
+ *  of it, it goes on from where it was; after it, nothing. */
+export function fadeIn(el: HTMLElement, from: number) {
+  const now = (document.timeline.currentTime as number | null) ?? performance.now();
+  if (now - from >= motion.fade()) return;
+  const a = el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: motion.fade(), easing: motion.ease("out"), fill: "backwards" });
+  try {
+    a.startTime = from;
+  } catch {
+    // No timeline time (a page not shown).
+  }
+}
+/** Whether a send begun at from (pushIn's time) is still coming in. */
+export const pushing = (from: number) => ((document.timeline.currentTime as number | null) ?? performance.now()) - from < motion.move();
 
 /** How long a move to a chat waits for what it needs to be drawn whole, if that has not come yet:
- *  its newest page (or what came since, in one held) and its state (the composer and its keys).
- *  Its page is drawn whole as it turns, not empty and filled after. */
+ *  its first screen, in one not held whole, and its state (the composer and its keys). Its page is
+ *  drawn whole as it turns, not empty and filled after. */
 const WAIT_FOR_PAGE = 160;
 
 /** Moves to a chat. Chat to chat, or from nothing open, on a computer: the main pane swaps quickly
@@ -143,16 +169,22 @@ export function pageTurn(order: () => string[], on: () => boolean): Turn {
     const b = ids.indexOf(to.id);
     const dir = a < 0 || b < 0 || b > a ? "next" : "prev";
     const chat = peekChat(to.id);
-    // One held: what came since it was seen comes first, so it turns in as it is now.
+    // One held whole, with its state: drawn now, as it was; what came since is asked for meanwhile
+    // and comes in as anything new does (kumo, 2026-11-23: the swap waited a round trip for it each
+    // time, nothing new or not). Only one not held, or held in part, is waited for.
+    const whole = !!chat && isWhole(to.id);
     if (!chat) ahead(to.id, true);
     else since(chat, true);
-    const coming = peekChat(to.id)?.coming;
+    const coming = whole ? undefined : peekChat(to.id)?.coming;
     // Its state: waited for if none is held; one held from before is drawn, and freshened.
     const held = !!getCarried(`session:${to.id}`);
     const state = stateAhead(to.id, held);
     const wait = held ? [coming] : [coming, state];
     const start = () => {
       if (mine !== seq) return; // a later move draws instead
+      // What still moves in the chat being left is put where it goes: the swap's picture of it is
+      // as it rests, not caught halfway.
+      for (const a of document.querySelector('[role="log"]')?.getAnimations({ subtree: true }) ?? []) if (a.effect?.getTiming().iterations !== Infinity) a.finish();
       if (!turns) return draw();
       root.dataset.turn = dir;
       const vt = doc.startViewTransition!(() => flushSync(draw));

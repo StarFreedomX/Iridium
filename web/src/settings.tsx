@@ -137,7 +137,7 @@ export function SettingsPage({ theme, setTheme, initial = "main" }: { theme: The
             {pushing ? <LoaderCircle size={16} className="animate-spin text-ink-3" /> : <Switch label={t("settings.pushOn")} disabled={!push || !("PushManager" in window)} on={pushed} onChange={(v) => void pushOn(v)} />}
           </Item>
           {/* On, the default events slide open under it (off, shut): nothing below jumps. */}
-          <div aria-hidden={!pushed || undefined} inert={!pushed || undefined} className={cn("grid transition-[grid-template-rows,opacity] duration-(--dur-3) ease-(--ease-out)", pushed && push ? "grid-rows-[1fr]" : "grid-rows-[0fr] opacity-0")}>
+          <div aria-hidden={!pushed || undefined} inert={!pushed || undefined} className="g-reveal" data-open={pushed && push ? "" : undefined}>
             <div className="min-h-0 overflow-hidden pl-3">
               {push &&
                 PUSH_EVENTS.map((e) => (

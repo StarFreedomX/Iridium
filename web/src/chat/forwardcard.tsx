@@ -41,7 +41,7 @@ export function ForwardCard({ f, inner }: { f: Fwd; inner?: boolean }) {
         <ForwardHead n={forwardCount(f)} />
         <ChevronRight size={12} className={cn("shrink-0 text-ink-4 transition-transform duration-(--dur-2)", open && "rotate-90")} />
       </button>
-      <div inert={!open || undefined} aria-hidden={!open || undefined} className={cn("grid transition-[grid-template-rows,opacity] duration-(--dur-2) ease-(--ease-out)", open ? "grid-rows-[1fr]" : "grid-rows-[0fr] opacity-0")}>
+      <div inert={!open || undefined} aria-hidden={!open || undefined} className="g-reveal" data-open={open ? "" : undefined}>
         <div className="min-h-0 overflow-hidden">
           {ever && (
             <div className="flex min-w-0 flex-col gap-1 pt-1.5">

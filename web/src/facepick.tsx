@@ -116,7 +116,7 @@ export function FacePick({ label, preview, set, disabled, upload, still }: { lab
           </IconKey>
         </span>
       </div>
-      <div aria-hidden={!open || undefined} inert={!open || undefined} className={cn("grid transition-[grid-template-rows,opacity] duration-(--dur-3) ease-(--ease-out)", open ? "grid-rows-[1fr]" : "grid-rows-[0fr] opacity-0")}>
+      <div aria-hidden={!open || undefined} inert={!open || undefined} className="g-reveal" data-open={open ? "" : undefined}>
         <div className="min-h-0 overflow-hidden">
           <div className="flex flex-wrap items-center justify-end gap-1 pt-0.5 pb-2">
             {shown === "emoji" ? (

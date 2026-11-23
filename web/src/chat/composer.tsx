@@ -75,7 +75,7 @@ export function commandsOf(s: LiveSession): Command[] {
 /** A file attached. file: what goes (orig, or small where it is sent smaller); small: undefined
  *  while it is being made smaller, null where it goes as it is (squeeze.ts); stop: its upload's,
  *  none till it has begun. */
-type Att = { key: string; orig: File; small?: File | null; file: File; sent: number; ref?: string; path?: string; error?: string; url?: string; stop?: AbortController };
+type Att = { key: string; orig: File; small?: File | null; file: File; sent: number; ref?: string; path?: string; error?: string; url?: string; stop?: AbortController; w?: number; h?: number };
 
 /** Each chat's files not yet sent, kept on this page while another chat is open (kumo,
  *  2026-11-17: a picture attached was gone on coming back); an upload under way goes on into it. */
@@ -401,6 +401,8 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
       setBusy(false);
     }
   };
+  const [snap, setSnap] = useState(false);
+  useEffect(() => void (snap && setSnap(false)), [snap]);
   const go = async () => {
     if (busy || uploading || empty) return;
     if (atts.some((a) => a.error)) return toast(t("err.upload"), { error: true });
@@ -418,10 +420,14 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
     // A picture's copy here stays: the bubble shows it while sending, and once landed till the
     // server's thumbnail has come (chat/files.tsx previews).
     for (const a of atts) if (a.url && a.path) previews.set(a.path, a.url);
-    const files = atts.map((a) => ({ ref: a.ref!, name: a.file.name, type: a.file.type, size: a.file.size, url: a.url }));
+    // A picture's size goes with it: its bubble keeps its place before it is drawn.
+    const files = atts.map((a) => ({ ref: a.ref!, name: a.file.name, type: a.file.type, size: a.file.size, url: a.url, ...(a.w && a.h ? { w: a.w, h: a.h } : {}) }));
     // Its id chosen here: the transcript's block is found by it as it comes, whenever the answer does.
     const sent: Sent = { key: crypto.randomUUID(), text: words, files, from: 0, input: crypto.randomUUID(), ...(quote ? { quote: quote.n } : {}) };
     for (const a of atts) other(a);
+    // The rows over the box (the answered, the attachments) shut at once as it goes, with the
+    // bubble's coming: one move of the conversation, not the bubble's up and theirs down after.
+    setSnap(true);
     type("");
     setAtts(() => []);
     setWhole(sid, false);
@@ -467,7 +473,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
     <div className="glass float rest relative @container rounded-[20px]">
       {/* The message answered: its row opens and shuts as the attachments' does, no × (docs/
           前端设计规范.md): Esc, a Backspace in an empty box, or a press on it put it away. */}
-      <div aria-hidden={!quote || undefined} className={cn("grid transition-[grid-template-rows,opacity] duration-(--dur-3) ease-(--ease-out)", quote ? "grid-rows-[1fr]" : "grid-rows-[0fr] opacity-0")}>
+      <div aria-hidden={!quote || undefined} className={cn("g-reveal", snap && "g-snap")} data-open={quote ? "" : undefined}>
         <div className="min-h-0 overflow-hidden">
           <button type="button" tabIndex={quote ? 0 : -1} aria-label={t("msg.unquote")} onClick={() => unquote?.()} className="flex w-full min-w-0 items-center gap-2 px-3.5 pt-2.5 text-left text-xs text-ink-3 hover:text-ink-2">
             <Reply size={13} className="shrink-0" />
@@ -476,7 +482,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
           </button>
         </div>
       </div>
-      <div aria-hidden={!row || undefined} className={cn("grid transition-[grid-template-rows,opacity] duration-(--dur-3) ease-(--ease-out)", row ? "grid-rows-[1fr]" : "grid-rows-[0fr] opacity-0")}>
+      <div aria-hidden={!row || undefined} className={cn("g-reveal", snap && "g-snap")} data-open={row ? "" : undefined}>
         <div className="flex min-h-0 items-end overflow-hidden">
         <ul data-attachments className="m-0 flex min-w-0 flex-1 list-none gap-2 overflow-x-auto px-3.5 pt-3 pb-0">
           {shownAtts.map((a) => {
@@ -489,7 +495,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
                   {a.url ? (
                     <Zoom full={a.url} name={a.file.name}>
                       <button type="button" aria-label={`${a.file.name} · ${t("msg.openImage")}`} className="block cursor-zoom-in">
-                        <img src={a.url} alt={a.file.name} className={cn("block h-14 w-auto max-w-40 min-w-10 object-cover", a.error && "opacity-50")} />
+                        <img src={a.url} alt={a.file.name} onLoad={(e) => ((a.w = e.currentTarget.naturalWidth), (a.h = e.currentTarget.naturalHeight))} className={cn("block h-14 w-auto max-w-40 min-w-10 object-cover", a.error && "opacity-50")} />
                       </button>
                     </Zoom>
                   ) : (

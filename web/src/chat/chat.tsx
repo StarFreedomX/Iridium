@@ -22,7 +22,7 @@ import { WsPlus } from "../create";
 import { chatOf, compactSent, firstScreen, fresh, isWhole, lineOf, stateAhead, waiting, type Draft as Drafted, type Sent } from "../chats";
 import { LOCAL_ME, useMachines, useMe, useWhoList, useWorkspaces } from "../data";
 import { t, useLang } from "../i18n";
-import { pushIn, useMoves } from "../motion";
+import { fadeIn, pushIn, pushing, useMoves } from "../motion";
 import { useLeaving } from "../moves";
 import { openChat, openUsage } from "../route";
 import { PULL } from "../sheet";
@@ -324,12 +324,29 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
   const bubbles = useRef(new Map<string, HTMLDivElement>());
   const fly = useRef<string | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
+  // When each one sent began to come in, by its input id: its own row, come from the record in the
+  // middle of that, goes on from where the bubble was (motion.ts pushIn), not drawn whole at once.
+  const flew = useRef(new Map<string, number>());
   useLayoutEffect(() => {
     const el = fly.current && bubbles.current.get(fly.current);
-    if (!el) return;
-    fly.current = null;
-    toEnd(scroller.current);
-    pushIn(el);
+    if (el) {
+      const x = log.sent.find((y) => y.key === fly.current);
+      fly.current = null;
+      toEnd(scroller.current);
+      const t = pushIn(el);
+      if (x?.input) flew.current.set(x.input, t);
+    }
+    for (const [input, t] of flew.current) {
+      if (!pushing(t)) {
+        flew.current.delete(input);
+        continue;
+      }
+      const b = log.blocks.findLast((y) => y.kind === "user" && y.id === input);
+      const row = b && column.current?.querySelector<HTMLElement>(`[data-flip="${CSS.escape(String(b.at))}"]`);
+      if (!row) continue;
+      flew.current.delete(input);
+      pushIn(row, t);
+    }
   });
 
   const composer = useRef<ComposerHandle>(null);
@@ -556,7 +573,9 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
       node: d.tool ? (
         <ToolDraft key={key} name={d.tool.name} input={d.text} whole />
       ) : (
-        <div key={key} className="g-fade min-w-0 pr-6">
+        // Faded in as it first comes, not again as it goes from the turn's row at work into the
+        // turn (draftRef).
+        <div key={key} ref={draftRef(`${id}:${key}`)} className="min-w-0 pr-6">
           <Draft text={d.text} live={!d.whole && busy} />
         </div>
       ),
@@ -645,7 +664,6 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
     });
   }
   const marks = ready ? marksAt(anchors, side.reads?.readers ?? [], members?.me) : new Map<string, never[]>();
-  const turns = turnsOf(merged);
   // Its subagents as people (subwork.tsx): which call, which notice is whose, who dispatched them.
   const dispatchedBy = face.nick || face.name;
   // The same while nothing of it has changed: those that read it are not drawn again for nothing.
@@ -678,6 +696,12 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
   // before the turn began are what it answers: its face comes under them.
   const pendingBefore = pending.filter((x) => !x.mid);
   const pendingAfter = pending.filter((x) => x.mid);
+  // What the agent writes for words of yours its record has yet to bring is the turn they begin:
+  // under them, in the row at work under its face, not in the turn before, above them, to be moved
+  // down once they come (kumo, 2026-11-23: the answer came in over what was just sent).
+  const drafting = new Set(log.drafts.map((d) => `${d.proc}.${d.n}`));
+  const ahead: ReactNode[] = [];
+  const turns = turnsOf(pendingBefore.length && drafting.size ? merged.filter((r) => !(drafting.has(r.key) && ahead.push(r.node))) : merged);
   // A turn another channel called (works) is the agent's too once it has rows: its row at work
   // goes on under them, not under a face and name again (kumo, 2026-11-18).
   // The turn at work is not ended by what others say meanwhile: their words go under it (merge.ts
@@ -857,7 +881,7 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
     <Dispatching.Provider value={dispatching}>
     <div className="relative h-full" onDragOver={(e) => files(e) || session(e) || place(e)} onDrop={drop}>
       <Stick scroller={scroller} tail={grew} older={older} draw={changed} place={chat.place} bottom={stackH} quiet={agents.some((a) => !!stateOf(a.session)?.asks.length)} style={{ paddingTop: padTop, paddingBottom: stackH + 20 }}>
-        <div ref={column} className="mx-auto flex max-w-(--chat-w) flex-col gap-5 px-4 sm:px-6">
+        <div ref={column} className="mx-auto flex max-w-(--chat-w) flex-col gap-5 px-4 [--depart-gap:1.25rem] sm:px-6">
           {/* In a turn, the calls being written or run and the dots share one row at the end, as
               high whatever it shows: the conversation does not jump as a call is drafted, runs and
               folds into the line above (the user, 2026-11-06). */}
@@ -886,6 +910,7 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
           ) : log.loaded && (busy && !waking ? (
             headless ? (
               <AgentTurn channel={id} a={face} may={may} call={may ? callAt : undefined} bars={bars(false)} talk={talk}>
+                {ahead}
                 {activity}
               </AgentTurn>
             ) : (
@@ -1400,3 +1425,19 @@ function SubTurn({ s }: { s: Session }) {
 
 /** A call being written that only names the session (ir rename): left out, as its block is. */
 const renamesDraft = (d: Drafted) => !!d.tool && renameOnly({ name: d.tool.name, input: d.text });
+
+/** Each draft (session:proc.n) fades in as it first comes, from when it first did (the timeline's
+ *  time): drawn again in another place meanwhile (from the turn's row at work into the turn) it
+ *  goes on from where it was, not again from nothing. One ref a draft, kept: a new one each draw
+ *  would be called again each draw. */
+const draftsSeen = new Map<string, { at: number; ref: (el: HTMLElement | null) => void }>();
+function draftRef(key: string) {
+  let d = draftsSeen.get(key);
+  if (!d) {
+    if (draftsSeen.size > 500) draftsSeen.clear();
+    const at = (document.timeline.currentTime as number | null) ?? performance.now();
+    d = { at, ref: (el) => void (el && fadeIn(el, at)) };
+    draftsSeen.set(key, d);
+  }
+  return d.ref;
+}

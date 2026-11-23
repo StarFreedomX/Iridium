@@ -460,7 +460,7 @@ function Sources({ parts, open: first }: { parts: ReturnType<typeof givenParts>;
           <ChevronRight size={12} className={cn("transition-transform duration-(--dur-2)", open && "rotate-90")} />
         </button>
       )}
-      <div inert={!open || undefined} aria-hidden={!open || undefined} className={cn("grid transition-[grid-template-rows,opacity] duration-(--dur-2) ease-(--ease-out)", open ? "grid-rows-[1fr]" : "grid-rows-[0fr] opacity-0")}>
+      <div inert={!open || undefined} aria-hidden={!open || undefined} className="g-reveal" data-open={open ? "" : undefined}>
         <div className="min-h-0 overflow-hidden">
           <ul className="m-0 mt-1 flex list-none flex-col gap-1 p-0">
             {parts.map((p, i) => (
