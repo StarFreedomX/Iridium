@@ -672,7 +672,10 @@ function Work({ src, did, said, channel }: { src: Src; did?: Did; said?: string;
     initialData: () => {
       const log = peekChat(src.session)?.log;
       if (!log?.loaded || src.from === undefined || src.to === undefined || log.start > src.from || log.end < src.to) return undefined;
-      const have = workOf<Block>(log.blocks, src, said);
+      // With the words of the message before, as the answer asked for is read (above): without
+      // them the stretch began with those words again, a second time under themselves, and stayed
+      // so (kumo, 2026-11-24: each thing an agent said on its way through a long turn drawn twice).
+      const have = workOf<Block>(log.blocks, src, said, saidBefore(channelLog(channel).log.msgs, src));
       return have.length ? have : undefined;
     },
     staleTime: Infinity,

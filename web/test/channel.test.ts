@@ -421,3 +421,20 @@ describe("liveParts", () => {
     expect(r.parts.map((p) => [p.after, p.before, p.blocks.map((b) => b.at)])).toEqual([[5, 7, ["3.0"]], [7, 8, ["5.0"]]]);
   });
 });
+
+describe("workOf the words before", () => {
+  // As recorded (2026-11-24): a stretch ends where the record had been read to as the words were
+  // heard, a line before the words themselves, which are then the first of the next stretch.
+  const bs = [
+    { at: "100.0", kind: "tool" },
+    { at: "120.0", kind: "assistant", text: "first words" },
+    { at: "130.0", kind: "tool" },
+    { at: "150.0", kind: "assistant", text: "second words" },
+  ];
+  test("are not drawn again at the head of the next stretch", () => {
+    expect(workOf(bs, { session: "s", from: 110, to: 140 }, "second words", "first words").map((b) => b.at)).toEqual(["130.0"]);
+  });
+  test("are, when not told (what the fix passes now)", () => {
+    expect(workOf(bs, { session: "s", from: 110, to: 140 }, "second words").map((b) => b.at)).toEqual(["120.0", "130.0"]);
+  });
+});
