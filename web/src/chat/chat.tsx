@@ -1089,7 +1089,6 @@ const Bar = memo(function Bar({ s, onSheet, onMe, spots, asked }: { s?: Session;
         {!s && <span aria-hidden className="size-8 shrink-0 pointer-coarse:size-10" />}
         {/* On a phone the voice this page is in stands here: there is no foot beside me. */}
         {onSheet && <VoiceDock side="bottom" />}
-        <AppKey />
         {s && (
           <span className="relative grid">
             {/* Anchored on ⋯ itself, under it: clicks go through to ⋯. */}
@@ -1126,7 +1125,9 @@ const Bar = memo(function Bar({ s, onSheet, onMe, spots, asked }: { s?: Session;
             <EditAt id={s.id} anchor={more} />
           </span>
         )}
-        {/* The window's keys, in the app (appkey.tsx): at the bar's far right. */}
+        {/* The app's key and the window's keys, in the app (appkey.tsx): together at the bar's far
+            right, after ⋯ (kumo, 2026-11-23). */}
+        <AppKey />
         <WinKeys />
       </div>
     </header>

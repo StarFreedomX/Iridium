@@ -82,7 +82,7 @@ func (u *ui) reload(w *mygo.Window) {
 
 // closePage is ⌘W, Ctrl+W (kumo, 2026-11-22): the page in front shut, not the window; only from
 // the page's first one (nothing open) the window. The page says which (appkey.tsx closePage); one
-// that cannot, an Iridium from before, has its window closed.
+// that cannot, an Iridium from before, is taken back to its first page by its address.
 func (u *ui) closePage(w *mygo.Window) {
 	if w == nil {
 		return
@@ -95,7 +95,11 @@ func (u *ui) closePage(w *mygo.Window) {
 		return
 	}
 	go func() {
-		v, err := w.Page().Eval(`if(window.__irClosePage){window.__irClosePage();return "page"}window._wails.invoke("ir:win:close");return "window"`)
+		// A page from before (no __irClosePage): an open chat or settings page goes back to the
+		// first page, as the new pages do; from the first page the window closes.
+		v, err := w.Page().Eval(`if(window.__irClosePage){window.__irClosePage();return "page"}
+var h=location.hash.replace(/^#/,"");if(h&&h!=="/"){location.hash="#/";return "home"}
+window._wails.invoke("ir:win:close");return "window"`)
 		appLog()("close page in %q: %v %v", u.nameOf(w), v, err)
 	}()
 }
