@@ -22,8 +22,10 @@
     try {
         function Get-File($name) {
             $out = Join-Path $tmp $name
+            # Quiet, one line before it (kumo, 2026-11-23: curl's bar shook, and drew badly in some consoles).
+            if ($name -ne 'SHA256SUMS') { Write-Host "Downloading $name" }
             if (Get-Command curl.exe -ErrorAction SilentlyContinue) {
-                curl.exe -fL --progress-bar -o $out ($base + $name)
+                curl.exe -fsSL -o $out ($base + $name)
                 if ($LASTEXITCODE) { throw "download failed: $base$name" }
             } else { Invoke-WebRequest -UseBasicParsing -Uri ($base + $name) -OutFile $out }
             $out
@@ -69,6 +71,7 @@
     }
     Write-Host "Installed: $exe"
     Write-Host 'Next:'
+    Write-Host '  ir app                        Iridium (its window)'
     Write-Host '  ir start                      this computer''s Iridium (run at login)'
     if ($origin) { Write-Host "  ir start --no-server --join $origin   an executor of $origin only" }
     else { Write-Host '  ir start --no-server --join <address>   an executor of that one only' }

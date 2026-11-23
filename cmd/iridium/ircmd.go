@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"syscall"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/kumoSleeping/iridium/internal/config"
 	"github.com/kumoSleeping/iridium/internal/desktop"
 	"github.com/kumoSleeping/iridium/internal/install"
+	"github.com/kumoSleeping/iridium/internal/macapp"
 )
 
 // ir start, stop, server, join, leave (docs/app.md "运行时"): ir as the user's service, the
@@ -23,7 +25,8 @@ import (
 // joins. The settings are the app's (desktop.Config), the same the window's switches change; the
 // runtime follows them live.
 
-const runtimeUsage = `  ir start [--headless] [--no-server] [--join <address> [options]]...
+const runtimeUsage = `  ir app                           Iridium's window (the desktop app); one open already comes forward
+  ir start [--headless] [--no-server] [--join <address> [options]]...
                                    ir as this computer's service (at login, too), and its window
                                    unless --headless; --no-server: no Iridium of its own here
   ir stop                          the service stopped and taken away (the settings kept)
@@ -64,6 +67,8 @@ func runtimeCmd(args []string) (int, bool) {
 		return 0, false
 	}
 	switch args[0] {
+	case "app":
+		return appCmd(), true
 	case "start":
 		return startCmd(args[1:]), true
 	case "stop":
@@ -159,6 +164,30 @@ func openWindow() {
 	if cmd.Start() == nil {
 		_ = cmd.Process.Release()
 	}
+}
+
+// appCmd is ir app: the window, as Iridium is opened from the Dock or the Start menu (kumo,
+// 2026-11-23: ir start told of first, one saw nothing come). On a Mac through the system (open), the
+// app as an app; elsewhere this binary, apart. Nothing of the service changes.
+func appCmd() int {
+	if !desktop.CanShow() {
+		fmt.Fprintln(os.Stderr, "ir app: 这台电脑没有图形界面（只要服务：ir start --headless）")
+		return 1
+	}
+	if self, err := os.Executable(); err == nil && runtime.GOOS == "darwin" {
+		if r, err := filepath.EvalSymlinks(self); err == nil {
+			self = r
+		}
+		if app := macapp.Of(self); app != "" {
+			if out, err := exec.Command("open", app).CombinedOutput(); err != nil {
+				fmt.Fprintf(os.Stderr, "ir app: %v %s\n", err, out)
+				return 1
+			}
+			return 0
+		}
+	}
+	openWindow()
+	return 0
 }
 
 // stopCmd is ir stop: the service stopped and taken away; settings, binary and state kept.
