@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/url"
+	"path/filepath"
 	"runtime"
 	"sync"
 	"time"
@@ -43,6 +45,14 @@ func originOf(raw string) string {
 	return p.Scheme + "://" + p.Host
 }
 
+// pathOf is a URL's path alone, for the log (no query: whatever a link carries stays out of it).
+func pathOf(raw string) string {
+	if p, err := url.Parse(raw); err == nil {
+		return p.Path
+	}
+	return ""
+}
+
 // ownPage: is origin the app's own pages' (mygo's frontend: mygo://localhost, or on Windows
 // http://mygo.localhost)?
 func ownPage(origin string) bool {
@@ -63,11 +73,15 @@ function fire(){window.dispatchEvent(new Event("wails:runtime-config-ready"))}
 if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",fire);else fire();
 })();` + css(`[data-app-drag]{--app-region:drag}`)
 
-// css is JavaScript that puts style in the page as it starts.
+// css is JavaScript that puts style in the page as it starts. WebView2 runs the preload before the
+// document has its <html> (WebKit after): appended to nothing it threw, and the rest of the preload
+// after it never ran (QGI, 2026-11-23: on Windows no window dragged, and no page error was logged).
+// So the style waits for the element there.
 func css(style string) string {
 	b, _ := json.Marshal(style)
 	return `(function(){var s=document.createElement("style");s.textContent=` + string(b) +
-		`;(document.head||document.documentElement).appendChild(s)})();`
+		`;function put(){var p=document.head||document.documentElement;if(!p)return false;p.appendChild(s);return true}` +
+		`if(!put()){var o=new MutationObserver(function(){if(put())o.disconnect()});o.observe(document,{childList:true})}})();`
 }
 
 // replies go to the pages in order, one at a time, off the main thread: a page's Eval waits for
@@ -223,21 +237,22 @@ func (u *ui) hideOnClose(w *mygo.Window) {
 	})
 }
 
+// pageLog is the app's log (appLog), for what has no logf handed to it.
+var pageLog = sync.OnceValue(appLog)
+
 // guard sets up the page of a window on the Iridium at origin ("": the app's own pages):
 //
 //   - its title stays the window's (the Iridium's name here, retitle), not the page's <title>;
 //   - a link to another site opens in the browser, the window staying on its Iridium (Wails let
 //     the page go there, and did nothing for target=_blank: kumo, 2026-11-23);
-//   - a download is saved in Downloads, then shown in Finder or Explorer (Wails dropped them);
+//   - a download is saved in Downloads (one from its Iridium fetched by the app, its toast saying
+//     how far: download.go), then shown in Finder or Explorer (Wails dropped them);
 //   - the microphone, the camera and notifications are its own Iridium's (voice rooms), nothing
 //     else is; no other page gets anything;
 //   - its web process gone (killed by the system: WebKit's 8 GB a page, kumo, 2026-11-23, the
 //     window white from then on, its keys dead with the page), the page is loaded again, and
 //     the log says so. Not one gone again within a minute: that page does not stay up, and the
 //     window is left as it is rather than loaded over and over.
-// pageLog is the app's log (appLog), for what has no logf handed to it.
-var pageLog = sync.OnceValue(appLog)
-
 func guard(w *mygo.Window, origin string) {
 	p := w.Page()
 	var gone time.Time
@@ -260,9 +275,67 @@ func guard(w *mygo.Window, origin string) {
 			go func() { _ = mygo.Shell.OpenExternal(e.URL) }()
 		}
 	})
+	// Each download in the log, its end too, and told to the page as it starts, goes and ends (its
+	// toast: web/src/irapp.ts; the web view shows none, and a download went on unseen: QGI,
+	// 2026-11-23). One from the window's own Iridium the app fetches itself (download.go), saying
+	// how far it is; others are the web view's. One that failed goes to the system's browser, whose
+	// own download asks what the app could not.
+	tell := func(u, name, state string, pct int) {
+		d := map[string]any{"id": u, "name": name, "state": state}
+		if pct >= 0 {
+			d["pct"] = pct
+		}
+		reply(w, map[string]any{"download": d})
+	}
+	failed := func(raw, name string, err error) {
+		pageLog()("download %s failed: %v; in the browser instead", pathOf(raw), err)
+		tell(raw, name, "failed", -1)
+		if u, err := url.Parse(raw); err == nil && (u.Scheme == "http" || u.Scheme == "https") {
+			go func() { _ = mygo.Shell.OpenExternal(raw) }()
+		}
+	}
+	done := func(raw, path string) {
+		pageLog()("download %s done", pathOf(raw))
+		tell(raw, filepath.Base(path), "done", -1)
+		go mygo.Shell.ShowItemInFolder(path)
+	}
+	p.OnWillDownload(func(e *mygo.DownloadEvent) {
+		pageLog()("download %s → %s", pathOf(e.URL), e.Path)
+		name := filepath.Base(e.Path)
+		if origin == "" || e.Path == "" || originOf(e.URL) != origin {
+			tell(e.URL, name, "start", -1)
+			return
+		}
+		e.PreventDefault()
+		raw, path := e.URL, e.Path
+		tell(raw, name, "start", 0)
+		go func() {
+			var cs []*http.Cookie
+			if list, err := mygo.Cookies.List(mygo.CookieFilter{URL: raw}); err == nil {
+				for _, c := range list {
+					cs = append(cs, &http.Cookie{Name: c.Name, Value: c.Value})
+				}
+			}
+			err := fetch(context.Background(), raw, path, cs, func(got, total int64) {
+				if total > 0 {
+					tell(raw, name, "progress", int(got*100/total))
+				}
+			})
+			if err != nil {
+				failed(raw, name, err)
+				return
+			}
+			done(raw, path)
+		}()
+	})
 	p.OnDownloadDone(func(d *mygo.Download) {
-		if d.Err == nil && d.Path != "" {
-			go mygo.Shell.ShowItemInFolder(d.Path)
+		switch {
+		case d.Err == nil && d.Path != "":
+			done(d.URL, d.Path)
+		case d.Err != nil:
+			failed(d.URL, filepath.Base(d.Path), d.Err)
+		default:
+			tell(d.URL, filepath.Base(d.Path), "gone", -1)
 		}
 	})
 	p.SetPermissionHandler(func(r mygo.PermissionRequest) bool {
