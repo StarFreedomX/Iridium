@@ -423,7 +423,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
     // A picture's size goes with it: its bubble keeps its place before it is drawn.
     const files = atts.map((a) => ({ ref: a.ref!, name: a.file.name, type: a.file.type, size: a.file.size, url: a.url, ...(a.w && a.h ? { w: a.w, h: a.h } : {}) }));
     // Its id chosen here: the transcript's block is found by it as it comes, whenever the answer does.
-    const sent: Sent = { key: crypto.randomUUID(), text: words, files, from: 0, input: crypto.randomUUID(), ...(quote ? { quote: quote.n } : {}) };
+    const sent: Sent = { key: crypto.randomUUID(), made: Date.now(), text: words, files, from: 0, input: crypto.randomUUID(), ...(quote ? { quote: quote.n } : {}) };
     for (const a of atts) other(a);
     // The rows over the box (the answered, the attachments) shut at once as it goes, with the
     // bubble's coming: one move of the conversation, not the bubble's up and theirs down after.

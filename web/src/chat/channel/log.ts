@@ -156,7 +156,10 @@ export type Kept = { log: ChannelLog; place: { top: number | null }; sent: Sent[
 
 /** The channels seen lately, so going back to one draws it at once. */
 const kept = new Map<string, Kept>();
-const KEPT = 8;
+// More than the chats warmed (warm.ts: ten a workspace, each of several agents with its log), or
+// going on to warm them let go of the channel just written in (kumo, 2026-11-23: a message sent,
+// another chat opened and this one again, the message was gone, then came back with a jump).
+const KEPT = 32;
 
 /** Channels seen here with another agent: the log stays in once it was, so their words do not
  *  go as an agent leaves (and come back as it returns). */
@@ -170,9 +173,10 @@ export function channelLog(id: string): Kept {
   it ??= { log: new ChannelLog(id), place: { top: null }, sent: [] };
   kept.delete(id);
   kept.set(id, it);
-  for (const k of kept.keys()) {
+  for (const [k, c] of kept) {
     if (kept.size <= KEPT) break;
-    if (k !== id) kept.delete(k);
+    // Not one with words of yours not yet in its log (going, failed): they are nowhere else.
+    if (k !== id && !c.sent.length) kept.delete(k);
   }
   return it;
 }

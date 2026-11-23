@@ -516,14 +516,20 @@ export function channelLamp(own: Status, members: Status[]): Status {
 
 /** A message sent from here, till the channel's log has it: seq, its number once the server
  *  answered; from, the log's last number as it was sent. */
-export type Waiting = { text: string; seq?: number; from: number; failed?: string };
+/** How far a server's clock may be behind this one's: a block or message that many ms before a
+ *  sent one was made may be it. */
+const SKEW = 120_000;
+/** Whether something written at time (ms; not known: yes) may be what was made at made. */
+export const madeBy = (made: number | undefined, time: number | undefined) => !made || !time || time >= made - SKEW;
+
+export type Waiting = { text: string; seq?: number; from: number; failed?: string; made?: number };
 
 /** Whether what was sent is still not in the log: by its number once known; before that, by a
  *  person's same words said since it was sent. A failed one stays, to be sent again. */
 export function stillWaiting(s: Waiting, msgs: Msg[]): boolean {
   if (s.failed !== undefined) return true;
   if (s.seq) return !msgs.some((m) => m.n === s.seq);
-  return !msgs.some((m) => m.n > s.from && m.author.kind === "person" && m.text.trim() === s.text.trim());
+  return !msgs.some((m) => m.n > s.from && madeBy(s.made, m.time) && m.author.kind === "person" && m.text.trim() === s.text.trim());
 }
 
 /** The states the stream is asked for besides the channel's own: its other agents' sessions

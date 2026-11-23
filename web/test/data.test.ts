@@ -380,6 +380,13 @@ describe("Messages", () => {
     expect(unsent([lost], [blk(10, "user", "fourth")])).toEqual([lost]);
     expect(unsent([lost], [blk(10, "user", "fourth", { id: "u4" })])).toEqual([]);
   });
+  test("by its words only a block written since it was made: an earlier one of the same words is not it", () => {
+    const made = 10_000_000;
+    const go: Sent = { key: "5", made, text: "继续", files: [], from: 0 };
+    expect(unsent([go], [blk(10, "user", "继续", { time: made - 3_600_000 })])).toEqual([go]);
+    expect(unsent([go], [blk(10, "user", "继续", { time: made - 1_000 })])).toEqual([]); // the server's clock a little behind
+    expect(unsent([go], [blk(10, "user", "继续")])).toEqual([]); // no time: as before
+  });
   test("attachments alone, no input id (pi): by their files, else a block of attachment lines", () => {
     const file = { ref: "r1", name: "a.png", type: "image/png" };
     const pic: Sent = { key: "5", text: "", files: [file], from: 10 };

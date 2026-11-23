@@ -6,7 +6,7 @@
 // warms of its own (src/warm.ts picks them): each one's newest page, held apart till it is visited.
 import { api, queryClient, type First } from "./api/client";
 import type { Block, DraftEvent, MessagePage, Session, SessionState } from "./api/types.gen";
-import { saidBefore, workKey, workOf, type Src } from "./chat/channel/lib";
+import { madeBy, saidBefore, workKey, workOf, type Src } from "./chat/channel/lib";
 import { channelLog, heldLog, several } from "./chat/channel/log";
 import { getCarried, setCarried } from "./store";
 
@@ -20,7 +20,7 @@ export const fresh = (at: number) => Date.now() - at < 3_000;
  *  number in its channel, once the server said it. queued: the server keeps it for the turn's end (a command) or the quota (a clock by
  *  its bubble); waited: seen in the session's queue; gone: answered, and nothing of it will come
  *  in the transcript (a command the agent ran itself); at: when it was answered. */
-export type Sent = { key: string; text: string; files: { ref: string; name: string; type: string; size?: number; url?: string; w?: number; h?: number }[]; from: number; input?: string; failed?: string; queued?: boolean; waited?: boolean; left?: number; gone?: boolean; at?: number; mid?: boolean; seq?: number; quote?: number };
+export type Sent = { key: string; made?: number; text: string; files: { ref: string; name: string; type: string; size?: number; url?: string; w?: number; h?: number }[]; from: number; input?: string; failed?: string; queued?: boolean; waited?: boolean; left?: number; gone?: boolean; at?: number; mid?: boolean; seq?: number; quote?: number };
 
 /** Where a block's transcript line begins: its at up to the dot. */
 export const lineOf = (b: { at: string }) => parseInt(b.at);
@@ -44,11 +44,14 @@ const sameWords = (s: Sent, b: Block) => {
  *  failed one stays, unless its block came after all (only the answer was lost): by its id alone. */
 export function unsent(sent: Sent[], blocks: Block[]): Sent[] {
   let past = 0;
+  // By its words only a block written since it was made (kumo, 2026-11-23: one sent while the
+  // page showed an older copy of the chat took an earlier "继续" of yours for its own, and looked
+  // sent; it had not gone).
   return sent.filter((s) => {
     s.from = Math.max(s.from, past);
     if (s.failed !== undefined) return !(s.input && blocks.some((b) => b.kind === "user" && b.id === s.input));
     if (compactSent(s)) return !blocks.some((b) => b.kind === "system" && b.event === "compact" && lineOf(b) >= s.from);
-    const b = blocks.find((b) => b.kind === "user" && ((s.input && b.id === s.input) || (lineOf(b) >= s.from && sameWords(s, b))));
+    const b = blocks.find((b) => b.kind === "user" && ((s.input && b.id === s.input) || (lineOf(b) >= s.from && madeBy(s.made, b.time) && sameWords(s, b))));
     if (!b) return true;
     past = lineOf(b) + 1;
     return false;
@@ -422,8 +425,8 @@ export function chatOf(id: string): Chat {
   for (const c of kept.values()) all += c.log.blocks.length;
   for (const [k, c] of kept) {
     if (all <= KEPT_BLOCKS || c === it) break;
-    // One with words that did not go is kept: they are nowhere else.
-    if (c.log.sent.some((s) => s.failed !== undefined)) continue;
+    // One with words not yet in its transcript (going, failed) is kept: they are nowhere else.
+    if (c.log.sent.length) continue;
     all -= c.log.blocks.length;
     kept.delete(k);
     whole.delete(k);

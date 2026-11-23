@@ -51,6 +51,9 @@ describe("a channel's messages", () => {
     expect(stillWaiting({ text: "one", from: 2 }, log)).toBe(true); // said before it was sent
     expect(stillWaiting({ text: "hi", from: 0 }, msgs(agent(1, "a")))).toBe(true); // an agent's, not yours
     expect(stillWaiting({ text: "two", seq: 3, from: 2, failed: "no" }, log)).toBe(true);
+    // Made long after the same words were said: not those.
+    expect(stillWaiting({ text: "two", from: 0, made: 3 + 3_600_000 }, log)).toBe(true);
+    expect(stillWaiting({ text: "two", from: 0, made: 3 + 1_000 }, log)).toBe(false);
   });
 });
 

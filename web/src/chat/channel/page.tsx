@@ -185,6 +185,11 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
     fly.current = x.key;
     changed();
   };
+  // Failed, shown so even if it was taken for come (chat.tsx sentDone).
+  const sentDone = (x: Sent) => {
+    if (x.failed !== undefined && !entry.sent.includes(x)) entry.sent.push(x);
+    changed();
+  };
   const retry = async (x: Sent) => {
     x.failed = undefined;
     changed();
@@ -359,7 +364,7 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
             })}
             <AskQueue agents={agents} states={states} cwd={s.cwd} off={!may} />
             {!may ? <NotJoined /> : null}
-            {may && <Composer ref={composer} s={s} turn={false} nicks={agents} people={peopleRows} quote={quote ? { n: quote.n, who: nameOf(quote), text: quoteText(quote) } : undefined} unquote={() => setQuote(null)} onSent={onSent} onSentDone={changed} cycleMode={() => {}} openModel={() => {}} openMode={() => {}} openUsage={() => {}} openContext={() => false} cleared={openChat} />}
+            {may && <Composer ref={composer} s={s} turn={false} nicks={agents} people={peopleRows} quote={quote ? { n: quote.n, who: nameOf(quote), text: quoteText(quote) } : undefined} unquote={() => setQuote(null)} onSent={onSent} onSentDone={sentDone} cycleMode={() => {}} openModel={() => {}} openMode={() => {}} openUsage={() => {}} openContext={() => false} cleared={openChat} />}
           </div>
         </div>
       </div>

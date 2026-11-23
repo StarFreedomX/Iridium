@@ -97,6 +97,11 @@ export async function restore(id: string, it: Chat): Promise<boolean> {
   if (!d) return false;
   const c = await asked(d.transaction("chats").objectStore("chats").get(keyOf(id)) as IDBRequest<Copy | undefined>).catch(() => undefined);
   if (!c) return false;
+  // Older than what the server's list says of it: not drawn, to be put right a moment later
+  // (kumo, 2026-11-23: a message missing, then coming in with the page jumping). The server's
+  // is waited for instead. A list still this device's own tells nothing.
+  const row = listFromDevice() ? undefined : getCarried<Session[]>("list")?.find((s) => s.id === id);
+  if (row && row.updatedAt > c.at + 1000) return false;
   if (c.v !== FORMAT) {
     void drop([c.key]);
     return false;

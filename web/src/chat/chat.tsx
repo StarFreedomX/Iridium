@@ -441,6 +441,9 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
   // Answered: its block may have come before the answer did.
   const sentDone = (x: Sent) => {
     x.at = Date.now();
+    // Failed, it is shown so, even if it was taken for come (kumo, 2026-11-23: a message shown as
+    // sent that the agent never had): never a failure with nothing to show it.
+    if (x.failed !== undefined && !log.sent.includes(x)) log.sent.push(x);
     log.recheck();
     changed();
   };
