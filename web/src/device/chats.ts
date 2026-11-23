@@ -88,7 +88,7 @@ export function copyOf(id: string, it: Chat, now = Date.now()): Copy | null {
 }
 
 /** Puts this device's copy of session id's chat into it, if there is one and chats are kept:
- *  says whether it did. Not into one that has its page already. */
+ *  says whether it did. Its record's page only into one that has none yet. */
 export async function restore(id: string, it: Chat): Promise<boolean> {
   const conf = await getConf();
   if (!conf.chats) return false;
@@ -100,12 +100,14 @@ export async function restore(id: string, it: Chat): Promise<boolean> {
     void drop([c.key]);
     return false;
   }
-  if (it.log.loaded) return false;
   const key = `session:${id}`;
   if (c.session && !getCarried(key)) setCarried(key, c.session);
-  it.log.take(c.page);
-  it.log.restored = true;
-  it.log.came = 0;
+  // Its record's page, unless one is held already (warmed, read ahead): that one is the server's.
+  if (!it.log.loaded) {
+    it.log.take(c.page);
+    it.log.restored = true;
+    it.log.came = 0;
+  }
   if (c.members && !queryClient.getQueryData(["members", id])) queryClient.setQueryData(["members", id], c.members);
   if (c.chan) {
     several.add(id);

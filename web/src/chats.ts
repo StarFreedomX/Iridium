@@ -451,6 +451,8 @@ export function ahead(id: string, press = false): void {
   if (!mayPrefetch()) return;
   if (!pressed && !kept.has(id) && early?.id !== id && !warm.has(id)) {
     behind();
+    // The one read ahead before is let go: its page is not whole any more.
+    if (early && !kept.has(early.id)) whole.delete(early.id);
     const stop = new AbortController();
     let signal: AbortSignal | undefined = stop.signal;
     const it = newChat(id, (sid, q) => api.messages(sid, q, { signal, priority: "low" } as RequestInit));
@@ -519,19 +521,18 @@ export function firstScreen(id: string, it: Chat = chatOf(id), init?: RequestIni
   const have = log.loaded;
   const top = log.blocks[0]?.time;
   p = (async () => {
-    // This device's copy (device/chats.ts): drawn at once, the server's first screen taking its
-    // place as it comes, apart from this promise.
-    if (!have && (await fromDevice(id, it))) {
+    // This device's copy (device/chats.ts): drawn at once (its record's page too unless held),
+    // the server's first screen taking its place as it comes, apart from this promise; not its
+    // coming: read ahead as a row is pointed at, it stays as the pointer leaves (behind).
+    if (await fromDevice(id, it)) {
       whole.add(id);
       const mine = getCarried<SessionState>(key);
-      it.coming = api
-        .first(id, {}, init)
-        .then((f) => {
+      void Promise.all([api.first(id, have ? { have, ...(top !== undefined ? { since: log.more ? top : 0 } : {}) } : {}, init), have ? log.newer().catch(() => {}) : undefined])
+        .then(([f]) => {
           if (getCarried(key) === mine) setCarried(key, f.session);
           putFirst(id, f, log);
         })
-        .catch(() => {})
-        .finally(() => (it.coming = undefined));
+        .catch(() => {});
       return;
     }
     try {
@@ -553,7 +554,8 @@ export function firstScreen(id: string, it: Chat = chatOf(id), init?: RequestIni
 }
 
 /** Puts this device's copy of session id's first screen into chat it (device/chats.ts), in time
- *  for its first draw (DEVICE_WAIT at most); says whether there was one. */
+ *  for its first draw (DEVICE_WAIT at most): its record's page unless one is held, and the rest;
+ *  says whether there was one. */
 const DEVICE_WAIT = 300;
 async function fromDevice(id: string, it: Chat): Promise<boolean> {
   try {
