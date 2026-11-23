@@ -8,6 +8,7 @@ import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, 
 import { flushSync } from "react-dom";
 import { t } from "../i18n";
 import { motion, reduced } from "../motion";
+import { partsSeen } from "../seen";
 
 // Who else moves the conversation's rows, and for how long (moves.ts, brought apart from the first
 // screen; till it is here nothing else moves them).
@@ -63,45 +64,11 @@ export const restsAtEnd = (el: HTMLElement) => rests.get(el)?.() ?? false;
 
 /** What of the column is seen in the list at some moment of a glide from y px off its place to it
  *  (and a little past it, the spring's swing): its rows, from the end up, as the glide is mostly at
- *  the end, so a long conversation is not measured whole. A row much taller than the list (a turn
- *  at work, its steps open) is not taken whole either: what is seen of its own rows is, as far
- *  down as it is only a box around them (nothing drawn of its own, nothing clipped). */
+ *  the end, so a long conversation is not measured whole (seen.ts). */
 const seenIn = (list: HTMLElement, col: HTMLElement, y: number) => {
   const view = list.getBoundingClientRect();
   const swing = Math.abs(y) / 4 + 48;
-  const top = view.top + Math.min(0, -y) - swing;
-  const bottom = view.bottom + Math.max(0, -y) + swing;
-  const tall = view.height * 2;
-  const out: HTMLElement[] = [];
-  const take = (box: Element, depth: number) => {
-    for (let r = box.lastElementChild; r; r = r.previousElementSibling) {
-      if (!(r instanceof HTMLElement)) continue;
-      const b = r.getBoundingClientRect();
-      // No box of its own (display: contents): its rows are the box's.
-      if (!b.width && !b.height) {
-        if (r.firstElementChild && depth < 8) take(r, depth + 1);
-        continue;
-      }
-      if (b.bottom < top) {
-        // The column's rows are one under another: none above this one is seen.
-        if (!depth) break;
-        continue;
-      }
-      if (b.top > bottom) continue;
-      if (b.height > tall && depth < 8 && onlyABox(r)) take(r, depth + 1);
-      else out.push(r);
-    }
-  };
-  take(col, 0);
-  return out;
-};
-/** Whether el is only a box around its rows: they can be moved in its stead. */
-const onlyABox = (el: HTMLElement) => {
-  if (!el.firstElementChild) return false;
-  for (const n of el.childNodes) if (n.nodeType === Node.TEXT_NODE && n.nodeValue?.trim()) return false;
-  const cs = getComputedStyle(el);
-  const clear = (c: string) => c === "transparent" || /,\s*0\)$/.test(c);
-  return cs.overflowX === "visible" && cs.overflowY === "visible" && cs.backgroundImage === "none" && clear(cs.backgroundColor) && !parseFloat(cs.borderTopWidth) && !parseFloat(cs.borderBottomWidth) && !parseFloat(cs.borderLeftWidth) && !parseFloat(cs.borderRightWidth) && cs.boxShadow === "none" && !/^(inline|table)/.test(cs.display);
+  return partsSeen(col, view.top + Math.min(0, -y) - swing, view.bottom + Math.max(0, -y) + swing, view.height * 2, true);
 };
 
 /** Whether a box inside the list, between it and target, takes a scroll up itself (a long output

@@ -1,6 +1,7 @@
 // The work of motion.ts useMoves and usePaced (the rules are said there). Its own file: brought
 // after the first screen.
 import { createElement, useEffect, useRef, useState, type ReactNode } from "react";
+import { movedFor } from "./seen";
 import { motion, reduced } from "./motion";
 
 /** A list's rows as useMoves follows them: the order last drawn and the one being drawn; where
@@ -58,7 +59,7 @@ export function spotsOf(root: HTMLElement): Spots | null {
  *  the long move's for one going far. */
 export const moveOf = (dx: number, dy: number): { frames: Keyframe[]; duration: number } => ({ frames: [{ transform: `translate(${dx}px,${dy}px)` }, { transform: "none" }], duration: motion.dur(Math.abs(dy) > 160 ? 4 : 3) });
 
-const moving = new WeakMap<Element, Animation>();
+const moving = new WeakMap<Element, Animation[]>();
 
 /** One thing at a time moves what is in a container (kumo, 2026-11-21: one animation not yet
  *  done, another changed the same rows under it): whoever moves it says so, and for how long
@@ -83,7 +84,7 @@ export function play(root: HTMLElement, before: Spots, enter: boolean) {
   const calm = reduced();
   const rows = [...root.querySelectorAll<HTMLElement>("[data-flip]")];
   // Those still moving are let go first: read where the layout has them, not where they are drawn.
-  for (const el of rows) moving.get(el)?.cancel();
+  for (const el of rows) for (const a of moving.get(el) ?? []) a.cancel();
   const now = spotsOf(root);
   if (!now) return;
   const ease = motion.ease("out");
@@ -94,14 +95,19 @@ export function play(root: HTMLElement, before: Spots, enter: boolean) {
     const was = before.get(el.dataset.flip!);
     const at = now.get(el.dataset.flip!)!;
     if (!was) {
-      if (enter) el.animate(calm ? [{ opacity: 0 }, { opacity: 1 }] : [{ opacity: 0, transform: "translateY(-4px)" }, { opacity: 1, transform: "none" }], { duration: calm ? motion.dur(1) : motion.dur(2), easing: ease, delay: calm ? 0 : 40, fill: "backwards" });
+      // One not seen comes in unseen.
+      if (enter && movedFor(el, 0, innerHeight, Infinity).length) el.animate(calm ? [{ opacity: 0 }, { opacity: 1 }] : [{ opacity: 0, transform: "translateY(-4px)" }, { opacity: 1, transform: "none" }], { duration: calm ? motion.dur(1) : motion.dur(2), easing: ease, delay: calm ? 0 : 40, fill: "backwards" });
       continue;
     }
     const dx = was.x - at.x;
     const dy = was.y - at.y;
     if (calm || (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5)) continue;
     const m = moveOf(dx, dy);
-    moving.set(el, el.animate(m.frames, { duration: m.duration, easing: ease, delay, fill: "backwards" }));
+    // On what is seen of it at some moment of the move (seen.ts): a row not seen is not moved, a
+    // row taller than the screen twice over is moved by its parts seen.
+    const on = movedFor(el, Math.min(0, -dy), innerHeight + Math.max(0, -dy), innerHeight * 2);
+    if (!on.length) continue;
+    moving.set(el, on.map((x) => x.animate(m.frames, { duration: m.duration, easing: ease, delay, fill: "backwards" })));
     long = Math.max(long, m.duration);
   }
   if (long) occupy(root, "move", delay + long);
