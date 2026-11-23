@@ -150,7 +150,7 @@ func (s *Server) browseFile(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		src := browserRemoteFile{ctx: r.Context(), machine: at.machine, path: at.path, scope: at.scope}
-		files.ServePathContent(browserRemoteWriter{w}, r, remote.Base(at.hello.Sep, at.path), time.UnixMilli(st.Mtime), io.NewSectionReader(src, 0, st.Size))
+		s.serveBrowserFile(w, r, at, remote.Base(at.hello.Sep, at.path), time.UnixMilli(st.Mtime), io.NewSectionReader(src, 0, st.Size))
 		return
 	}
 	p, err := s.files.Guarded(at.path, at.scope...)
@@ -183,7 +183,53 @@ func (s *Server) browseFile(w http.ResponseWriter, r *http.Request) {
 		s.fileError(w, files.ErrNotFile)
 		return
 	}
-	files.ServePathContent(w, r, st.Name(), st.ModTime(), f)
+	s.serveBrowserFile(w, r, at, st.Name(), st.ModTime(), f)
+}
+
+// serveBrowserFile serves one host or remote file through ServePathContent (wrapping remote
+// responses in browserRemoteWriter) and logs successful GET reads with who read what and how many
+// bytes were written.
+func (s *Server) serveBrowserFile(w http.ResponseWriter, r *http.Request, at *browserLocation, name string, mtime time.Time, src io.ReadSeeker) {
+	machine := gate.HostID
+	if at.machine != nil {
+		machine = at.machine.ID()
+		w = browserRemoteWriter{w}
+	}
+	out := browserFileResponse{ResponseWriter: w}
+	files.ServePathContent(&out, r, name, mtime, src)
+	if r.Method == http.MethodGet && (out.status == http.StatusOK || out.status == http.StatusPartialContent) {
+		c := callerOf(r)
+		action := "preview"
+		if r.URL.Query().Has("download") {
+			action = "download"
+		}
+		s.logf("file browser: read login=%q name=%q machine=%q path=%q action=%s status=%d bytes=%d", c.ID(), c.Name, machine, at.path, action, out.status, out.bytes)
+	}
+}
+
+// browserFileResponse captures status and bytes written without losing the underlying writer's
+// ReadFrom (browserRemoteWriter's wire.MaxRead buffer for remote files, sendfile for host files).
+type browserFileResponse struct {
+	http.ResponseWriter
+	status int
+	bytes  int64
+}
+
+func (w *browserFileResponse) WriteHeader(status int) {
+	w.status = status
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *browserFileResponse) Write(p []byte) (int, error) {
+	n, err := w.ResponseWriter.Write(p)
+	w.bytes += int64(n)
+	return n, err
+}
+
+func (w *browserFileResponse) ReadFrom(src io.Reader) (int64, error) {
+	n, err := io.Copy(w.ResponseWriter, src)
+	w.bytes += n
+	return n, err
 }
 
 // browserRemoteError maps executor errors for the web file browser: an older executor without
