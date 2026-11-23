@@ -108,8 +108,11 @@ type Server struct {
 	// avatarsSeq: the state "avatars", up by one at each change of a face.
 	avatarsSeq atomic.Int64
 	// faceSeen: the version of each session's face as last looked at (faceFollows); faceMu guards it.
+	// faceDue: the state "faces" is to be worked out again (faces.go facesSoon).
 	faceMu   sync.Mutex
 	faceSeen map[string]string
+	faceDue  bool
+	faceIDs  string // the hosted channels in the list, as last seen (faces.go facesOnList)
 	// cardsSeq: the state "cards", up by one at each change of a card (its name, intro, face).
 	cardsSeq atomic.Int64
 	// listDue: the list of sessions is to be made again shortly (listSoon).
@@ -557,7 +560,7 @@ func (s *Server) release(w http.ResponseWriter, r *http.Request) {
 	s.done(w, s.m.Release(ctx, r.PathValue("id"), req.ToolUseID, req.Dismiss))
 }
 
-var stateKey = regexp.MustCompile(`^(list|quota|guilds|needs|pairing|update|terminals|machines|voice|channels|avatars|ats|memory|roles|(session|context|reads|viewers):[0-9a-zA-Z_-]{1,128})$`)
+var stateKey = regexp.MustCompile(`^(list|quota|guilds|needs|pairing|update|terminals|machines|voice|channels|avatars|faces|ats|memory|roles|(session|context|reads|viewers):[0-9a-zA-Z_-]{1,128})$`)
 
 // stateKeys splits the states a WATCH asks for into those it carries and those it leaves
 // out (unknown, or not this caller's: needs and pairing are a person's on ir_web or at the

@@ -455,6 +455,21 @@ func TestThumbAndClaudeImage(t *testing.T) {
 	if len(thumbs) != 1 {
 		t.Errorf("%d thumbnails kept", len(thumbs))
 	}
+	if got := w.Header().Get("Cache-Control"); got != "private, no-cache" {
+		t.Errorf("under no version: %q", got)
+	}
+	// Under the file's modification time it is kept for good; under another, asked again.
+	st, _ := os.Stat(big)
+	for v, want := range map[string]string{
+		strconv.FormatInt(st.ModTime().UnixMilli(), 10):   "private, max-age=31536000, immutable",
+		strconv.FormatInt(st.ModTime().UnixMilli()-1, 10): "private, no-cache",
+	} {
+		w = httptest.NewRecorder()
+		r.s.Thumb(w, httptest.NewRequest("GET", "/x?v="+v, nil), big, ThumbSide)
+		if got := w.Header().Get("Cache-Control"); w.Code != 200 || got != want {
+			t.Errorf("under %s: %d %q", v, w.Code, got)
+		}
+	}
 	w = httptest.NewRecorder()
 	r.s.Thumb(w, req, r.file("x.txt", "text"), ThumbSide)
 	if w.Code != http.StatusUnsupportedMediaType {

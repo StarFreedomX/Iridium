@@ -13,6 +13,8 @@ import { ChevronLeft, ChevronRight, LoaderCircle, LogOut, MonitorDown, RefreshCw
 import { useEffect, useState, type ReactNode } from "react";
 import { api } from "./api/client";
 import type { PushEvents, PushState, Settings, SettingsPatch, UpdateState } from "./api/types.gen";
+import { CacheTotal } from "./device/total";
+import { ahead as cacheAhead } from "./device/state";
 import { manages as managesApps, pushQ, useApps, useMe, useSettings, useUpdate } from "./data";
 import { t, useLang } from "./i18n";
 import { install, useInstall } from "./install";
@@ -84,8 +86,8 @@ export function SettingsPage({ theme, setTheme, initial = "main" }: { theme: The
   const [page, setPage] = useState<Page>(initial);
   const [picture, setPicture] = useState<string | null>(null);
   const back = () => setPage("main");
-  const nav = (label: string, onClick: () => void, end?: ReactNode) => (
-    <button type="button" onClick={onClick} className="g-press -mx-1.5 flex min-h-10 items-center gap-3 rounded-md px-1.5 py-1 text-left hover:bg-fill">
+  const nav = (label: string, onClick: () => void, end?: ReactNode, ahead?: () => void) => (
+    <button type="button" onClick={onClick} onPointerEnter={ahead} onPointerDown={ahead} onFocus={ahead} className="g-press -mx-1.5 flex min-h-10 items-center gap-3 rounded-md px-1.5 py-1 text-left hover:bg-fill">
       <span className="min-w-0 flex-1 truncate text-sm">{label}</span>
       {end}
       <ChevronRight size={15} className="shrink-0 text-ink-4" />
@@ -132,6 +134,7 @@ export function SettingsPage({ theme, setTheme, initial = "main" }: { theme: The
             )}
           {me?.host && nav(t("secrets.title"), () => go({ name: "secrets" }))}
           {nav(t("role.title"), () => go({ name: "roles" }))}
+          {nav(t("cache.title"), () => go({ name: "cache" }), <CacheTotal />, cacheAhead)}
           <InstallItem />
           <Item label={t("settings.pushOn")}>
             {pushing ? <LoaderCircle size={16} className="animate-spin text-ink-3" /> : <Switch label={t("settings.pushOn")} disabled={!push || !("PushManager" in window)} on={pushed} onChange={(v) => void pushOn(v)} />}
@@ -348,7 +351,11 @@ function SignOut() {
     const t = setTimeout(() => setSure(false), 3000);
     return () => clearTimeout(t);
   }, [sure]);
-  const out = () => void api.logout().then(() => location.assign("/_ir/login"), (e) => toast(t("me.logout"), { error: true, description: errText(e) }));
+  const out = () =>
+    void api.logout().then(
+      () => void import("./device/forget").then((m) => m.forget()).finally(() => location.assign("/_ir/login")),
+      (e) => toast(t("me.logout"), { error: true, description: errText(e) }),
+    );
   return (
     <button type="button" onClick={() => (sure ? out() : setSure(true))} onBlur={() => setSure(false)} className={cn("g-press -mr-1.5 mt-2 flex h-8 max-w-full items-center gap-1.5 self-end rounded-md px-2 text-sm hover:bg-fill hover:text-ink pointer-coarse:h-10", sure ? "text-ink" : "text-ink-3")}>
       <LogOut size={14} className="shrink-0" />

@@ -879,7 +879,7 @@ func (s *Server) cleared(old, next string) {
 			s.keepSpawned(strings.TrimPrefix(key, spawnedKey("")), sp)
 		}
 	}
-	s.hub.Set("avatars", s.avatarsSeq.Add(1))
+	s.facesChanged()
 	s.membersChanged()
 }
 
@@ -1512,7 +1512,12 @@ func modelAvatarKey(st *api.SessionState) string {
 // avatarOf is the face of channel ch (st its state): its own (an image, or an emoji or a colour
 // drawn as one), else its model's.
 func (s *Server) avatarOf(ch string, st *api.SessionState) (image []byte, version string, ok bool) {
-	return s.face(store.ChannelProfileKey(ch), false, modelAvatarKey(st))
+	return avatarIn(liveFaces{s.st}, ch, st)
+}
+
+// avatarIn is avatarOf, looked up in src.
+func avatarIn(src faceSrc, ch string, st *api.SessionState) (image []byte, version string, ok bool) {
+	return faceIn(src, store.ChannelProfileKey(ch), false, modelAvatarKey(st))
 }
 
 // roomKey is the key of channel ch's card as a channel: a session's own channel's apart from
@@ -1529,8 +1534,13 @@ func (s *Server) roomKey(ch string) string {
 // session's own channel's own, else its agent's, as it was before it had one; one of several
 // agents without a face of its own has none: the page draws its agents' (the user, 2026-11-16).
 func (s *Server) channelFace(ch string, st *api.SessionState, bg bool) (image []byte, version string, ok bool) {
+	return s.channelFaceIn(liveFaces{s.st}, ch, st, bg)
+}
+
+// channelFaceIn is channelFace, looked up in src.
+func (s *Server) channelFaceIn(src faceSrc, ch string, st *api.SessionState, bg bool) (image []byte, version string, ok bool) {
 	if key := s.roomKey(ch); key != store.ChannelProfileKey(ch) {
-		if img, v, ok := s.face(key, bg, ""); ok {
+		if img, v, ok := faceIn(src, key, bg, ""); ok {
 			return img, v, true
 		}
 		if !bg && len(s.ch.Agents(ch)) > 1 {
@@ -1538,9 +1548,9 @@ func (s *Server) channelFace(ch string, st *api.SessionState, bg bool) (image []
 		}
 	}
 	if bg {
-		return s.face(store.ChannelProfileKey(ch), true, "")
+		return faceIn(src, store.ChannelProfileKey(ch), true, "")
 	}
-	return s.avatarOf(ch, st)
+	return avatarIn(src, ch, st)
 }
 
 // AgentAvatar is where the face of session id's agent is fetched; "" if it has none.
@@ -1618,7 +1628,7 @@ func (s *Server) avatarPut(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	// The pages draw the faces again.
-	s.hub.Set("avatars", s.avatarsSeq.Add(1))
+	s.facesChanged()
 	reply(w, http.StatusOK, map[string]any{"ok": true})
 }
 

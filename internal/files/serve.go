@@ -41,6 +41,9 @@ func (s *Service) serve(w http.ResponseWriter, r *http.Request, path, typ string
 	h.Set("Content-Type", typ)
 	h.Set("ETag", ETag(st))
 	h.Set("Cache-Control", "private, no-cache")
+	if kept, _ := r.Context().Value(keptKey{}).(bool); kept {
+		h.Set("Cache-Control", "private, max-age=31536000, immutable")
+	}
 	h.Set("Content-Security-Policy", sandbox)
 	h.Set("X-Content-Type-Options", "nosniff")
 	h.Set("Accept-Ranges", "bytes")
@@ -62,6 +65,9 @@ func (s *Service) serve(w http.ResponseWriter, r *http.Request, path, typ string
 	h.Set("Content-Disposition", mime.FormatMediaType(disp, map[string]string{"filename": st.Name()}))
 	http.ServeContent(w, r, st.Name(), st.ModTime(), f)
 }
+
+// keptKey marks a request whose answer may be kept for good (Thumb).
+type keptKey struct{}
 
 // ETag is a file's validator: its size and modification time.
 func ETag(st os.FileInfo) string {

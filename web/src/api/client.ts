@@ -100,7 +100,9 @@ let toLogin = false;
 function login() {
   if (toLogin) return;
   toLogin = true;
-  location.assign(`/_ir/login?next=${encodeURIComponent(location.pathname + location.search + location.hash)}`);
+  const next = `/_ir/login?next=${encodeURIComponent(location.pathname + location.search + location.hash)}`;
+  // What this device kept of the login is let go first (device/forget.ts).
+  void import("../device/forget").then((m) => m.forget()).finally(() => location.assign(next));
 }
 
 /** Who the page speaks as in Satori (docs/satori.md): ir_web and one of its logins, or the host's

@@ -115,7 +115,28 @@ func glyphImage(key, g string, w, h int) []byte {
 // face is the image under key, or the glyph of the profile there drawn as one: the face
 // (bg false: 128², else the model's given by fallback) or the background.
 func (s *Server) face(key string, bg bool, fallback string) (img []byte, version string, ok bool) {
-	p := s.st.Profile(key)
+	return faceIn(liveFaces{s.st}, key, bg, fallback)
+}
+
+// faceSrc is where faces are looked up: the store, one at a time (liveFaces), or what it had at
+// once (faces.go).
+type faceSrc interface {
+	profile(key string) store.Profile
+	// avatar is the image kept under key (nil where only its version is known) and its version.
+	avatar(key string) (img []byte, version string, ok bool)
+}
+
+type liveFaces struct{ st *store.Store }
+
+func (l liveFaces) profile(key string) store.Profile { return l.st.Profile(key) }
+func (l liveFaces) avatar(key string) ([]byte, string, bool) {
+	img, v, ok, err := l.st.Avatar(key)
+	return img, v, ok && err == nil
+}
+
+// faceIn is face, looked up in src.
+func faceIn(src faceSrc, key string, bg bool, fallback string) (img []byte, version string, ok bool) {
+	p := src.profile(key)
 	g, w, h, at := p.Avatar, gate.AvatarSize, gate.AvatarSize, key
 	if bg {
 		g, w, h, at = p.Background, gate.BannerWidth, gate.BannerHeight, store.BackgroundKey(key)
@@ -123,18 +144,19 @@ func (s *Server) face(key string, bg bool, fallback string) (img []byte, version
 	if g != "" {
 		return glyphImage(key, g, w, h), "g" + shortHash(g), true
 	}
-	if img, v, ok, err := s.st.Avatar(at); err == nil && ok {
+	if img, v, ok := src.avatar(at); ok {
 		return img, v, true
 	}
 	if fallback != "" {
-		if img, v, ok, err := s.st.Avatar(fallback); err == nil && ok {
+		if img, v, ok := src.avatar(fallback); ok {
 			return img, v, true
 		}
 	}
 	return nil, "", false
 }
 
-// serveFace answers with an image and its version.
+// serveFace answers with an image and its version. Asked for under that version (?v=, as the
+// page's address of it has it: faces.go), it is kept for good: another face has another address.
 func serveFace(w http.ResponseWriter, r *http.Request, img []byte, v string) {
 	h := w.Header()
 	ct := http.DetectContentType(img)
@@ -144,8 +166,17 @@ func serveFace(w http.ResponseWriter, r *http.Request, img []byte, v string) {
 	h.Set("Content-Type", ct)
 	h.Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; sandbox")
 	h.Set("ETag", `"`+v+`"`)
-	h.Set("Cache-Control", "private, no-cache")
+	h.Set("Cache-Control", cacheFor(r, v))
 	http.ServeContent(w, r, "", time.Time{}, bytes.NewReader(img))
+}
+
+// cacheFor is how long an answer of version v may be kept: for good when the address carries v
+// (?v=), else to be asked again each time.
+func cacheFor(r *http.Request, v string) string {
+	if v != "" && r.URL.Query().Get("v") == v {
+		return "private, max-age=31536000, immutable"
+	}
+	return "private, no-cache"
 }
 
 func (s *Server) backgroundGet(w http.ResponseWriter, r *http.Request) {
@@ -427,7 +458,7 @@ func (s *Server) profileNote(c caller, ch, member, nick string, what []string) {
 // name given to one session reloaded every face in the list).
 func (s *Server) cardsChanged(faces bool) {
 	if faces {
-		s.hub.Set("avatars", s.avatarsSeq.Add(1))
+		s.facesChanged()
 	}
 	s.hub.Set("cards", s.cardsSeq.Add(1))
 	s.membersChanged()

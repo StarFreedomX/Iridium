@@ -16,25 +16,39 @@ const came = new Set<string>();
 // And as drawn, at the size they were shown at (px across): a picture element made anew is asked
 // of the server again and decoded again, a frame or more with nothing in it, however lately the
 // same picture was on the page; what is kept here is drawn in the frame the face is (kumo,
-// 2026-11-23: the faces still blinked, the picture known but not yet there). Of one count of
-// faces (v) only: the ones before it are let go.
+// 2026-11-23: the faces still blinked, the picture known but not yet there). An address is one
+// picture (its version in it): the oldest kept are let go past DRAWN.
 const drawn = new Map<string, ImageBitmap>();
-let drawnV = -1;
+const DRAWN = 400;
 const pxOf = (size: number) => Math.ceil(size * (typeof devicePixelRatio === "number" ? devicePixelRatio : 1));
-function keep(img: HTMLImageElement, src: string, size: number, v: number) {
+function keep(img: HTMLImageElement, src: string, size: number) {
   const key = `${src}@${pxOf(size)}`;
   if (drawn.has(key) || typeof createImageBitmap !== "function" || !img.naturalWidth || !img.naturalHeight) return;
-  if (v !== drawnV) {
-    for (const b of drawn.values()) b.close();
-    drawn.clear();
-    drawnV = v;
-  }
   // The middle of it, as object-cover shows it.
   const s = Math.min(img.naturalWidth, img.naturalHeight);
   const px = pxOf(size);
   void createImageBitmap(img, (img.naturalWidth - s) / 2, (img.naturalHeight - s) / 2, s, s, { resizeWidth: px, resizeHeight: px, resizeQuality: "high" })
-    .then((b) => (v === drawnV ? drawn.set(key, b) : b.close()))
+    .then((b) => {
+      if (drawn.has(key)) return b.close();
+      drawn.set(key, b);
+      for (const [k, old] of drawn) {
+        if (drawn.size <= DRAWN) break;
+        drawn.delete(k);
+        old.close();
+      }
+    })
     .catch(() => {});
+}
+
+/** Where the face of session or channel id is fetched (channel: as a channel): under its own
+ *  version (the carried state "faces"; internal/server/faces.go), an answer kept for good; one the
+ *  state does not have (a session Iridium does not host), under the count of faces changed
+ *  ("avatars"), asked again each time. "" for one the state says has none. */
+export function useFaceSrc(id: string, channel?: boolean): string {
+  const own = useCarried<Record<string, string>>("faces")?.[channel ? `c:${id}` : id];
+  const count = useCarried<number>("avatars") ?? 0;
+  if (own === "") return "";
+  return `/v1/internal/channels/${encodeURIComponent(id)}/avatar?${channel ? "of=channel&" : ""}v=${own ?? `n${count}`}`;
 }
 /** A picture kept, drawn before the frame it is first in. */
 function Kept({ b }: { b: ImageBitmap }) {
@@ -43,7 +57,7 @@ function Kept({ b }: { b: ImageBitmap }) {
     try {
       ref.current?.getContext("2d")?.drawImage(b, 0, 0);
     } catch {
-      // Let go meanwhile (another count of faces): the next draw has the picture itself.
+      // Let go meanwhile (past DRAWN): the next draw has the picture itself.
     }
   }, [b]);
   return <canvas ref={ref} width={b.width} height={b.height} aria-hidden className="absolute inset-0 size-full rounded-full" />;
@@ -52,17 +66,15 @@ function Kept({ b }: { b: ImageBitmap }) {
 /** The face of session id's agent, or with channel of channel id as a channel; round, size
  *  across; none given: the agent's logo, as large as logo, or what else stands for it. */
 export function Face({ id, agent, size, logo, className, none: instead, low, channel }: { id: string; agent: Agent; size: number; logo?: number; className?: string; none?: ReactNode; low?: boolean; channel?: boolean }) {
-  // Asked again as any face changes (the carried state "avatars", a count).
-  const v = useCarried<number>("avatars") ?? 0;
-  const src = `/v1/internal/channels/${encodeURIComponent(id)}/avatar?${channel ? "of=channel&" : ""}v=${v}`;
+  const src = useFaceSrc(id, channel);
   const [none, setNone] = useState<string | null>(null);
   // Something else standing for it (wider than the face): shown until the picture has come.
   const [got, setGot] = useState<string | null>(() => (came.has(src) ? src : null));
   // The picture shown: the last that came, kept while the next one loads, so that a face asked
   // for again does not blank and come back (kumo, 2026-11-16: every face in the list blinked).
   const [shown, setShown] = useState<string | null>(() => (came.has(src) ? src : null));
-  if (none === src) return instead ? <span className={cn("grid", className)}>{instead}</span> : <Logo agent={agent} size={logo ?? size} className={className} />;
-  const here = (e: SyntheticEvent<HTMLImageElement>) => (came.add(src), keep(e.currentTarget, src, size, v), setGot(src), setShown(src));
+  if (!src || none === src) return instead ? <span className={cn("grid", className)}>{instead}</span> : <Logo agent={agent} size={logo ?? size} className={className} />;
+  const here = (e: SyntheticEvent<HTMLImageElement>) => (came.add(src), keep(e.currentTarget, src, size), setGot(src), setShown(src));
   const kept = (of: string) => drawn.get(`${of}@${pxOf(size)}`);
   // Kept: drawn at once, nothing asked for.
   const mine = kept(src);

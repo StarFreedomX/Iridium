@@ -54,10 +54,11 @@ const SettingsPage = part(() => import("./settings").then((m) => m.SettingsPage)
 const AppsPage = part(() => import("./apps").then((m) => m.AppsPage));
 const SecretsPage = part(() => import("./credentials").then((m) => m.SecretsPage));
 const RolesPage = part(() => import("./rolespage").then((m) => m.RolesPage));
+const CachePage = part(() => import("./device/page").then((m) => m.CachePage));
 const UsagePage = part(() => import("./usage").then((m) => m.UsagePage));
 /** The page of the settings' dialog a route is: the settings, or one of their own pages. */
-type SetsPage = "settings" | "apps" | "secrets" | "roles" | "usage";
-const setsPageOf = (r: Route): SetsPage => (r.name === "apps" || r.name === "secrets" || r.name === "roles" || r.name === "usage" ? r.name : "settings");
+type SetsPage = "settings" | "apps" | "secrets" | "roles" | "cache" | "usage";
+const setsPageOf = (r: Route): SetsPage => (r.name === "apps" || r.name === "secrets" || r.name === "roles" || r.name === "cache" || r.name === "usage" ? r.name : "settings");
 const Jump = part(() => import("./jump").then((m) => m.Jump));
 export const loadChat = ChatPage.load;
 // The address names a chat: its code and its first screen are asked for now, ahead of the first
@@ -72,7 +73,7 @@ export const loadChat = ChatPage.load;
 /** The settings and the jump box, their code run, the settings' answers asked: once idle, or a
  *  pointer on their key. */
 const loadPanels = () => {
-  for (const p of [SettingsPage, AppsPage, SecretsPage, UsagePage, Jump]) void p.load().catch(() => {});
+  for (const p of [SettingsPage, AppsPage, SecretsPage, CachePage, UsagePage, Jump]) void p.load().catch(() => {});
   void queryClient.prefetchQuery(agentsQ);
   void queryClient.prefetchQuery(pushQ);
   // The credentials' rows too: their page slid in empty and filled after.
@@ -85,6 +86,8 @@ const loadPanels = () => {
 // What the "+" popover draws (its roles), asked for once idle, apart from the files: drawn
 // whole as it opens, nothing pushed in after (docs/前端设计规范.md "后到的不撑开").
 void settled().then(() => (prefetchRoles(), movesAhead(), void queryClient.prefetchQuery(agentsQ)));
+// The device's own cache: its worker, its sweeps (device/boot.ts), after the first screen.
+void settled().then(() => import("./device/boot"));
 void prefetch().then((all) => {
   if (!all) return;
   void loadChat().catch(() => {});
@@ -361,7 +364,7 @@ export function App() {
   // 2026-11-08: going in, the dialog neither grows nor shrinks); opened on them first, they fit.
   const settingsH = useRef<number | undefined>(undefined);
   if (dialogPage === "settings" && fit.h !== undefined) settingsH.current = fit.h;
-  const boxH = (dialogPage === "apps" || dialogPage === "secrets" || dialogPage === "roles") && settingsH.current !== undefined ? settingsH.current : fit.h;
+  const boxH = (dialogPage === "apps" || dialogPage === "secrets" || dialogPage === "roles" || dialogPage === "cache") && settingsH.current !== undefined ? settingsH.current : fit.h;
   const settingsStyle: CSSProperties | undefined = settingsAt && boxH !== undefined && !usageLook && room !== undefined ? { ...settingsAt, height: `min(${boxH}px, ${typeof room === "number" ? `${room}px` : room})` } : settingsAt;
   // The usage panel floats as a row's menu does: one of them at a time (ui.tsx holdMenu).
   const underNow = useRef(under);
@@ -387,6 +390,10 @@ export function App() {
           ) : page === "roles" ? (
             <div key="roles" className={cn(slide, "h-full")}>
               <RolesPage onBack={back} />
+            </div>
+          ) : page === "cache" ? (
+            <div key="cache" className={cn(slide, "h-full")}>
+              <CachePage onBack={back} />
             </div>
           ) : page === "usage" ? (
             <div key="usage" className={cn(slide, "h-full")}>
