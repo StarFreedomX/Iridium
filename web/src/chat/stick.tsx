@@ -97,6 +97,8 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
   //     once for what the user did (the composer made shorter);
   //   - what changes over what is seen (a card far up filled in, a picture there) moves nothing
   //     seen: the scroll place goes with it at once;
+  //   - what changes its own height over time (a fold's track, a fold pressed, long words) is its
+  //     own to draw: the end is kept under it, frame by frame;
   // No row is moved for any of it (no transform): rows that change places (moves.ts) are another
   // thing, on another property, and neither waits for the other.
   const colOf = (el: HTMLElement) => el.firstElementChild as HTMLElement | null;
@@ -240,6 +242,37 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     clearTimeout(quietTimer.current);
     if (room.current > SLACK) quietTimer.current = window.setTimeout(() => (busyNow.current ? closeSoon() : ((whyNow.current = "rest"), close(false))), QUIET);
   };
+  /** What changes its own height over time inside the conversation (a fold's track opening or
+   *  shutting, a fold pressed, long words opened), each with its height as last read, and till
+   *  when at most: its change is drawn by itself, frame by frame, and the end is only kept under
+   *  it (neither room kept for it nor followed after it: what is under a fold shutting went up
+   *  with it and came down again once the room was closed). */
+  const moving = useRef(new Map<HTMLElement, { h: number; till: number }>());
+  /** By how much those grew (or shrank) since last read; those done or gone are let go. */
+  const movedBy = () => {
+    let by = 0;
+    const now = performance.now();
+    for (const [m, r] of moving.current) {
+      const h = m.isConnected ? m.getBoundingClientRect().height : 0;
+      by += h - r.h;
+      r.h = h;
+      if (!m.isConnected || now > r.till) moving.current.delete(m);
+    }
+    return by;
+  };
+  /** m's height changes of itself from now, for ms at most. */
+  const moves = (m: HTMLElement, ms: number) => {
+    const el = list.current;
+    if (!el || !colOf(el)?.contains(m)) return;
+    const r = moving.current.get(m);
+    if (r) return void (r.till = performance.now() + ms);
+    // What the column has changed by and was not seen yet is its already (a transition is a frame
+    // in when it says it runs).
+    moving.current.set(m, { h: m.getBoundingClientRect().height, till: performance.now() + ms });
+    const col = colOf(el);
+    const d = tall(col) - height.current;
+    if (Math.abs(d) > 0.01) (moving.current.get(m)!.h -= d), follow(el, "own-height");
+  };
   /** The conversation or the stack under it changed height, the chat at its newest. why: what
    *  for; user: the user's own doing (one move's time, and what shrank comes down at once). */
   const follow = (el: HTMLElement, why: string, user = false) => {
@@ -261,6 +294,9 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     }
     const dPad = pad.current - padWas;
     let d = height.current - was;
+    // What changes its own height: the end kept under it, at once.
+    const self = movedBy();
+    d -= self;
     // What changed over what is seen moves nothing seen: the scroll place goes with it.
     const a = anchor.current;
     const over = a && a.el.isConnected ? a.el.offsetTop - a.top : 0;
@@ -284,13 +320,14 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     }
     // From where this last put it: the browser may have pulled the scroll up to a shorter end.
     const end = bottomOf(el);
-    const from = Math.min(end, Math.max(0, (ours.current >= 0 ? ours.current : el.scrollTop) + over));
+    const from = Math.min(end, Math.max(0, (ours.current >= 0 ? ours.current : el.scrollTop) + over + Math.max(0, self)));
     at.current.y = Math.max(0, end - from);
     if (grow > 0.5) quick.current = user;
     put(el, from);
     if (at.current.y > 0.5) (moveLog("follow.up", why, { dy: -Math.round(at.current.y), note: user ? "quick" : "" }), run());
     else pin(el);
-    const rows = d || over ? whichRows(col) : "";
+    const rows = d || over || self ? whichRows(col) : "";
+    if (Math.abs(self) > 0.5) moveLog("follow.own", why, { dy: Math.round(self) });
     if (shrink) moveLog("follow.room", why, { dy: Math.round(shrink), note: `room ${Math.round(room.current)} ${rows}` });
     else if (why === "?" && (d || over)) moveLog("follow.grew", why, { dy: Math.round(d), note: `${over ? `over ${over} ` : ""}${rows}` });
     if (room.current) user && shrink ? close(true) : closeSoon();
@@ -305,6 +342,7 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     if (d.dataset.anim !== undefined) return;
     const opening = !d.open;
     moveLog("stick.fold", opening ? "fold-open" : "fold-shut");
+    moves(d, motion.move() + motion.fade() + 100);
     const from = d.offsetHeight;
     if (opening) d.open = true;
     else d.dataset.shut = "";
@@ -430,10 +468,16 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     };
     // For the record (motionlog.ts): what in the conversation changes its own height or moves by
     // an animation of its own.
-    const runs = (e: TransitionEvent) => (e.propertyName === "grid-template-rows" || e.propertyName === "height") && e.target instanceof HTMLElement && moveLog("css.transition", e.propertyName, { note: nameOf(e.target) });
-    const told = (e: Event) => e.target instanceof HTMLElement && moveLog("layoutMoves", "own-height", { note: nameOf(e.target) });
+    const runs = (e: TransitionEvent) => (e.propertyName === "grid-template-rows" || e.propertyName === "height") && e.target instanceof HTMLElement && (moveLog("css.transition", e.propertyName, { note: nameOf(e.target) }), moves(e.target, 1000));
+    const ran = (e: TransitionEvent) => {
+      const r = e.target instanceof HTMLElement && moving.current.get(e.target);
+      if (r) r.till = performance.now() + 60;
+    };
+    const told = (e: Event) => e.target instanceof HTMLElement && (moveLog("layoutMoves", "own-height", { note: nameOf(e.target) }), moves(e.target, (e as CustomEvent<number>).detail + 100));
     const animates = (e: AnimationEvent) => moveLog("css.animation", e.animationName, { note: e.target instanceof HTMLElement ? nameOf(e.target) : "" });
     el.addEventListener("transitionrun", runs);
+    el.addEventListener("transitionend", ran);
+    el.addEventListener("transitioncancel", ran);
     el.addEventListener(MOVES, told);
     el.addEventListener("animationstart", animates);
     el.addEventListener("wheel", wheel, { passive: true });
@@ -445,6 +489,8 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
       clearTimeout(quietTimer.current);
       cancelAnimationFrame(frame.current);
       el.removeEventListener("transitionrun", runs);
+      el.removeEventListener("transitionend", ran);
+      el.removeEventListener("transitioncancel", ran);
       el.removeEventListener(MOVES, told);
       el.removeEventListener("animationstart", animates);
       el.removeEventListener("wheel", wheel);
