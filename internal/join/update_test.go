@@ -159,6 +159,8 @@ func TestUpdate(t *testing.T) {
 	o.Ask = func(_ context.Context, q string) bool { asked <- q; return true }
 	o.newer(context.Background(), ex, wire.HelloReply{Version: "v1.0.0"}, func() { t.Error("restart for the same version") })
 	o.newer(context.Background(), ex, wire.HelloReply{Version: "1.0.1-dev.2"}, func() { t.Error("restart for a build of no release") })
+	// Up only: an Iridium of an older release does not take this one back (2026-11-23).
+	o.newer(context.Background(), ex, wire.HelloReply{Version: "v0.9.9"}, func() { t.Error("restart for an older release") })
 	o.Prog.Update = false
 	o.newer(context.Background(), ex, wire.HelloReply{Version: "v1.0.1"}, func() { t.Error("ir join updated itself") })
 	select {

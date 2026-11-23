@@ -21,11 +21,12 @@ import (
 	"github.com/kumoSleeping/iridium/internal/macapp"
 	"github.com/kumoSleeping/iridium/internal/remote/executor"
 	"github.com/kumoSleeping/iridium/internal/remote/wire"
+	"github.com/kumoSleeping/iridium/internal/update"
 	"github.com/kumoSleeping/iridium/internal/version"
 )
 
-// An executor keeps up with the Iridium it is connected to (the user, 2026-11-17): told another
-// version in the hello's answer, it fetches that release from GitHub, or with Proxy through the
+// An executor keeps up with the Iridium it is connected to (the user, 2026-11-17), up only
+// (2026-11-23): told a newer version in the hello's answer, it fetches that release from GitHub, or with Proxy through the
 // Iridium (<origin>/install/, 2026-11-22), its progress shown, checks it against the release's
 // SHA256SUMS, puts it where it runs from (where the install script put it; inside Iridium.app on
 // macOS, the bundle signed again), and asks the person at its terminal to restart now (ending
@@ -47,7 +48,10 @@ var offered struct {
 // newer looks at the hello's answer r: another release than this one's, it fetches it and asks to
 // restart (restart, said yes).
 func (o *Options) newer(ctx context.Context, ex *executor.Executor, r wire.HelloReply, restart func()) {
-	if !o.prog().Update || !version.Release() || !version.IsRelease(r.Version) || strings.TrimPrefix(r.Version, "v") == strings.TrimPrefix(version.Version, "v") {
+	// Up only (kumo, 2026-11-23): this binary is the desktop app too, and an Iridium of an older
+	// release took the whole app back with it (v0.2.53 installed, v0.2.52 over it a minute after);
+	// joined to several, the newest leads. An older one is spoken to as it is (wire.Protocol).
+	if !o.prog().Update || !version.Release() || !version.IsRelease(r.Version) || !update.Newer(r.Version, version.Version) {
 		return
 	}
 	offered.Lock()
