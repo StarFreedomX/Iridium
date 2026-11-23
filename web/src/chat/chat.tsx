@@ -19,7 +19,7 @@ import { AppKey, WinKeys } from "../appkey";
 import { LinkDot } from "../link";
 import type { Session } from "../api/types.gen";
 import { WsPlus } from "../create";
-import { chatOf, compactSent, firstScreen, fresh, isWhole, lineOf, stateAhead, waiting, type Draft as Drafted, type Sent } from "../chats";
+import { chatOf, peekChat, compactSent, firstScreen, fresh, isWhole, lineOf, stateAhead, waiting, type Draft as Drafted, type Sent } from "../chats";
 import { LOCAL_ME, useMachines, useMe, useWhoList, useWorkspaces } from "../data";
 import { t, useLang } from "../i18n";
 import { fadeIn, pushIn, pushing, useMoves } from "../motion";
@@ -32,7 +32,7 @@ import { also, carries, drafts, opened } from "../stream";
 import { errText, toast } from "../toast";
 import { groupPath, working } from "../tree";
 import { Arrive, agentName, cn, IrMark, Lamp, lampOf, LogoLamp, PopSurface, sessionStatusText, tilde, Tip, titleOf, untitled } from "../ui";
-import { givenTurn, groupMessages, isMulti, quoteAt, type AgentRow, type GivenTurn, type Msg } from "./channel/lib";
+import { givenTurn, groupMessages, isMulti, liveParts, quoteAt, type AgentRow, type GivenTurn, type Msg } from "./channel/lib";
 import { recvOf } from "./channel/scripts";
 import { useScripts } from "./channel/script";
 import { betweenAgents, boxSlot, callerOf, foreignOf, givenHere, held, HOLD, linesOf, marksAt, named as namedIn, ownAnchors, slotsOf, type Anchor, type Cut, type RowAt } from "./channel/merge";
@@ -481,6 +481,15 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
   const atSince = useRef(new Map<string, number>());
   // How far each of the others at work has been given the channel (givenOf, below), as last known.
   const givenAt = useRef(new Map<string, number>());
+  // What each had been given as this page first saw it at work: its turn is cut only at what it
+  // was given after that.
+  const givenFrom = useRef(new Map<string, number>());
+  const plainAt = useRef(new Map<string, number>());
+  /** The message of this channel a block of an agent's record is, given to it. */
+  const givenSeq = (b: Block): number | undefined => {
+    const relay = relays.get(b);
+    return givenHere(id, relay, b.text) ? (relay?.seq ?? givenTurn(b.text ?? "")?.seq) : undefined;
+  };
   for (const a of othersAt) if (!atSince.current.has(a.session)) atSince.current.set(a.session, Date.now());
   for (const k of [...atSince.current.keys()]) if (!othersAt.some((a) => a.session === k)) atSince.current.delete(k);
   const [, tick] = useState(0);
@@ -635,6 +644,10 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
     const a = agents.find((x) => x.session === session);
     return a && P ? <P.AgentBars a={a} st={stateOf(session)} /> : null;
   };
+  const readOf = (a: AgentRow) => givenAt.current.get(a.session) ?? Math.max(side.reads?.readers.find((r) => r.member === a.member)?.seq ?? 0, callerOf(msgs, a.nick, a.session) ?? 0, msgs.findLast((m) => m.author.kind === "agent" && m.author.session === a.session)?.n ?? 0);
+  // Each of the others at work, cut where it was given something more (lib.ts liveParts).
+  const cutOf = new Map<string, { spoken: Set<string>; said: Msg["src"]; parts: { after: number; before: number; blocks: Block[] }[]; after: number }>();
+  const cutSeqs = new Set<number>();
   let merged = rows;
   const groupAt = new Map<string, ReturnType<typeof groupMessages>[number]>();
   const nickSet = new Set(agents.map((a) => a.nick.toLowerCase()).filter(Boolean));
@@ -649,18 +662,45 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
     // been given since (its place read, never a name in a message's words). What it says
     // meanwhile is drawn there with its work, from its own record, not down among the others'
     // words: once it is given something more, or stops, those words are the channel's as any.
+    // Given, by its own record: the server counts as given what still waits for its turn to take
+    // it, and words sent into a turn went over all of it at once, the steps done before them too
+    // (kumo, 2026-11-23). As it began, before its record says anything: what called it.
     for (const a of othersAt) {
       const read = side.reads?.readers.find((r) => r.member === a.member)?.seq ?? 0;
       const was = givenAt.current.get(a.session) ?? Math.max(read, callerOf(msgs, a.nick, a.session) ?? 0);
-      if (was > 0 || read > 0) givenAt.current.set(a.session, Math.max(was, read));
+      if (!givenFrom.current.has(a.session)) givenFrom.current.set(a.session, was);
+      const taken = (peekChat(a.session)?.log.blocks ?? []).reduce((n, b) => Math.max(n, (b.kind === "user" && givenSeq(b)) || 0), 0);
+      if (was > 0 || taken > 0) givenAt.current.set(a.session, Math.max(was, taken));
     }
+    for (const k of [...givenFrom.current.keys()]) if (!othersAt.some((a) => a.session === k)) (givenFrom.current.delete(k), plainAt.current.delete(k));
     for (const k of [...givenAt.current.keys()]) if (!othersAt.some((a) => a.session === k)) givenAt.current.delete(k);
+    for (const a of othersAt) {
+      const spoken = new Set(msgs.slice(-12).flatMap((m) => (m.author.kind === "agent" && m.author.session === a.session && m.n <= readOf(a) && m.text.trim() ? [m.text.trim()] : [])));
+      const said = msgs.findLast((m) => m.author.kind === "agent" && m.author.session === a.session && m.n <= readOf(a) && !!m.src)?.src;
+      const from = givenFrom.current.get(a.session) ?? Infinity;
+      const cut = liveParts(peekChat(a.session)?.log.blocks ?? [], givenSeq, said, (x) => spoken.has(x));
+      const parts = cut.parts.filter((p) => p.before > from);
+      cutOf.set(a.session, { spoken, said, parts, after: cut.after });
+      for (const p of parts) cutSeqs.add(p.before);
+      // And before what it has yet to take: said after what it works on, it waits under its work,
+      // not in one bubble with what that work answers.
+      const given = givenAt.current.get(a.session);
+      const next = given === undefined ? undefined : msgs.find((m) => m.n > given)?.n;
+      if (next !== undefined) cutSeqs.add(next);
+    }
+    // A speaker's words in a row are one group, but not across what an agent was doing between
+    // them: its work till then goes between.
+    const groupsIn = (ms: Msg[]) => {
+      const runs: Msg[][] = [];
+      for (const m of ms) (cutSeqs.has(m.n) || !runs.length ? runs.push([m]) : runs.at(-1)!.push(m));
+      return runs.flatMap((r) => groupMessages(r));
+    };
     const atPlace = (m: Msg) => m.author.kind === "agent" && m.n > (givenAt.current.get(m.author.session) ?? Infinity);
     const foreign = foreignOf(msgs, id, inputs, log.more ? log.blocks[0]?.time : undefined).filter((m) => !atPlace(m));
     const slots = slotsOf(rowTimes, foreign, cuts);
     merged = [];
     for (let i = 0; i <= rows.length; i++) {
-      for (const g of groupMessages(slots.get(i) ?? [])) {
+      for (const g of groupsIn(slots.get(i) ?? [])) {
         const key = `ch:${g.key}`;
         anchors.push({ key, seq: g.msgs.at(-1)!.n });
         for (const m of g.msgs) shownSeq.add(m.n);
@@ -781,28 +821,60 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
     if (i !== undefined) turnSeq[i] = Math.min(turnSeq[i] ?? Infinity, a.seq);
   }
   const placeAt = (slot: number) => rowPlace(slot, tailAt, pendingBefore.length > 0);
-  const readOf = (a: AgentRow) => givenAt.current.get(a.session) ?? Math.max(side.reads?.readers.find((r) => r.member === a.member)?.seq ?? 0, callerOf(msgs, a.nick, a.session) ?? 0, msgs.findLast((m) => m.author.kind === "agent" && m.author.session === a.session)?.n ?? 0);
+  // The turn each message is in, for what was done before it was given.
+  const seqTurn = new Map<number, number>();
+  for (const [key, g] of groupAt) {
+    const i = rowTurn.get(key);
+    if (i !== undefined) for (const m of g.msgs) seqTurn.set(m.n, i);
+  }
   const lastKey0 = turns.length ? turnKey(turns[turns.length - 1]!) : "";
-  for (const k of [...atWork.map((a) => a.session), ...subs.map((x) => x.id)]) if (!seen.n.has(k)) (seen.n.set(k, seen.n.size), seen.at.set(k, lastKey0));
-  const boxes: Box[] = [
-    ...atWork.map((a) => {
-      const slot = boxSlot(turnSeq, readOf(a));
-      const above = turns[slot - 1];
-      const g = above && slot !== tailAt + 1 ? groupAt.get(above.key) : undefined;
-      const alone = !!g && g.author.kind === "agent" && g.author.session === a.session;
-      return {
-        key: a.session,
+  // One at work, cut where it was given something more (lib.ts liveParts): what it did before
+  // stays over that message, a part at rest under the key it had while it was the one at work
+  // (the same thing, not made again, nor moved); what it does since comes under the message.
+  const workBoxes = atWork.flatMap((a): Box[] => {
+    const { spoken, said, parts, ...cut } = cutOf.get(a.session) ?? { spoken: new Set<string>(), said: undefined, parts: [], after: 0 };
+    const its = peekChat(a.session)?.log;
+    // Its key alone for the part that was at work as its record first came: that one stays the
+    // same thing as it comes to rest; each one after is known by what it began at.
+    if (its?.loaded && !plainAt.current.has(a.session)) plainAt.current.set(a.session, parts[0]?.after ?? cut.after);
+    const plain = plainAt.current.get(a.session);
+    const keyOf = (after: number) => (plain === undefined || after === plain ? a.session : `${a.session}@${after}`);
+    const turn = (alone: boolean, past?: Block[]) => (
+      <OtherTurn spoken={spoken} a={a} channel={id} st={stateOf(a.session)} said={said} alone={alone} bars={past ? null : barsOf(a.session)} call={may ? callAt : undefined} record={openChat} may={may} past={past} grown={changed} />
+    );
+    const slot = boxSlot(turnSeq, readOf(a));
+    const above = turns[slot - 1];
+    const g = above && slot !== tailAt + 1 ? groupAt.get(above.key) : undefined;
+    const alone = !!g && g.author.kind === "agent" && g.author.session === a.session;
+    return [
+      ...parts.map((p) => {
+        const at = seqTurn.get(p.before) ?? boxSlot(turnSeq, p.before - 1);
+        return {
+          key: keyOf(p.after),
+          at: placeAt(at),
+          before: turns[at]?.key ?? "",
+          draw: (leaving: boolean) => (
+            <Arrive on off={leaving} className="-mt-2">
+              <div>{turn(false, p.blocks)}</div>
+            </Arrive>
+          ),
+        };
+      }),
+      {
+        key: keyOf(cut.after),
         at: placeAt(slot),
         before: turns[slot]?.key ?? "",
         draw: (leaving: boolean) => (
           <Arrive on={!alone} off={leaving} className="-mt-2">
-            <div>
-              <OtherTurn spoken={new Set(msgs.slice(-12).flatMap((m) => (m.author.kind === "agent" && m.author.session === a.session && m.n <= readOf(a) && m.text.trim() ? [m.text.trim()] : [])))} a={a} channel={id} st={stateOf(a.session)} said={msgs.findLast((m) => m.author.kind === "agent" && m.author.session === a.session && m.n <= readOf(a) && !!m.src)?.src} alone={alone} bars={barsOf(a.session)} call={may ? callAt : undefined} record={openChat} may={may} />
-            </div>
+            <div>{turn(alone)}</div>
           </Arrive>
         ),
-      };
-    }),
+      },
+    ];
+  });
+  for (const k of [...workBoxes.map((b) => b.key), ...subs.map((x) => x.id)]) if (!seen.n.has(k)) (seen.n.set(k, seen.n.size), seen.at.set(k, lastKey0));
+  const boxes: Box[] = [
+    ...workBoxes,
     ...subs.map((x) => {
       const slot = slotAfter(turns, seen.at.get(x.id) ?? "");
       return {

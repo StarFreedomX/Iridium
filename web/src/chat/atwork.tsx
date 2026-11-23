@@ -2,8 +2,9 @@
 // (Activity), and another agent of the channel at work (OtherTurn), drawn as its own page draws
 // its turn (kumo, 2026-11-18: what an agent does looks the same wherever one looks at it), not
 // dots alone.
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { SessionState as LiveSession } from "../api/types.gen";
+import type { Block } from "../api/types.gen";
 import { chatOf, fresh, type Draft as Drafted } from "../chats";
 import { t, useLang } from "../i18n";
 import { openChat } from "../route";
@@ -76,7 +77,10 @@ const noSource = () => ({ kind: "you" }) as ReturnType<Parameters<typeof Said>[0
  *  runs, or the dots, and its stop key at the end. alone: under its own last words, no face
  *  again. said: where its last words in the channel are from in its record (their work is
  *  under them). */
-export function OtherTurn({ a, channel, st, said, spoken, alone, bars, call, record, may }: { spoken?: ReadonlySet<string>; a: AgentRow; channel: string; st?: LiveSession; said?: Src; alone: boolean; bars: ReactNode; call?: (nick: string) => void; record: (session: string) => void; may: boolean }) {
+/** past: a part of its turn done before it was given something more (lib.ts liveParts), drawn
+ *  as it was, at rest: no row of what runs, nothing asked for. grown: told as its record brings
+ *  something it was given (the page then cuts its turn there). */
+export function OtherTurn({ a, channel, st, said, spoken, alone, bars, call, record, may, past, grown }: { past?: Block[]; grown?: () => void; spoken?: ReadonlySet<string>; a: AgentRow; channel: string; st?: LiveSession; said?: Src; alone: boolean; bars: ReactNode; call?: (nick: string) => void; record: (session: string) => void; may: boolean }) {
   useLang();
   const [chat] = useState(() => chatOf(a.session));
   const log = chat.log;
@@ -85,20 +89,21 @@ export function OtherTurn({ a, channel, st, said, spoken, alone, bars, call, rec
   useEffect(() => {
     let live = true;
     const more = () => void log.newer().then(() => live && changed(), () => {});
+    if (past) return;
     if (!log.loaded || !fresh(log.came)) more();
     opened.add(more);
     return () => {
       live = false;
       opened.delete(more);
     };
-  }, [a.session]);
+  }, [a.session, !past]);
   // Its record grew: what came since.
   const carried = carries(`session:${a.session}`);
   const end = st?.end ?? 0;
   // Not come (a weak link to its computer): asked again, a little later each time; left at that,
   // its steps stood still till its record next grew.
   useEffect(() => {
-    if (!log.loaded || (carried && end <= log.end)) return;
+    if (past || !log.loaded || (carried && end <= log.end)) return;
     let live = true;
     let tries = 0;
     let again = 0;
@@ -114,9 +119,17 @@ export function OtherTurn({ a, channel, st, said, spoken, alone, bars, call, rec
       live = false;
       clearTimeout(again);
     };
-  }, [end, log.loaded]);
+  }, [end, log.loaded, !past]);
+  // Given something more: the page cuts the turn there.
+  const users = log.blocks.reduce((n, b) => n + (b.kind === "user" ? 1 : 0), 0);
+  const usersWas = useRef(users);
+  useEffect(() => {
+    if (usersWas.current === users) return;
+    usersWas.current = users;
+    if (!past) grown?.();
+  }, [users]);
   const away = useAway(channel, a.session);
-  const shown = folded(liveOf(log.blocks, said, spoken ? (x) => spoken.has(x) : undefined));
+  const shown = folded(past ?? liveOf(log.blocks, said, spoken ? (x) => spoken.has(x) : undefined));
   const running = shown.flatMap((b) => (b.kind === "running" ? [b.tool] : []));
   const rows = shown.filter((b) => b.kind !== "running" && b.kind !== "user");
   const cwd = st?.cwd ?? "";
@@ -129,9 +142,9 @@ export function OtherTurn({ a, channel, st, said, spoken, alone, bars, call, rec
       {(e?.before ?? []).map(node)}
     </Earlier>
   ) : null;
-  const stop = may ? <StopKey session={a.session} /> : null;
+  const stop = may && !past ? <StopKey session={a.session} /> : null;
   const time = rows.map((b) => (b.kind === "fold" ? b.steps[0]?.time : "time" in b ? b.time : undefined)).find(Boolean);
-  const activity = (under: boolean) => <Activity calls={[]} running={running} cwd={cwd} quiet grew={`${a.session} ${log.end} ${running.length}`} under={under} stop={stop} />;
+  const activity = (under: boolean) => past ? null : <Activity calls={[]} running={running} cwd={cwd} quiet grew={`${a.session} ${log.end} ${running.length}`} under={under} stop={stop} />;
   const headOf = () => (
     <>
       <span className="shrink-0 text-xs font-medium text-ink-2">{a.nick}</span>

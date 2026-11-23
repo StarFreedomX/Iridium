@@ -2,7 +2,7 @@
 import { describe, expect, test } from "vitest";
 import type { ChannelMessage, ChannelPage } from "../src/api/client";
 import type { Session } from "../src/api/types.gen";
-import { askQueue, eventParts, personName, type EventWords, channelLamp, givenParts, givenTurn, groupMessages, insertNick, isMulti, linkNicks, matchAgents, mayDM, merge, msgOf, ownAgent, nickOfURL, nickParts, nickSpans, readMarks, stillWaiting, userOf, validNick, watchExtra, workOf, liveOf } from "../src/chat/channel/lib";
+import { askQueue, eventParts, personName, type EventWords, channelLamp, givenParts, givenTurn, groupMessages, insertNick, isMulti, linkNicks, matchAgents, mayDM, merge, msgOf, ownAgent, nickOfURL, nickParts, nickSpans, readMarks, stillWaiting, userOf, validNick, watchExtra, workOf, liveOf, liveParts } from "../src/chat/channel/lib";
 import { ChannelLog } from "../src/chat/channel/log";
 import { buildTree, standing } from "../src/tree";
 
@@ -393,5 +393,31 @@ describe("a message that answers another", () => {
     expect(m?.quote).toBe(3);
     expect(m?.text).toBe("more please");
     expect(msgOf({ id: "8", content: "plain", user: { id: "u", name: "kumo" } })?.quote).toBeUndefined();
+  });
+});
+
+describe("liveParts", () => {
+  const given = (b: { text?: string }) => (/^#(\d+)/.exec(b.text ?? "") ? Number(/^#(\d+)/.exec(b.text ?? "")![1]) : undefined);
+  const bs = [
+    { at: "1.0", kind: "user", text: "#5: do it" },
+    { at: "2.0", kind: "tool" },
+    { at: "3.0", kind: "tool" },
+    { at: "4.0", kind: "user", text: "#7: and this" },
+    { at: "5.0", kind: "tool" },
+    { at: "6.0", kind: "user", text: "#8: more" },
+    { at: "7.0", kind: "tool" },
+  ];
+  test("cuts the turn where it was given something more", () => {
+    const r = liveParts(bs, given);
+    expect(r.parts.map((p) => [p.after, p.before, p.blocks.map((b) => b.at)])).toEqual([[5, 7, ["2.0", "3.0"]], [7, 8, ["5.0"]]]);
+    expect(r.after).toBe(8);
+  });
+  test("has no part for what was done before the first thing given, nor with nothing done", () => {
+    expect(liveParts([{ at: "0.0", kind: "tool" }, ...bs.slice(0, 1), bs[3]!, bs[4]!], given).parts).toEqual([]);
+    expect(liveParts([{ at: "0.0", kind: "user", text: "typed at its terminal" }, { at: "0.5", kind: "tool" }, bs[3]!], given).parts).toEqual([]);
+  });
+  test("leaves out what is under its last words, the parts known by the same numbers", () => {
+    const r = liveParts(bs, given, { session: "s", from: 1, to: 3 });
+    expect(r.parts.map((p) => [p.after, p.before, p.blocks.map((b) => b.at)])).toEqual([[5, 7, ["3.0"]], [7, 8, ["5.0"]]]);
   });
 });

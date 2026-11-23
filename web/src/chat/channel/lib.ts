@@ -88,6 +88,34 @@ export function liveOf<B extends { at: string; kind: string; text?: string }>(bl
   return out;
 }
 
+/** What an agent at work did in its turn before each thing it was given meanwhile (kumo,
+ *  2026-11-23: words sent into a turn were drawn over all of it, the steps done before them too,
+ *  as if they had begun it): its record's blocks since its last words in the channel (said,
+ *  spoken, as liveOf), cut where the record has what it was given; each part with the number of
+ *  the message that ended it (before) and of the one it began at (after; 0: none of this
+ *  channel's). given: the message a user block is, when it is one of this channel's. The part after
+ *  the last is liveOf's; after: what that one began at. */
+export function liveParts<B extends { at: string; kind: string; text?: string }>(blocks: B[], given: (b: B) => number | undefined, said?: Src, spoken?: (text: string) => boolean): { parts: { after: number; before: number; blocks: B[] }[]; after: number } {
+  const all = blocks.filter((b) => b.kind !== "system");
+  const from = spoken ? all.findLastIndex((b) => b.kind === "assistant" && !!b.text?.trim() && spoken(b.text.trim())) + 1 : 0;
+  const live = (b: B, i: number) => i >= from && (said?.to !== undefined ? lineOf(b.at) > said.to || (lineOf(b.at) === said.to && b.kind !== "assistant") : !said?.block || atAfter(b.at, said.block));
+  const parts: { after: number; before: number; blocks: B[] }[] = [];
+  let cur: B[] = [];
+  let after = 0;
+  let known = false;
+  all.forEach((b, i) => {
+    if (b.kind !== "user") return void (live(b, i) && cur.push(b));
+    const seq = given(b);
+    // Only what is between two things this channel gave it: what was done before the first is
+    // another turn's, or another channel's.
+    if (seq !== undefined && known && cur.length) parts.push({ after, before: seq, blocks: cur });
+    known = seq !== undefined;
+    after = seq ?? 0;
+    cur = [];
+  });
+  return { parts, after };
+}
+
 /** Something that happened to a channel, a line of Iridium's own in it (internal/channel Event):
  *  join, leave (nick), rename (from, nick), recv (nick, recv: its receive set; before 2026-11-17
  *  "all" or "at"), script (name, what: add, remove, enabled, disabled or the fields changed;

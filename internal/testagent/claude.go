@@ -224,6 +224,7 @@ func Claude() int {
 	asked := 0
 	var waiting map[string]any // a WAIT turn
 	holding := false           // a HOLD turn: it ends once a message joins it
+	steerFor := 50 * time.Millisecond // how long a held turn goes on once a message joined it
 	var steered []map[string]any
 	var later []map[string]any // LATER messages waiting for the turn's end
 	var timer <-chan time.Time
@@ -357,7 +358,7 @@ func Claude() int {
 				note(map[string]any{"type": "user", "uuid": f["uuid"], "timestamp": stamp(), "message": map[string]any{"role": "user", "content": text}})
 				steered = append(steered, f)
 				if holding {
-					holding, timer = false, time.After(50*time.Millisecond)
+					holding, timer = false, time.After(steerFor)
 				}
 				continue
 			}
@@ -407,8 +408,23 @@ func Claude() int {
 				waiting = f
 				timer = time.After(500 * time.Millisecond)
 				continue
+			case strings.HasSuffix(text, "WORKHOLD"):
+				// Two calls run, then held as HOLD is: a message sent meanwhile is taken into a turn
+				// that has done something already.
+				for i, cmd := range []string{"ls", "pwd"} {
+					id := fmt.Sprintf("toolu_wh%d_%d", i, time.Now().UnixNano())
+					call := map[string]any{"type": "tool_use", "id": id, "name": "Bash", "input": map[string]any{"command": cmd, "description": "look"}}
+					done := map[string]any{"type": "tool_result", "tool_use_id": id, "content": "a.txt"}
+					for _, m := range []map[string]any{{"role": "assistant", "content": []any{call}}, {"role": "user", "content": []any{done}}} {
+						say(map[string]any{"type": m["role"], "parent_tool_use_id": nil, "message": m})
+						note(map[string]any{"type": m["role"], "timestamp": stamp(), "message": m})
+					}
+				}
+				waiting, holding, steerFor = f, true, 3*time.Second
+				timer = time.After(20 * time.Second)
+				continue
 			case strings.HasSuffix(text, "HOLD"):
-				waiting, holding = f, true
+				waiting, holding, steerFor = f, true, 50*time.Millisecond
 				timer = time.After(10 * time.Second)
 				continue
 			case strings.HasSuffix(text, "DENIED"):
