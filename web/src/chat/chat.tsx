@@ -144,6 +144,8 @@ export function ChatPage({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?:
  *  code that draws the others too. Until then its bar alone; one seen before draws at once. */
 function OneChat(p: { id: string; sheet?: number; onSheet?: () => void; onMe?: () => void }) {
   const [whole, setWhole] = useState(() => isWhole(p.id) && sideReady(p.id));
+  // Asked for as the page is made: the chat under it, drawn at once now, asks for nothing of it apart.
+  useState(() => void (isWhole(p.id) || firstScreen(p.id)));
   const row = useList()?.find((x) => x.id === p.id);
   useEffect(() => {
     if (whole) return;
@@ -155,18 +157,16 @@ function OneChat(p: { id: string; sheet?: number; onSheet?: () => void; onMe?: (
       .then(() => live && setWhole(true), () => live && setWhole(true));
     return () => void (live = false);
   }, [p.id]);
-  if (!whole)
-    return (
-      <div className="relative h-full">
-        <Bar s={row} onSheet={p.onSheet} onMe={p.onMe} />
-      </div>
-    );
-  return <WholeChat {...p} />;
+  // Not whole yet: its bar and its composer all the same, the conversation alone waited for
+  // (kumo, 2026-11-24: the composer went away as a chat not yet fetched was turned to, and came
+  // back with its first screen; what does not change with the chat is not drawn again for it).
+  return <WholeChat {...p} hold={!whole} />;
 }
 
 /** A session's chat: its own agent's record, and, once its channel has another agent, what the
  *  others say in their places among it (chat/channel/side.ts, merge.ts). */
-function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: number; onSheet?: () => void; onMe?: () => void }) {
+/** hold: its first screen has not come: all of it but the conversation is drawn. */
+function WholeChat({ id, sheet = 0, onSheet, onMe, hold }: { id: string; sheet?: number; onSheet?: () => void; onMe?: () => void; hold?: boolean }) {
   useLang();
   const real = useSession(id);
   const list = useList();
@@ -301,7 +301,8 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
   useLayoutEffect(() => {
     const el = scroller.current;
     const col = column.current;
-    if (el && col && col.offsetHeight < el.clientHeight * 1.25 && drawMore()) changed();
+    // Not while the conversation is held back (its first screen not come): nothing of it is drawn.
+    if (!hold && el && col && col.offsetHeight < el.clientHeight * 1.25 && drawMore()) changed();
   });
   // How high the row at work was while the agent was at work, for what takes its place as the
   // turn is stopped (stopped, below).
@@ -1065,12 +1066,12 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
     <Nicks.Provider value={nicks}>
     <Dispatching.Provider value={dispatching}>
     <div className="relative h-full" onDragOver={(e) => files(e) || session(e) || place(e)} onDrop={drop}>
-      <Stick scroller={scroller} tail={grew} older={older} held={from > 0} busy={busy || othersAt.length > 0 || subs.length > 0} draw={changed} place={chat.place} bottom={stackH} quiet={agents.some((a) => !!stateOf(a.session)?.asks.length)} style={{ paddingTop: padTop, paddingBottom: stackH + 20 }}>
+      <Stick key={hold ? "hold" : "whole"} scroller={scroller} tail={grew} older={older} held={from > 0} busy={busy || othersAt.length > 0 || subs.length > 0} draw={changed} place={chat.place} bottom={stackH} quiet={agents.some((a) => !!stateOf(a.session)?.asks.length)} style={{ paddingTop: padTop, paddingBottom: stackH + 20 }}>
         <div ref={column} className="mx-auto flex max-w-(--chat-w) flex-col gap-5 px-4 [--depart-gap:1.25rem] sm:px-6">
           {/* In a turn, the calls being written or run and the dots share one row at the end, as
               high whatever it shows: the conversation does not jump as a call is drafted, runs and
               folds into the line above (the user, 2026-11-06). */}
-          <Rows
+          {!hold && <Rows
             pieces={[
               ...turns.flatMap((x, i) => (i < from ? [] : [{ at: i, node: turnBox(x, i) }])),
               ...pendingBefore.map((x) => ({ at: tailAt + 0.1, node: pendingNode(x) })),
@@ -1108,7 +1109,7 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
               ...pendingAfter.map((x) => ({ at: tailAt + 0.3, node: pendingNode(x) })),
             ]}
             boxes={P || subs.length ? (from > 0 ? boxes.filter((b) => b.at >= from - 0.5) : boxes) : NO_BOXES}
-          />
+          />}
           {s.status === "error" && s.error && <Crash error={s.error} />}
         </div>
       </Stick>
