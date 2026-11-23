@@ -32,10 +32,12 @@ var assets embed.FS
 // ui is the windowed app: one window on the Iridium shown, a tray icon with the joins' states and
 // the app's own controls.
 type ui struct {
-	win   *mygo.Window
-	tray  *mygo.Tray
-	joins *Joins
-	icon  []byte // the windows' own (Linux, Windows; a Mac's is its bundle's)
+	win  *mygo.Window
+	tray *mygo.Tray
+	// trayMenu: the tray's menu as drawn last; on a Mac and Windows it pops up from a click (trayClick).
+	trayMenu *mygo.Menu
+	joins    *Joins
+	icon     []byte // the windows' own (Linux, Windows; a Mac's is its bundle's)
 
 	here localState  // this computer's own Iridium (local.go)
 	pub  publicState // its 公网访问 (public.go)
@@ -171,6 +173,12 @@ func gui(o Options) int {
 		u.mu.Lock()
 		u.tray = t
 		u.mu.Unlock()
+		if t != nil && runtime.GOOS != "linux" {
+			// No window open: a click brings the picker, its 新建窗口 (kumo, 2026-11-23); else, and on
+			// a right click, the menu. Linux's tray opens its menu on a click itself.
+			t.OnClick(func() { u.trayClick(t, false) })
+			t.OnRightClick(func() { u.trayClick(t, true) })
+		}
 		u.drawMenu(c)
 		// 登录时打开 is gone (kumo, 2026-11-23: what runs at login is the runtime, a service of its
 		// own): a login item left from before is taken away, once, there being no switch for it.
@@ -1047,7 +1055,14 @@ func (u *ui) drawMenu(c Config) {
 	}
 	m = append(m, mygo.Separator(), &item{Label: "Iridium " + version.Short(version.Version), Disabled: true},
 		&item{Label: "退出", Click: click(mygo.App.Quit)})
-	t.SetMenu(mygo.NewMenu(m))
+	menu := mygo.NewMenu(m)
+	if runtime.GOOS == "linux" {
+		t.SetMenu(menu)
+		return
+	}
+	u.mu.Lock()
+	u.trayMenu = menu
+	u.mu.Unlock()
 }
 
 func hostOf(address string) string {
@@ -1129,4 +1144,24 @@ func (u *ui) probe() {
 			u.switchTo(c.current())
 		}
 	}
+}
+
+// trayClick is a click on the tray's icon (Mac, Windows), on the main thread: with no window of the
+// app open and a plain click, the picker; else the menu, popped up and taken back, so that the next
+// click comes here again.
+func (u *ui) trayClick(t *mygo.Tray, right bool) {
+	u.mu.Lock()
+	m, open := u.trayMenu, len(u.wins) > 0
+	p := u.picker
+	u.mu.Unlock()
+	if !right && !open && (p == nil || !p.IsVisible()) {
+		go u.showPicker()
+		return
+	}
+	if m == nil {
+		return
+	}
+	t.SetMenu(m)
+	t.PopUpMenu()
+	t.SetMenu(nil)
 }
