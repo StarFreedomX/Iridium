@@ -15,18 +15,20 @@ const wss = [
 ] as never;
 const tree = (all: Session[]) => buildTree(all, wss, "none", NOW);
 
+const A10 = Array.from({ length: 10 }, (_, i) => `a${i}`);
+
 describe("pick", () => {
-  test("five a workspace, the latest first; the last workspace first, then the others by their latest", () => {
-    const a = Array.from({ length: 8 }, (_, i) => ses(`a${i}`, { updatedAt: NOW - i }));
+  test("ten a workspace, the latest first; the last workspace first, then the others by their latest", () => {
+    const a = Array.from({ length: 13 }, (_, i) => ses(`a${i}`, { updatedAt: NOW - i }));
     const b = Array.from({ length: 3 }, (_, i) => ses(`b${i}`, { cwd: "/b", workspace: 2, updatedAt: NOW + 100 - i }));
     const all = [...a, ...b];
-    expect([...pick(all, tree(all), null, 1, NOW).keys()]).toEqual(["a0", "a1", "a2", "a3", "a4", "b0", "b1", "b2"]);
-    expect([...pick(all, tree(all), null, null, NOW).keys()]).toEqual(["b0", "b1", "b2", "a0", "a1", "a2", "a3", "a4"]);
-    expect(PER_WORKSPACE).toBe(5);
+    expect([...pick(all, tree(all), null, 1, NOW).keys()]).toEqual([...A10, "b0", "b1", "b2"]);
+    expect([...pick(all, tree(all), null, null, NOW).keys()]).toEqual(["b0", "b1", "b2", ...A10]);
+    expect(PER_WORKSPACE).toBe(10);
   });
   test("the open one takes no place; those next to it in the sidebar come first", () => {
     const all = Array.from({ length: 8 }, (_, i) => ses(`a${i}`, { updatedAt: NOW - i }));
-    expect([...pick(all, tree(all), "a6", 1, NOW).keys()]).toEqual(["a5", "a7", "a0", "a1", "a2"]);
+    expect([...pick(all, tree(all), "a6", 1, NOW).keys()]).toEqual(["a5", "a7", "a0", "a1", "a2", "a3", "a4"]);
   });
   test("those that wait on you count in their workspace; archived ones never", () => {
     const all = [ses("a0", { updatedAt: NOW - 5 }), ses("w", { status: "waiting", updatedAt: NOW - 1 }), ses("x", { archived: true, updatedAt: NOW })];
@@ -34,15 +36,15 @@ describe("pick", () => {
     expect(workspaceOf(tree(all), "w")).toBe(1);
     expect(workspaceOf(tree(all), "x")).toBeUndefined();
   });
-  test("those agents made, at work, apart from the five; done, they go", () => {
-    const main = Array.from({ length: 6 }, (_, i) => ses(`a${i}`, { live: true, updatedAt: NOW - i }));
+  test("those agents made, at work, apart from the ten; done, they go", () => {
+    const main = Array.from({ length: 11 }, (_, i) => ses(`a${i}`, { live: true, updatedAt: NOW - i }));
     const sub = ses("sub", { subagent: true, parent: "a0", updatedAt: NOW - 10 });
     const run = ses("ran", { launcher: "a0", status: "running", updatedAt: NOW - 20 });
     const all = [...main, sub, run];
     const got = [...pick(all, tree(all), null, 1, NOW).keys()];
-    expect(got).toEqual(["a0", "a1", "a2", "a3", "a4", "sub", "ran"]);
+    expect(got).toEqual([...A10, "sub", "ran"]);
     const done = [...main, { ...sub, done: true }, { ...run, status: "idle" as const }];
-    expect([...pick(done, tree(done), null, 1, NOW).keys()]).toEqual(["a0", "a1", "a2", "a3", "a4"]);
+    expect([...pick(done, tree(done), null, 1, NOW).keys()]).toEqual(A10);
     const many = [...main, ...Array.from({ length: 20 }, (_, i) => ses(`s${i}`, { subagent: true, parent: "a0", updatedAt: NOW - 100 - i }))];
     expect(pick(many, tree(many), null, 1, NOW).size).toBe(PER_WORKSPACE + MADE_MAX);
   });
@@ -57,20 +59,28 @@ describe("warmTo", () => {
     vi.stubGlobal("fetch", async (url: string, init: RequestInit = {}) => {
       const b = typeof init.body === "string" ? JSON.parse(init.body) : undefined;
       asked.push(b ? [url, b.channel_id, b.direction, b.next].filter(Boolean).join(" ") : url);
-      return new Response(JSON.stringify({ data: [], _data: { start: 10, end: 20, more: true } }), { headers: { "content-type": "application/json" } });
+      const page = { data: [], _data: { start: 10, end: 20, more: true } };
+      // A first screen: its state and its record's newest page.
+      const first = /\/sessions\/([^/]+)\/first/.exec(url);
+      return new Response(JSON.stringify(first ? { session: { id: first[1], status: "idle" }, page } : page), { headers: { "content-type": "application/json" } });
     });
   });
-  afterEach(() => (warmTo(new Map()), vi.unstubAllGlobals()));
-  const settle = () => new Promise((r) => setTimeout(r, 20));
+  afterEach(() => {
+    warmTo(new Map());
+    vi.unstubAllGlobals();
+    for (const id of ["w1", "w2", "v1", "v2"]) setCarried(`session:${id}`, null);
+  });
+  // A first screen looks for this device's copy first (its code loaded the first time).
+  const settle = () => new Promise((r) => setTimeout(r, 150));
 
-  test("the newest page of each and its state, one at a time, not the page before; again only as it changes", async () => {
+  test("the first screen of each (its state with it), one at a time, not the page before; again only as it changes", async () => {
     warmTo(new Map([["w1", 1], ["w2", 1]]));
     await settle();
-    expect(asked).toEqual(["/v1/internal/block.list w1", "/v1/internal/sessions/w1", "/v1/internal/block.list w2", "/v1/internal/sessions/w2"]);
+    expect(asked).toEqual(["/v1/internal/sessions/w1/first", "/v1/internal/sessions/w2/first"]);
     expect(peekChat("w1")?.log.loaded).toBe(true);
     warmTo(new Map([["w1", 1], ["w2", 2]]));
     await settle();
-    expect(asked.slice(4)).toEqual(["/v1/internal/block.list w2 after 20"]);
+    expect(asked.slice(2)).toEqual(["/v1/internal/block.list w2 after 20"]);
   });
   test("a state the stream brought meanwhile is not put over; one asked for again only as it is not there", async () => {
     let answer: () => void = () => {};

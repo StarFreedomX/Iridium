@@ -66,7 +66,7 @@ function Shown({ src, under, alt, className, style }: { src: string; under?: str
   return (
     <>
       {under && <img src={under} alt="" aria-hidden className={cn(className, "absolute inset-0 size-full")} />}
-      <img ref={done} src={src} alt={alt} loading="lazy" onLoad={() => setReady(true)} style={style} className={cn(className, "relative transition-opacity duration-(--dur-2) ease-(--ease-out)", ready ? "opacity-100" : "opacity-0")} />
+      <img ref={done} src={src} alt={alt} decoding="async" onLoad={() => setReady(true)} style={style} className={cn(className, "relative transition-opacity duration-(--dur-2) ease-(--ease-out)", ready ? "opacity-100" : "opacity-0")} />
     </>
   );
 }

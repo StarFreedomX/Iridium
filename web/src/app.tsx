@@ -69,12 +69,11 @@ const Jump = part(() => import("./jump").then((m) => m.Jump));
 export const loadChat = ChatPage.load;
 // The address names a chat: its code and its first screen are asked for now, ahead of the first
 // draw, the list and the sidebar's faces (chats.ts firstScreen).
+// Not one: its code all the same, the first press not waiting for it (kumo, 2026-11-23).
 {
   const at = route();
-  if (at.name === "chat") {
-    void loadChat().catch(() => {});
-    void firstScreen(at.id);
-  }
+  void loadChat().catch(() => {});
+  if (at.name === "chat") void firstScreen(at.id);
 }
 /** The settings and the jump box, their code run, the settings' answers asked: once idle, or a
  *  pointer on their key. */

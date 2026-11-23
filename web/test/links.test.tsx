@@ -17,8 +17,9 @@ const text = "Before.\n\n![a chart](ir:abcdefghij)\n\nAfter, and [the data](ir:b
 describe("file links", () => {
   test("a picture in place, a file to preview or download in the line, one not given struck", () => {
     const html = renderToStaticMarkup(<Markdown text={text} session="s1" files={[png, csv, zip]} />);
-    expect(html.indexOf("Before.")).toBeLessThan(html.indexOf("/files/abcdefghij/thumb"));
-    expect(html.indexOf("/files/abcdefghij/thumb")).toBeLessThan(html.indexOf("After"));
+    // The picture's own (React puts a preload of an eager image's before the rest).
+    expect(html.indexOf("Before.")).toBeLessThan(html.lastIndexOf("/files/abcdefghij/thumb"));
+    expect(html.lastIndexOf("/files/abcdefghij/thumb")).toBeLessThan(html.indexOf("After"));
     // A table previews (files.tsx Preview): a key, not a download.
     expect(html).not.toContain('download="data.csv"');
     expect(html).toMatch(/<button[^>]*>.*the data<\/button>/);

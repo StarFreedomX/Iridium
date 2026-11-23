@@ -12,7 +12,7 @@ import { family, folderSessions, working, type Tree } from "./tree";
 import { keep, kept } from "./ui";
 
 /** How many sessions a workspace warms. */
-export const PER_WORKSPACE = 5;
+export const PER_WORKSPACE = 10;
 /** How many sessions agents made are warmed at most, the latest first. */
 export const MADE_MAX = 12;
 

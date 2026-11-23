@@ -145,7 +145,12 @@ export const pushing = (from: number) => ((document.timeline.currentTime as numb
 /** How long a move to a chat waits for what it needs to be drawn whole, if that has not come yet:
  *  its first screen, in one not held whole, and its state (the composer and its keys). Its page is
  *  drawn whole as it turns, not empty and filled after. */
-const WAIT_FOR_PAGE = 160;
+// Less than the time between two presses as fast as a hand makes them (kumo, 2026-11-23: rows
+// pressed about 150 ms apart, each to be seen).
+const WAIT_FOR_PAGE = 100;
+/** Moves made this soon after the one before draw at once, whatever they have: each press is
+ *  seen as it is made, filled in as its page comes, not waited for and then passed over. */
+const RAPID = 400;
 
 /** Moves to a chat. Chat to chat, or from nothing open, on a computer: the main pane swaps quickly
  *  (motion.css "turn"), the old one fading out as the next fades in with a short drift, up as you go
@@ -156,10 +161,36 @@ const WAIT_FOR_PAGE = 160;
 export function pageTurn(order: () => string[], on: () => boolean): Turn {
   let seq = 0;
   let turning: unknown = null;
+  // When the move before was made (kumo, 2026-11-23: rows pressed fast one after another, each
+  // less than the wait apart, drew none but the last).
+  let lastAt = -Infinity;
+  // While a turn runs the browser gives every press to the page's root (::view-transition's
+  // pointer-events notwithstanding): one made then, on a row of the sidebar, did nothing (measured,
+  // kumo 2026-11-23). It ends the turn and goes to what is under it.
+  if (typeof document !== "undefined")
+    document.addEventListener(
+      "click",
+      (e) => {
+        const vt = turning as { skipTransition?: () => void; finished?: Promise<void> } | null;
+        if (!vt || e.target !== document.documentElement || !e.isTrusted) return;
+        e.stopImmediatePropagation();
+        e.preventDefault();
+        const { clientX: x, clientY: y } = e;
+        vt.skipTransition?.();
+        void (vt.finished ?? Promise.resolve()).catch(() => {}).finally(() => {
+          const el = document.elementFromPoint(x, y);
+          if (el && el !== document.documentElement) (el as HTMLElement).click();
+        });
+      },
+      true,
+    );
   return (from, to, draw) => {
     const doc = document as Document & { startViewTransition?: (f: () => Promise<void> | void) => { finished: Promise<void> } };
     const root = document.documentElement;
     const mine = ++seq;
+    const now = performance.now();
+    const rapid = now - lastAt < RAPID;
+    lastAt = now;
     // Out of the settings: the chat under them is drawn already.
     if (to.name !== "chat" || (from.name !== "chat" && from.name !== "home") || (from.name === "chat" && from.id === to.id) || document.hidden) return draw();
     const still = !!document.querySelector("[data-still]");
@@ -185,7 +216,10 @@ export function pageTurn(order: () => string[], on: () => boolean): Turn {
       // What still moves in the chat being left is put where it goes: the swap's picture of it is
       // as it rests, not caught halfway.
       for (const a of document.querySelector('[role="log"]')?.getAnimations({ subtree: true }) ?? []) if (a.effect?.getTiming().iterations !== Infinity) a.finish();
-      if (!turns) return draw();
+      // Pressed fast: drawn in the next frame, no turn. A turn's change is drawn a frame later,
+      // and a press in that frame skipped it: the chat it was to draw was never seen.
+      if (rapid && turning) (turning as { skipTransition?: () => void }).skipTransition?.();
+      if (!turns || rapid) return draw();
       root.dataset.turn = dir;
       const vt = doc.startViewTransition!(() => flushSync(draw));
       turning = vt;
@@ -193,7 +227,7 @@ export function pageTurn(order: () => string[], on: () => boolean): Turn {
       // middle of one left the mark on, the bar and the composer drawn as for a turn.
       void vt.finished.finally(() => turning === vt && (delete root.dataset.turn, (turning = null))).catch(() => {});
     };
-    if (still || !wait.some(Boolean)) return start();
+    if (still || rapid || !wait.some(Boolean)) return start();
     void Promise.race([Promise.all(wait), new Promise((r) => setTimeout(r, WAIT_FOR_PAGE))]).then(start);
   };
 }

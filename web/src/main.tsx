@@ -14,6 +14,8 @@ watchInstall();
 // The sidebar and the faces as this device last had them, in the first frame (device/first.ts).
 restore();
 watch();
+// The chats' copies read from the first press: their code here before it (device/chats.ts).
+void import("./device/chats").catch(() => {});
 
 // A file dropped anywhere off the chat, which attaches it, is not opened by the browser in place of the page.
 const keepFile = (e: DragEvent) => e.dataTransfer?.types.includes("Files") && e.preventDefault();

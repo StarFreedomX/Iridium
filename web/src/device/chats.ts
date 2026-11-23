@@ -8,7 +8,7 @@
 // and all of it as the login ends. A copy of another format is dropped, never moved on.
 import { queryClient } from "../api/client";
 import type { Block, ChannelMembers, ChannelReads, Session, SessionState } from "../api/types.gen";
-import { keptChats, lineOf, peekChat, type Chat } from "../chats";
+import { heldChats, lineOf, peekChat, type Chat } from "../chats";
 import { workKey, type Msg } from "../chat/channel/lib";
 import { channelLog, heldLog, several } from "../chat/channel/log";
 import { getCarried, onCarried, setCarried } from "../store";
@@ -144,7 +144,7 @@ export async function save(ids?: string[]) {
   if (!d) return;
   const now = Date.now();
   const copies: Copy[] = [];
-  for (const it of ids ? ids.map((id) => peekChat(id)).filter((c): c is Chat => !!c) : keptChats()) {
+  for (const it of ids ? ids.map((id) => peekChat(id)).filter((c): c is Chat => !!c) : heldChats()) {
     const id = it.log.id;
     const v = versionOf(id, it);
     if (written.get(id) === v) continue;
@@ -184,6 +184,22 @@ export async function unload(list: Session[]) {
 }
 
 const IDLE_EVERY = 30_000;
+
+/** Session id's copy written when the page is idle (its first screen just came). */
+const due = new Set<string>();
+let dueAt: ReturnType<typeof setTimeout> | undefined;
+export function saveSoon(id: string) {
+  due.add(id);
+  if (dueAt !== undefined) return;
+  const go = () => {
+    dueAt = undefined;
+    const ids = [...due];
+    due.clear();
+    void save(ids).catch(() => {});
+  };
+  // A few together, once things are still.
+  dueAt = setTimeout(() => (typeof requestIdleCallback === "function" ? requestIdleCallback(go, { timeout: 3_000 }) : go()), 800);
+}
 const BUSY = new Set(["running", "compacting"]);
 
 /** Writes as turns end, as the page goes to the background, and when idle; lets go of the
@@ -214,9 +230,11 @@ export function watch() {
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) void save().catch(() => {});
   });
+  // The app quit (a web view gone with no visibilitychange): what is held written as it goes.
+  addEventListener("pagehide", () => void save().catch(() => {}));
   setInterval(() => {
     const list = getCarried<Session[]>("list") ?? [];
     const busy = new Set(list.filter((s) => BUSY.has(s.status)).map((s) => s.id));
-    soon(keptChats().map((c) => c.log.id).filter((id) => !busy.has(id)));
+    soon(heldChats().map((c) => c.log.id).filter((id) => !busy.has(id)));
   }, IDLE_EVERY);
 }

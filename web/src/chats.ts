@@ -430,6 +430,8 @@ export function chatOf(id: string): Chat {
 
 export const peekChat = (id: string) => kept.get(id) ?? (early?.id === id ? early.it : undefined) ?? warm.get(id)?.it;
 export const keptChats = () => [...kept.values()];
+/** The chats kept and those warmed (all whose copies this device may write). */
+export const heldChats = () => [...kept.values(), ...[...warm.values()].map((w) => w.it)];
 
 /** Whether the browser asks to save data: then nothing is fetched ahead. */
 export const mayPrefetch = (nav: Navigator = navigator) => !(nav as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData;
@@ -547,6 +549,7 @@ export function firstScreen(id: string, it: Chat = chatOf(id), init?: RequestIni
         .then(([f]) => {
           if (getCarried(key) === mine) setCarried(key, f.session);
           putFirst(id, f, log);
+          copyLater(id);
         })
         .catch(() => {});
       return;
@@ -556,6 +559,7 @@ export function firstScreen(id: string, it: Chat = chatOf(id), init?: RequestIni
       if (getCarried(key) === was) setCarried(key, f.session);
       putFirst(id, f, log);
       whole.add(id);
+      copyLater(id);
     } catch {
       // Stopped (the mouse left its row): nothing came. Else the page asks part by part.
       if (!init?.signal?.aborted) whole.add(id);
@@ -569,10 +573,37 @@ export function firstScreen(id: string, it: Chat = chatOf(id), init?: RequestIni
   return p;
 }
 
+/** The pictures of chat it's newest page (their thumbnails, as said.tsx shows them) fetched and
+ *  decoded ahead, low, a few: opened, its pictures are there with its words (kumo, 2026-11-23),
+ *  from the cache (sw.js) and the browser's memory. Not the tool's pictures, shut at first. */
+const PICTURES_AHEAD = 6;
+const picturesAsked = new Set<string>();
+function picturesAhead(id: string, it: Chat) {
+  if (typeof Image === "undefined") return;
+  const urls: string[] = [];
+  for (let i = it.log.blocks.length - 1; i >= 0 && urls.length < PICTURES_AHEAD; i--)
+    for (const f of it.log.blocks[i]!.files ?? []) {
+      if (f.kind !== "image" || urls.length >= PICTURES_AHEAD) continue;
+      const url = f.thumb && f.mime.split(";")[0] !== "image/gif" ? api.thumbURL(id, f.ref, 1024, f.mtime) : api.fileURL(id, f.ref, false, f.mtime);
+      if (!picturesAsked.has(url)) urls.push(url);
+    }
+  for (const url of urls) {
+    picturesAsked.add(url);
+    const img = new Image();
+    (img as HTMLImageElement & { fetchPriority?: string }).fetchPriority = "low";
+    img.src = url;
+    void img.decode().catch(() => picturesAsked.delete(url));
+  }
+}
+
 /** Puts this device's copy of session id's first screen into chat it (device/chats.ts), in time
  *  for its first draw (DEVICE_WAIT at most): its record's page unless one is held, and the rest;
  *  says whether there was one. */
 const DEVICE_WAIT = 300;
+/** Session id's first screen came from the server: this device's copy written when idle, so a
+ *  start draws it at once, opened or only warmed (kumo, 2026-11-23: a chat seen and the app quit
+ *  in half a minute had none). */
+const copyLater = (id: string) => void import("./device/chats").then((m) => m.saveSoon(id)).catch(() => {});
 async function fromDevice(id: string, it: Chat): Promise<boolean> {
   try {
     const m = await import("./device/chats");
@@ -637,6 +668,8 @@ export function warmTo(want: Map<string, number>): void {
     if (want.has(id)) continue;
     w.stop.abort();
     warm.delete(id);
+    // Its first screen goes with it: not drawn as whole from nothing.
+    if (!kept.has(id)) whole.delete(id);
   }
   for (const [id] of wanted) {
     if (warm.has(id) || kept.has(id) || early?.id === id) continue;
@@ -663,13 +696,20 @@ async function pump() {
       const w = warm.get(id)!;
       w.seen = at;
       const it = w.it;
-      it.coming = it.log
-        .newer()
-        .catch(() => {})
-        .finally(() => (it.coming = undefined));
-      await it.coming;
+      // Never drawn: its first screen whole (state, members, its channel's side), from this
+      // device's copy at once if there is one, so a press draws it as it is, nothing waited for
+      // (kumo, 2026-11-23); held: what came since.
+      if (!isWhole(id)) await firstScreen(id, it, { signal: w.stop.signal, priority: "low" } as RequestInit);
+      else {
+        it.coming = it.log
+          .newer()
+          .catch(() => {})
+          .finally(() => (it.coming = undefined));
+        await it.coming;
+      }
       // Its state too, so opening it draws the composer and its keys at once.
       if (!getCarried(`session:${id}`)) await stateAhead(id, true);
+      picturesAhead(id, it);
     }
   } finally {
     pumping = false;
