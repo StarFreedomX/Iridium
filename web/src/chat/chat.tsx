@@ -277,6 +277,15 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
   /** The turn at work as this page follows it (turns.ts liveAt), and whether it saw the chat at rest. */
   const liveSeen = useRef<{ id: string; idle: boolean; at: LiveAt | null }>({ id: "", idle: false, at: null });
   const column = useRef<HTMLDivElement>(null);
+  // How high the row at work was while the agent was at work, for what takes its place as the
+  // turn is stopped (stopped, below).
+  const workBusy = useRef(false);
+  const workH = useRef({ id: "", h: 0 });
+  useLayoutEffect(() => {
+    if (workH.current.id !== id) workH.current = { id, h: 0 };
+    const row = workBusy.current ? column.current?.querySelector<HTMLElement>(':scope > [data-flip="work"]') : null;
+    if (row) workH.current.h = row.offsetHeight;
+  });
   // Turns that change places (the row at work going from over others' words to under them, words
   // put between turns as the record catches up) glide there (motion.ts useMoves).
   const moved = useMoves(column);
@@ -701,7 +710,17 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
   // down once they come (kumo, 2026-11-23: the answer came in over what was just sent).
   const drafting = new Set(log.drafts.map((d) => `${d.proc}.${d.n}`));
   const ahead: ReactNode[] = [];
-  const turns = turnsOf(pendingBefore.length && drafting.size ? merged.filter((r) => !(drafting.has(r.key) && ahead.push(r.node))) : merged);
+  const allTurns = turnsOf(pendingBefore.length && drafting.size ? merged.filter((r) => !(drafting.has(r.key) && ahead.push(r.node))) : merged);
+  // A turn stopped: its line (回合已中断) is drawn where the row at work was, that row as high as
+  // it was, not as a row more over it: there was room for it already, and nothing moves (kumo,
+  // 2026-11-23: the conversation went up a little as each turn was stopped). Once something
+  // comes after it, it is a row of the conversation as any.
+  const lastShown = shown.at(-1);
+  const stoppedAt = !busy && !pending.length && lastShown?.kind === "system" && lastShown.event === "interrupted" ? lastShown.at : null;
+  const lastOne = allTurns.at(-1);
+  const stopped = stoppedAt !== null && lastOne?.kind === "one" && lastOne.key === stoppedAt ? lastOne : null;
+  const turns = stopped ? allTurns.slice(0, -1) : allTurns;
+  workBusy.current = busy;
   // A turn another channel called (works) is the agent's too once it has rows: its row at work
   // goes on under them, not under a face and name again (kumo, 2026-11-18).
   // The turn at work is not ended by what others say meanwhile: their words go under it (merge.ts
@@ -916,7 +935,7 @@ function WholeChat({ id, sheet = 0, onSheet, onMe }: { id: string; sheet?: numbe
             ) : (
               activity
             )
-          ) : s.denials?.length ? <Denials session={id} denials={s.denials} cwd={cwd} stuck={s.status === "waiting" && !s.asks.length} /> : <div aria-hidden className="-mt-3 h-7 pointer-coarse:h-9" />)}
+          ) : s.denials?.length ? <Denials session={id} denials={s.denials} cwd={cwd} stuck={s.status === "waiting" && !s.asks.length} /> : stopped ? <div className="grid content-center" style={{ minHeight: workH.current.id === id ? workH.current.h : 0 }}>{stopped.node}</div> : <div aria-hidden className="-mt-3 h-7 pointer-coarse:h-9" />)}
                   </div>
                 ),
               },

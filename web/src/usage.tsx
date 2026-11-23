@@ -355,9 +355,34 @@ export function UsagePage() {
   const pick = shown.length === 1 ? shown[0] : undefined;
   const models = useMemo(() => (pick !== undefined ? modelsOf(rows, pick, m.value) : undefined), [rows, pick, m]);
   const modelColors = useMemo(() => paint(models?.order ?? []), [models]);
-  const parts = models
-    ? { perDay: models.perDay, order: models.order, colors: modelColors, on: () => true, name: (id: string) => { const [agent, model] = id.split("\u0000") as [Agent, string]; return prettyModel(model, agent); } }
-    : { perDay: s.perDay, order: s.order, colors, on, name: (id: string) => who(u, id).name };
+  // One chart for both: the logins' parts and, with them, the models of the one login in (the one
+  // last in, its parts at nothing, so they go as they came). Only one login in, its part goes down
+  // as its models' come up under the same glide, the bar as high all the while: the same move as
+  // a login taken out or put in, whichever key chose it (kumo, 2026-11-23: a right click had the
+  // whole chart fall and rise again, a left click did not).
+  const keptModels = useRef<{ m: NonNullable<typeof models>; c: typeof modelColors } | null>(null);
+  if (models) keptModels.current = { m: models, c: modelColors };
+  const km = keptModels.current;
+  const isModel = (id: string) => id.includes("\u0000");
+  const bothDays = useMemo(() => {
+    if (!km) return s.perDay;
+    const out = new Map<string, Map<string, Sum>>();
+    for (const d of new Set([...s.perDay.keys(), ...km.m.perDay.keys()])) out.set(d, new Map([...(s.perDay.get(d) ?? []), ...(km.m.perDay.get(d) ?? [])]));
+    return out;
+  }, [s, km?.m]); // eslint-disable-line react-hooks/exhaustive-deps
+  const bothOrder = useMemo(() => [...s.order, ...(km?.m.order ?? [])], [s, km?.m]); // eslint-disable-line react-hooks/exhaustive-deps
+  const bothColors = useMemo(() => new Map([...colors, ...(km?.c ?? [])]), [colors, km?.c]); // eslint-disable-line react-hooks/exhaustive-deps
+  const parts = {
+    perDay: bothDays,
+    order: bothOrder,
+    colors: bothColors,
+    on: (id: string) => (isModel(id) ? !!models && models.order.includes(id) : !models && on(id)),
+    name: (id: string) => {
+      if (!isModel(id)) return who(u, id).name;
+      const [agent, model] = id.split("\u0000") as [Agent, string];
+      return prettyModel(model, agent);
+    },
+  };
   const everyone = () => setOff(new Set());
   // Only this one in; when it already is, everyone back.
   const only = (id: string) => setOff(solo === id ? new Set() : new Set(s.order.filter((o) => o !== id)));
@@ -486,7 +511,7 @@ export function UsagePage() {
               ) : heat ? (
                 <Heat u={hq.data} hidden={hidden} off={off} m={m} color={solo !== undefined ? colors.get(solo)! : "var(--series-1)"} />
               ) : (
-                <StacksSwap k={range + (pick !== undefined ? ":models" : "")} days={u.days} perDay={parts.perDay} order={parts.order} colors={parts.colors} on={parts.on} name={parts.name} sel={day} onSel={setDay} week={range === 7} m={m} />
+                <StacksSwap k={String(range)} days={u.days} perDay={parts.perDay} order={parts.order} colors={parts.colors} on={parts.on} name={parts.name} sel={day} onSel={setDay} week={range === 7} m={m} />
               )}
             </div>
           </section>
@@ -794,13 +819,7 @@ function Stacks({ days, perDay, order, colors, on, name, sel, onSel, week, m, fa
                         // sliver left it a crooked cap). None over the top part.
                         const next = hs.findIndex((v, i) => i > j && v > 0);
                         const gap = h >= 6 && next >= 0 && hs[next]! >= 6;
-                        return (
-                          <span
-                            key={id}
-                            className={cn("block shrink-0 border-t-transparent bg-clip-content transition-[height,border-top-width]", fall ? "duration-(--dur-2) ease-(--ease-out)" : "duration-(--dur-3) ease-(--ease-out)")}
-                            style={{ height: h > 0 ? Math.max(2, h) : 0, borderTopWidth: gap ? 1.5 : 0, borderTopStyle: "solid", background: colors.get(id), backgroundClip: "content-box" } as CSSProperties}
-                          />
-                        );
+                        return <Part key={id} h={h} gap={gap} color={colors.get(id)} fall={fall} />;
                       });
                     })()}
                   </span>
@@ -829,11 +848,28 @@ function Stacks({ days, perDay, order, colors, on, name, sel, onSel, week, m, fa
 }
 
 /** The chart, chosen anew (a range: the bars' count changes, so they cannot glide to their new
- *  heights; one login left: its models): one chart at a time in its place (the user, 2026-11-12:
+ *  heights): one chart at a time in its place (the user, 2026-11-12:
  *  two drawn over each other twitched). The one drawn falls to nothing as it was last drawn, then
  *  the next rises; chosen back while it falls, it rises again where it is. The same chart takes new
  *  figures in place, its bars gliding. */
 type SwapProps = StacksProps & { k: string };
+
+/** One part of a bar. A part new to the chart (a model's, as only its login is left in) is drawn
+ *  first at nothing and rises to its figure, as the chart's own did. */
+function Part({ h, gap, color, fall }: { h: number; gap: boolean; color: string | undefined; fall?: boolean }) {
+  const [up, setUp] = useState(false);
+  useEffect(() => {
+    const f = requestAnimationFrame(() => setUp(true));
+    return () => cancelAnimationFrame(f);
+  }, []);
+  const at = up ? h : 0;
+  return (
+    <span
+      className={cn("block shrink-0 border-t-transparent bg-clip-content transition-[height,border-top-width]", fall ? "duration-(--dur-2) ease-(--ease-out)" : "duration-(--dur-3) ease-(--ease-out)")}
+      style={{ height: at > 0 ? Math.max(2, at) : 0, borderTopWidth: gap && up ? 1.5 : 0, borderTopStyle: "solid", background: color, backgroundClip: "content-box" } as CSSProperties}
+    />
+  );
+}
 function StacksSwap(p: SwapProps) {
   // The chart drawn (its k), and what it was last drawn with: what falls.
   const [at, setAt] = useState(p.k);
