@@ -11,6 +11,7 @@
 #   scripts/release.sh v1.2.0 dist
 #   PLATFORMS="linux/amd64 linux/arm64"   which to build (default Linux, macOS and Windows, amd64 and arm64)
 #   COMPUTER_PLATFORMS="windows/amd64"    which ir-computer to build (default those and Windows)
+#   JOBS=3                                how many platforms are built at once
 set -eu
 cd "$(dirname "$0")/.."
 version=${1:?usage: scripts/release.sh <version> <dir>}
@@ -40,8 +41,13 @@ prev=$(git describe --tags --abbrev=0 "$version^" 2>/dev/null || true)
 	echo "| 平台 | 二进制 | 下载（tar.gz） |"
 	echo "|---|---|---|"
 } >"$out/notes.md"
-for p in ${PLATFORMS:-linux/amd64 linux/arm64 darwin/arm64 darwin/amd64 windows/amd64 windows/arm64}; do
-	os=${p%/*} arch=${p#*/}
+# The platforms side by side, each one's builds in turn (they share what is compiled for it); one
+# at a time they took most of the release's time. A row of the notes each, put in order once all
+# are done.
+rows=$(mktemp -d)
+trap 'rm -rf "$rows"' EXIT
+platform() { # os arch: Iridium's archive, its desktop app's download, the QQ plugin
+	os=$1 arch=$2
 	name=iridium-$os-$arch
 	ext=
 	[ "$os" = windows ] && ext=.exe
@@ -52,11 +58,11 @@ for p in ${PLATFORMS:-linux/amd64 linux/arm64 darwin/arm64 darwin/amd64 windows/
 	cp LICENSE "$stage/" 2>/dev/null || true
 	cp internal/desktop/assets/icon.png "$stage/" # the install script's menu entry on a Linux desktop
 	tar -C "$stage" -czf "$out/$name.tar.gz" --owner=0 --group=0 --numeric-owner .
-	echo "| $os/$arch | $(mib "$(size "$stage/iridium$ext")") | $(mib "$(size "$out/$name.tar.gz")") |" >>"$out/notes.md"
+	echo "| $os/$arch | $(mib "$(size "$stage/iridium$ext")") | $(mib "$(size "$out/$name.tar.gz")") |" >"$rows/iridium-$os-$arch"
 	# The desktop app's download on Linux and Windows: the binary itself.
 	[ "$os" = darwin ] || cp "$stage/iridium$ext" "$out/iridium-app-$os-$arch$ext"
 	rm -rf "$stage"
-	[ "$os" = windows ] && continue
+	[ "$os" = windows ] && return 0
 	# The official QQ plugin: not in Iridium's archive; 终端管理 installs it from here when asked.
 	stage=$(mktemp -d)
 	CGO_ENABLED=0 GOOS=$os GOARCH=$arch "$GO" build -trimpath \
@@ -64,23 +70,53 @@ for p in ${PLATFORMS:-linux/amd64 linux/arm64 darwin/arm64 darwin/amd64 windows/
 		-o "$stage/iridium-qq" ./cmd/iridium-qq
 	tar -C "$stage" -czf "$out/iridium-qq-$os-$arch.tar.gz" --owner=0 --group=0 --numeric-owner .
 	rm -rf "$stage"
-done
+}
 # ir-computer: the program another computer runs to join (docs/exec.md), a bare binary each, so a
 # one-line script fetches and runs it. Windows too.
-{
-	echo
-	echo "| ir-computer | 二进制 |"
-	echo "|---|---|"
-} >>"$out/notes.md"
-for p in ${COMPUTER_PLATFORMS:-windows/amd64 windows/arm64 darwin/arm64 darwin/amd64 linux/amd64 linux/arm64}; do
-	os=${p%/*} arch=${p#*/}
+computer() { # os arch
+	os=$1 arch=$2
 	ext=
 	[ "$os" = windows ] && ext=.exe
 	name=ir-computer-$os-$arch$ext
 	CGO_ENABLED=0 GOOS=$os GOARCH=$arch "$GO" build -trimpath \
 		-ldflags "-s -w -X github.com/kumoSleeping/iridium/internal/version.Version=$version" \
 		-o "$out/$name" ./cmd/ir-computer
-	echo "| $os/$arch | $(mib "$(size "$out/$name")") |" >>"$out/notes.md"
+	echo "| $os/$arch | $(mib "$(size "$out/$name")") |" >"$rows/computer-$os-$arch"
+}
+platforms=${PLATFORMS:-linux/amd64 linux/arm64 darwin/arm64 darwin/amd64 windows/amd64 windows/arm64}
+computers=${COMPUTER_PLATFORMS:-windows/amd64 windows/arm64 darwin/arm64 darwin/amd64 linux/amd64 linux/arm64}
+# At most JOBS platforms at once (default 3): each build runs compilers on every core already, and
+# six at once ran a runner's memory out (a build killed without a word).
+jobs=${JOBS:-3}
+running= # pid:platform of the builds under way, oldest first
+failed=
+reap() { # the oldest build under way
+	first=${running%% *}
+	running=${running#"$first"}
+	running=${running# }
+	wait "${first%%:*}" || failed="$failed ${first#*:}"
+}
+for p in $(printf '%s\n' $platforms $computers | awk '!seen[$0]++'); do
+	(
+		case " $platforms " in *" $p "*) platform "${p%/*}" "${p#*/}" ;; esac
+		case " $computers " in *" $p "*) computer "${p%/*}" "${p#*/}" ;; esac
+	) &
+	running="${running:+$running }$!:$p"
+	set -- $running
+	[ $# -lt "$jobs" ] || reap
+done
+while [ -n "$running" ]; do reap; done
+[ -z "$failed" ] || { echo "release: the build failed for$failed" >&2; exit 1; }
+for p in $platforms; do
+	cat "$rows/iridium-${p%/*}-${p#*/}" >>"$out/notes.md"
+done
+{
+	echo
+	echo "| ir-computer | 二进制 |"
+	echo "|---|---|"
+} >>"$out/notes.md"
+for p in $computers; do
+	cat "$rows/computer-${p%/*}-${p#*/}" >>"$out/notes.md"
 done
 (cd "$out" && sha256sum iridium-*.tar.gz iridium-app-* ir-computer-* >SHA256SUMS)
 # The install script as this release's own assets (internal/joinscript): installing this release

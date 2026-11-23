@@ -25,6 +25,15 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+          cache: false
+      # ci.yml's cache, from main; a tag's own would serve no later tag, so none is saved here.
+      - uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-${{ runner.os }}-${{ hashFiles('go.mod', 'go.sum') }}
+          restore-keys: go-${{ runner.os }}-
       - name: test
         run: |
           scripts/check-types.sh
@@ -48,6 +57,14 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+          cache: false
+      - uses: actions/cache/restore@v4 # the modules at least (the release's builds are -trimpath)
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-${{ runner.os }}-${{ hashFiles('go.mod', 'go.sum') }}
+          restore-keys: go-${{ runner.os }}-
       - name: web
         working-directory: web
         run: |
@@ -77,6 +94,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+          cache: false # a tag's cache serves no later tag
       - uses: actions/download-artifact@v4
         with:
           name: dist

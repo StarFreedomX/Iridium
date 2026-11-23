@@ -43,6 +43,16 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+          cache: false
+      # Go's build and module caches, by go.mod and go.sum; when those change, the last one saved
+      # is a start (setup-go's own cache had none: everything built again, the job three times as long).
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-${{ runner.os }}-${{ hashFiles('go.mod', 'go.sum') }}
+          restore-keys: go-${{ runner.os }}-
       - name: types
         run: scripts/check-types.sh
       - name: vet
