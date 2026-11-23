@@ -916,7 +916,6 @@ export const en: Dict = {
   "app.allFolders": "All",
   "app.addFolder": "Add folder",
   "app.allFoldersKey": "Make it all",
-  "app.autostart": "Open at login",
   "app.version": "Version {v}",
   "app.check": "Check for updates",
   "app.restartTo": "Restart to update to {v}",

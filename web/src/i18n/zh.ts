@@ -916,7 +916,6 @@ export const zh = {
   "app.allFolders": "全部",
   "app.addFolder": "添加文件夹",
   "app.allFoldersKey": "改为全部",
-  "app.autostart": "登录时打开",
   "app.version": "版本 {v}",
   "app.check": "检查更新",
   "app.restartTo": "重启以更新到 {v}",

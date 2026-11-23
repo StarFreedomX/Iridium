@@ -170,7 +170,10 @@ func gui(o Options) int {
 		u.mu.Lock()
 		u.tray = t
 		u.mu.Unlock()
-		u.drawMenu(c, mygo.App.OpenAtLogin(), nil)
+		u.drawMenu(c)
+		// 登录时打开 is gone (kumo, 2026-11-23: what runs at login is the runtime, a service of its
+		// own): a login item left from before is taken away, once, there being no switch for it.
+		go dropLoginItem()
 	})
 	u.joins.Sync(c)
 	if l := c.local(); l != nil && c.serverOn() && !o.NoServer {
@@ -407,14 +410,6 @@ func (u *ui) message(w *mygo.Window, msg, origin string, logf func(string, ...an
 			to = arg
 		}
 		go u.pickRoot(w, to, server)
-	case "autostart":
-		if arg == "on" {
-			_ = mygo.App.SetOpenAtLogin(true)
-		} else {
-			_ = mygo.App.SetOpenAtLogin(false)
-		}
-		u.redraw()
-		reply(w, u.hello(c, server))
 	case "update":
 		if arg == "restart" {
 			u.restartApp()
@@ -460,12 +455,6 @@ func (u *ui) local(w *mygo.Window, verb, arg string) {
 		reply(w, st)
 	case "answer":
 		answerAsk(arg)
-	case "autostart":
-		// The picker's 登录时打开 (kumo, 2026-11-23: out of the tray's menu).
-		_ = mygo.App.SetOpenAtLogin(arg == "on")
-		c, _ := loadConfig()
-		reply(w, state(c))
-		u.redraw()
 	case "title":
 		// An Iridium's name in this app, from the picker (any Iridium, of any version).
 		var t struct{ URL, Title string }
@@ -699,7 +688,7 @@ func (u *ui) pageState(c Config) map[string]any {
 	cu, _ := user.Current()
 	return map[string]any{"os": runtime.GOOS, "servers": list, "current": c.current(), "theme": c.Theme, "hasLocal": c.local() != nil,
 		"me": c.Me, "sysName": ownName(cu), "agents": agents, "server": c.serverOn(), "public": publicOn(), "publicState": u.pub.view(),
-		"publicAddress": publicAddress(), "hideLocal": c.HideLocal, "autostart": mygo.App.OpenAtLogin()}
+		"publicAddress": publicAddress(), "hideLocal": c.HideLocal}
 }
 
 // hello is what an Iridium's page learns of the app: that it is in it, and the Iridiums in its
@@ -729,7 +718,6 @@ func (u *ui) hello(c Config, server string) map[string]any {
 		list = append(list, map[string]any{"url": s.URL, "host": hostOf(s.URL), "current": s.URL == server, "local": s.Local,
 			"joined": !s.Off && !s.Local, "status": status, "shell": !s.NoShell, "roots": roots, "agents": agents})
 	}
-	auto := mygo.App.OpenAtLogin()
 	u.mu.Lock()
 	ready := u.ready
 	u.mu.Unlock()
@@ -737,7 +725,7 @@ func (u *ui) hello(c Config, server string) map[string]any {
 	if s := c.server(server); s != nil {
 		title = s.Title
 	}
-	return map[string]any{"app": "ir-app", "version": version.Short(version.Version), "name": name, "servers": list, "autostart": auto, "update": ready, "hasLocal": c.local() != nil, "server": !c.NoServer,
+	return map[string]any{"app": "ir-app", "version": version.Short(version.Version), "name": name, "servers": list, "update": ready, "hasLocal": c.local() != nil, "server": !c.NoServer,
 		"public": publicOn(), "publicState": u.pub.view(), "title": title, "os": runtime.GOOS}
 }
 
@@ -949,9 +937,9 @@ func (u *ui) confirm(ctx context.Context, q string) bool {
 
 // redraw builds the tray's menu again: each Iridium with its state, which is shown, the app's own.
 //
-// What it reads (the settings, the runtime's record, the system's word on 登录时打开) is read off
-// the main thread, and only the menu is built on it: read there, every window of the app stood
-// still for it, some 150 ms each time (kumo, 2026-11-22: 两边都同时卡一下).
+// What it reads (the settings, the runtime's record) is read off the main thread, and only the menu
+// is built on it: read there, every window of the app stood still for it, some 150 ms each time
+// (kumo, 2026-11-22: 两边都同时卡一下).
 func (u *ui) redraw() {
 	go func() {
 		t0 := time.Now()
@@ -959,18 +947,16 @@ func (u *ui) redraw() {
 		st := u.pageState(c)
 		u.tellPicker(st)
 		t1 := time.Now()
-		auto := mygo.App.OpenAtLogin()
-		t2 := time.Now()
-		u.drawMenu(c, auto, nil)
-		if d := time.Since(t2); d > 30*time.Millisecond {
-			appLog()("redraw: the menu took %v (state %v, autostart %v)", d, t1.Sub(t0), t2.Sub(t1))
+		u.drawMenu(c)
+		if d := time.Since(t1); d > 30*time.Millisecond {
+			appLog()("redraw: the menu took %v (state %v)", d, t1.Sub(t0))
 		}
 	}()
 }
 
 // drawMenu builds the tray's menu and gives it to the tray: mygo's menus are made whole, not
 // cleared and added to.
-func (u *ui) drawMenu(c Config, auto bool, autoErr error) {
+func (u *ui) drawMenu(c Config) {
 	u.mu.Lock()
 	t := u.tray
 	u.mu.Unlock()
@@ -1045,8 +1031,6 @@ func (u *ui) drawMenu(c Config, auto bool, autoErr error) {
 			u.redraw()
 		}))
 	}
-	// 登录时打开 is the picker's (kumo, 2026-11-23).
-	_, _ = auto, autoErr
 	u.mu.Lock()
 	ready := u.ready
 	u.mu.Unlock()

@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"strings"
 
+	"github.com/egoist/mygo"
 	"github.com/kumoSleeping/iridium/internal/gate"
 )
 
@@ -65,4 +66,21 @@ func smallFaces() {
 			}
 		}
 	})
+}
+
+// dropLoginItem takes away, once, the login item a 登录时打开 of before left (Wails's and mygo's
+// are the same on a Mac from 13 on: the app's SMAppService), there being no switch for it now.
+// Once only: one the person adds in the system's settings after is theirs.
+func dropLoginItem() {
+	if c, err := loadConfig(); err != nil || c.LoginItemGone {
+		return
+	}
+	if mygo.App.OpenAtLogin() {
+		if err := mygo.App.SetOpenAtLogin(false); err != nil {
+			appLog()("login item: %v", err)
+			return
+		}
+		appLog()("login item taken away (登录时打开 is gone)")
+	}
+	_, _ = updateConfig(func(c *Config) { c.LoginItemGone = true })
 }

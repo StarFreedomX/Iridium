@@ -18,7 +18,6 @@ import {
   Pause,
   Play,
   Plus,
-  Power,
   ShieldCheck,
   SquareTerminal,
   Trash2,
@@ -79,7 +78,6 @@ type State = {
   publicState?: Pub;
   publicAddress?: string;
   hideLocal?: boolean; // 此电脑 hidden here (the tray's 此电脑 › 隐藏)
-  autostart?: boolean; // the app opens as one logs in
 };
 type Note = { text: string; error?: boolean; server?: string };
 type Part = "who" | "servers" | { server: string };
@@ -200,21 +198,6 @@ export function Login() {
                     back={st.servers.length === 0 ? () => go("who") : undefined}
                   />
                   <Grants st={st} open={(s) => go({ server: s.url })} />
-                  {/* The app's own, out of the tray's menu (kumo, 2026-11-23). */}
-                  <div className="mt-4" />
-                  <Row
-                    icon={<Power size={16} className="text-ink-2" />}
-                    title="登录时打开"
-                    end={
-                      <Switch
-                        label="登录时打开"
-                        on={!!st.autostart}
-                        onChange={(v) =>
-                          ask("ir:autostart:" + (v ? "on" : "off"))
-                        }
-                      />
-                    }
-                  />
                 </>
               ) : (
                 <ServerPage

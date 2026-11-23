@@ -21,7 +21,6 @@ export type AppState = {
   version: string;
   name: string; // this computer's
   servers: AppServer[];
-  autostart: boolean;
   update: string; // a new version downloaded, waiting for a restart; "": none
   hasLocal?: boolean; // this computer's own Iridium is in the list
   server?: boolean; // this computer's own Iridium is on (ir server on|off)
