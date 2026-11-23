@@ -154,7 +154,7 @@ func TestChannelCallWaitsForItsTurn(t *testing.T) {
 func TestChannelAnswerAsWritten(t *testing.T) {
 	t.Parallel()
 	l, ch, second := two(t)
-	code, r := l.send("web", ch, api.Send{Text: "@claude2 look STREAM"})
+	code, r := l.send("web", ch, api.Send{Text: "@claude2 look FASTSTREAM"})
 	if code != 200 {
 		t.Fatalf("send: %d", code)
 	}

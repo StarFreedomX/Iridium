@@ -37,7 +37,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4 # the node executor and the dsh plugin under test
+      - uses: actions/setup-node@v4 # the node executor under test
         with:
           node-version: 24
       - uses: actions/setup-go@v5

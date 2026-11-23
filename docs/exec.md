@@ -207,7 +207,7 @@ agent 的 `ir sh`：每条命令一个新进程，不经托管进程，不写文
 
 ## dsh 插件
 
-一个 cordis 插件，npm 包 `dsh-remote-iridium`，每次发版由 release.yml 用同一版本号发到 npm（Trusted Publishing，不用 TOKEN）；在 `dsh web` 的“添加插件”里填包名即可装（或 `dsh plugin --profile web add dsh-remote-iridium`），跟着 `dsh web` 常驻：连这边、实现上面的必需部分。它不碰 dsh 自己的会话，每个会话照旧是一个 `dsh --profile sdk --patch …` 子进程（预设和系统提示按进程，`internal/agent/dsh/preset.go`）。
+一个 cordis 插件，npm 包 `dsh-remote-iridium`，到 v0.2.54 为止每次发版由 release.yml 用同一版本号发到 npm（Trusted Publishing，不用 TOKEN），2026-11-23 起这里不再发；在 `dsh web` 的“添加插件”里填包名即可装（或 `dsh plugin --profile web add dsh-remote-iridium`），跟着 `dsh web` 常驻：连这边、实现上面的必需部分。它不碰 dsh 自己的会话，每个会话照旧是一个 `dsh --profile sdk --patch …` 子进程（预设和系统提示按进程，`internal/agent/dsh/preset.go`）。
 
 第三方包的预设（2026-11-09；2026-11-11 起由插件拼）：Desktop 的预设可以来自 web profile 里的 bundle，例如 OMD 的 `omd-ptc`、`oh-my-dsh`，行名是 `oh-my-dsh/host/tool-pwsh` 这种。sdk profile 只从 dsh 安装目录和自己的目录找包，这些行原样放进去会加载失败。插件（`agent.prepare`）照 Desktop 的组合来：预设注册表、web 的禁用、那个 bundle 自己那层（去掉其中的预设声明）、这个预设的声明，再由一个小模块在每个会话创建时绑定这个预设（`agentPresets.recompose`，子代理随父会话）；包名改走找包的模块，在那台机器上按 dsh 的家目录去 `profiles/*/node_modules` 找；这样载入的包引用 dsh 自己的包（`@deepseek-ai/*`，bundle 的 peer 依赖）时，在 profile 里找不到的从正在运行的 dsh 包里找（`module.registerHooks`；2026-11-22，OMD 1.9.2 在 rc.5 下起不来）。实测（dsh 0.2.2-rc.1、OMD 1.3.9）：`omd-ptc`、`oh-my-dsh` 都是 63 个工具。仍没有的：只在 Desktop 网页进程里有的（OMD 的 deepseek-workbench、extensions、rewind 要 `webServer`）。这边（`internal/agent/dsh`）只拼 dsh 自带的预设；没有插件时用不到第三方包的预设。
 
@@ -219,7 +219,7 @@ agent 的 `ir sh`：每条命令一个新进程，不经托管进程，不写文
 - 不给 `persona`：插件在 Desktop 里取这个会话的人格（Desktop 给它选的，否则全局的），会话进程的 `forSession` 答它，和 Desktop 一致。
 - 没装插件的机器：这边自己拼补丁（`internal/agent/dsh`），不带 OMD，没有这些。插件旧、没报这两项能力：网页上没有导入，设定和 OMD 的人格叠在一起。
 
-插件以后从这个仓库独立出去（otae，2026-11-22）：这边只认本文写的协议，按握手的 `caps` 用，不比版本号；认识 OMD 和别的第三方包的代码只在插件里（`omd.js` 这类文件）。迁出时 release.yml 里发 npm 的那一步搬过去，插件用自己的版本号，安装说明的包地址跟着改。
+插件以后从这个仓库独立出去（otae，2026-11-22）：这边只认本文写的协议，按握手的 `caps` 用，不比版本号；认识 OMD 和别的第三方包的代码只在插件里（`omd.js` 这类文件）。迁出时 release.yml 里发 npm 的那一步搬过去，插件用自己的版本号，安装说明的包地址跟着改。2026-11-23（kumo）：release.yml 发 npm 的那一步和在 Go 测试里跑插件测试的 `plugins/plugins_test.go` 已从这里删掉，插件的检查和发布归它自己的仓库。
 
 实测（2026-11-08）：Mac（arm64，Node 25）上 dsh 0.2.2-rc.1 的 `--profile sdk` 握手、开会话、`shutdown` 都和 Linux 一样，记录写在 `sessions/--<目录>--/<会话>/`。0.1.0 没有 sdk profile，执行端握手报的版本低于 0.2.2 时不给开 dsh。Windows 待测。
 

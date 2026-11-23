@@ -65,6 +65,8 @@ func Main() (code int, ok bool) {
 //     runs that turn again by itself, saying "ok: continued". crash! exits the same way but is
 //     never run again by itself; crashloop crashes again each time it is run again.
 //   - STREAM writes a turn as a real one comes: words, two calls and a long answer, piece by piece.
+//     FASTSTREAM writes the same pieces without the pauses between the letters (for tests); a
+//     call still takes its time.
 //   - QUOTA is refused for the quota, which comes back in half a second to one and a half;
 //     QUOTA LONG for one that comes back in an hour (what is sent meanwhile stays in the queue).
 //
@@ -436,7 +438,9 @@ func Claude() int {
 				// and run, then a long answer in Markdown, each a few letters at a time.
 				delta := func(d map[string]any) {
 					say(map[string]any{"type": "stream_event", "parent_tool_use_id": nil, "event": map[string]any{"type": "content_block_delta", "delta": d}})
-					time.Sleep(20 * time.Millisecond)
+					if !strings.HasSuffix(text, "FASTSTREAM") {
+						time.Sleep(20 * time.Millisecond)
+					}
 				}
 				words := func(reply string) {
 					for r := []rune(reply); len(r) > 0; r = r[min(6, len(r)):] {

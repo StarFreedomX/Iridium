@@ -11,7 +11,6 @@ on:
 
 permissions:
   contents: write
-  id-token: write # npm provenance for the dsh plugin
 
 # The Go checks run beside the build; publish waits for both.
 jobs:
@@ -20,7 +19,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4 # the node executor and the dsh plugin under test
+      - uses: actions/setup-node@v4 # the node executor under test
         with:
           node-version: 24
       - uses: actions/setup-go@v5
@@ -115,10 +114,6 @@ jobs:
           path: dist-mac
       # The macOS app and the SHA256SUMS that has its sums too, over the build's, when that job made them.
       - run: "[ ! -d dist-mac ] || cp -f dist-mac/* dist/"
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          registry-url: https://registry.npmjs.org
       - name: publish
         env:
           GH_TOKEN: ${{ github.token }}
@@ -128,15 +123,6 @@ jobs:
           case "$VERSION" in *-*) pre="--prerelease" ;; esac
           gh release create "$VERSION" dist/*.tar.gz dist/iridium-app-* dist/ir-computer-* dist/install.sh dist/install.ps1 dist/SHA256SUMS \
             --title "$VERSION" --notes-file dist/notes.md $pre
-      # The dsh plugin (plugins/dsh-remote-iridium) goes to npm at Iridium's version, so dsh's
-      # 添加插件 takes it by name. Releases only. npm trusts this workflow (Trusted Publishing,
-      # OIDC: id-token above), so there is no token; it needs npm 11.5.1 or later.
-      - name: dsh plugin
-        if: ${{ !contains(github.ref_name, '-') }}
-        working-directory: plugins/dsh-remote-iridium
-        env:
-          VERSION: ${{ github.ref_name }}
-        run: |
-          npm install -g npm@latest --no-audit --no-fund
-          npm version "${VERSION#v}" --no-git-tag-version --allow-same-version
-          npm publish --access public
+      # The dsh plugin (plugins/dsh-remote-iridium) went to npm here at Iridium's version, through
+      # v0.2.54 (Trusted Publishing, OIDC). No more since 2026-11-23: the plugin leaves this repo,
+      # its checks and its npm step with it (docs/exec.md).
