@@ -3,7 +3,7 @@
 // order. Pure, for tests. And what a channel's page lends the menu wherever it is opened from:
 // its composer's @, its way to a session's record.
 
-export type MenuKey = "call" | "compact" | "clear" | "model" | "mode" | "stop" | "edit" | "session" | "given" | "remove";
+export type MenuKey = "call" | "compact" | "clear" | "model" | "mode" | "stop" | "recv" | "edit" | "session" | "given" | "remove";
 
 /** The items of an agent's menu, in order. may: the one looking is of the channel's people (else
  *  only what reads); own: the agent is the session the channel is (移出 shown, not offered);
@@ -19,6 +19,7 @@ export function memberMenu(x: { may: boolean; own: boolean; call: boolean; model
   add(x.may && x.models > 0, "model");
   add(x.may && x.modes > 1, "mode");
   add(x.may && x.busy, "stop");
+  add(x.may, "recv");
   add(x.may, "edit");
   add(x.session, "session");
   add(true, "given");

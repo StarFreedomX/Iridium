@@ -1485,7 +1485,7 @@ func (s *Server) memberPatch(w http.ResponseWriter, r *http.Request) {
 	var warn []string
 	if now.Agent() && was.Triggers != now.Triggers {
 		on := now.On()
-		s.tellMembers(c, ch, fmt.Sprintf("@%s 订阅事件：%s", now.Nick, s.onWords(on)), channel.Event{Type: "on", Member: now.Member, Nick: now.Nick, On: on})
+		s.tellMembers(c, ch, fmt.Sprintf("@%s 唤醒：%s", now.Nick, s.onWords(on)), channel.Event{Type: "on", Member: now.Member, Nick: now.Nick, On: on})
 		s.readsChanged(ch) // the channel's own agent: how far it has read depends on it
 		warn = s.loops(ch, now.Member)
 	}

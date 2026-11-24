@@ -18,6 +18,22 @@ export function recvOf(r: unknown): string[] {
 /** An agent's subscriptions as the server may say them: none, none (only @). */
 export const onOf = (on: unknown): Trigger[] => (Array.isArray(on) ? on.filter((x): x is Trigger => !!x && typeof x === "object") : []);
 
+/** A plain message subscription: of senders, of no words in particular. */
+const plain = (tr: Trigger) => !!tr.message && !tr.message.words?.length && !tr.text;
+
+/** The senders whose words wake an agent, as its plain message subscription names them (the
+ *  member menu's 唤醒); none: there is none. */
+export const fromOf = (on: Trigger[]): string[] => on.find(plain)?.message?.from ?? [];
+
+/** on with its plain message subscription's senders now from: put in where there was none, taken
+ *  out where from is empty. */
+export function withFrom(on: Trigger[], from: string[]): Trigger[] {
+  const i = on.findIndex(plain);
+  const tr: Trigger = { message: { from } };
+  if (i < 0) return from.length ? [...on, tr] : on;
+  return from.length ? on.map((x, j) => (j === i ? tr : x)) : on.filter((_, j) => j !== i);
+}
+
 /** A receive set with entry put in, or taken out. */
 export const toggle = (set: string[], entry: string): string[] => (set.includes(entry) ? set.filter((x) => x !== entry) : [...set, entry]);
 

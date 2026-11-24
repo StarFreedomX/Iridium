@@ -1,1 +1,1 @@
-Without @, an agent is woken only by its subscriptions (on); any member may change them (ir api help subscriptions).
+Without @, an agent is woken only by what its on names; any member may change it (ir api help wake).

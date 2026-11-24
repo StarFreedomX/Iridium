@@ -47,10 +47,10 @@ describe("an agent's menu", () => {
   const all = { may: true, own: false, call: true, models: 3, modes: 2, busy: true, session: true };
   const keys = (x: Parameters<typeof memberMenu>[0]) => memberMenu(x).map((i) => i.key);
   test("all of it, in order", () => {
-    expect(keys(all)).toEqual(["call", "compact", "clear", "model", "mode", "stop", "edit", "session", "given", "remove"]);
+    expect(keys(all)).toEqual(["call", "compact", "clear", "model", "mode", "stop", "recv", "edit", "session", "given", "remove"]);
   });
   test("what it has none of is left out: no model, one mode, at rest", () => {
-    expect(keys({ ...all, models: 0, modes: 1, busy: false })).toEqual(["call", "compact", "clear", "edit", "session", "given", "remove"]);
+    expect(keys({ ...all, models: 0, modes: 1, busy: false })).toEqual(["call", "compact", "clear", "recv", "edit", "session", "given", "remove"]);
   });
   test("the channel's own agent: 移出 shown, not offered", () => {
     const m = memberMenu({ ...all, own: true, session: false });

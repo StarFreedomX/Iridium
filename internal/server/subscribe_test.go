@@ -46,5 +46,5 @@ func TestSubscriptions(t *testing.T) {
 	if len(ms.Warn) != 1 || !strings.Contains(ms.Warn[0], "loop: ") || !strings.Contains(ms.Warn[0], "@greeter") {
 		t.Errorf("the ring: %v", ms.Warn)
 	}
-	l.waitSaid("web", ch, "iridium", "订阅事件：")
+	l.waitSaid("web", ch, "iridium", "唤醒：")
 }

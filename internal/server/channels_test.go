@@ -680,7 +680,7 @@ func TestChannelSendCheckAndRecv(t *testing.T) {
 	if g := of(now, guest); g.Session == "" || len(g.On) != 0 {
 		t.Fatalf("recv set to at: %+v", ms.Members)
 	}
-	l.waitSaid("web", ch, "iridium", "@guest 订阅事件：被 @ 时")
+	l.waitSaid("web", ch, "iridium", "@guest 唤醒：被 @ 时")
 	_, sr = l.send("web", ch, api.Send{Text: "not for the guest"})
 	l.waitSaid("web", ch, "@claude ", fmt.Sprintf("ok: #%d: not for the guest", sr.Seq))
 	time.Sleep(300 * time.Millisecond)
