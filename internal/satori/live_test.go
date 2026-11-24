@@ -146,3 +146,21 @@ func TestLiveNothing(t *testing.T) {
 		t.Fatalf("listed: %d %+v %+v", status, e, l.Data)
 	}
 }
+
+// A tool call heard when st.from was never initialized (e.g., after a restart mid-turn, or after
+// rest) must not record from="0" on an existing transcript.
+func TestLiveStepWithoutTurnStartSetsFrom(t *testing.T) {
+	r := newRig(t)
+	r.f.addSession("s1", 5)
+	r.f.mu.Lock()
+	r.f.sessions["s1"].End = 50
+	r.f.mu.Unlock()
+	w := r.dial(nil)
+	w.send(OpIdentify, Identify{Token: "ir_good", Live: true})
+	w.want(OpReady, nil)
+	r.s.Notice(session.Notice{Session: "s1", Kind: session.NoticeTool, Tool: "Bash"})
+	ev := liveEvents(t, w, 1)[0]
+	if ev.Type != "message-created" || strings.Contains(ev.Message.Content, `from="0"`) || !strings.Contains(ev.Message.Content, `from="50"`) {
+		t.Fatalf("unexpected work from: %+v %+v", ev, ev.Message)
+	}
+}

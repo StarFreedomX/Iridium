@@ -2594,8 +2594,12 @@ func (s *Server) answer(id string, m channel.Message) {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
-		if _, err := s.sendChannelAs(ctx, caller{Identity: localIdentity, socket: true, agent: true, session: id}, session.From(gate.HostID, "@"+nick), c.Channel, api.Send{Text: text}, w); err != nil {
+		if rep, err := s.sendChannelAs(ctx, caller{Identity: localIdentity, socket: true, agent: true, session: id}, session.From(gate.HostID, "@"+nick), c.Channel, api.Send{Text: text}, w); err != nil {
 			s.logf("server: channel %s: saying what %s wrote: %v", c.Channel, id, err)
+		} else if rep.Seq != 0 && (!has || tw.channel != c.Channel) {
+			// Record the message made here as m's twin so any work added to m after this updates
+			// this message instead of making a second one.
+			s.twins.put(id, m.Seq, twin{c.Channel, rep.Seq})
 		}
 	})
 }

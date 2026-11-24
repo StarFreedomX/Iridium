@@ -383,6 +383,40 @@ func TestNoEcho(t *testing.T) {
 	}
 }
 
+// A prompt sent while the agent is mid-sentence streaming does not split the assistant message
+// in half: subsequent chunks append to the same message until the running prompt ends or calls
+// a tool.
+func TestSteerMidSentenceDoesNotSplitMessage(t *testing.T) {
+	r := newRig(t)
+	r.open("")
+	r.take()
+	send(t, r.d, "in-1", "read docs")
+	r.next("session/prompt")
+	r.take()
+	r.feed(upd(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"reading docs/前端设计"}}`))
+	send(t, r.d, "in-2", "push to test")
+	r.next("session/prompt")
+	// More chunks of the same sentence arrive before agy finishes in-1 or calls a tool.
+	r.feed(
+		upd(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"规范.md。"}}`),
+		`{"jsonrpc":"2.0","result":{"stopReason":"end_turn"},"id":"in-1"}`,
+		upd(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"got it"}}`),
+		`{"jsonrpc":"2.0","result":{"stopReason":"end_turn","usage":{"inputTokens":5,"outputTokens":2}},"id":"in-2"}`,
+	)
+	evs := r.take()
+	md := find[agent.MessageDone](evs)
+	if len(md) != 2 || md[0].Text != "reading docs/前端设计规范.md。" || md[1].Text != "got it" {
+		t.Fatalf("MessageDone split: %+v", md)
+	}
+	var kinds []string
+	for _, e := range records(evs) {
+		kinds = append(kinds, e.Kind+":"+e.Text)
+	}
+	if want := []string{"assistant:reading docs/前端设计规范.md。", "user:push to test", "assistant:got it"}; !slices.Equal(kinds, want) {
+		t.Fatalf("records %v, want %v", kinds, want)
+	}
+}
+
 // In default mode a permission is put to you; allowed, agy is told so.
 func TestAskAndAnswer(t *testing.T) {
 	r := newRig(t)

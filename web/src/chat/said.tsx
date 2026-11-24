@@ -1019,7 +1019,7 @@ function CpArg({ from, to }: { from: CpSide; to: CpSide }) {
  *  what came back under it after a "⎿", lighter; one font, no rule between. */
 const Lead = ({ mark, dim, children }: { mark: string; dim?: boolean; children: ReactNode }) => (
   <div className={cn("flex min-w-0 items-start", dim && "[&_pre]:text-ink-3")}>
-    <span aria-hidden className="shrink-0 py-1 font-mono text-xs leading-[18px] text-ink-4 select-none">{mark}</span>
+    <span aria-hidden className="w-3.5 shrink-0 py-1 text-center font-mono text-xs leading-[18px] text-ink-4 select-none">{mark}</span>
     <div className="min-w-0 flex-1">{children}</div>
   </div>
 );

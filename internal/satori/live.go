@@ -44,8 +44,9 @@ type saying struct {
 	pre int64
 	// from: how far its record went when the message that carries the work began (or its turn,
 	// for one of no words): where that work's steps begin, whatever of them the record has by
-	// the time the first is told.
-	from int64
+	// the time the first is told. hasFrom: whether from has been set (0 is valid for a new record).
+	from    int64
+	hasFrom bool
 	// whole: the message being written was read in from the agent's record, whole, before it
 	// was heard: nothing more of it is told till it is said.
 	whole bool
@@ -91,9 +92,19 @@ func workElement(w *channel.Work) string {
 // tellLive tells the connections that take messages live of m: typ message-created or
 // message-updated; passing: it will be told again soon.
 func (s *Service) tellLive(typ string, m channel.Message, passing bool, origin string) {
+	if !s.tellLiveLocal(typ, m, passing, origin) {
+		return
+	}
+	if s.onLive != nil && m.D.Session == m.Channel && !m.D.Sent {
+		s.onLive(m, passing)
+	}
+}
+
+// tellLiveLocal emits a live event to connections of m.Channel without relaying to onLive.
+func (s *Service) tellLiveLocal(typ string, m channel.Message, passing bool, origin string) bool {
 	st, err := s.b.Session(m.Channel)
 	if err != nil {
-		return
+		return false
 	}
 	msg := Message{ID: strconv.FormatInt(m.Seq, 10), Content: s.logContent(m), User: s.authorOf(m, nil), CreatedAt: m.At, Data: logData(m)}
 	msg.Content += activityElement(m.D.Activity, false) + workElement(m.D.Work)
@@ -101,9 +112,7 @@ func (s *Service) tellLive(typ string, m channel.Message, passing bool, origin s
 		msg.UpdatedAt = time.Now().UnixMilli()
 	}
 	s.emitTo(toLive, passing, st.Session, fileOwner(m), Event{Type: typ, Message: &msg, User: msg.User}, s.logFiles(m), logData(m).Kind, origin)
-	if s.onLive != nil && m.D.Session == m.Channel && !m.D.Sent {
-		s.onLive(m, passing)
-	}
+	return true
 }
 
 // Twin: m, a message an agent is saying in its own channel, is said in channel ch too, where
@@ -186,6 +195,28 @@ func (s *Service) endOf(id string) int64 {
 	return 0
 }
 
+// toolFrom is where a tool call begins in session id's record when st.from was not set before it
+// (a turn running across a restart, or a tool call after a steered message): the call itself if
+// the record already ends with it, else the record's end now.
+func (s *Service) toolFrom(id, tool string) int64 {
+	end := s.endOf(id)
+	if end == 0 {
+		return 0
+	}
+	p, err := s.b.Messages(id, -1, -1)
+	if err != nil || len(p.Blocks) == 0 {
+		return end
+	}
+	if last := p.Blocks[len(p.Blocks)-1]; last.Kind == api.BlockKindTool && (tool == "" || last.Name == tool) && last.Result == nil {
+		if line, _, _ := strings.Cut(last.At, "."); line != "" {
+			if n, err := strconv.ParseInt(line, 10, 64); err == nil {
+				return n
+			}
+		}
+	}
+	return end
+}
+
 // settle: the work message seq of id's channel carries is done.
 func (s *Service) settle(id string, seq int64, origin string) {
 	if seq == 0 {
@@ -218,7 +249,7 @@ func (s *Service) writing(id, piece, origin string) {
 		if strings.TrimSpace(st.text.String()) == "" {
 			return // nothing to show yet
 		}
-		st.from = s.endOf(id)
+		st.from, st.hasFrom = s.endOf(id), true
 		pre := st.pre
 		m, adopted, err := s.log.Begin(id, st.text.String(), true, s.heardOf(id), pre)
 		if err != nil || m.Seq == 0 {
@@ -290,7 +321,7 @@ func (s *Service) say(id, text, origin string) {
 		if strings.TrimSpace(text) == "" {
 			return
 		}
-		st.from = s.endOf(id)
+		st.from, st.hasFrom = s.endOf(id), true
 		pre := st.pre
 		got, _, err := s.log.Begin(id, text, false, s.heardOf(id), pre)
 		if err != nil || got.Seq == 0 {
@@ -340,6 +371,7 @@ func (s *Service) heardLive(id, origin string) {
 	}
 	s.settle(id, st.carrier, origin)
 	st.carrier = held.Seq
+	st.from, st.hasFrom = s.endOf(id), true
 	s.tellLive("message-created", held, false, origin)
 }
 
@@ -355,7 +387,10 @@ func (s *Service) step(id, tool, origin string) {
 	// (kumo, 2026-11-24: the steps under words sent into a turn counted those from before them).
 	if st.carrier != 0 && st.seq == 0 && s.saidAfter(id, st.carrier) {
 		s.settle(id, st.carrier, origin)
-		st.carrier, st.from = 0, s.endOf(id)
+		st.carrier, st.from, st.hasFrom = 0, s.toolFrom(id, tool), true
+	}
+	if !st.hasFrom {
+		st.from, st.hasFrom = s.toolFrom(id, tool), true
 	}
 	if st.carrier == 0 && st.pre != 0 {
 		st.carrier, st.pre = st.pre, 0
@@ -415,7 +450,7 @@ func (s *Service) greet(id, origin string) {
 		return
 	}
 	st := s.sayingOf(id)
-	st.from = s.endOf(id)
+	st.from, st.hasFrom = s.endOf(id), true
 	m, err := s.log.BeginWork(id, channel.Work{Running: true, At: time.Now().UnixMilli(), From: st.from})
 	if err != nil || m.Seq == 0 {
 		return

@@ -22,6 +22,7 @@ import (
 	"github.com/kumoSleeping/iridium/internal/gate"
 	"github.com/kumoSleeping/iridium/internal/satori"
 	"github.com/kumoSleeping/iridium/internal/session"
+	"github.com/kumoSleeping/iridium/internal/store"
 )
 
 // said are channel id's messages as as sees them: "<n> <who> <words>" each.
@@ -1269,6 +1270,67 @@ func TestMemberSeesItsChannel(t *testing.T) {
 	}
 	if _, err := l.s.using(in, near); err == nil {
 		t.Error("it may use a session out of its scope")
+	}
+}
+
+// When answer() creates a channel message before liveSaid attaches work to the agent's own
+// message (e.g., NoticeTool flush followed by step when no twin existed yet), liveSaid updates
+// that message in place instead of creating a duplicate twin.
+func TestAnswerRegistersTwinNoDuplicate(t *testing.T) {
+	t.Parallel()
+	l := start(t)
+	ch := l.create(200, "web", api.NewSession{Agent: api.AgentClaude, Cwd: l.work, Text: "start"})
+	l.waitReply("web", ch, "ok: start")
+	var ms api.ChannelMembers
+	l.want(200, "web", "POST", "/v1/internal/channels/"+ch+"/members", api.NewMember{Agent: api.AgentClaude, Nick: "helper"}, &ms)
+	helper := ""
+	for _, m := range ms.Members {
+		if m.Nick == "helper" {
+			helper = m.Session
+		}
+	}
+	if helper == "" {
+		t.Fatalf("no helper: %+v", ms)
+	}
+	// Simulate helper having been called in ch (call open, input taken) and saying a message in its
+	// own channel without a twin yet, then answer() sending it and liveSaid() updating its work.
+	inID := "in-dup-1"
+	l.s.answers.took(helper, inID)
+	l.s.calls.add(helper, called{Channel: ch, Seq: 1, From: 0, Input: inID})
+	own, _, err := l.s.ch.Say(channel.Message{
+		ChannelMessage: store.ChannelMessage{Channel: helper, Author: store.AgentMember(helper), Kind: channel.KindSaid, Text: "v0.2.69 shipped"},
+		D:              channel.Data{Session: helper},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	l.s.answer(helper, own)
+	ownWithWork, ok := l.s.ch.SetWork(helper, own.Seq, func(w *channel.Work) {
+		w.Steps, w.Tool, w.Running, w.From = 1, "Bash", true, 5
+	})
+	if !ok {
+		t.Fatal("SetWork failed")
+	}
+	l.s.liveSaid(ownWithWork, false)
+	// Wait for the serialized answers queue to drain by appending a barrier.
+	done := make(chan struct{})
+	l.s.answers.add(helper, func() { close(done) })
+	<-done
+	rows, err := l.s.ch.List(ch, 0, -1, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var hits []channel.Message
+	for _, m := range rows {
+		if m.Text == "v0.2.69 shipped" {
+			hits = append(hits, m)
+		}
+	}
+	if len(hits) != 1 {
+		t.Fatalf("expected 1 message in channel, got %d: %+v", len(hits), hits)
+	}
+	if hits[0].D.Work == nil || hits[0].D.Work.Steps != 1 || hits[0].D.Work.From != 5 {
+		t.Fatalf("expected work attached to the single message, got %+v", hits[0].D)
 	}
 }
 

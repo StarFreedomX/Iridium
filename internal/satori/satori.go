@@ -247,7 +247,8 @@ func (s *Service) Channels(l *channel.Service) {
 	s.log = l
 	l.SettleLive()
 	// Found in its agent's record after it was said live: its block, for those who have it.
-	l.OnChanged(func(m channel.Message) { s.tellLive("message-updated", m, false, "") })
+	// Not relayed via onLive: it runs out of order with turns and only anchors the record block.
+	l.OnChanged(func(m channel.Message) { s.tellLiveLocal("message-updated", m, false, "") })
 }
 
 // New starts the service; feed it the sessions' notices with Notice, Close it at the end.

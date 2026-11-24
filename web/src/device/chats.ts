@@ -11,13 +11,14 @@ import type { Block, ChannelMembers, ChannelReads, Session, SessionState } from 
 import { heldChats, lineOf, peekChat, type Chat } from "../chats";
 import type { Msg } from "../chat/channel/lib";
 import { channelLog, heldLog, keptChannelIds } from "../chat/channel/log";
+import { collectSpans, onSpans, restoreSpans, type KeptSpan } from "../chat/spans";
 import { getCarried, onCarried, setCarried } from "../store";
 import { listFromDevice } from "./first";
 import { asked, db, done, drop, entries, getConf } from "./store";
 
-/** The copy's format: one that is not this is dropped whole (3: the work under an agent's words
- *  is in its message, docs/next/ui.md). */
-export const FORMAT = 3;
+/** The copy's format: one that is not this is dropped whole (4: step spans kept with each
+ *  channel's copy so reload draws tool icons and steps from cache). */
+export const FORMAT = 4;
 /** As much of the record as its newest page (internal/transcript PageMessages, PageBlocks). */
 const PAGE_MESSAGES = 20;
 const PAGE_BLOCKS = 200;
@@ -34,6 +35,7 @@ export type Copy = {
   reads?: ChannelReads;
   chan?: { msgs: Msg[]; more: boolean };
   sessions?: Record<string, SessionState>;
+  spans?: KeptSpan[];
 };
 
 const keyOf = (id: string) => `chat:${id}`;
@@ -74,6 +76,8 @@ export function copyOf(id: string, it?: Chat, now = Date.now()): Copy | null {
   if (hasCh) {
     const msgs = ch!.msgs.slice(-CHANNEL_MESSAGES);
     c.chan = { msgs, more: ch!.more || ch!.msgs.length > msgs.length };
+    const sp = collectSpans(msgs);
+    if (sp.length) c.spans = sp;
     const reads = getCarried<ChannelReads>(`reads:${id}`);
     if (reads) c.reads = reads;
     const sessions: Record<string, SessionState> = {};
@@ -96,15 +100,18 @@ export async function restore(id: string, it: Chat): Promise<boolean> {
   if (!d) return false;
   const c = await asked(d.transaction("chats").objectStore("chats").get(keyOf(id)) as IDBRequest<Copy | undefined>).catch(() => undefined);
   if (!c) return false;
+  if (c.v !== FORMAT) {
+    void drop([c.key]);
+    return false;
+  }
+  // Step spans of past messages are immutable transcript slices: restore them even when newer
+  // messages arrived in the channel since c.at.
+  if (c.spans?.length) restoreSpans(c.spans);
   // Older than what the server's list says of it: not drawn, to be put right a moment later
   // (kumo, 2026-11-23: a message missing, then coming in with the page jumping). The server's
   // is waited for instead. A list still this device's own tells nothing.
   const row = listFromDevice() ? undefined : getCarried<Session[]>("list")?.find((s) => s.id === id);
   if (row && row.updatedAt > c.at + 1000) return false;
-  if (c.v !== FORMAT) {
-    void drop([c.key]);
-    return false;
-  }
   const key = `session:${id}`;
   if (c.session && !getCarried(key)) setCarried(key, c.session);
   if (c.page && !it.log.loaded) {
@@ -135,7 +142,11 @@ async function used(key: string) {
 
 /** The version of each chat as last written, by session: one unchanged is not written again. */
 const written = new Map<string, string>();
-const versionOf = (id: string, it?: Chat) => `${it?.log.version ?? 0}.${heldLog(id)?.version ?? 0}`;
+const versionOf = (id: string, it?: Chat) => {
+  const ch = heldLog(id);
+  const sp = ch ? collectSpans(ch.msgs.slice(-CHANNEL_MESSAGES)).reduce((n, s) => n + s.blocks.length + (s.whole ? 1 : 0), 0) : 0;
+  return `${it?.log.version ?? 0}.${ch?.version ?? 0}.${sp}`;
+};
 
 /** Writes the copies of these chats (those kept in memory, by default) that changed. */
 export async function save(ids?: string[]) {
@@ -228,6 +239,9 @@ export function watch() {
       unloading = Date.now();
       void unload(list).catch(() => {});
     }
+  });
+  onSpans(() => {
+    for (const id of keptChannelIds()) saveSoon(id);
   });
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) void save().catch(() => {});
