@@ -307,6 +307,7 @@ export function PopSurface({
   finalFocus,
   anchor,
   still,
+  style,
 }: {
   children: ReactNode;
   className?: string;
@@ -316,17 +317,18 @@ export function PopSurface({
   initialFocus?: ComponentProps<typeof Popover.Popup>["initialFocus"];
   finalFocus?: ComponentProps<typeof Popover.Popup>["finalFocus"];
   /** What it unfolds out of, when not its trigger (a row it was opened from). */
-  anchor?: Element | null;
+  anchor?: Element | { getBoundingClientRect: () => DOMRect } | null;
   /** Out of something in a conversation (a face, a name): it stays where it opened while the
    *  conversation moves under it (a turn being written, the wheel). Following its anchor it came
    *  a frame behind each push, and flipped over the face as that neared an edge (kumo,
    *  2026-11-17). Needs anchor. */
   still?: boolean;
+  style?: CSSProperties;
 }) {
   return (
     <Popover.Portal>
       <Placed side={side} align={align} sideOffset={sideOffset} anchor={anchor} still={still}>
-        <Popover.Popup initialFocus={initialFocus ?? ((type) => type === "keyboard")} finalFocus={finalFocus} className={cn("g-unfold glass thick float rounded-lg text-ink outline-none", className)}>
+        <Popover.Popup initialFocus={initialFocus ?? ((type) => type === "keyboard")} finalFocus={finalFocus} style={style} className={cn("g-unfold glass thick float rounded-lg text-ink outline-none", className)}>
           {children}
         </Popover.Popup>
       </Placed>
@@ -336,7 +338,7 @@ export function PopSurface({
 
 /** PopSurface's place; drawn only while it is open, so a still one's anchor is where it was as
  *  it opened: its box then, not the element, which moves. */
-function Placed({ children, side, align, sideOffset, anchor, still }: { children: ReactNode; side: "top" | "bottom" | "left" | "right"; align: "start" | "center" | "end"; sideOffset: number; anchor?: Element | null; still?: boolean }) {
+function Placed({ children, side, align, sideOffset, anchor, still }: { children: ReactNode; side: "top" | "bottom" | "left" | "right"; align: "start" | "center" | "end"; sideOffset: number; anchor?: Element | { getBoundingClientRect: () => DOMRect } | null; still?: boolean }) {
   const [box] = useState(() => (still && anchor ? anchor.getBoundingClientRect() : null));
   const at = useMemo(() => (box ? { getBoundingClientRect: () => box } : undefined), [box]);
   return (

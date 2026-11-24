@@ -1067,7 +1067,7 @@ function WholeChat({ id, sheet = 0, onSheet, onMe, hold }: { id: string; sheet?:
     <Dispatching.Provider value={dispatching}>
     <div className="relative h-full" onDragOver={(e) => files(e) || session(e) || place(e)} onDrop={drop}>
       <Stick key={hold ? "hold" : "whole"} scroller={scroller} tail={grew} older={older} held={from > 0} busy={busy || othersAt.length > 0 || subs.length > 0} draw={changed} place={chat.place} bottom={stackH} quiet={agents.some((a) => !!stateOf(a.session)?.asks.length)} style={{ paddingTop: padTop, paddingBottom: stackH + 20 }}>
-        <div ref={column} className="mx-auto flex max-w-(--chat-w) flex-col gap-5 px-4 [--depart-gap:1.25rem] sm:px-6">
+        <div ref={column} data-column className="mx-auto flex max-w-(--chat-w) flex-col gap-5 px-4 [--depart-gap:1.25rem] sm:px-6">
           {/* In a turn, the calls being written or run and the dots share one row at the end, as
               high whatever it shows: the conversation does not jump as a call is drafted, runs and
               folds into the line above (the user, 2026-11-06). */}

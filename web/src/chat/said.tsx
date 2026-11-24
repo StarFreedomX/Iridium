@@ -786,6 +786,8 @@ function StepsKey({ steps, session, cwd }: { steps: Step[]; session: string; cwd
   // Whether it was open as the line was pressed: the press itself shuts it first (a press outside
   // it, the focus gone from it), and the click after would open it again.
   const was = useRef(false);
+  // Where it opens: its line's height, the conversation's width (kumo, 2026-11-24).
+  const [box, setBox] = useState<DOMRect | null>(null);
   useLayoutEffect(() => {
     const end = () => {
       const el = list.current;
@@ -798,7 +800,7 @@ function StepsKey({ steps, session, cwd }: { steps: Step[]; session: string; cwd
   }, [steps.length, open]);
   return (
     <>
-      <button ref={row} type="button" aria-haspopup="dialog" aria-expanded={open} aria-label={foldSaid(runs)} onPointerDown={() => (was.current = open)} onClick={(e) => ((atEnd.current = true), setOpen(e.detail > 0 ? !was.current : !open))} className={cn(ROW, "-my-0.5 w-full text-left outline-none focus-visible:text-ink-2", open && "text-ink-2")}>
+      <button ref={row} type="button" aria-haspopup="dialog" aria-expanded={open} aria-label={foldSaid(runs)} onPointerDown={() => (was.current = open)} onClick={(e) => ((atEnd.current = true), setBox(across(e.currentTarget)), setOpen(e.detail > 0 ? !was.current : !open))} className={cn(ROW, "-my-0.5 w-full text-left outline-none focus-visible:text-ink-2", open && "text-ink-2")}>
         {head}
         <span className="min-w-0 truncate">
             {runs.map((r, i) => (
@@ -821,11 +823,11 @@ function StepsKey({ steps, session, cwd }: { steps: Step[]; session: string; cwd
       </button>
       {ever && (
         <Popover.Root open={open} onOpenChange={setOpen}>
-          <PopSurface anchor={row.current} still align="start" sideOffset={4} className="w-[min(720px,calc(100vw-16px))] overflow-hidden">
+          <PopSurface anchor={box ? { getBoundingClientRect: () => box } : row.current} still align="start" sideOffset={4} className="w-[min(720px,calc(100vw-16px))] overflow-hidden" style={box ? { width: box.width } : undefined}>
            <Grown className="flex max-h-[min(70dvh,var(--available-height))] flex-col">
             <RecordHead steps={steps} diff={diff} />
             <div ref={list} onScroll={(e) => (atEnd.current = e.currentTarget.scrollHeight - e.currentTarget.clientHeight - e.currentTarget.scrollTop < 24)} className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-3 pb-2">
-              {steps.map((s) => (s.kind === "tool" && toldOf(s) ? <Dispatch key={s.at} call={s as Tool} session={session} /> : <Record key={s.at} s={s} session={session} cwd={cwd} />))}
+              {steps.map((s, i) => (s.kind === "tool" && toldOf(s) ? <Dispatch key={s.at} call={s as Tool} session={session} /> : <Record key={s.at} n={i + 1} s={s} session={session} cwd={cwd} />))}
             </div>
            </Grown>
           </PopSurface>
@@ -839,7 +841,8 @@ function StepsKey({ steps, session, cwd }: { steps: Step[]; session: string; cwd
 const lasted = (ms: number) => (ms < 950 ? `${(ms / 1000).toFixed(1)}s` : ms < 60_000 ? `${Math.round(ms / 1000)}s` : `${Math.floor(ms / 60_000)}m${String(Math.round((ms % 60_000) / 1000)).padStart(2, "0")}s`);
 
 /** Over a record's steps, staying as they scroll: where they were done (its row's, StepsHead), how
- *  many, how many failed, the lines their edits changed, when. */
+ *  many, how many failed, the lines their edits changed, how long they took from the first to the last (kumo, 2026-11-24:
+ *  not the clock's times). */
 function RecordHead({ steps, diff }: { steps: Step[]; diff?: Diff }) {
   const head = useContext(StepsHead);
   const fails = steps.filter(failed).length;
@@ -847,12 +850,12 @@ function RecordHead({ steps, diff }: { steps: Step[]; diff?: Diff }) {
   const last = steps.findLast((s) => (s.kind === "tool" && s.result?.time) || s.time);
   const end = last && ((last.kind === "tool" && last.result?.time) || last.time);
   return (
-    <div className="flex h-9 shrink-0 items-center gap-2.5 px-3 text-xs text-ink-3 shadow-[inset_0_-0.5px_0_var(--edge)]">
+    <div className="flex h-9 shrink-0 items-center gap-2.5 px-3 text-xs text-ink-3">
       {head}
       <span className="shrink-0 tabular-nums">{t("record.steps", { n: steps.length })}</span>
       {fails > 0 && <span className="shrink-0 text-err tabular-nums">{t("record.failed", { n: fails })}</span>}
       {diff && <DiffStat d={diff} />}
-      {first && end ? <span className="ml-auto shrink-0 tabular-nums">{clock(first) === clock(end) ? clock(first) : `${clock(first)}–${clock(end)}`}</span> : null}
+      {first && end && end > first ? <span className="ml-auto shrink-0 tabular-nums">{lasted(end - first)}</span> : null}
     </div>
   );
 }
@@ -862,7 +865,7 @@ function RecordHead({ steps, diff }: { steps: Step[]; diff?: Diff }) {
  *  past its first lines as long words between agents are (LongWords, its key 展开 alone), opened
  *  where it is: the popover scrolls, the conversation is not laid out by it. A shell's command is
  *  on its line unless long; what was read is not shown again, only that it was. */
-function Record({ s, session, cwd }: { s: Step; session: string; cwd: string }) {
+function Record({ n, s, session, cwd }: { n: number; s: Step; session: string; cwd: string }) {
   const took = s.kind === "tool" && s.time && s.result?.time ? s.result.time - s.time : undefined;
   const kind = kindOfStep(s);
   const command = s.kind === "tool" && isShell(s.name) ? (argOf(s, cwd).arg ?? "") : undefined;
@@ -872,8 +875,10 @@ function Record({ s, session, cwd }: { s: Step; session: string; cwd: string }) 
   const said = typeof about === "string" && about.trim() ? about : undefined;
   const back = s.kind === "tool" && s.result && (kind !== "read" || s.result.error || !!s.result.images?.length) && (s.result.text.trim() !== "" || !!s.result.images?.length);
   return (
-    <section className="grid min-w-0 gap-1.5 border-b-[0.5px] border-edge py-2 last:border-b-0">
+    <section className="grid min-w-0 gap-1.5 py-2">
       <div className="flex h-7 min-w-0 items-center gap-2 text-sm text-ink-3 pointer-coarse:h-9">
+        {/* Which it is of them, in order (kumo, 2026-11-24); no line between two: the room is enough. */}
+        <span className="shrink-0 text-xs text-ink-4 tabular-nums">{n}</span>
         {s.kind === "thinking" ? (
           <>
             <StepIcon s={s} />
@@ -905,6 +910,18 @@ function Record({ s, session, cwd }: { s: Step; session: string; cwd: string }) 
       )}
     </section>
   );
+}
+
+/** A line's box widened to the conversation's column (its words' width, the column's own padding
+ *  left out): the line's own where there is no column about it. */
+function across(line: Element): DOMRect {
+  const r = line.getBoundingClientRect();
+  const col = line.closest("[data-column]");
+  if (!col) return r;
+  const c = col.getBoundingClientRect();
+  const st = getComputedStyle(col);
+  const left = c.left + parseFloat(st.paddingLeft);
+  return DOMRect.fromRect({ x: left, y: r.top, width: c.right - parseFloat(st.paddingRight) - left, height: r.height });
 }
 
 /** A record's text folds past 40 lines, to some 36 of its own (18px each, said in the words' 23px
