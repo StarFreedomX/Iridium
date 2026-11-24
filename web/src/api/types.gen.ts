@@ -360,7 +360,8 @@ export interface ContextCategory {
   kind: string; // used | buffer | free | deferred
 }
 /**
- * Quota is the carried state "quota": the agents' quota windows, as last read.
+ * Quota is GET /v1/internal/quota: each agent's account as last read, its quota windows or its
+ * balance.
  */
 export interface Quota {
   agents: AgentQuota[];

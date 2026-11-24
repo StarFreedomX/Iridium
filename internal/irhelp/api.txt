@@ -161,6 +161,8 @@ POST internal/sessions/{id}/attach {path} -> FileRef  attach a local file to the
 POST internal/cli {args, cwd} -> ndjson  ir of a session at another computer, by its TOKEN; not on the socket
 
 # usage
+GET internal/quota - -> Quota  each agent's account as last read: quota windows (percent used, resetsAt) or balance; at: when read; live: a process of it runs  view=agents.agent,agents.account,agents.machine,agents.windows,agents.balance,agents.at  [more]
+  What is read: claude (5-hour and weekly windows, and a model's own such as Fable's; account, plan), codex (its windows, by model), agy (a window per group of models), dsh (the DeepSeek balance, by currency); pi none. Read each minute through a running process of that agent, account and computer; none running, the last read stays and at says how old.
 
 # secrets
 GET internal/secrets - -> Secrets  no values; host only  view=secrets.name,secrets.note,secrets.scope

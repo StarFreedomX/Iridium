@@ -274,7 +274,8 @@ type ContextCategory struct {
 	Kind   string `json:"kind"` // used | buffer | free | deferred
 }
 
-// Quota is the carried state "quota": the agents' quota windows, as last read.
+// Quota is GET /v1/internal/quota: each agent's account as last read, its quota windows or its
+// balance.
 type Quota struct {
 	Agents []AgentQuota `json:"agents"`
 }

@@ -54,6 +54,9 @@ func (s *Server) appRoutes(mux *http.ServeMux) {
 		s.needState(w, r)
 	})
 	mux.HandleFunc("GET /v1/internal/usage", s.usage) // routes_usage.go
+	// Each agent's account as last read: its quota windows, or its balance (dsh); asked for, not
+	// carried (kumo, 2026-11-24).
+	mux.HandleFunc("GET /v1/internal/quota", s.manage(func(w http.ResponseWriter, r *http.Request) { reply(w, http.StatusOK, s.m.Quota()) }))
 	mux.HandleFunc("GET /v1/internal/public", s.manage(s.publicState))
 	// Opening or closing ir_web: a person's ir at the host only (decision 3), never a login of it.
 	mux.HandleFunc("PUT /v1/internal/public", func(w http.ResponseWriter, r *http.Request) {

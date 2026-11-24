@@ -647,8 +647,6 @@ func (m *Manager) provide(key string) (any, bool) {
 	case key == "list":
 		l, err := m.List(m.ctx)
 		return l, err == nil
-	case key == "quota":
-		return m.quotaState(), true
 	case strings.HasPrefix(key, "session:"):
 		s, err := m.State(strings.TrimPrefix(key, "session:"))
 		if err != nil {

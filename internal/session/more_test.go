@@ -2,7 +2,6 @@ package session
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -445,15 +444,13 @@ func TestCarried(t *testing.T) {
 		t.Errorf("tail %+v context %+v", s.Tail, s.Context)
 	}
 	waitFor(t, "the quota", func() bool {
-		var q api.Quota
-		json.Unmarshal(r.hub.Get("quota"), &q)
+		q := r.m.Quota()
 		return len(q.Agents) == 1 && q.Agents[0].Account == "user@example.com" && q.Agents[0].Live
 	})
 	r.m.Stop(bg, id)
 	r.waitState(id, "the stop", func(s *api.SessionState) bool { return !s.Live })
 	waitFor(t, "the quota kept, not live", func() bool {
-		var q api.Quota
-		json.Unmarshal(r.hub.Get("quota"), &q)
+		q := r.m.Quota()
 		return len(q.Agents) == 1 && !q.Agents[0].Live && len(q.Agents[0].Windows) == 1
 	})
 	// A new daemon has both from the disk: TestContextAndQuotaAfterRestart.
@@ -542,15 +539,15 @@ func TestReactsOnly(t *testing.T) {
 	t.Parallel()
 	in := func(ch string) bool { return ch == "self" || ch == "c1" }
 	for cmd, want := range map[string]bool{
-		`ir api reaction.create channel_id=c1 message_id=12 emoji=👍`:            true,
-		`ir api reaction.create emoji_id=🎉 channel_id=self message_id=3`:        true,
-		`ir api reaction.create channel_id=c1 message_id=12 emoji='❤️'`:          true,
-		`ir api reaction.create channel_id=c2 message_id=12 emoji=👍`:            false, // not a channel it is in
-		`ir api reaction.create channel_id=c1 message_id=x emoji=👍`:             false,
-		`ir api reaction.create channel_id=c1 message_id=12`:                    false,
-		`ir api reaction.create channel_id=c1 message_id=12 emoji=👍 user_id=x`:  false,
+		`ir api reaction.create channel_id=c1 message_id=12 emoji=👍`:           true,
+		`ir api reaction.create emoji_id=🎉 channel_id=self message_id=3`:       true,
+		`ir api reaction.create channel_id=c1 message_id=12 emoji='❤️'`:        true,
+		`ir api reaction.create channel_id=c2 message_id=12 emoji=👍`:           false, // not a channel it is in
+		`ir api reaction.create channel_id=c1 message_id=x emoji=👍`:            false,
+		`ir api reaction.create channel_id=c1 message_id=12`:                   false,
+		`ir api reaction.create channel_id=c1 message_id=12 emoji=👍 user_id=x`: false,
 		`ir api reaction.create channel_id=c1 message_id=12 emoji=👍; rm -rf ~`: false,
-		`ir api reaction.delete channel_id=c1 message_id=12 emoji=👍`:            false,
+		`ir api reaction.delete channel_id=c1 message_id=12 emoji=👍`:           false,
 	} {
 		if got := reactsOnly(api.Ask{Kind: "permission", Tool: "Bash", Input: map[string]any{"command": cmd}}, in); got != want {
 			t.Errorf("%q: %v", cmd, got)

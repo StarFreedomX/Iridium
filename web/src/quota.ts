@@ -1,8 +1,15 @@
 // A quota window's names: its key, for hiding it in the settings (agent, account, window), and its
 // name in the page's language.
+import { useQuery } from "@tanstack/react-query";
+import { api } from "./api/client";
 import type { Agent, QuotaWindow } from "./api/types.gen";
 import { t } from "./i18n";
 import { agentName } from "./ui";
+
+/** Each agent's account (GET /v1/internal/quota), asked again each minute while shown, not carried
+ *  (kumo, 2026-11-24); one that fails keeps the last, and its read time says how old. */
+export const quotaQ = { queryKey: ["quota"], queryFn: api.quota, staleTime: 30_000, refetchInterval: 60_000 } as const;
+export const useQuota = () => useQuery(quotaQ).data;
 
 /** A quota window's key, for hiding it in the settings: agent, account, window. */
 export const quotaKey = (q: { agent: Agent; account?: string }, w: QuotaWindow) => [q.agent, q.account ?? "", w.group, w.model ?? ""].join(":");

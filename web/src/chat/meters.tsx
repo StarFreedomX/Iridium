@@ -14,14 +14,14 @@ import type { Agent, AgentQuota, Context, ContextCategory, InputTokens, Model, P
 import { parse, type El } from "../satori";
 import { useAgent } from "../data";
 import { t, useLang } from "../i18n";
-import { useContextState, useQuota } from "../store";
+import { useContextState } from "../store";
 import { errText, toast } from "../toast";
 import { agentName, ago, cn, PHONE, PopSurface, Tip, tokens as tok, useLongPress, useMedia, useMinute } from "../ui";
 import { choicesQ } from "./choices";
 import { EffortSlider, levelName, noteLevelNames } from "./effort";
 import { hasMark, ModeMark, modeName } from "../modes";
 import { openUsage } from "../route";
-import { quotaKey, windowFor, windowName } from "../quota";
+import { quotaKey, useQuota, windowFor, windowName } from "../quota";
 
 const k = (n: number) => (n >= 100_000 ? `${Math.round(n / 1000)}k` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`);
 

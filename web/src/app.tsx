@@ -24,6 +24,7 @@ import { motion, movesAhead, pageTurn, usePaced } from "./motion";
 import type { Place } from "./places";
 import { prefetch, settled } from "./prefetch";
 import { prefetchRoles } from "./roles";
+import { quotaQ } from "./quota";
 import { close, go, onTurn, openChat, over, quietDialog, route, setUsageMachine, usagePoint, useRoute, type Route } from "./route";
 import { Pager, TABS_H } from "./pager";
 import { atLeft, GRIP, Sheet } from "./sheet";
@@ -105,7 +106,7 @@ const loadPanels = () => {
 // once. Not after one failed: a module that failed to load stays failed in the browser.
 // What the "+" popover draws (its roles), asked for once idle, apart from the files: drawn
 // whole as it opens, nothing pushed in after (docs/前端设计规范.md "后到的不撑开").
-void settled().then(() => (prefetchRoles(), movesAhead(), void queryClient.prefetchQuery(agentsQ)));
+void settled().then(() => (prefetchRoles(), movesAhead(), void queryClient.prefetchQuery(agentsQ), void queryClient.prefetchQuery(quotaQ)));
 // The device's own cache: its worker, its sweeps (device/boot.ts), after the first screen.
 void settled().then(() => import("./device/boot"));
 void prefetch().then((all) => {

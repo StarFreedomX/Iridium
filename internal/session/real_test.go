@@ -60,7 +60,7 @@ func TestRealAgent(t *testing.T) {
 	}
 	time.Sleep(2 * time.Second) // the context and quota read after the turn
 	t.Logf("context %s", r.hub.Get("context:"+id))
-	t.Logf("quota %s", r.hub.Get("quota"))
+	t.Logf("quota %+v", r.m.Quota())
 	if b, err := os.ReadFile(r.cfg.StatePath() + "/hold/" + id + "/session.json"); err == nil {
 		t.Logf("session.json %s", b)
 	}

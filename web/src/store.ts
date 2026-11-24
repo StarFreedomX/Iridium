@@ -2,7 +2,7 @@
 // stream last brought it, and what else the page keeps live in memory (the stream's own state, the
 // round trip). Components read them with useCarried; nothing is a patch.
 import { useSyncExternalStore } from "react";
-import type { Needs, PairWindow, Context, Quota, Session, SessionState, UpdateState } from "./api/types.gen";
+import type { Needs, PairWindow, Context, Session, SessionState, UpdateState } from "./api/types.gen";
 
 const states = new Map<string, unknown>();
 const subs = new Map<string, Set<() => void>>();
@@ -63,7 +63,6 @@ export const useSession = (id: string | null) => useCarried<SessionState>(id ? `
 export const useContextState = (id: string | null) => useCarried<Context>(id ? `context:${id}` : null);
 /** Who is in each folder group's voice (voice/state.ts Rooms), by the group's id. */
 export const useVoiceRooms = () => useCarried<Record<string, { id: number; name: string }[]>>("voice");
-export const useQuota = () => useCarried<Quota>("quota");
 /** Whether a newer Iridium is out, and how installing it goes. */
 export const useUpdateState = () => useCarried<UpdateState>("update");
 /** What agents' ir asked a panel for (invites, tokens); none for a terminal that may not answer. */

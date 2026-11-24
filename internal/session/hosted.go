@@ -468,8 +468,6 @@ func (h *Hosted) attached(ready chan struct{}) {
 	h.mu.Unlock()
 	if len(u.Windows) > 0 {
 		h.setQuota(u.Windows, nil)
-	} else {
-		h.m.publishQuota() // live now
 	}
 }
 
@@ -596,7 +594,6 @@ func (h *Hosted) ended(e *hold.Exit) {
 	h.readTranscript()
 	h.endedHidden()
 	h.publish()
-	h.m.publishQuota()
 	if errText != "" {
 		h.m.notify(Notice{Session: h.id, Kind: NoticeError, Text: errText})
 	}

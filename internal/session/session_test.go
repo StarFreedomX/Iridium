@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -140,7 +141,7 @@ func TestHostedTurn(t *testing.T) {
 		t.Errorf("usage: %+v", u[0])
 	}
 	waitFor(t, "context and quota", func() bool {
-		return string(r.hub.Get("context:"+id)) != "null" && strings.Contains(string(r.hub.Get("quota")), `"percent":10`)
+		return string(r.hub.Get("context:"+id)) != "null" && slices.ContainsFunc(r.m.Quota().Agents, func(a api.AgentQuota) bool { return len(a.Windows) > 0 && a.Windows[0].Percent == 10 })
 	})
 	// A second message, from another terminal: one more row, a cent again.
 	if _, err := r.m.Send(context.Background(), id, "again", "本机"); err != nil {
