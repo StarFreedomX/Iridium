@@ -152,7 +152,7 @@ export class ChannelLog {
 
 /** A channel as kept: its log, its scroll place as it was left, what was sent from here that the
  *  log has yet to bring. */
-export type Kept = { log: ChannelLog; place: { top: number | null }; sent: Sent[] };
+export type Kept = { log: ChannelLog; place: { top: number | null }; sent: Sent[]; /** Where the messages sent from here are shown (lib.ts placeOf): number → place. */ placed: Map<number, number> };
 
 /** The channels seen lately, so going back to one draws it at once. */
 const kept = new Map<string, Kept>();
@@ -168,7 +168,7 @@ export const anyUnsentChannel = () => [...kept.values()].some((c) => c.sent.some
 
 export function channelLog(id: string): Kept {
   let it = kept.get(id);
-  it ??= { log: new ChannelLog(id), place: { top: null }, sent: [] };
+  it ??= { log: new ChannelLog(id), place: { top: null }, sent: [], placed: new Map() };
   kept.delete(id);
   kept.set(id, it);
   for (const [k, c] of kept) {

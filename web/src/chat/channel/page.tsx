@@ -35,7 +35,7 @@ import { Assistant, Attached, Compaction, Letter, Line, MsgRow, Pending, Said, S
 import { ShellRuns } from "../shell";
 import { folded, foldKey } from "../fold";
 import { Stick, toEnd } from "../stick";
-import { askQueue, groupMessages, quoteAt, readMarks, stillWaiting, watchExtra, type AgentRow, type Did, type Group, type Msg, type Src, lineOf, workOf, saidBefore, workKey, eventParts, personName, type EventWords } from "./lib";
+import { askQueue, groupMessages, quoteAt, readMarks, stillWaiting, arrived, shownRows, watchExtra, type AgentRow, type Did, type Group, type Msg, type Src, lineOf, workOf, saidBefore, workKey, eventParts, personName, type EventWords } from "./lib";
 import { channelLog } from "./log";
 import { lendActs } from "./menu";
 import { onOf } from "./scripts";
@@ -63,6 +63,7 @@ const BUSY = new Set(["running", "compacting", "starting", "waiting"]);
 const turning = (s?: { status: string; asks: unknown[]; denials?: unknown[] }) => !!s && BUSY.has(s.status) && !(s.status === "waiting" && !s.asks.length && !!s.denials?.length);
 
 let lastStackH = 120;
+let placeN = 0; // the bubbles sent after the same message, in the order sent (Sent.place)
 /** How long a turn just begun is held back for the answer to the send that began it (ms): what a
  *  send takes over a usual link, no more. */
 const SEND_HOLD = 1500;
@@ -213,6 +214,11 @@ export function ChannelPage({ id, sheet = 0, bar, record, subTurn }: { id: strin
   }, [turns]);
 
   // What was sent from here, till the log has it.
+  // One that has come keeps the place its bubble had (lib.ts placeOf).
+  for (const x of entry.sent) {
+    const m = x.failed === undefined && x.place !== undefined ? arrived(x, log.msgs) : undefined;
+    if (m && !entry.placed.has(m.n)) entry.placed.set(m.n, x.place!);
+  }
   const sent = (entry.sent = entry.sent.filter((x) => stillWaiting(x, log.msgs)));
   const bubbles = useRef(new Map<string, HTMLDivElement>());
   const fly = useRef<string | null>(null);
@@ -242,6 +248,7 @@ export function ChannelPage({ id, sheet = 0, bar, record, subTurn }: { id: strin
   });
   const onSent = (x: Sent) => {
     x.from = log.end;
+    x.place = log.end + 0.5 + (placeN = (placeN + 1) % 4096) / 8192;
     x.mid = agents.some((a) => WORKING.has(a.status));
     entry.sent.push(x);
     fly.current = x.key;
@@ -256,6 +263,9 @@ export function ChannelPage({ id, sheet = 0, bar, record, subTurn }: { id: strin
   const retry = async (x: Sent) => {
     x.failed = undefined;
     x.at = undefined;
+    // Sent again: under what has come since, not back where it failed.
+    x.from = log.end;
+    x.place = log.end + 0.5 + (placeN = (placeN + 1) % 4096) / 8192;
     changed();
     try {
       const r = await api.send(id, x.text, x.files.map((f) => f.ref), x.input, x.quote);
@@ -309,7 +319,10 @@ export function ChannelPage({ id, sheet = 0, bar, record, subTurn }: { id: strin
   // Who said a person's words, and whether it is the one looking: only those are on the right
   // (the user, 2026-11-13); another login, an app, a Bot or another session's ir on the left, under its own face.
   const who = personWho(self, terminals, list ?? [], workspaces ?? [], s);
-  const groups = useMemo(() => groupMessages(log.msgs), [log.msgs]);
+  const shown = shownRows(log.msgs, entry.placed, sent);
+  const shownKey = shown.map((r) => ("sent" in r ? `s${r.sent.key}` : `${r.msgs[0]!.n}-${r.msgs.at(-1)!.n}:${r.msgs.length}`)).join(" ");
+  const rows = useMemo(() => shown.map((r) => ("sent" in r ? r : { groups: groupMessages(r.msgs) })), [log.msgs, shownKey]);
+  const groups = useMemo(() => rows.flatMap((r) => ("groups" in r ? r.groups : [])), [rows]);
   // Words between agents fold when long (folds.ts betweenAgents).
   const nickSet = new Set(agents.map((a) => a.nick.toLowerCase()).filter(Boolean));
   const fold = (m: Msg) => betweenAgents(m, log.msgs, nickSet);
@@ -428,25 +441,28 @@ export function ChannelPage({ id, sheet = 0, bar, record, subTurn }: { id: strin
       <div className="relative h-full" onDragOver={(e) => files(e) || session(e) || place(e)} onDrop={drop}>
         <Stick key={hold ? "hold" : "whole"} scroller={scroller} tail={grew} older={() => log.older()} busy={working.length > 0 || subs.length > 0} draw={changed} place={entry.place} bottom={stackH} quiet={asking} style={{ paddingTop: padTop, paddingBottom: stackH + 20 }}>
           <div data-column className="mx-auto flex max-w-(--chat-w) flex-col gap-5 px-4 [--depart-gap:1.25rem] sm:px-6">
-            {!hold && groups.map((g) => (
-              <div key={g.key} className="relative flex min-w-0 flex-col">
-                <GroupView g={g} channel={id} agents={agents} who={who} record={record} call={call} may={may} quote={may ? quoting : undefined} quoted={quoted} bars={bars} fold={fold} old={old} jump={jump} />
-                {/* In the gap under it, over nothing: coming late, it moves nothing (docs/前端设计规范.md). */}
-                {SHOW_READS && marks.has(g.key) && <ReadMarks readers={marks.get(g.key)!} agents={agents} />}
-              </div>
-            ))}
-            {!hold && sent.map((x) => (
-              <Pending
-                key={x.key}
-                s={x}
-                who={yours(self)}
-                taken={!x.mid && shownWorking.length > 0}
-                words={<NickWords text={x.text} />}
-                bubbleRef={(el) => void (el ? bubbles.current.set(x.key, el) : bubbles.current.delete(x.key))}
-                retry={() => retry(x)}
-                drop={() => ((entry.sent = entry.sent.filter((y) => y !== x)), changed())}
-              />
-            ))}
+            {!hold && rows.map((r) =>
+              "groups" in r ? (
+                r.groups.map((g) => (
+                  <div key={g.key} className="relative flex min-w-0 flex-col">
+                    <GroupView g={g} channel={id} agents={agents} who={who} record={record} call={call} may={may} quote={may ? quoting : undefined} quoted={quoted} bars={bars} fold={fold} old={old} jump={jump} />
+                    {/* In the gap under it, over nothing: coming late, it moves nothing (docs/前端设计规范.md). */}
+                    {SHOW_READS && marks.has(g.key) && <ReadMarks readers={marks.get(g.key)!} agents={agents} />}
+                  </div>
+                ))
+              ) : (
+                <Pending
+                  key={r.sent.key}
+                  s={r.sent}
+                  who={yours(self)}
+                  taken={!r.sent.mid && shownWorking.length > 0}
+                  words={<NickWords text={r.sent.text} />}
+                  bubbleRef={(el) => void (el ? bubbles.current.set(r.sent.key, el) : bubbles.current.delete(r.sent.key))}
+                  retry={() => retry(r.sent)}
+                  drop={() => ((entry.sent = entry.sent.filter((y) => y !== r.sent)), changed())}
+                />
+              ),
+            )}
             {!hold && log.loaded && compacting && (
               <div className="-mt-1">
                 <Compaction since={compactSince.current} />
@@ -462,7 +478,9 @@ export function ChannelPage({ id, sheet = 0, bar, record, subTurn }: { id: strin
                   keyOf={(a) => a.session}
                   draw={(a, leaving) => {
                     const last = groups.at(-1)?.author;
-                    const alone = !sent.length && last?.kind === "agent" && last.session === a.session;
+                    // Under its own last words, no face again: only the first drawn (bare under another's
+                    // block, its dots read as that one's).
+                    const alone = !sent.length && last?.kind === "agent" && last.session === a.session && shownWorking[0]?.session === a.session;
                     return (
                       <Arrive on={!alone} off={leaving} as="g-fade">
                         <OtherTurn spoken={new Set(log.msgs.slice(-12).flatMap((m) => (m.author.kind === "agent" && m.author.session === a.session && m.text.trim() ? [m.text.trim()] : [])))} a={a} channel={id} st={stateAt(a.session)} said={log.msgs.findLast((m) => m.author.kind === "agent" && m.author.session === a.session && !!m.src)?.src} alone={alone} bars={bars(a.session)} call={may ? call : undefined} record={record} may={may} esc={agents.length === 1} />

@@ -535,8 +535,38 @@ export type Waiting = { text: string; seq?: number; from: number; failed?: strin
  *  person's same words said since it was sent. A failed one stays, to be sent again. */
 export function stillWaiting(s: Waiting, msgs: Msg[]): boolean {
   if (s.failed !== undefined) return true;
-  if (s.seq) return !msgs.some((m) => m.n === s.seq);
-  return !msgs.some((m) => m.n > s.from && madeBy(s.made, m.time) && m.author.kind === "person" && m.text.trim() === s.text.trim());
+  return !arrived(s, msgs);
+}
+
+/** What was sent, as the log has it: by its number once known; before that, by a person's same
+ *  words said since it was sent. */
+export function arrived(s: Waiting, msgs: Msg[]): Msg | undefined {
+  if (s.seq) return msgs.find((m) => m.n === s.seq);
+  return msgs.find((m) => m.n > s.from && madeBy(s.made, m.time) && m.author.kind === "person" && m.text.trim() === s.text.trim());
+}
+
+/** Nothing shown changes places (kumo, 2026-11-24: 彻底禁止换位, 旧消息完全不变): a message sent
+ *  from this page stays where its bubble was put, under what the page had then, whatever the
+ *  channel was given before the server had it (an agent's line come meanwhile was drawn over the
+ *  bubble, which then went up past it). at: such a message's number → its place, between the
+ *  numbers it was sent after and before; the rest by their numbers. A page opened afterwards has
+ *  the server's order. */
+export const placeOf = (m: Msg, at: ReadonlyMap<number, number>) => at.get(m.n) ?? m.n;
+export type Row<S> = { msgs: Msg[] } | { sent: S };
+/** The conversation's rows in the order shown: the messages by their places, each run of them
+ *  between two bubbles still waiting (sent, each at its place; one with none at the end). */
+export function shownRows<S extends { place?: number }>(msgs: Msg[], at: ReadonlyMap<number, number>, sent: S[]): Row<S>[] {
+  const all: { k: number; m?: Msg; x?: S }[] = [...msgs.map((m) => ({ k: placeOf(m, at), m })), ...sent.map((x) => ({ k: x.place ?? Infinity, x }))];
+  // Stable: messages before bubbles at the same place, each kind in the order given.
+  if (at.size || sent.length) all.sort((a, b) => a.k - b.k);
+  const out: Row<S>[] = [];
+  for (const it of all) {
+    const last = out.at(-1);
+    if (it.x) out.push({ sent: it.x });
+    else if (last && "msgs" in last) last.msgs.push(it.m!);
+    else out.push({ msgs: [it.m!] });
+  }
+  return out;
 }
 
 /** The states the stream is asked for besides the channel's own: its other agents' sessions

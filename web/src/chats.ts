@@ -20,7 +20,7 @@ export const fresh = (at: number) => Date.now() - at < 3_000;
  *  number in its channel, once the server said it. queued: the server keeps it for the turn's end (a command) or the quota (a clock by
  *  its bubble); waited: seen in the session's queue; gone: answered, and nothing of it will come
  *  in the transcript (a command the agent ran itself); at: when it was answered. */
-export type Sent = { key: string; made?: number; text: string; files: { ref: string; name: string; type: string; size?: number; url?: string; w?: number; h?: number }[]; from: number; input?: string; failed?: string; queued?: boolean; waited?: boolean; left?: number; gone?: boolean; at?: number; mid?: boolean; seq?: number; quote?: number };
+export type Sent = { key: string; made?: number; text: string; files: { ref: string; name: string; type: string; size?: number; url?: string; w?: number; h?: number }[]; from: number; input?: string; failed?: string; queued?: boolean; waited?: boolean; left?: number; gone?: boolean; at?: number; mid?: boolean; seq?: number; quote?: number; place?: number };
 
 /** Where a block's transcript line begins: its at up to the dot. */
 export const lineOf = (b: { at: string }) => parseInt(b.at);
