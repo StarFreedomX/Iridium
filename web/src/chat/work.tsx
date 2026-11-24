@@ -170,7 +170,8 @@ export function WorkLine({ channel, n, session, work, did, span, may, esc }: { c
   const to = work ? work.to : span?.to;
   const running = !!work?.running;
   const steps = work?.steps ?? 0;
-  const opens = from !== undefined && (running || steps > 0 || !!span);
+  // Nothing to open till it has done a step: before that it only says it is being reached (kumo, 2026-11-24).
+  const opens = from !== undefined && (steps > 0 || !!span);
   const open = useOpen(channel, n) && opens;
   const blocks = useSpan(session, from);
   const [card, setCard] = useState<Card | null>(null);

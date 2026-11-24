@@ -313,7 +313,7 @@ export const zh = {
   "work.step": "第 {n} 步",
   "work.step1": "1 步",
   "work.steps": "{n} 步",
-  "work.thinking": "思考中",
+  "work.thinking": "连接中",
   "work.earlier": "更早 {n} 步",
   "work.agents": "{n} 个子代理",
   "work.sec": "{s} 秒",
