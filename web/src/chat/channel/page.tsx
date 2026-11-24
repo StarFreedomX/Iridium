@@ -63,6 +63,12 @@ const BUSY = new Set(["running", "compacting", "starting", "waiting"]);
 const turning = (s?: { status: string; asks: unknown[]; denials?: unknown[] }) => !!s && BUSY.has(s.status) && !(s.status === "waiting" && !s.asks.length && !!s.denials?.length);
 
 let lastStackH = 120;
+/** How long a turn just begun is held back for the answer to the send that began it (ms): what a
+ *  send takes over a usual link, no more. */
+const SEND_HOLD = 1500;
+/** How long an agent whose turn ended stays drawn at work for its message to come (ms): the time
+ *  between its state and its message over a usual link, no more. */
+const LINGER = 600;
 
 const ghostOf = (row: Session): LiveSession => ({ ...row, asks: [], tasks: [], denials: [], queue: [], end: 0, proc: -1 });
 
@@ -368,8 +374,35 @@ export function ChannelPage({ id, sheet = 0, bar, record, subTurn }: { id: strin
   // Hold back newly started agent turns while the triggering send HTTP is still in flight
   // (kumo, 2026-11-24: SSE running can arrive before api.send responds, flashing a reply under a
   // still-sending bubble).
-  const sendingBefore = sent.some((x) => !x.mid && x.at === undefined && x.left === undefined && x.failed === undefined);
-  const shownWorking = sendingBefore ? [] : working;
+  // Not past SEND_HOLD: the answer late or never come (a weak link) while the agent is
+  // already at work, its turn is shown; held till the answer, it was not drawn at all.
+  const heldTill = Math.max(0, ...sent.map((x) => (!x.mid && x.at === undefined && x.left === undefined && x.failed === undefined ? (x.made ?? 0) + SEND_HOLD : 0)));
+  const sendingBefore = heldTill > Date.now();
+  useEffect(() => {
+    if (!sendingBefore) return;
+    const timer = setTimeout(changed, Math.max(0, heldTill - Date.now()) + 1);
+    return () => clearTimeout(timer);
+  }, [sendingBefore, heldTill]);
+  // An agent whose turn just ended stays drawn at work till what it said is in the log: its state
+  // comes a little before its message, and gone at once, the conversation was without both for
+  // that long (a block taller than the pane: nothing seen at all). LINGER at most: a turn that
+  // ended with nothing said.
+  const lingers = useRef(new Map<string, { from: number; till: number }>());
+  const wasWorking = useRef<string[]>([]);
+  {
+    const now = Date.now();
+    const on = new Set(working.map((a) => a.session));
+    for (const x of wasWorking.current) if (!on.has(x) && !lingers.current.has(x)) lingers.current.set(x, { from: log.end, till: now + LINGER });
+    wasWorking.current = [...on];
+    for (const [x, l] of lingers.current) if (on.has(x) || now >= l.till || log.msgs.some((m) => m.n > l.from && m.author.kind === "agent" && m.author.session === x)) lingers.current.delete(x);
+  }
+  const lingerTill = Math.min(Infinity, ...[...lingers.current.values()].map((l) => l.till));
+  useEffect(() => {
+    if (lingerTill === Infinity) return;
+    const timer = setTimeout(changed, Math.max(0, lingerTill - Date.now()) + 1);
+    return () => clearTimeout(timer);
+  }, [lingerTill]);
+  const shownWorking = sendingBefore ? [] : agents.filter((a) => WORKING.has(a.status) || lingers.current.has(a.session));
   const secretAt = useSecret()?.at;
   const secretHere = secretAt === id || (!!solo && secretAt === solo.session);
   const asking = agents.some((a) => !!stateAt(a.session)?.asks.length) || agents.some((a) => confirms.some((c) => c.session === a.session && c.kind !== "ask")) || secretHere;
@@ -423,7 +456,7 @@ export function ChannelPage({ id, sheet = 0, bar, record, subTurn }: { id: strin
                 under them, and live streaming drafts + tool calls; collapsed cleanly when idle so
                 there is no dead empty gap under the last message. */}
             {!hold && log.loaded && !compacting && (
-              <div className="-mt-2 flex flex-col gap-5 empty:hidden">
+              <div data-tail className="-mt-2 flex flex-col gap-5 empty:hidden">
                 <Leaving
                   items={shownWorking}
                   keyOf={(a) => a.session}

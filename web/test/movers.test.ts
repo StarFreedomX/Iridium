@@ -37,7 +37,7 @@ test("a conversation's scroll place written only by its follow, and where a thin
     "chat/composer.tsx", // the composer's own lists
     "chat/mention.tsx", // the composer's backdrop with its text
     "chat/meters.tsx", // the model list's own rows
-    "chat/said.tsx", // a steps' popover's own list, kept at its newest
+    "chat/said.tsx", // a fold of steps' own list (scrolled in place, capped), kept at its newest
     "chat/stick.tsx",
   ]);
 });

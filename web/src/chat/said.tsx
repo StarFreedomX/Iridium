@@ -862,9 +862,9 @@ function StepsFold({ steps, session, cwd, live }: { steps: Step[]; session: stri
   const span = useMemo(() => foldSpan(steps), [steps]);
   const total = steps.length + active.length;
 
-  const registerMove = () => {
+  const registerMove = (shuts: boolean) => {
     const el = revealRef.current;
-    if (el && !reduced() && !document.hidden) layoutMoves(el, motion.move() + motion.fade() + 80);
+    if (el && !reduced() && !document.hidden) layoutMoves(el, motion.move() + motion.fade() + 80, shuts ? 0 : undefined);
   };
 
   // Auto-collapse when live ends (unless the user interacted with it), and auto-open if resumed.
@@ -872,7 +872,7 @@ function StepsFold({ steps, session, cwd, live }: { steps: Step[]; session: stri
     if (wasLive.current && !isLive) {
       wasLive.current = false;
       if (!pinned.current && open) {
-        registerMove();
+        registerMove(true);
         setOpen(false);
         setSel(null);
       }
@@ -880,7 +880,7 @@ function StepsFold({ steps, session, cwd, live }: { steps: Step[]; session: stri
       wasLive.current = true;
       if (!pinned.current && !open) {
         atEnd.current = true;
-        registerMove();
+        registerMove(false);
         setOpen(true);
       }
     }
@@ -928,7 +928,7 @@ function StepsFold({ steps, session, cwd, live }: { steps: Step[]; session: stri
 
   const toggleOpen = () => {
     pinned.current = true;
-    registerMove();
+    registerMove(open);
     if (!open) {
       atEnd.current = true;
       setFullCap(true);
