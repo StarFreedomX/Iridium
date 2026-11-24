@@ -28,15 +28,16 @@ type Prev = { h: number; mine: boolean; el: HTMLElement | null };
  *  hand or of itself (foldstate.ts), in place of fold: folded, its first lines (FOLD_SHOW of long
  *  words, else one), the rest a line saying how many. onOpen: as it is opened (the whole of words
  *  cut short asked for: one key for both, kumo, 2026-11-21). prev: Foldable's. quiet: its key says
- *  展开 alone, not how many lines (a step's record, kumo, 2026-11-24). */
-export function LongWords({ fold, lines, children, ctl, onOpen, prev, quiet }: { fold: boolean; lines: number; children: ReactNode; ctl?: Fold; onOpen?: () => void; prev?: RefObject<Prev>; quiet?: boolean }) {
+ *  展开 alone, not how many lines (a step's record, kumo, 2026-11-24). at, shows: past how many
+ *  lines it folds and how many of the words' lines high it is then, when not the words' own. */
+export function LongWords({ fold, lines, children, ctl, onOpen, prev, quiet, at = FOLD_AT, shows = FOLD_SHOW }: { fold: boolean; lines: number; children: ReactNode; ctl?: Fold; onOpen?: () => void; prev?: RefObject<Prev>; quiet?: boolean; at?: number; shows?: number }) {
   useLang();
   const [own, setOwn] = useState(false);
   // Opened by a press here: 收起 under it, to fold it again.
   const [pressed, setPressed] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   const outer = useRef<HTMLDivElement>(null);
-  const long = lines > FOLD_AT;
+  const long = lines > at;
   const open = ctl ? !ctl.folded : own;
   // Folded or opened from its menu: its height glides as a press's does, from how tall it was then
   // first, then said to move of itself: the chat sees no change. Nothing measured otherwise.
@@ -51,7 +52,7 @@ export function LongWords({ fold, lines, children, ctl, onOpen, prev, quiet }: {
   });
   if (!ctl && (!fold || !long)) return <>{children}</>;
   const folds = !open || pressed;
-  const show = long ? FOLD_SHOW : 1;
+  const show = long ? shows : 1;
   const toggle = () => {
     const set = () => {
       setPressed(true);

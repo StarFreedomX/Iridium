@@ -907,12 +907,17 @@ function Record({ s, session, cwd }: { s: Step; session: string; cwd: string }) 
   );
 }
 
+/** A record's text folds past 40 lines, to some 36 of its own (18px each, said in the words' 23px
+ *  lines): most of what a step gave back is read without a press (kumo, 2026-11-24). */
+const RECORD_AT = 40;
+const RECORD_SHOW = 28;
+
 /** Text in a record, folded past its first lines; opened, its whole is brought if the page has
  *  only its start (more: it has, however few its lines). */
 function Folded({ text, more, children }: { text: string; more?: boolean; children: (asked: boolean) => ReactNode }) {
   const [opened, setOpened] = useState(false);
   return (
-    <LongWords fold quiet lines={Math.max(linesOf(text), more ? FOLD_AT + 1 : 0)} onOpen={() => setOpened(true)}>
+    <LongWords fold quiet at={RECORD_AT} shows={RECORD_SHOW} lines={Math.max(linesOf(text), more ? RECORD_AT + 1 : 0)} onOpen={() => setOpened(true)}>
       {children(opened)}
     </LongWords>
   );
