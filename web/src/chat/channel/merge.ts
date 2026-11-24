@@ -58,6 +58,7 @@ export function slotsOf<M extends { time?: number; n?: number }>(rows: RowAt[], 
   type Unit = { at: number; start: number; seq?: number };
   const units: Unit[] = [];
   let last = -Infinity;
+  let lastSeq = -Infinity;
   for (let i = 0; i < rows.length; i++) {
     const cut = cuts?.get(i);
     if (i > 0 && !cut && rows[i]!.agent) continue;
@@ -67,13 +68,18 @@ export function slotsOf<M extends { time?: number; n?: number }>(rows: RowAt[], 
       start = typeof t === "number" ? t : t?.since;
     }
     last = start === undefined ? last : Math.max(last, start);
-    units.push({ at: i, start: last, ...(cut?.seq !== undefined ? { seq: cut.seq } : {}) });
+    // Keep cut seq monotonically non-decreasing so an out-of-order queued relay never pulls later
+    // channel messages below a turn that already handled a newer seq (kumo, 2026-11-24).
+    const seq = cut?.seq !== undefined ? (lastSeq = Math.max(lastSeq, cut.seq)) : undefined;
+    units.push({ at: i, start: last, ...(seq !== undefined ? { seq } : {}) });
   }
   const out = new Map<number, M[]>();
   for (const m of ms) {
     const at = m.time ?? Infinity;
     const n = m.n;
-    const u = units.find((u) => (n !== undefined && u.seq !== undefined && n <= u.seq) || u.start > at);
+    // When a turn has a channel cut seq, order strictly by log seq so unread messages sent while
+    // the agent was busy never jump above a turn that only dequeued an earlier seq (kumo, 2026-11-24).
+    const u = units.find((u) => (n !== undefined && u.seq !== undefined ? n <= u.seq : u.start > at));
     const i = u ? u.at : rows.length;
     out.set(i, [...(out.get(i) ?? []), m]);
   }

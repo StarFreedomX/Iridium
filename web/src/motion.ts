@@ -28,12 +28,12 @@ function token(name: string, fallback: string) {
 const ms = (v: string) => (v.endsWith("ms") ? parseFloat(v) : parseFloat(v) * 1000);
 
 export const motion = {
-  dur: (n: 1 | 2 | 3 | 4) => ms(token(`--dur-${n}`, ["100ms", "160ms", "160ms", "220ms"][n - 1])),
+  dur: (n: 1 | 2 | 3 | 4) => ms(token(`--dur-${n}`, ["150ms", "220ms", "220ms", "280ms"][n - 1])),
   /** The three times (motion.css): a change of place or height; a coming or going in place; the
    *  part of a move its content fades in over (a reveal). */
-  move: () => ms(token("--move", "160ms")),
-  fade: () => ms(token("--fade", "100ms")),
-  reveal: () => ms(token("--reveal", "40ms")),
+  move: () => ms(token("--move", "220ms")),
+  fade: () => ms(token("--fade", "150ms")),
+  reveal: () => ms(token("--reveal", "110ms")),
   ease: (k: "out" | "in" | "spring") => token(`--ease-${k}`, "ease-out"),
 };
 

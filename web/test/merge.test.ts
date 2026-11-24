@@ -90,12 +90,29 @@ describe("in its place: between turns, by when each began", () => {
       [2, [6]],
     ]);
   });
-  test("a call that waited for the turn before to end: over the turn it began, with what was said meanwhile", () => {
+  test("a call that waited for the turn before to end: only messages up to its seq go over it; later unread ones stay under it", () => {
+    // Turn at index 3 finally dequeued #5 at t=100; #6 was sent at t=50 (before t=100) while the
+    // agent was still busy, so turn 3 has NOT read #6 yet and #6 must stay below turn 3.
     const rows = [you(10), own(20), own(90), own({ since: 101 })];
     const cuts = new Map([[3, { time: 100, seq: 5 }]]);
     expect(at(slotsOf(rows, [{ n: 5, time: 15 }, { n: 6, time: 50 }, { n: 7, time: 120 }], cuts))).toEqual([
-      [3, [5, 6]],
-      [4, [7]],
+      [3, [5]],
+      [4, [6, 7]],
+    ]);
+  });
+  test("an older queued relay arriving after a newer cut never pushes newer messages below the newer turn", () => {
+    // Turn 0 handled #87; an older queued #46 arrived mid-turn before row 1; turn 2 handled #106;
+    // another old queued #56 arrived before row 3. #106 must still go above row 2, not after row 3.
+    const rows = [own({ since: 10 }), own(20), own({ since: 100 }), own(110)];
+    const cuts = new Map([
+      [0, { time: 9, seq: 87 }],
+      [1, { time: 19, seq: 46 }],
+      [2, { time: 99, seq: 106 }],
+      [3, { time: 109, seq: 56 }],
+    ]);
+    expect(at(slotsOf(rows, [{ n: 87, time: 8 }, { n: 88, time: 15 }, { n: 106, time: 98 }], cuts))).toEqual([
+      [0, [87]],
+      [2, [88, 106]],
     ]);
   });
   test("one at the same time as a turn began goes after it", () => {

@@ -22,7 +22,7 @@ import { PULL } from "../../sheet";
 import { getCarried, onCarried, setCarried, useCarried, useConfirms, useList, useSession } from "../../store";
 import { also, carries, events, opened, type SatoriEvent } from "../../stream";
 import { errText } from "../../toast";
-import { Arrive, agentName, cn, lampOf, Logo, PopSurface, ServerFace } from "../../ui";
+import { Arrive, agentName, cn, lampOf, PopSurface, ServerFace } from "../../ui";
 import { Leaving } from "../../moves";
 import { Asks } from "../asks";
 import { placeDropped } from "../at";
@@ -46,7 +46,7 @@ import { Forwards, quoteText } from "../forwardcard";
 import { msgWords, withForwards } from "../forward";
 import { mayAct, useMembers } from "./gate";
 import { NotJoined } from "./key";
-import { MemberFace } from "./face";
+import { Face as ChannelFace, MemberFace } from "./face";
 import { AgentFace } from "./members";
 import { OtherTurn } from "../atwork";
 import { useAway, Where } from "../away";
@@ -186,11 +186,13 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
   };
   // Failed, shown so even if it was taken for come (chat.tsx sentDone).
   const sentDone = (x: Sent) => {
+    x.at = Date.now();
     if (x.failed !== undefined && !entry.sent.includes(x)) entry.sent.push(x);
     changed();
   };
   const retry = async (x: Sent) => {
     x.failed = undefined;
+    x.at = undefined;
     changed();
     try {
       const r = await api.send(id, x.text, x.files.map((f) => f.ref), x.input, x.quote);
@@ -198,6 +200,7 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
     } catch (e) {
       x.failed = errText(e);
     }
+    x.at = Date.now();
     changed();
   };
 
@@ -441,7 +444,7 @@ export function Of({ a, children, off }: { a: AgentRow; children: ReactNode; off
   return (
     <div inert={off} className={cn(off && "opacity-60")}>
       <button type="button" onClick={() => openChat(a.session)} className="g-press relative z-10 flex h-6 max-w-full items-center gap-1.5 rounded-md px-2 text-xs text-ink-2 hover:text-ink">
-        <Logo agent={a.agent} size={12} />
+        <ChannelFace id={a.session} agent={a.agent} size={14} logo={12} />
         <span className="max-w-40 truncate">{a.nick}</span>
       </button>
       {children}
@@ -544,7 +547,7 @@ export function GroupView({ g, channel, agents, who, record, call, may, quote, q
       {now ? (
         <AgentFace channel={channel} a={now} call={may ? call : undefined} record={record} may={may} />
       ) : (
-        <span className="grid size-7 shrink-0 place-items-center rounded-full bg-fill">{agent && <Logo agent={agent} size={16} />}</span>
+        <span className="grid size-7 shrink-0 place-items-center rounded-full bg-fill">{agent && <ChannelFace id={a.session} agent={agent} size={28} logo={16} />}</span>
       )}
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
         <div className="flex h-4 min-w-0 items-center gap-1.5">

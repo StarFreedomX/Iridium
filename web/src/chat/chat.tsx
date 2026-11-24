@@ -429,6 +429,7 @@ function WholeChat({ id, sheet = 0, onSheet, onMe, hold }: { id: string; sheet?:
   // Again under its id: one that went after all is not sent twice.
   const retry = async (sent: Sent) => {
     sent.failed = undefined;
+    sent.at = undefined;
     changed();
     try {
       const r = await api.send(id, sent.text, sent.files.map((f) => f.ref), sent.input, sent.quote);
@@ -609,7 +610,9 @@ function WholeChat({ id, sheet = 0, onSheet, onMe, hold }: { id: string; sheet?:
     if (ready && b.kind === "user" && givenHere(id, relay, b.text)) {
       const seq = relay?.seq ?? givenTurn(b.text ?? "")?.seq;
       const was = cuts.get(rowTimes.length);
-      cuts.set(rowTimes.length, { time: b.time ?? was?.time, seq: seq ?? was?.seq });
+      const bestSeq = seq !== undefined && was?.seq !== undefined ? Math.max(seq, was.seq) : (seq ?? was?.seq);
+      const bestTime = b.time !== undefined && was?.time !== undefined ? Math.max(b.time, was.time) : (b.time ?? was?.time);
+      cuts.set(rowTimes.length, { time: bestTime, seq: bestSeq });
       return [];
     }
     rowTimes.push({ agent: b.kind === "assistant" || b.kind === "fold" || b.kind === "running", time: b.kind === "fold" ? { since: b.steps[0]?.time } : b.kind === "running" ? { since: b.tool.time } : b.time });
@@ -822,27 +825,40 @@ function WholeChat({ id, sheet = 0, onSheet, onMe, hold }: { id: string; sheet?:
   // since): its face and name come first, the first call and the dots under them (kumo,
   // 2026-11-15), not in a row of their own.
   const pendingShown = pending.length > 0;
-  // Its harness coming up with nothing to answer (a session just made, no words yet): no turn,
-  // so no face nor dots, which came and went with nothing said (kumo, 2026-11-16). With words
-  // of yours waiting (sent, queued, or the last thing on the page), the turn is on its way.
-  const waking = s.status === "starting" && !pendingShown && !s.queue?.length && shown.at(-1)?.kind !== "user" && !log.drafts.length;
   // What you sent into a turn already on waits under that turn's row and takes nothing from it:
   // the turn is not cut in two, its row put under words the agent has not taken yet, and joined
   // again as they go to the queue or into the transcript (kumo, 2026-11-17). Only words sent
   // before the turn began are what it answers: its face comes under them.
   const pendingBefore = pending.filter((x) => !x.mid);
   const pendingAfter = pending.filter((x) => x.mid);
+  // Hold the new turn's frame while the triggering send is still in flight (kumo, 2026-11-24:
+  // SSE running can arrive ahead of api.send's HTTP response, showing a response under a still-
+  // sending bubble). Once drafts or active calls arrive, the agent is clearly already answering.
+  const sendingBefore = pendingBefore.some((x) => x.at === undefined && x.left === undefined && x.failed === undefined);
+  // Its harness coming up with nothing to answer (a session just made, no words yet): no turn,
+  // so no face nor dots, which came and went with nothing said (kumo, 2026-11-16). With words
+  // of yours waiting (sent, queued, or the last thing on the page), the turn is on its way.
+  const waking = (s.status === "starting" && !pendingShown && !s.queue?.length && shown.at(-1)?.kind !== "user" && !log.drafts.length) || (sendingBefore && !log.drafts.length && !activeCalls.length);
   // What changes as the conversation grows: it keeps to the bottom, the dots wait again.
   const grew = `${log.blocks.at(-1)?.at} ${log.drafts.length} ${log.drafts.at(-1)?.text.length} ${log.drafts.at(-1)?.whole} ${log.sent.length} ${ready?.kept.log.end ?? 0} ${atWork.map((a) => `${a.session}:${stateOf(a.session)?.end ?? 0}`).join(",")} ${subs.map((x) => `${x.id}:${x.updatedAt}`).join(",")}`;
   // The own agent's stop key, on its live fold or row at work; starting is no turn yet.
   const stop = may && s.status !== "starting" && !s.subagent && !elsewhere ? <StopKey session={id} esc /> : null;
   const textDrafting = log.drafts.some((d) => !d.tool);
   const liveFold: LiveFold = { active: activeCalls, stop, quiet: s.status !== "waiting" && !textDrafting, grew };
+  // Check whether the running turn is a brand-new turn below trailing channel messages (or after a
+  // delivered channel cut), so we never merge live calls into a previous finished turn's fold.
+  const baseTurns = turnsOf(merged);
+  const baseOwnAt = tailOf(baseTurns, (k) => groupAt.has(k));
+  const baseOwnKey = baseTurns[baseOwnAt] ? turnKey(baseTurns[baseOwnAt]!) : "start:a";
+  const hasTrailing = baseOwnAt < baseTurns.length - 1;
+  const seenWas = liveSeen.current.id === id ? liveSeen.current : { id, idle: false, at: null };
+  const peekLive = liveAt(seenWas.at, busy, baseOwnKey, hasTrailing, seenWas.idle);
+  const newTurnUnder = !!peekLive?.under || cuts.has(rowTimes.length) || (hasTrailing && !!seenWas.at && !seenWas.at.under && seenWas.at.key !== baseOwnKey);
   // Merge active calls + stop key directly into the trailing tool fold of the running turn, so
   // working steps expand in place and never hang a separate bottom Activity row under them.
   let mergedWork = false;
   const lastShownBlock = shownRows.at(-1);
-  const lastIsFold = lastShownBlock?.kind === "fold" && !(lastShownBlock.steps.length === 1 && lastShownBlock.steps[0]?.kind === "tool" && toldOf(lastShownBlock.steps[0]));
+  const lastIsFold = !newTurnUnder && lastShownBlock?.kind === "fold" && !(lastShownBlock.steps.length === 1 && lastShownBlock.steps[0]?.kind === "tool" && toldOf(lastShownBlock.steps[0]));
   const liveCanMerge = log.loaded && busy && !waking && !compacting && !textDrafting;
   const liveMerged = (() => {
     if (!liveCanMerge) return merged;
@@ -860,7 +876,12 @@ function WholeChat({ id, sheet = 0, onSheet, onMe, hold }: { id: string; sheet?:
     if (activeCalls.length > 0) {
       mergedWork = true;
       const k = foldKey([], runningTools, toolDrafts) ?? "live:fold";
-      return [...merged, { key: k, agent: true, node: <Fold key={k} steps={[]} session={id} cwd={cwd} live={liveFold} /> }];
+      const synth = { key: k, agent: true, node: <Fold key={k} steps={[]} session={id} cwd={cwd} live={liveFold} /> };
+      if (newTurnUnder) return [...merged, synth];
+      const after = merged.findLastIndex((r) => !groupAt.has(r.key)) + 1;
+      const copy = merged.slice();
+      copy.splice(after, 0, synth);
+      return copy;
     }
     return merged;
   })();
@@ -1006,7 +1027,7 @@ function WholeChat({ id, sheet = 0, onSheet, onMe, hold }: { id: string; sheet?:
   // which turn each one at work is over): what comes at either end is the chat's own glide
   // (stick.tsx).
   moved(`${turns.length - 1 - tailAt} ${boxes.map((b) => `${b.key}<${b.before}`).join(" ")}`, id);
-  const headless = busy && !compacting && (!(atEnd?.kind === "agent" || (atEnd?.kind === "works" && atEnd.rows.length > 0)) || pendingBefore.length > 0);
+  const headless = busy && !compacting && (!mergedWork || ahead.length > 0) && (!(atEnd?.kind === "agent" || (atEnd?.kind === "works" && atEnd.rows.length > 0)) || pendingBefore.length > 0);
   // Its usage after its model's name, a strip of its own as small as a phone's (the user,
   // 2026-11-13): the context's ring, the quota's bars; each pressed, its popover.
   // The agent's latest turn: the ring /context opens. None yet: the command is the agent's.
@@ -1099,6 +1120,7 @@ function WholeChat({ id, sheet = 0, onSheet, onMe, hold }: { id: string; sheet?:
       key={x.key}
       s={x}
       who={yours(self)}
+      taken={!x.mid && busy && !waking}
       bubbleRef={(el) => void (el ? bubbles.current.set(x.key, el) : bubbles.current.delete(x.key))}
       retry={() => retry(x)}
       drop={() => ((log.sent = log.sent.filter((y) => y !== x)), changed())}

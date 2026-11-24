@@ -9,7 +9,7 @@ import { LongWords } from "./longwords";
 import { FORWARD_CARD, ForwardHead, ForwardRow, Forwards } from "./forwardcard";
 import { msgWords, splitForwards, withForwards } from "./forward";
 import { FOLD_AT, linesOf } from "./channel/merge";
-import { Archive, ArchiveRestore, ArrowUpRight, BookOpen, Bot, BotMessageSquare, ChartColumn, Check, ChevronDown, ChevronRight, ChevronUp, CircleStop, CircleX, Clock, CloudDownload, CloudUpload, Copy, Cpu, Earth, FileCode, FileDiff, FilePen, Files as FilesIcon, FileText, FlaskConical, FolderGit2, FolderOpen, Folders, FoldVertical, GitBranch, GitCommitHorizontal, GitPullRequest, Globe, Hammer, History, Hourglass, KeyRound, Laptop, Link2, List, ListChecks, LoaderCircle, LockKeyhole, MessageCircleQuestionMark, MessageSquarePlus, Monitor, MonitorSmartphone, MousePointerClick, Network, Package, PencilLine, Plug, RotateCcw, RotateCw, Search, Send, ServerCog, SlidersHorizontal, Smartphone, SquareTerminal, Terminal, Trash2, type LucideIcon, UserRound, Workflow as WorkflowIcon, Wrench, X } from "lucide-react";
+import { Archive, ArchiveRestore, ArrowUpRight, BookOpen, Bot, BotMessageSquare, ChartColumn, ChevronRight, CircleStop, CircleX, Clock, CloudDownload, CloudUpload, Cpu, Earth, FileCode, FileDiff, FilePen, Files as FilesIcon, FileText, FlaskConical, FolderGit2, FolderOpen, Folders, FoldVertical, GitBranch, GitCommitHorizontal, GitPullRequest, Globe, Hammer, History, Hourglass, KeyRound, Laptop, Link2, List, ListChecks, LoaderCircle, LockKeyhole, MessageCircleQuestionMark, MessageSquarePlus, Monitor, MonitorSmartphone, MousePointerClick, Network, Package, PencilLine, Plug, RotateCcw, RotateCw, Search, Send, ServerCog, SlidersHorizontal, Smartphone, SquareTerminal, Terminal, Trash2, type LucideIcon, UserRound, Workflow as WorkflowIcon, Wrench, X } from "lucide-react";
 import { Copyable } from "./copyable";
 import { Dispatch, Sent as SentTo, TaskBack } from "./dispatched";
 import { handBack, toldOf } from "./dispatch";
@@ -17,6 +17,7 @@ import { Children, createContext, forwardRef, memo, useContext, useEffect, useLa
 import { givenTurn, linkNicks, type GivenTurn } from "./channel/lib";
 import { reactionLine } from "./react";
 import { Nicks, NickWords } from "./channel/nick";
+import { Face as ChannelFace } from "./channel/face";
 import { CARD_POP } from "./channel/profilecard";
 import type { Relay } from "../satori";
 import { Popover } from "@base-ui/react/popover";
@@ -33,7 +34,7 @@ import { go } from "../route";
 import { Files, isLink, Picture, previews, SentFile, shownAs } from "./files";
 import { Pictures } from "./pictures";
 import { cmdOfCall, cpOfCall, isShell, newOfCall, type Cmd, type CpSide } from "./cmd";
-import { argOf, diffSum, filterSteps, foldLine, foldSaid, foldSpan, kindOf, runCmds, type Diff, type Kind, type Shown, type Step, type StepFilter, type Tool } from "./fold";
+import { argOf, diffSum, foldLine, foldSaid, foldSpan, inputOf, kindOf, runCmds, unifiedDiff, type Diff, type Kind, type Shown, type Step, type Tool } from "./fold";
 import { Code } from "./hl";
 import { ToolDraft, Waiting } from "./live";
 import { Markdown, Streamed } from "./markdown";
@@ -132,7 +133,7 @@ function Face({ who }: { who: You | From }) {
   if (who.agent)
     return (
       <span className="grid shrink-0 place-items-center" style={{ width: FACE, height: FACE }} aria-label={t(who.workflow ? "msg.workflow" : "msg.agent")}>
-        <Logo agent={who.agent} size={24} />
+        {who.session ? <ChannelFace id={who.session} agent={who.agent} size={FACE} logo={24} /> : <Logo agent={who.agent} size={24} />}
       </span>
     );
   if (!who.channel)
@@ -299,12 +300,13 @@ export function Attached({ session, f }: { session: string; f: FileRef }) {
 }
 
 /** A message sent from here the transcript has yet to bring: its mark says where it is; not taken,
- *  red with a retry. */
-export function Pending({ s, who, retry, drop, takeBack, bubbleRef, words }: { s: Sent; who: You; retry: () => Promise<void>; drop: () => void; takeBack?: () => Promise<unknown>; bubbleRef?: (el: HTMLDivElement | null) => void; words?: ReactNode }) {
+ *  red with a retry. Once the server has answered (s.at) or the agent has started on it (taken),
+ *  nothing shows beside the bubble ("Taken, nothing"). */
+export function Pending({ s, who, retry, drop, takeBack, bubbleRef, words, taken }: { s: Sent; who: You; retry: () => Promise<void>; drop: () => void; takeBack?: () => Promise<unknown>; bubbleRef?: (el: HTMLDivElement | null) => void; words?: ReactNode; taken?: boolean }) {
   const [busy, setBusy] = useState(false);
   return (
     <div className="flex flex-col items-end gap-0.5">
-      <YouBubble ref={bubbleRef} text={s.text} who={who} words={words} failed={s.failed !== undefined} going={s.failed !== undefined ? undefined : s.queued ? "queued" : "sending"}>
+      <YouBubble ref={bubbleRef} text={s.text} who={who} words={words} failed={s.failed !== undefined} going={s.failed !== undefined ? undefined : s.queued ? "queued" : s.at !== undefined || s.left !== undefined || taken ? undefined : "sending"}>
         {s.files.map((f) =>
           f.url ? <Picture key={f.ref} src={f.url} full={f.url} name={f.name} w={f.w} h={f.h} /> : <SentFile key={f.ref} name={f.name} bytes={f.size} />,
         )}
@@ -845,19 +847,14 @@ function StepsFold({ steps, session, cwd, live }: { steps: Step[]; session: stri
   // Track programmatic scrollTop writes so resize frames during 0fr→1fr never drop atEnd.
   const ownScroll = useRef(-1);
   const [edges, setEdges] = useState({ top: false, bottom: false });
-  const [filter, setFilter] = useState<StepFilter>(null);
   // Selected step in the shared StepCard popover (by its Step.at key), plus its row anchor rect.
   const [sel, setSel] = useState<{ at: string; rect: DOMRect } | null>(null);
   const everCard = useEver(sel !== null);
-  const rowRefs = useRef(new Map<string, HTMLButtonElement>());
   const wasSelAt = useRef<string | null>(null);
 
   const runs = useMemo(() => foldLine(steps), [steps]);
   const diff = useMemo(() => diffSum(runs), [runs]);
   const span = useMemo(() => foldSpan(steps), [steps]);
-  const fails = useMemo(() => steps.reduce((n, s) => n + (failed(s) ? 1 : 0), 0), [steps]);
-  const visible = useMemo(() => filterSteps(steps, filter), [steps, filter]);
-  const selectable = useMemo(() => visible.filter(({ step }) => !(step.kind === "tool" && (toldOf(step) || step.result?.images?.length))), [visible]);
   const total = steps.length + active.length;
 
   const registerMove = () => {
@@ -907,7 +904,7 @@ function StepsFold({ steps, session, cwd, live }: { steps: Step[]; session: stri
     const ro = new ResizeObserver(pinBottom);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [open, visible.length, active.length, isLive]);
+  }, [open, steps.length, active.length, isLive]);
 
   const onListScroll = () => {
     const el = listRef.current;
@@ -929,7 +926,6 @@ function StepsFold({ steps, session, cwd, live }: { steps: Step[]; session: stri
     registerMove();
     if (!open) {
       atEnd.current = true;
-      setFilter(null);
       setFullCap(true);
       setOpen(true);
     } else {
@@ -938,48 +934,7 @@ function StepsFold({ steps, session, cwd, live }: { steps: Step[]; session: stri
     }
   };
 
-  const toggleFilter = (next: StepFilter) => {
-    pinned.current = true;
-    setSel(null);
-    atEnd.current = false;
-    setFilter((cur) => {
-      const same = cur && next && cur.kind === next.kind && (cur.kind !== "tool" || (next.kind === "tool" && cur.name === next.name));
-      return same ? null : next;
-    });
-    const el = listRef.current;
-    if (el) {
-      el.scrollTop = 0;
-      ownScroll.current = 0;
-    }
-  };
-
-  // Show filter bar when open and large enough to benefit (or has failures among several steps).
-  const showFilter = (!isLive || pinned.current) && (steps.length > 6 || (fails > 0 && steps.length > 2));
-  const selPos = sel ? selectable.findIndex((x) => x.step.at === sel.at) : -1;
-  const selItem = selPos >= 0 ? selectable[selPos] : undefined;
-
-  const moveSel = (delta: number) => {
-    if (selPos < 0) return;
-    const target = selectable[selPos + delta];
-    if (!target) return;
-    const btn = rowRefs.current.get(target.step.at);
-    const listEl = listRef.current;
-    if (btn && listEl) {
-      // Scroll only the inner list to keep the newly selected row comfortably visible.
-      const top = btn.offsetTop;
-      const bottom = top + btn.offsetHeight;
-      if (top < listEl.scrollTop + 20) {
-        listEl.scrollTop = Math.max(0, top - 20);
-        ownScroll.current = listEl.scrollTop;
-      } else if (bottom > listEl.scrollTop + listEl.clientHeight - 20) {
-        listEl.scrollTop = bottom - listEl.clientHeight + 20;
-        ownScroll.current = listEl.scrollTop;
-      }
-      syncEdges(listEl);
-    }
-    const rect = btn?.getBoundingClientRect() ?? sel!.rect;
-    setSel({ at: target.step.at, rect });
-  };
+  const selStep = sel ? steps.find((s) => s.at === sel.at) : undefined;
 
   const anchor = useMemo(() => (sel ? { getBoundingClientRect: () => sel.rect } : null), [sel]);
   const liveCap = !fullCap;
@@ -1028,44 +983,6 @@ function StepsFold({ steps, session, cwd, live }: { steps: Step[]; session: stri
         <div className="min-h-0 min-w-0 overflow-hidden">
           {ever && (
             <div className="mt-0.5 ml-[7px] pl-3 shadow-[inset_1px_0_0_var(--edge)]">
-              {showFilter && (
-                <div className="no-bar mb-1 flex h-7 min-w-0 items-center gap-1 overflow-x-auto text-xs text-ink-3">
-                  <button
-                    type="button"
-                    onClick={() => toggleFilter(null)}
-                    className={cn("g-press flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 tabular-nums transition-colors duration-(--dur-1)", filter === null ? "bg-fill text-ink" : "hover:bg-fill/60 hover:text-ink-2")}
-                  >
-                    {t("record.all")}
-                    <span className="text-ink-4">{steps.length}</span>
-                  </button>
-                  {fails > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => toggleFilter({ kind: "failed" })}
-                      className={cn("g-press flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-err tabular-nums transition-colors duration-(--dur-1)", filter?.kind === "failed" ? "bg-fill" : "hover:bg-fill/60")}
-                    >
-                      <CircleX size={12} aria-hidden />
-                      {t("record.failed", { n: fails })}
-                    </button>
-                  )}
-                  {runs.length > 1 &&
-                    runs.map((r) => {
-                      const on = filter?.kind === "tool" && filter.name === r.name;
-                      return (
-                        <button
-                          key={r.name}
-                          type="button"
-                          onClick={() => toggleFilter({ kind: "tool", name: r.name })}
-                          className={cn("g-press flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 tabular-nums transition-colors duration-(--dur-1)", on ? "bg-fill text-ink" : "hover:bg-fill/60 hover:text-ink-2")}
-                        >
-                          <KindIcon kind={r.name ? kindOf(r.name) : "thinking"} shell={isShell(r.name)} size={12} />
-                          {!isShell(r.name) && <span>{r.name || t("msg.thinking")}</span>}
-                          <span className="text-ink-4">{r.n}</span>
-                        </button>
-                      );
-                    })}
-                </div>
-              )}
               <div className="relative min-w-0">
                 <div aria-hidden className={cn("pointer-events-none absolute inset-x-0 top-0 z-10 h-5 bg-[linear-gradient(to_bottom,var(--paper),transparent)] transition-opacity duration-(--dur-1)", edges.top ? "opacity-100" : "opacity-0")} />
                 <div
@@ -1074,7 +991,7 @@ function StepsFold({ steps, session, cwd, live }: { steps: Step[]; session: stri
                   onScroll={onListScroll}
                   className={cn("steps-scroll flex min-w-0 flex-col overflow-y-auto pr-1", liveCap ? "max-h-[156px] pointer-coarse:max-h-[196px]" : "max-h-[min(48dvh,380px)]")}
                 >
-                  {visible.map(({ step: s, index }) => {
+                  {steps.map((s, index) => {
                     if (s.kind === "tool" && toldOf(s)) return <Dispatch key={s.at} call={s as Tool} session={session} />;
                     if (s.kind === "tool" && s.result?.images?.length) return <StepView key={s.at} s={s} session={session} cwd={cwd} lifted num={index + 1} />;
                     const took = s.kind === "tool" && s.time && s.result?.time ? s.result.time - s.time : undefined;
@@ -1082,10 +999,6 @@ function StepsFold({ steps, session, cwd, live }: { steps: Step[]; session: stri
                     return (
                       <button
                         key={s.at}
-                        ref={(el) => {
-                          if (el) rowRefs.current.set(s.at, el);
-                          else rowRefs.current.delete(s.at);
-                        }}
                         type="button"
                         aria-haspopup="dialog"
                         aria-expanded={activeRow}
@@ -1125,19 +1038,11 @@ function StepsFold({ steps, session, cwd, live }: { steps: Step[]; session: stri
         </div>
       </div>
       {everCard && (
-        <Popover.Root open={!!selItem} onOpenChange={(o) => !o && setSel(null)}>
+        <Popover.Root open={!!selStep} onOpenChange={(o) => !o && setSel(null)}>
           <Popover.Portal>
-            <Popover.Positioner anchor={anchor} side="bottom" align="start" sideOffset={4} collisionPadding={8} collisionAvoidance={{ side: "flip", align: "shift", fallbackAxisSide: "none" }} className="z-50">
+            <Popover.Positioner anchor={anchor} side={sel && sel.rect.top + sel.rect.height / 2 > window.innerHeight / 2 ? "top" : "bottom"} align="start" sideOffset={4} collisionPadding={8} collisionAvoidance={{ side: "none", align: "shift", fallbackAxisSide: "none" }} className="z-50">
               <Popover.Popup initialFocus={(type) => type === "keyboard"} className="g-unfold glass thick float flex max-h-[min(72dvh,620px,var(--available-height))] w-[min(620px,calc(100vw-16px))] flex-col overflow-hidden rounded-xl text-ink outline-none">
-                {selItem && (
-                  <StepCard
-                    key={selItem.step.at}
-                    s={selItem.step}
-                    session={session}
-                    cwd={cwd}
-                    nav={{ num: selItem.index + 1, total: steps.length, hasPrev: selPos > 0, hasNext: selPos < selectable.length - 1, onPrev: () => moveSel(-1), onNext: () => moveSel(1) }}
-                  />
-                )}
+                {selStep && <StepCard key={selStep.at} s={selStep} session={session} />}
               </Popover.Popup>
             </Popover.Positioner>
           </Popover.Portal>
@@ -1230,7 +1135,7 @@ function StepCall({ s, session, cwd, bare }: { s: Step; session: string; cwd: st
         <StepLine s={s} cwd={cwd} bare={bare} />
       </Popover.Trigger>
       <Popover.Portal>
-        <Popover.Positioner anchor={anchor} side="bottom" align="start" sideOffset={4} collisionPadding={8} collisionAvoidance={{ side: "flip", align: "shift", fallbackAxisSide: "none" }} className="z-50">
+        <Popover.Positioner anchor={anchor} side={at && at.y + at.h / 2 > window.innerHeight / 2 ? "top" : "bottom"} align="start" sideOffset={4} collisionPadding={8} collisionAvoidance={{ side: "none", align: "shift", fallbackAxisSide: "none" }} className="z-50">
           <Popover.Popup initialFocus={(type) => type === "keyboard"} className="g-unfold glass thick float flex max-h-[min(72dvh,620px,var(--available-height))] w-[min(620px,calc(100vw-16px))] flex-col overflow-hidden rounded-xl text-ink outline-none">
             <StepCard s={s} session={session} />
           </Popover.Popup>
@@ -1277,92 +1182,56 @@ function CpArg({ from, to }: { from: CpSide; to: CpSide }) {
   );
 }
 
-/** The card: no head on a standalone step (its line is right above it, a press elsewhere puts it
- *  away; the user, 2026-11-08); inside a multi-step fold, a compact nav bar lets you step ↑/↓
- *  through the fold without closing. Long input/output/thinking folds cleanly past RECORD_AT lines
- *  so huge outputs never stall rendering. */
-type CardNav = { num: number; total: number; hasPrev: boolean; hasNext: boolean; onPrev: () => void; onNext: () => void };
-function StepCard({ s, session, cwd, nav }: { s: Step; session: string; cwd?: string; nav?: CardNav }) {
-  const took = s.kind === "tool" && s.time && s.result?.time ? s.result.time - s.time : undefined;
+/** The card: no head and no Input/Output labels (kumo, 2026-11-24: its line is right above it,
+ *  the blocks themselves are enough). Shell calls show their command directly without a "command"
+ *  field label. Long text folds past RECORD_AT lines so huge outputs never stall rendering. */
+function StepCard({ s, session }: { s: Step; session: string }) {
+  const rawCmd = (() => {
+    if (s.kind !== "tool" || !isShell(s.name)) return undefined;
+    const i = inputOf(s.input);
+    const v = i.command ?? i.cmd;
+    return typeof v === "string" && v ? v : undefined;
+  })();
+  const hasOut = s.kind === "tool" && s.result && (s.result.text.trim() !== "" || !!s.result.length);
   return (
-    <>
-      {nav && (
-        <div className="flex h-9 shrink-0 items-center gap-2 border-b border-edge px-3 text-xs text-ink-3">
-          <span className="shrink-0 text-ink-4 tabular-nums">
-            {nav.num}/{nav.total}
-          </span>
-          <StepLine s={s} cwd={cwd} />
-          {took !== undefined && <span className="ml-auto shrink-0 pl-1 text-ink-4 tabular-nums">{lasted(took)}</span>}
-          <span className={cn("flex shrink-0 items-center gap-0.5", took === undefined && "ml-auto")}>
-            <IconKey label={t("record.prev")} disabled={!nav.hasPrev} onClick={nav.onPrev} className="size-6 text-ink-3 disabled:opacity-35 pointer-coarse:size-8">
-              <ChevronUp size={14} />
-            </IconKey>
-            <IconKey label={t("record.next")} disabled={!nav.hasNext} onClick={nav.onNext} className="size-6 text-ink-3 disabled:opacity-35 pointer-coarse:size-8">
-              <ChevronDown size={14} />
-            </IconKey>
-          </span>
-        </div>
-      )}
-      <div className="grid min-h-0 gap-4 overflow-y-auto overscroll-contain px-3 pt-3 pb-3.5">
-        {s.kind === "thinking" ? (
-          <Folded text={s.text ?? ""} more={!!s.length}>
-            {(asked) => <Clipped text={s.text ?? ""} length={s.length} at={s.at} session={session} prose asked={asked} />}
-          </Folded>
-        ) : (
-          <>
-            <Part label={t("msg.input")} copy={s.input}>
-              <Folded text={pretty(s.input ?? "")} more={!!s.length}>
-                {(asked) => <Clipped text={s.input ?? ""} length={s.length} at={s.at} session={session} fields asked={asked} />}
+    <div className="grid min-h-0 gap-2.5 overflow-y-auto overscroll-contain px-3 py-3">
+      {s.kind === "thinking" ? (
+        <Folded text={s.text ?? ""} more={!!s.length}>
+          {(asked) => <Clipped text={s.text ?? ""} length={s.length} at={s.at} session={session} prose asked={asked} />}
+        </Folded>
+      ) : (
+        <>
+          {rawCmd !== undefined ? (
+            <Folded text={rawCmd} more={!!s.length}>
+              {(asked) => <Clipped text={s.input ?? ""} length={s.length} at={s.at} session={session} shell asked={asked} />}
+            </Folded>
+          ) : (
+            <Folded text={pretty(s.input ?? "")} more={!!s.length}>
+              {(asked) => <Clipped text={s.input ?? ""} length={s.length} at={s.at} session={session} fields asked={asked} />}
+            </Folded>
+          )}
+          {hasOut && s.result ? (
+            s.name === "Agent" || s.name === "Task" ? (
+              <SubResult r={s.result} session={session} fold />
+            ) : (
+              <Folded text={s.result.text} more={!!s.result.length}>
+                {(asked) => <Clipped text={s.result!.text} length={s.result!.length} at={s.result!.at} session={session} error={s.result!.error} asked={asked} />}
               </Folded>
-            </Part>
-            <Part label={t("msg.output")} copy={s.result?.text} error={s.result?.error}>
-              {/* A subagent's result is its words to the agent, not to you: folded when long
-                  (kumo, 2026-11-15: 子代理交回的结果折起). */}
-              {s.result ? (
-                s.name === "Agent" || s.name === "Task" ? (
-                  <SubResult r={s.result} session={session} fold />
-                ) : (
-                  <Folded text={s.result.text} more={!!s.result.length}>
-                    {(asked) => <Clipped text={s.result!.text} length={s.result!.length} at={s.result!.at} session={session} error={s.result!.error} asked={asked} />}
-                  </Folded>
-                )
-              ) : (
-                <span className="text-xs text-ink-3">{t("msg.noResult")}</span>
-              )}
-            </Part>
-            {/* The sessions it names by id, each a card going there (ir send, ir wait); not a list's
-                many (ir ls): the sidebar has those. ir new's is under its line (Opened). */}
-            {!newOfCall(s) && <NamedCards text={s.input ?? ""} also={s.result?.text} />}
-          </>
-        )}
-      </div>
-    </>
-  );
-}
-
-/** One part of the card: its small label, a key to copy it, its body. */
-function Part({ label, copy, error, children }: { label: string; copy?: string; error?: boolean; children: ReactNode }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <section className="grid min-w-0 gap-1.5">
-      <div className="flex h-5 items-center gap-2">
-        <span className={cn("text-[11px] font-medium tracking-wide text-ink-4 uppercase", error && "text-err")}>{label}</span>
-        {error && <CircleX size={12} className="text-err" aria-label={t("msg.failed")} />}
-        <span className="flex-1" />
-        {!!copy && (
-          <button type="button" onClick={() => void navigator.clipboard.writeText(copy).then(() => (setCopied(true), setTimeout(() => setCopied(false), 1500)))} className="g-press flex h-5 items-center gap-1 rounded-sm px-1 text-[11px] text-ink-4 hover:text-ink-2">
-            {copied ? <Check size={12} /> : <Copy size={12} />}
-            {copied ? t("msg.copied") : t("msg.copy")}
-          </button>
-        )}
-      </div>
-      {children}
-    </section>
+            )
+          ) : !s.result ? (
+            <span className="text-xs text-ink-3">{t("msg.noResult")}</span>
+          ) : null}
+          {/* The sessions it names by id, each a card going there (ir send, ir wait); not a list's
+              many (ir ls): the sidebar has those. ir new's is under its line (Opened). */}
+          {!newOfCall(s) && <NamedCards text={s.input ?? ""} also={s.result?.text} />}
+        </>
+      )}
+    </div>
   );
 }
 
 /** An input object's fields, each its name and its value: a short one on the line, a long one or
- *  one of many lines in a block; an edit's old text red, its new text green. A command in a shell's
+ *  one of many lines in a block; an edit's old/new pair as a unified diff. A command in a shell's
  *  colours, a file's text in its language's (by its extension). Anything else as it is. */
 function Fields({ text }: { text: string }) {
   let v: unknown;
@@ -1377,14 +1246,19 @@ function Fields({ text }: { text: string }) {
   if (!v || typeof v !== "object" || Array.isArray(v)) return <Pre text={pretty(text)} />;
   const rows = Object.entries(v as Record<string, unknown>);
   const file = rows.find(([k, x]) => FILE.has(k) && typeof x === "string")?.[1] as string | undefined;
+  const oldRow = rows.find(([k, x]) => OLD.has(k) && typeof x === "string");
+  const newRow = rows.find(([k, x]) => EDIT_NEW.has(k) && typeof x === "string");
+  const hasEditDiff = !!(oldRow && newRow);
   if (!rows.length) return <span className="text-xs text-ink-4">{"{}"}</span>;
   return (
     <div className="grid min-w-0 gap-2">
       {rows.map(([k, x]) => {
+        if (hasEditDiff && k === newRow[0]) return null;
+        if (hasEditDiff && k === oldRow[0]) return <DiffBlock key="diff" oldText={oldRow[1] as string} newText={newRow[1] as string} />;
         const str = typeof x === "string" ? x : JSON.stringify(x, null, 2);
-        const tone = OLD.has(k) ? "minus" : NEW.has(k) ? "plus" : undefined;
-        const inline = !tone && !SHELL.has(k) && !str.includes("\n") && str.length <= 80;
-        const lang = typeof x !== "string" ? undefined : SHELL.has(k) ? "bash" : OLD.has(k) || NEW.has(k) ? file : undefined;
+        const block = OLD.has(k) || NEW.has(k);
+        const inline = !block && !SHELL.has(k) && !str.includes("\n") && str.length <= 80;
+        const lang = typeof x !== "string" ? undefined : SHELL.has(k) ? "bash" : block ? file : undefined;
         return inline ? (
           <div key={k} className="flex min-w-0 items-baseline gap-2 text-xs">
             <span className="shrink-0 font-mono text-ink-4">{k}</span>
@@ -1393,7 +1267,7 @@ function Fields({ text }: { text: string }) {
         ) : (
           <div key={k} className="grid min-w-0 gap-1">
             <span className="font-mono text-xs text-ink-4">{k}</span>
-            <Pre text={str} tone={tone} lang={lang} />
+            <Pre text={str} lang={lang} />
           </div>
         );
       })}
@@ -1401,19 +1275,44 @@ function Fields({ text }: { text: string }) {
   );
 }
 const OLD = new Set(["old_string", "old_str", "oldText"]);
-const NEW = new Set(["new_string", "new_str", "newText", "content"]);
+const EDIT_NEW = new Set(["new_string", "new_str", "newText"]);
+const NEW = new Set([...EDIT_NEW, "content"]);
 const SHELL = new Set(["command", "cmd", "script"]);
 const FILE = new Set(["file_path", "path", "filePath", "notebook_path"]);
 
-function Pre({ text, error, tone, cap, lang }: { text: string; error?: boolean; tone?: "plus" | "minus"; cap?: boolean; lang?: string }) {
+/** Unified line diff for Edit calls (old_string → new_string), replacing side-by-side red/green
+ *  bordered boxes (kumo, 2026-11-24). */
+function DiffBlock({ oldText, newText }: { oldText: string; newText: string }) {
+  const lines = useMemo(() => unifiedDiff(oldText, newText), [oldText, newText]);
+  return (
+    <pre className="m-0 min-w-0 overflow-x-auto rounded-md bg-fill py-1.5 font-mono text-xs leading-[18px]">
+      {lines.map((l, i) => (
+        <div
+          key={i}
+          className={cn(
+            "flex min-w-0 px-2.5 whitespace-pre-wrap [overflow-wrap:anywhere]",
+            l.kind === "add" && "bg-plus/12 text-ink",
+            l.kind === "del" && "bg-minus/12 text-ink",
+            l.kind === "eq" && "text-ink-3",
+          )}
+        >
+          <span aria-hidden className={cn("w-4 shrink-0 select-none", l.kind === "add" ? "text-plus" : l.kind === "del" ? "text-minus" : "text-ink-4")}>
+            {l.kind === "add" ? "+" : l.kind === "del" ? "−" : " "}
+          </span>
+          <span className="min-w-0 flex-1">{l.line || "\u00a0"}</span>
+        </div>
+      ))}
+    </pre>
+  );
+}
+
+function Pre({ text, error, cap, lang }: { text: string; error?: boolean; cap?: boolean; lang?: string }) {
   return (
     <pre
       className={cn(
         "m-0 min-w-0 rounded-md bg-fill px-2.5 py-2 font-mono text-xs leading-[18px] whitespace-pre-wrap [overflow-wrap:anywhere]",
         error ? "text-err" : "text-ink-2",
         cap && "max-h-80 overflow-auto",
-        tone === "plus" && "shadow-[inset_2px_0_0_var(--plus)]",
-        tone === "minus" && "shadow-[inset_2px_0_0_var(--minus)]",
       )}
     >
       <Code text={text} lang={error ? undefined : lang} label />
@@ -1441,7 +1340,7 @@ function SubResult({ r, session, fold }: { r: Result; session: string; fold: boo
 /** Text the page may have only the start of (length: the whole's), with a key to bring the whole.
  *  fields: an input, shown field by field; cap: inline in the conversation, scrolled past 20 lines.
  *  asked: in a fold whose opening brings the whole (false till then): no key of its own. */
-function Clipped({ text, length, at, session, error, prose, fields, cap, asked }: { text: string; length?: number; at: string; session: string; error?: boolean; prose?: boolean; fields?: boolean; cap?: boolean; asked?: boolean }) {
+function Clipped({ text, length, at, session, error, prose, fields, shell, cap, asked }: { text: string; length?: number; at: string; session: string; error?: boolean; prose?: boolean; fields?: boolean; shell?: boolean; cap?: boolean; asked?: boolean }) {
   const [whole, setWhole] = useState<string>();
   const [state, setState] = useState<"idle" | "busy" | "failed">("idle");
   const more = () => {
@@ -1454,9 +1353,10 @@ function Clipped({ text, length, at, session, error, prose, fields, cap, asked }
   const cut = length !== undefined && length > 0 && whole === undefined;
   useEffect(() => void (asked && cut && state === "idle" && more()), [asked]);
   const shown = whole ?? text;
+  const cmd = shell ? (() => { const i = inputOf(shown); const v = i.command ?? i.cmd; return typeof v === "string" && v ? v : undefined; })() : undefined;
   return (
     <div className="grid min-w-0 gap-1">
-      {prose ? <Markdown text={shown} className="text-sm text-ink-2" /> : fields ? <Fields text={shown} /> : <Pre text={pretty(shown)} error={error} cap={cap} lang="auto" />}
+      {prose ? <Markdown text={shown} className="text-sm text-ink-2" /> : cmd !== undefined ? <Pre text={cmd} cap={cap} lang="bash" /> : fields || shell ? <Fields text={shown} /> : <Pre text={pretty(shown)} error={error} cap={cap} lang="auto" />}
       {cut && asked === undefined && (
         <button type="button" onClick={more} disabled={state === "busy"} className="g-press justify-self-start rounded-sm text-xs text-ink-3 underline decoration-ink-4 underline-offset-2 hover:text-ink">
           {state === "busy" ? <LoaderCircle size={12} className="inline animate-spin" /> : t("msg.whole", { n: length })}
