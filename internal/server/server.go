@@ -100,6 +100,7 @@ type Server struct {
 	dms     dms     // the channels that are two people's (channels.go)
 	calls   calls   // the channels each agent was called in by a subscription (channels.go)
 	answers answers // what each agent writes, said in turn where it was called (channels.go)
+	twins   twins   // the messages of other channels that are ones agents are saying in their own (liveSaid)
 	recalls recalls // the channels a message was taken back in (reactions.go)
 	// channelsSeq: the state "channels", up by one at each change of a channel's members.
 	channelsSeq atomic.Int64
@@ -157,10 +158,11 @@ func New(cfg config.Config, m *session.Manager, h *hub.Hub, logf func(string, ..
 	s.sat = satori.New(satoriBackend{s}, logf)
 	s.sat.Channels(s.ch)
 	s.sat.OnSaid(s.routeSaid)
+	s.sat.OnLive(s.liveSaid)
 	// A turn's start and end in order with what its agent wrote (answers), so that its words
 	// are said where it was called before the call closes.
 	s.sat.OnTaken(s.answers.took)
-	s.sat.OnTurnStart(func(id string) { s.answers.add(id, func() { s.turnBegan(id) }) })
+	s.sat.OnTurnStart(func(id string) { s.answers.add(id, func() { s.twins.drop(id); s.turnBegan(id) }) })
 	s.sat.OnTurnEnd(func(id, _ string, _ []string) {
 		taken := s.answers.given(id)
 		s.answers.add(id, func() { s.turnEnded(id, taken) })

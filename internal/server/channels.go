@@ -1935,6 +1935,9 @@ type written struct {
 	final bool
 	from  *int64
 	to    int64
+	// twin: the message of that channel that is these words already, said there as they were
+	// being written (liveSaid); 0 none.
+	twin int64
 }
 
 // sendChannelAs is sendChannel. relay: the words are what an agent wrote, said for it where it
@@ -2070,7 +2073,13 @@ func (s *Server) sendChannelAs(ctx context.Context, c caller, from, ch string, r
 		}
 	}
 	of.Device = s.deviceOfCaller(c)
-	seq := s.sat.Input(st.Session, req.ID, req.Text, u, lk.origin, of)
+	var seq int64
+	if relay != nil && relay.twin != 0 {
+		seq = s.sat.Settle(st.Session, relay.twin, req.ID, req.Text, lk.origin, of)
+	}
+	if seq == 0 {
+		seq = s.sat.Input(st.Session, req.ID, req.Text, u, lk.origin, of)
+	}
 	if seq == 0 {
 		return api.SendReply{}, errors.New("the channel did not take the message")
 	}
@@ -2553,8 +2562,18 @@ func (s *Server) answer(id string, m channel.Message) {
 			w.from = s.calls.spoke(id, c.Channel, w.to)
 		}
 		unlock()
+		tw, has := s.twins.of(id, m.Seq)
 		if !ok {
+			// Said there as it was written, and not to be sent there after all: it stays as written.
+			if has {
+				whole := m
+				whole.D.Writing = false
+				s.sat.TwinNow(tw.channel, tw.seq, whole, false, "")
+			}
 			return
+		}
+		if has && tw.channel == c.Channel {
+			w.twin = tw.seq
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
@@ -2995,4 +3014,70 @@ func avatarBody(w http.ResponseWriter, r *http.Request) ([]byte, string, bool) {
 		return nil, "", false
 	}
 	return img, v, true
+}
+
+// liveSaid: session's agent is saying m in its own channel (satori.OnLive): as it begins, as it
+// grows, as its work goes on. Called in another channel and answering there, it is said there
+// as it is written too (docs/next/ui.md): a twin of it, made when it is first told and kept as
+// it is from then on; answer makes the twin the message sent there once the words are whole.
+func (s *Server) liveSaid(m channel.Message, passing bool) {
+	id, ok := store.SessionOfMember(m.Author)
+	if !ok || m.Channel != id {
+		return
+	}
+	taken := s.answers.given(id)
+	s.answers.add(id, func() {
+		if tw, has := s.twins.of(id, m.Seq); has {
+			s.sat.TwinNow(tw.channel, tw.seq, m, passing, "")
+			return
+		}
+		unlock := s.chain.lock(id)
+		c, ok := s.calls.answering(id, taken)
+		ok = ok && c.Channel != m.Channel && s.ch.Speaks(c.Channel, id)
+		unlock()
+		if !ok {
+			return
+		}
+		if seq := s.sat.Twin(c.Channel, m, s.chain.of(c.Channel, id).origin); seq != 0 {
+			s.twins.put(id, m.Seq, twin{c.Channel, seq})
+		}
+	})
+}
+
+// twin is a message of another channel that is one an agent says in its own.
+type twin struct {
+	channel string
+	seq     int64
+}
+
+// twins are, by agent session and the number of a message of its own channel, its twin; those
+// of a turn are dropped as the next begins.
+type twins struct {
+	mu sync.Mutex
+	by map[string]map[int64]twin
+}
+
+func (t *twins) of(session string, seq int64) (twin, bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	tw, ok := t.by[session][seq]
+	return tw, ok
+}
+
+func (t *twins) put(session string, seq int64, tw twin) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.by == nil {
+		t.by = map[string]map[int64]twin{}
+	}
+	if t.by[session] == nil {
+		t.by[session] = map[int64]twin{}
+	}
+	t.by[session][seq] = tw
+}
+
+func (t *twins) drop(session string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	delete(t.by, session)
 }

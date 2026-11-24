@@ -1114,3 +1114,36 @@ func (s *Service) first(session string) {
 		s.Touch(session)
 	}
 }
+
+// Revise changes message seq of channel ch: its words, where text is not nil; its data, by f
+// (nil: as it is); and what it is from, where ref is not "".
+func (s *Service) Revise(ch string, seq int64, text *string, f func(*Data), ref string) (Message, bool) {
+	defer s.lock(ch)()
+	m, ok := s.Get(ch, seq)
+	if !ok {
+		return Message{}, false
+	}
+	if text != nil && m.Text != *text {
+		if err := s.st.EditChannelMessage(ch, seq, *text); err != nil {
+			s.logf("channel %s: message %d: %v", ch, seq, err)
+		}
+		m.Text = *text
+	}
+	if f != nil {
+		f(&m.D)
+	}
+	var err error
+	if ref != "" && ref != m.Ref {
+		if ok, aerr := s.st.AnchorMessage(ch, seq, ref, m.D.encode()); aerr == nil && ok {
+			m.Ref = ref
+		} else {
+			err = cmp.Or(aerr, s.st.SetChannelMessageData(ch, seq, m.D.encode()))
+		}
+	} else if f != nil {
+		err = s.st.SetChannelMessageData(ch, seq, m.D.encode())
+	}
+	if err != nil {
+		s.logf("channel %s: message %d: %v", ch, seq, err)
+	}
+	return m, true
+}

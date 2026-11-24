@@ -28,6 +28,15 @@ func (l *live) said(as, id string) []string {
 	l.wantSat(200, as, "message.list", map[string]any{"channel_id": id, "limit": 200}, &page)
 	var out []string
 	for _, m := range page.Data {
+		// One being written, or said where its agent was called and not yet whole there, is not
+		// said yet as these tests mean it (docs/next/ui.md): a page draws it, nothing else has it.
+		var d satori.LogData
+		if raw, err := json.Marshal(m.Data); err == nil {
+			_ = json.Unmarshal(raw, &d)
+		}
+		if d.Writing || strings.HasPrefix(d.Input, "t:") || d.Kind == "work" {
+			continue
+		}
 		who := m.User.ID
 		if m.User.Nick != "" {
 			who = "@" + m.User.Nick
@@ -255,14 +264,18 @@ func TestChannelOfSeveral(t *testing.T) {
 		t.Errorf("what it sent is not said under its nick:\n%s", strings.Join(all, "\n"))
 	}
 	// What it sent says where it is from: the stretch of its own record since it was called.
+	// (What an agent writes where it was called is there as it writes it, and points at its
+	// record once it is whole: a moment.)
 	var page satori.BidiList[satori.Message]
-	l.wantSat(200, "web", "message.list", map[string]any{"channel_id": ch, "limit": 200}, &page)
 	pointed := false
-	for _, m := range page.Data {
-		if raw, _ := json.Marshal(m.Data); strings.Contains(m.Content, "seen, @claude go on") && m.User.Nick == "claude2" {
-			var d satori.LogData
-			_ = json.Unmarshal(raw, &d)
-			pointed = d.Session == second && d.To > 0 && (d.From == nil || d.To > *d.From)
+	for deadline := time.Now().Add(5 * time.Second); !pointed && time.Now().Before(deadline); time.Sleep(30 * time.Millisecond) {
+		l.wantSat(200, "web", "message.list", map[string]any{"channel_id": ch, "limit": 200}, &page)
+		for _, m := range page.Data {
+			if raw, _ := json.Marshal(m.Data); strings.Contains(m.Content, "seen, @claude go on") && m.User.Nick == "claude2" {
+				var d satori.LogData
+				_ = json.Unmarshal(raw, &d)
+				pointed = d.Session == second && d.To > 0 && (d.From == nil || d.To > *d.From)
+			}
 		}
 	}
 	if !pointed {

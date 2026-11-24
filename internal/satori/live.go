@@ -5,8 +5,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kumoSleeping/iridium/internal/api"
 	"github.com/kumoSleeping/iridium/internal/channel"
 	"github.com/kumoSleeping/iridium/internal/session"
+	"github.com/kumoSleeping/iridium/internal/store"
 )
 
 // Messages as they are written (docs/next/ui.md): what an agent says in its turn is a message of
@@ -91,6 +93,75 @@ func (s *Service) tellLive(typ string, m channel.Message, passing bool, origin s
 		msg.UpdatedAt = time.Now().UnixMilli()
 	}
 	s.emitTo(toLive, passing, st.Session, fileOwner(m), Event{Type: typ, Message: &msg, User: msg.User}, s.logFiles(m), logData(m).Kind, origin)
+	if s.onLive != nil && m.D.Session == m.Channel && !m.D.Sent {
+		s.onLive(m, passing)
+	}
+}
+
+// Twin: m, a message an agent is saying in its own channel, is said in channel ch too, where
+// it was called (docs/channels.md "agent 写的话发到最近一次叫它的频道"): a message there from
+// now, as it is so far, and its number. Settle makes it the one sent there once it is whole.
+func (s *Service) Twin(ch string, m channel.Message, origin string) int64 {
+	t, isNew, err := s.log.Say(channel.Message{ChannelMessage: store.ChannelMessage{Channel: ch, Author: m.Author, Kind: m.Kind, Text: m.Text,
+		Ref: "t:" + m.Channel + ":" + strconv.FormatInt(m.Seq, 10), Origin: origin},
+		D: channel.Data{Session: m.D.Session, Sent: true, Writing: m.D.Writing, Work: m.D.Work}})
+	if err != nil || t.Seq == 0 {
+		s.logf("satori: channel %s: %v", ch, err)
+		return 0
+	}
+	if isNew {
+		s.tellLive("message-created", t, false, origin)
+	}
+	return t.Seq
+}
+
+// TwinNow: message seq of ch, the twin of m, is as m is now: its work; and, while it is still
+// being written there, its words.
+func (s *Service) TwinNow(ch string, seq int64, m channel.Message, passing bool, origin string) {
+	cur, ok := s.log.Get(ch, seq)
+	if !ok {
+		return
+	}
+	if passing {
+		// Not kept: the next one is.
+		if cur.D.Writing {
+			cur.Text = m.Text
+		}
+		cur.D.Work = m.D.Work
+		s.tellLive("message-updated", cur, true, origin)
+		return
+	}
+	var text *string
+	if cur.D.Writing {
+		text = &m.Text
+	}
+	if t, ok := s.log.Revise(ch, seq, text, func(d *channel.Data) {
+		if d.Writing {
+			d.Writing = m.D.Writing
+		}
+		d.Work = m.D.Work
+	}, ""); ok {
+		s.tellLive("message-updated", t, false, origin)
+	}
+}
+
+// Settle is Input for words an agent wrote that have a twin in the channel already (Twin):
+// that message is the one sent, under input id, its words text and its data d (Sent; Final for
+// its turn's last), and no other is made. Its number; 0 where the twin is gone (then Input).
+func (s *Service) Settle(ss api.Session, twin int64, id, text string, origin string, d channel.Data) int64 {
+	m, ok := s.log.Revise(ss.ID, twin, &text, func(old *channel.Data) {
+		d.Work, d.Writing = old.Work, false
+		*old = d
+	}, id)
+	if !ok {
+		return 0
+	}
+	told := "progress"
+	if d.Final {
+		told = "reply"
+	}
+	s.tellSaid(m, told, origin, 0)
+	return m.Seq
 }
 
 // endOf is how far session id's record goes now: where what its agent does next begins.

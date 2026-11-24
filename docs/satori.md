@@ -107,7 +107,7 @@
 - 回合里还没说话就调工具：一条没有字的消息，`_data.kind` 是 `work`，只有这个元素。它再说话是下一条消息。
 - 消息在它记录里找到时再来一次 `message-updated`（多了 `_data.block`）。
 - 没带 `_live` 的连接照旧：每条话写完后一次 `message-created`（`progress`、`reply`），没有 `work` 的消息事件。`message.list` 对谁都带 `_data.writing` 和 `<iridium:work>`。
-- 别的频道叫它、它在那里回的话，目前仍是写完才出现（待做）。
+- 别的频道叫它、它在那里回的话也一样：它在自己频道开始写时，那个频道里就有同一句话的一条消息（写完前 `_data.input` 以 `t:` 开头），随着写、随着干活更新；写完后这条消息就是发到那里的那条（`input` 换成输入的 ID，带上 `from`、`to`），不另建。
 
 `_type` 固定 `iridium`，`_data.origin` 是发起这个回合的应用或网页登录（知道时）。`message.id` 是消息在频道里的编号（提问是卡片的 ID）。几个 agent 的频道里，每个 agent 的话都发，`user` 是说话的那个。
 

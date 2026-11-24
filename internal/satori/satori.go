@@ -183,6 +183,8 @@ type Service struct {
 	onTurnEnd func(session, reply string, waiting []string)
 	onTaken   func(session, input string)
 	onBegan   func(session string)
+	// onLive is told each message of an agent's own channel as it is told live (OnLive).
+	onLive func(m channel.Message, passing bool)
 
 	mu      sync.Mutex
 	held    map[string]channel.Message  // session: the agent's last message this turn, not sent yet
@@ -197,6 +199,11 @@ type Service struct {
 // OnSaid has f told each thing an agent says in a channel, after the event of it is kept; f
 // must not wait.
 func (s *Service) OnSaid(f func(channel.Message)) { s.onSaid = f }
+
+// OnLive has f told each message an agent says in its turn, in its own channel, as those who
+// take messages live are told of it: as it begins, as it grows (passing: more follows soon), as
+// its work goes on. f must not wait.
+func (s *Service) OnLive(f func(m channel.Message, passing bool)) { s.onLive = f }
 
 // OnTaken has f told each input given to a session's agent, in order with what the agent says
 // (session.NoticeTaken): what f is told before a thing said is told were given before it.

@@ -159,9 +159,16 @@ func TestChannelAnswerAsWritten(t *testing.T) {
 		t.Fatalf("send: %d", code)
 	}
 	l.waitSaid("web", ch, " @claude2 ", "That is all of it.")
-	all, err := l.s.ch.Between(ch, r.Seq, 0, 200)
-	if err != nil {
-		t.Fatal(err)
+	// There as it is written; its turn's reply once the turn has ended.
+	var all []channel.Message
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(30 * time.Millisecond) {
+		var err error
+		if all, err = l.s.ch.Between(ch, r.Seq, 0, 200); err != nil {
+			t.Fatal(err)
+		}
+		if slices.ContainsFunc(all, func(m channel.Message) bool { return m.Author == "agent:"+second && m.D.Final }) || time.Now().After(deadline) {
+			break
+		}
 	}
 	var got []string
 	for _, m := range all {
