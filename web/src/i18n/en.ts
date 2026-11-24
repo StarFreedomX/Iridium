@@ -122,7 +122,7 @@ export const en: Dict = {
   "row.atMe": "[Mentioned]",
   "row.atAll": "[@everyone]",
   "session.new": "New session",
-  "chat.crashed": "Its last process ended badly",
+  "chat.crashed": "Its process ended badly",
   "chat.crashSignal": "killed ({signal})",
   "chat.crashCode": "exit {code}",
   "chat.crashDetails": "Details",

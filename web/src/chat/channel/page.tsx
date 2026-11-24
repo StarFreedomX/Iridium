@@ -433,7 +433,6 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
               </div>
             )}
             {!hold && soloState?.denials?.length ? <Denials session={soloState.id} denials={soloState.denials} cwd={soloState.cwd} stuck={soloState.status === "waiting" && !soloState.asks.length} /> : null}
-            {!hold && soloState?.status === "error" && soloState.error && <Crash error={soloState.error} />}
           </div>
         </Stick>
         {bar(s)}
@@ -717,11 +716,13 @@ export const GroupView = memo(function GroupView({ g, channel, agents, who, reco
               // Come by an event: in as a bubble sent from here comes (kumo, 2026-11-24), its
               // head with it where it is the first of its sender's run.
               ref={(el) => void (el && born?.delete(m.n) && pushIn(m === msgs[0] ? (el.closest<HTMLElement>("[data-row]") ?? el) : el))}
-              className={cn(m.kind === "error" && "text-err")}
             >
               {/* What an older message says was done before it, where the one before has no line of its own for it. */}
               {m.did && !m.work && !hidden?.has(m.n) && line({ did: m.did, ...(m.src?.from !== undefined && m.src.to ? { span: { from: m.src.from, to: m.src.to } } : {}) })}
-              {said && (
+              {/* Its process ended badly: the channel's message of it, said as such (the line under
+                  the conversation it was is gone: kumo, 2026-11-25). */}
+              {said && m.kind === "error" && <Crash error={w.words} at="said" />}
+              {said && m.kind !== "error" && (
                 <Foldable scope={channel} id={`m${m.n}`} auto={!seen && (((fold?.(m) ?? false) && longWords(w.words)) || (old?.(m) ?? false))} lines={linesOf(w.words)}>
                   {(wrap) => (
                     <Copyable copy={withForwards(w.words, w.forwards)} quote={quote && (() => quote(m))} act={m.kind === "error" || m.kind === "ask" ? undefined : { channel, seq: m.n, may }}>

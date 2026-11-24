@@ -122,7 +122,7 @@ export const zh = {
   "row.atMe": "[@我]",
   "row.atAll": "[@全体成员]",
   "session.new": "新会话",
-  "chat.crashed": "上次进程异常退出",
+  "chat.crashed": "进程异常退出",
   "chat.crashSignal": "被强制结束（{signal}）",
   "chat.crashCode": "退出码 {code}",
   "chat.crashDetails": "详情",
