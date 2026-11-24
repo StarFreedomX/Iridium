@@ -11,7 +11,8 @@
 // that opens its kinds, as tall cut off as linked: one added runs there, in that computer's home
 // folder (docs/channels.md "别的电脑的 agent").
 import { Menu } from "@base-ui/react/menu";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "../../api/query";
 import { ChevronRight, LoaderCircle } from "lucide-react";
 import { useState, type CSSProperties } from "react";
 import { api } from "../../api/client";
@@ -22,7 +23,7 @@ import { MachineFace, useMachine, type Machine } from "../../machines";
 import { picked, RoleFace, RoleLine, RoleModels, roleStart, useRoles, type RolePick } from "../../roles";
 import { useList, useSession } from "../../store";
 import { toast } from "../../toast";
-import { AGENTS, cn, Logo } from "../../ui";
+import { AGENTS, cn, Logo, MenuPortal } from "../../ui";
 import { memberError } from "./key";
 import { choicesQ, draftDefault, draftName } from "../choices";
 import { DraftModels } from "./pick";
@@ -101,7 +102,7 @@ export function MachineKinds({ id, from = 0 }: { id: string; from?: number }) {
             {!m.online && <span className="shrink-0 text-xs text-ink-3">{t("status.offline")}</span>}
             <ChevronRight size={14} className={cn("shrink-0 text-ink-4", !m.online && "invisible")} />
           </Menu.SubmenuTrigger>
-          <Menu.Portal>
+          <MenuPortal>
             <Menu.Positioner className="z-50" sideOffset={4} collisionPadding={8}>
               <Menu.Popup className={cn(POPUP, "no-bar max-h-[min(480px,var(--available-height))] max-w-[calc(100vw-16px)] min-w-48 overflow-y-auto p-1.5")}>
                 <div className="g-stagger flex flex-col">
@@ -111,7 +112,7 @@ export function MachineKinds({ id, from = 0 }: { id: string; from?: number }) {
                 </div>
               </Menu.Popup>
             </Menu.Positioner>
-          </Menu.Portal>
+          </MenuPortal>
         </Menu.SubmenuRoot>
       ))}
     </>
@@ -132,13 +133,13 @@ function RoleRow({ id, role, i, off, busy, add }: { id: string; role: Role; i: n
         <RoleLine role={picked(role, p)} at={{ channel: id }} logo className="min-w-0 flex-1 text-xs text-ink-3" />
         <ChevronRight size={14} className="shrink-0 text-ink-4" />
       </Menu.SubmenuTrigger>
-      <Menu.Portal>
+      <MenuPortal>
         <Menu.Positioner className="z-50" sideOffset={4} collisionPadding={8}>
           <Menu.Popup className={cn(POPUP, "flex max-h-[min(560px,var(--available-height))] w-[min(300px,calc(100vw-16px))] flex-col p-1.5")}>
             <RoleModels role={role} at={{ channel: id }} pick={p} set={(x) => (x.model !== p.model ? as(x) : setP(x))} />
           </Menu.Popup>
         </Menu.Positioner>
-      </Menu.Portal>
+      </MenuPortal>
     </Menu.SubmenuRoot>
   );
 }
@@ -159,13 +160,13 @@ function Kind({ id, k, m, i, off, busy, add }: { id: string; k: Agent; m?: Machi
         <span className="min-w-0 flex-1 truncate">{draftName(k, asked)}</span>
         <ChevronRight size={14} className="shrink-0 text-ink-4" />
       </Menu.SubmenuTrigger>
-      <Menu.Portal>
+      <MenuPortal>
         <Menu.Positioner className="z-50" sideOffset={4} collisionPadding={8}>
           <Menu.Popup className={cn(POPUP, "flex max-h-[min(560px,var(--available-height))] w-[min(300px,calc(100vw-16px))] flex-col p-1.5")}>
             <DraftModels agent={k} at={at} model={p.model} effort={p.effort} preset={p.preset} set={(x) => (x.model !== undefined ? void add(k, x.model, p.effort, p.preset, undefined, m) : setP({ ...p, ...x }))} />
           </Menu.Popup>
         </Menu.Positioner>
-      </Menu.Portal>
+      </MenuPortal>
     </Menu.SubmenuRoot>
   );
 }

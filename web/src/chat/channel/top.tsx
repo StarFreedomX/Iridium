@@ -5,7 +5,8 @@
 // implementation). The face is the title's key (chat.tsx): its card, 编辑资料 in it; on a phone in ⋯.
 import { Menu } from "@base-ui/react/menu";
 import { Popover } from "@base-ui/react/popover";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "../../api/query";
 import { Check, ChevronRight, PencilLine, UserPlus, Users } from "lucide-react";
 import { useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { api } from "../../api/client";
@@ -17,13 +18,14 @@ import { openChat } from "../../route";
 import { useCarried, useList, useSession } from "../../store";
 import { working } from "../../tree";
 import { toast } from "../../toast";
-import { agentName, Avatar, cn, Lamp, PopSurface, Tip } from "../../ui";
+import { agentName, Avatar, cn, Lamp, PopSurface, Tip, MenuPortal } from "../../ui";
 import { openEdit } from "./editing";
 import { Face, MemberFace } from "./face";
 import { ContextMark } from "../meters";
 import { mayAct, useMembers } from "./gate";
 import { AgentKinds, ITEM, MachineKinds, POPUP } from "./invite";
 import { prefetchChoices } from "./pick";
+import { useAhead } from "../../prefetch";
 import { memberError } from "./key";
 import type { AgentRow } from "./lib";
 import { MemberAsks, MemberItems, type Ask } from "./members";
@@ -47,13 +49,13 @@ function Sub({ icon, label, lead, now, i, children }: { icon: ReactNode; label: 
         {now && <span className="max-w-36 truncate text-xs text-ink-3">{now}</span>}
         <ChevronRight size={14} className="text-ink-4" />
       </Menu.SubmenuTrigger>
-      <Menu.Portal>
+      <MenuPortal>
         <Menu.Positioner className="z-50" sideOffset={4} collisionPadding={8}>
           <Menu.Popup className={cn(POPUP, SUB)}>
             <div className="g-stagger flex flex-col">{children}</div>
           </Menu.Popup>
         </Menu.Positioner>
-      </Menu.Portal>
+      </MenuPortal>
     </Menu.SubmenuRoot>
   );
 }
@@ -72,12 +74,15 @@ export function TopRight({ id }: { id: string }) {
   const local = (useQuery(agentsQ).data ?? []).filter((a) => !a.missing).map((a) => a.agent);
   const kinds = row?.machine ? (here?.online ? here.agents.map((a) => a.agent as Agent) : []) : local;
   const machines = useMachines(!!row?.machine);
-  // The other computers' kinds too, where they would run (invite.tsx).
+  const members = useMembers(id);
+  // The other computers' kinds too, where they would run (invite.tsx); its agents' own model
+  // menus too (members.tsx MemberItems: at their machine, none: here).
   const ahead = () => {
     prefetchChoices(qc, kinds, { channel: id });
+    for (const m of members?.members ?? []) if (m.session && m.agent) prefetchChoices(qc, [m.agent as Agent], { machine: list?.find((x) => x.id === m.session)?.machine || undefined });
     for (const m of machines) if (m.online && m.id !== row?.machine) prefetchChoices(qc, m.agents.map((a) => a.agent as Agent), { machine: m.id });
   };
-  const members = useMembers(id);
+  const keyAhead = useAhead(ahead, [id, kinds.join(" "), members?.members.length]);
   const viewers = useCarried<Viewer[]>(`viewers:${id}`) ?? [];
   const agents = (members?.members ?? []).filter((m) => m.session);
   // How many its members are, on the key itself: its agents and its people (each login once).
@@ -119,19 +124,20 @@ export function TopRight({ id }: { id: string }) {
           </PopSurface>
         </Popover.Root>
       )}
-      {/* Opened, each kind's models are asked for, for 邀请's menus to pop at once (pick.tsx). */}
+      {/* Each kind's models asked for once idle and as the key is pointed at, pressed or opened,
+          for 邀请's menus to pop at once (pick.tsx). */}
       <Menu.Root onOpenChange={(open) => open && ahead()}>
         <Tip label={t("channel.members")} side="bottom">
           <Menu.Trigger
             render={
-              <button ref={key} type="button" aria-label={t("channel.members")} className="g-press flex h-8 items-center gap-1 rounded-md px-2 text-ink-2 hover:bg-fill hover:text-ink data-popup-open:bg-fill pointer-coarse:h-10">
+              <button ref={key} type="button" aria-label={t("channel.members")} {...keyAhead} className="g-press flex h-8 items-center gap-1 rounded-md px-2 text-ink-2 hover:bg-fill hover:text-ink data-popup-open:bg-fill pointer-coarse:h-10">
                 <Users size={16} />
                 <span className="text-xs tabular-nums">{count}</span>
               </button>
             }
           />
         </Tip>
-        <Menu.Portal>
+        <MenuPortal>
           <Menu.Positioner side="bottom" align="end" sideOffset={6} collisionPadding={8} className="z-50">
             <Menu.Popup finalFocus={false} className={cn(POPUP, SUB)}>
               <div className="g-stagger flex flex-col">
@@ -139,7 +145,7 @@ export function TopRight({ id }: { id: string }) {
               </div>
             </Menu.Popup>
           </Menu.Positioner>
-        </Menu.Portal>
+        </MenuPortal>
       </Menu.Root>
       <MemberAsks channel={id} anchor={key} asked={asked} done={() => setAsked(null)} />
       <ScriptPop channel={id} anchor={key} page={script} done={() => setScript(null)} align="end" />

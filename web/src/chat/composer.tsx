@@ -13,7 +13,8 @@
 // this device; files pasted, dropped or attached go up in chunks while you type, a picture in its
 // own shape under a veil drawn back as it goes; nothing is sent till all are up.
 import { ArrowUp, Box, Brain, ChartPie, Circle, CircleCheck, Eraser, FileCode2, FileText, FoldVertical, Gauge, LoaderCircle, Paperclip, Reply, ShieldCheck, X, type LucideIcon } from "lucide-react";
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useQueries } from "../api/queries";
+import { useQuery } from "../api/query";
 import { forwardRef, Fragment, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import type { Agent, Command, Script, SessionState as LiveSession } from "../api/types.gen";
 import { ScriptFace, useScripts } from "./channel/script";
@@ -25,7 +26,7 @@ import { errText, toast } from "../toast";
 import { stopTurn } from "./live";
 import { useList } from "../store";
 import { useHome, useMachines, useWorkspaces } from "../data";
-import { ago, agentName, cn, fine, IconKey, keep, kept, tilde, Tip, titleOf, useMinute } from "../ui";
+import { ago, agentName, cn, fine, IconKey, keep, kept, OwnPopup, tilde, Tip, titleOf, useMinute } from "../ui";
 import { MentionMarks, mentionOf, PlaceIcon, SessionFace } from "./mention";
 import { atWord } from "./refs";
 import { boxAt, boxed, edited, outOf, wordsAt } from "./boxed";
@@ -456,9 +457,9 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
   // The palette beside the composer, not in it: a frosted layer inside another sees only that one.
   return (
     <div className="relative">
-      {list.length > 0 && <Palette list={list} at={Math.min(at ?? 0, list.length - 1)} agent={solo?.agent ?? s.agent} grouped={text === "/"} point={setAt} pick={(c) => (!c.script && own(`/${c.name}`) ? undefined : (type(`/${c.name} `), box.current?.focus()))} />}
-      {atOpen && <AtList sections={sections} at={sel} point={setAt} pick={name} />}
-      {nickOpts.length > 0 && <NickList rows={nickOpts} at={nickSel} point={setAt} pick={call} />}
+      {<Palette open={list.length > 0} list={list} at={Math.min(at ?? 0, list.length - 1)} agent={solo?.agent ?? s.agent} grouped={text === "/"} point={setAt} pick={(c) => (!c.script && own(`/${c.name}`) ? undefined : (type(`/${c.name} `), box.current?.focus()))} />}
+      {<AtList open={atOpen} sections={sections} at={sel} point={setAt} pick={name} />}
+      {<NickList open={nickOpts.length > 0} rows={nickOpts} at={nickSel} point={setAt} pick={call} />}
       {secretish && (
         <SaveSecret
           key={secretish.value}
@@ -665,13 +666,13 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
  *  logo, its title, how long ago; a place's: its folder (a cloud on it at another machine), its
  *  name, its path faint at the end. ↑↓, → into a folder, Enter or Tab on a keyboard, a tap on a
  *  phone. */
-function AtList({ sections, at, pick, point }: { sections: AtSection[]; at: number; pick: (r: AtRow) => void; point: (i: number) => void }) {
+function AtList({ open, sections, at, pick, point }: { open: boolean; sections: AtSection[]; at: number; pick: (r: AtRow) => void; point: (i: number) => void }) {
   const sessions = useList();
   const now = useMinute();
   let i = -1;
   let n = 0;
   return (
-    <div role="listbox" aria-label={t("composer.atList")} className="g-pop glass thick float absolute bottom-full left-2 z-10 mb-2 max-h-[min(360px,50dvh)] w-[400px] max-w-[calc(100%-16px)] origin-bottom-left no-bar overflow-y-auto overscroll-contain rounded-lg p-1.5 text-ink">
+    <OwnPopup open={open} role="listbox" aria-label={t("composer.atList")} className="absolute bottom-full left-2 z-10 mb-2 max-h-[min(360px,50dvh)] w-[400px] max-w-[calc(100%-16px)] no-bar overflow-y-auto overscroll-contain rounded-lg p-1.5 text-ink">
       <div className="g-stagger flex flex-col">
         {sections.map((sec) => (
           <Fragment key={sec.key}>
@@ -717,7 +718,7 @@ function AtList({ sections, at, pick, point }: { sections: AtSection[]; at: numb
           </Fragment>
         ))}
       </div>
-    </div>
+    </OwnPopup>
   );
 }
 
@@ -759,9 +760,9 @@ const groupOf = (c: Cmd) => (c.script ? "script" : isCommon(c) ? "common" : "age
  *  composer over it (the user, 2026-11-09): a card at the box's corner, grown out of the /; a row
  *  each, its icon, its name, what it does faint at its end; while nothing is typed after the /, the
  *  common ones, then the agent's own, each under its head. ↑↓ and Enter or Tab on a keyboard. */
-function Palette({ list, at, agent, grouped, pick, point }: { list: Cmd[]; at: number; agent: Agent; grouped: boolean; pick: (c: Cmd) => void; point: (i: number) => void }) {
+function Palette({ open, list, at, agent, grouped, pick, point }: { open: boolean; list: Cmd[]; at: number; agent: Agent; grouped: boolean; pick: (c: Cmd) => void; point: (i: number) => void }) {
   return (
-    <div role="listbox" aria-label={t("composer.commands")} className="g-pop glass thick float absolute bottom-full left-2 z-10 mb-2 max-h-[min(360px,50dvh)] w-80 max-w-[calc(100%-16px)] origin-bottom-left no-bar overflow-y-auto overscroll-contain rounded-lg p-1.5 text-ink">
+    <OwnPopup open={open} role="listbox" aria-label={t("composer.commands")} className="absolute bottom-full left-2 z-10 mb-2 max-h-[min(360px,50dvh)] w-80 max-w-[calc(100%-16px)] no-bar overflow-y-auto overscroll-contain rounded-lg p-1.5 text-ink">
       <div className="g-stagger flex flex-col">
         {list.map((c, i) => {
           const Icon = isCommon(c) ? CMD_ICONS[c.name as (typeof COMMON)[number]] : undefined;
@@ -790,7 +791,7 @@ function Palette({ list, at, agent, grouped, pick, point }: { list: Cmd[]; at: n
           );
         })}
       </div>
-    </div>
+    </OwnPopup>
   );
 }
 

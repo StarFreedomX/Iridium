@@ -6,9 +6,11 @@
 // "+" (create.tsx), first in a channel's 邀请 (chat/channel/invite.tsx), kept in the settings
 // (rolespage.tsx).
 import { FaceGlow } from "./glow";
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { keepPreviousData } from "@tanstack/react-query";
+import { useQuery } from "./api/query";
 import { LoaderCircle } from "lucide-react";
-import { lazy, Suspense, useState } from "react";
+import { Suspense, useState } from "react";
+import { lazyAhead } from "./prefetch";
 import { api, missing, queryClient } from "./api/client";
 import type { Model, Role } from "./api/types.gen";
 import { choicesQ, draftDefault, type At } from "./chat/choices";
@@ -19,7 +21,7 @@ import { agentName, cn, Logo } from "./ui";
 
 /** The model and effort menu an agent not yet started has (the invite menu's): fetched when a
  *  role's menu first opens, so the first screen does not carry it. */
-const DraftModels = lazy(() => import("./chat/channel/pick").then((m) => ({ default: m.DraftModels })));
+export const DraftModels = lazyAhead(() => import("./chat/channel/pick").then((m) => m.DraftModels));
 
 /** The roles, in their order; none on a daemon that has no such route. Asked again as any role
  *  changes: the carried "roles", a count (internal/server rolesChanged). */

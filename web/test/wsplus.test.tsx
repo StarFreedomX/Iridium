@@ -28,6 +28,9 @@ const { t } = await import("../src/i18n");
 let host: HTMLDivElement;
 let root: Root;
 const qc = new QueryClient();
+// As the page has it before any "+" opens (app.tsx: fetched once it is idle).
+const { agentsQ } = await import("../src/data");
+await qc.prefetchQuery(agentsQ);
 const w = { id: "w1", name: "a", path: "/srv/a" };
 const show = (open: boolean) =>
   act(() =>

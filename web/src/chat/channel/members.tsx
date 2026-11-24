@@ -7,7 +7,8 @@
 // have their keys after its model's name (docs/前端设计规范.md "一样东西一个地方").
 import { Menu } from "@base-ui/react/menu";
 import { Popover } from "@base-ui/react/popover";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "../../api/query";
 import { AtSign, MessageCircle, Box, Check, ChevronRight, CircleStop, Eraser, FoldVertical, Mail, PencilLine, Inbox, ScrollText, ShieldCheck, UserMinus } from "lucide-react";
 import { useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 import { api } from "../../api/client";
@@ -19,13 +20,14 @@ import { ModeMark, modeName } from "../../modes";
 import { useList, useSession } from "../../store";
 import { errText, toast } from "../../toast";
 import { openChat } from "../../route";
-import { agentName, cn, Lamp, own, PopSurface, sessionStatusText, useEver, useLongPress, useMenuAt, usePointAnchor } from "../../ui";
+import { agentName, cn, Lamp, own, PopSurface, sessionStatusText, useEver, useLongPress, useMenuAt, usePointAnchor, MenuPortal } from "../../ui";
 import { levelName } from "../effort";
 import { LongWords } from "../longwords";
 import { MODEL_POPUP, SessionModels, useModelMenu, useMode } from "../meters";
 import { EditBody } from "./edit";
 import { Face } from "./face";
-import { useMembers } from "./gate";
+import { prefetchEdit, useMembers } from "./gate";
+import { useAhead } from "../../prefetch";
 import { memberError } from "./key";
 import { givenKind, givenParts, givenText, ownAgent, type AgentRow, type GivenKind } from "./lib";
 import { memberMenu, type MenuKey } from "./menu";
@@ -123,10 +125,11 @@ function CardOf({ channel, a, call, record, may, talk, done, edit }: Parameters<
   // What the members' list has of it at once; the card itself, asked for, as it comes.
   const row = useMembers(channel)?.members.find((m) => m.session === a.session);
   const card = useCard(`agent:${a.session}`);
+  const qc = useQueryClient();
   const keys: CardKey[] = [];
   if (!mine || (talk && may)) keys.push({ icon: <MessageCircle size={14} />, label: t("channel.talk"), run: () => (done(), mine ? talk?.() : openChat(a.session)) });
   if (call && a.nick) keys.push({ icon: <AtSign size={14} />, label: t("channel.call"), run: () => (done(), call(a.nick)) });
-  if (may) keys.push({ icon: <PencilLine size={14} />, label: t("profile.edit"), run: edit });
+  if (may) keys.push({ icon: <PencilLine size={14} />, label: t("profile.edit"), run: edit, ahead: () => prefetchEdit(qc, channel, a.session, true) });
   if (mine && record) keys.push({ icon: <ScrollText size={14} />, label: t("channel.session"), run: () => (done(), record(a.session)) });
   return (
     <ProfileCard
@@ -160,7 +163,7 @@ function Pick({ icon, label, now, value, options, set, i }: { icon: ReactNode; l
         {now && <span className="max-w-36 truncate text-xs text-ink-3">{now}</span>}
         <ChevronRight size={14} className="text-ink-4" />
       </Menu.SubmenuTrigger>
-      <Menu.Portal>
+      <MenuPortal>
         <Menu.Positioner className="z-50" sideOffset={4} collisionPadding={8}>
           <Menu.Popup className={cn(POPUP, "no-bar max-h-[min(480px,var(--available-height))] min-w-52 max-w-[calc(100vw-16px)] overflow-y-auto p-1.5")}>
             <Menu.RadioGroup value={value} onValueChange={(v) => set(v as string)} className="g-stagger flex flex-col">
@@ -179,7 +182,7 @@ function Pick({ icon, label, now, value, options, set, i }: { icon: ReactNode; l
             </Menu.RadioGroup>
           </Menu.Popup>
         </Menu.Positioner>
-      </Menu.Portal>
+      </MenuPortal>
     </Menu.SubmenuRoot>
   );
 }
@@ -208,7 +211,7 @@ function WakePick({ channel, a, set, i }: { channel: string; a: AgentRow; set: (
         <span className="max-w-36 truncate text-xs text-ink-3">{hasMore(a.on) ? t("on.more", { label: recvLabel(from, name, recvWords()) }) : recvLabel(from, name, recvWords())}</span>
         <ChevronRight size={14} className="text-ink-4" />
       </Menu.SubmenuTrigger>
-      <Menu.Portal>
+      <MenuPortal>
         <Menu.Positioner className="z-50" sideOffset={4} collisionPadding={8}>
           <Menu.Popup className={cn(POPUP, "no-bar max-h-[min(480px,var(--available-height))] min-w-52 max-w-[calc(100vw-16px)] overflow-y-auto p-1.5")}>
             <div className="g-stagger flex flex-col">
@@ -217,7 +220,7 @@ function WakePick({ channel, a, set, i }: { channel: string; a: AgentRow; set: (
             </div>
           </Menu.Popup>
         </Menu.Positioner>
-      </Menu.Portal>
+      </MenuPortal>
     </Menu.SubmenuRoot>
   );
 }
@@ -257,7 +260,7 @@ function MemberMenu({ at, close, ...items }: { at: { x: number; y: number } | nu
   const anchor = usePointAnchor(at);
   return (
     <Menu.Root open={at !== null} onOpenChange={(o) => !o && close()}>
-      <Menu.Portal>
+      <MenuPortal>
         <Menu.Positioner anchor={anchor} side="bottom" align="start" sideOffset={4} collisionPadding={8} className="z-50">
           <Menu.Popup finalFocus={false} className={cn(POPUP, "min-w-52 p-1.5")}>
             <div className="g-stagger flex flex-col">
@@ -265,7 +268,7 @@ function MemberMenu({ at, close, ...items }: { at: { x: number; y: number } | nu
             </div>
           </Menu.Popup>
         </Menu.Positioner>
-      </Menu.Portal>
+      </MenuPortal>
     </Menu.Root>
   );
 }
@@ -284,9 +287,14 @@ export function MemberItems({ channel, a, may, call, record, ask }: { channel: s
   return <Items channel={channel} a={a} s={s} may={may} call={call} record={record} ask={ask} />;
 }
 
+/** 注入记录's list (Given). */
+const injectionsQ = (session: string) => ({ queryKey: ["injections", session], queryFn: () => api.injections(session), retry: false });
+
 function Items({ channel, a, s, may, call, record, ask }: Parameters<typeof MemberItems>[0] & { s: LiveSession }) {
   useLang();
   const qc = useQueryClient();
+  // What its items open in the popover at its face, asked as the menu opens: 注入记录, 编辑资料.
+  useAhead(() => (void qc.prefetchQuery({ ...injectionsQ(a.session), staleTime: 5_000 }), prefetchEdit(qc, channel, a.session, true)), [a.session, channel]);
   const mode = useMode(s);
   const m = useModelMenu(s);
   const mine = ownAgent(channel, a);
@@ -333,13 +341,13 @@ function Items({ channel, a, s, may, call, record, ask }: Parameters<typeof Memb
           <span className="max-w-40 truncate text-xs text-ink-3">{[m.label, m.level && m.levels.length > 0 ? levelName(m.level) : ""].filter(Boolean).join(" · ")}</span>
           <ChevronRight size={14} className="text-ink-4" />
         </Menu.SubmenuTrigger>
-        <Menu.Portal>
+        <MenuPortal>
           <Menu.Positioner className="z-50" sideOffset={4} collisionPadding={8}>
             <Menu.Popup className={MODEL_POPUP}>
               <SessionModels m={m} />
             </Menu.Popup>
           </Menu.Positioner>
-        </Menu.Portal>
+        </MenuPortal>
       </Menu.SubmenuRoot>
     ),
     mode: (i) => (
@@ -441,7 +449,7 @@ const stamp = (ms: number, lang: string) => new Date(ms).toLocaleString(lang ===
  *  when long; where its parts came from under 来源. Inside the popover at its face (At). */
 function Given({ a }: { a: AgentRow }) {
   const lang = useLang();
-  const q = useQuery({ queryKey: ["injections", a.session], queryFn: () => api.injections(a.session), staleTime: 0, retry: false });
+  const q = useQuery({ ...injectionsQ(a.session), staleTime: 0 });
   const label = (k: GivenKind, seq?: number) => (k === "turn" ? (seq ? `#${seq}` : "—") : t(k === "system" ? "channel.givenSystem" : k === "ir" ? "channel.givenIr" : "channel.givenMessage"));
   return (
     <>

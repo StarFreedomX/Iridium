@@ -4,17 +4,17 @@
 // face changed the agent's); its agent's card is at the agent's face (members.tsx AgentCard).
 // 编辑资料 is a key of the card, the card turning into it in place (edit.tsx), for one of its
 // people.
-import { useQuery } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "../../api/query";
 import { useState } from "react";
 import { PencilLine } from "lucide-react";
-import { api } from "../../api/client";
-import type { Agent, Profile } from "../../api/types.gen";
+import type { Agent } from "../../api/types.gen";
 import { t, useLang } from "../../i18n";
 import { useList } from "../../store";
 import { cn, titleOf } from "../../ui";
 import { EditBody } from "./edit";
 import { Face, FaceStack } from "./face";
-import { mayAct, useMembers } from "./gate";
+import { mayAct, prefetchEdit, profileQ, useMembers } from "./gate";
 import { ProfileCard, type CardKey } from "./profilecard";
 
 /** The card of channel id, inside the popover at its face; done puts the popover away. */
@@ -25,14 +25,15 @@ export function ChannelCard({ id, agent, done }: { id: string; agent: Agent; don
   const row = useList()?.find((x) => x.id === id);
   const [edit, setEdit] = useState(false);
   // Asked as 编辑资料 asks (one query): what it shows is what is being changed there.
-  const q = useQuery({ queryKey: ["profile", id, ""], queryFn: () => api.channelProfile(id) as unknown as Promise<Profile>, staleTime: 5_000, retry: false });
+  const q = useQuery({ ...profileQ(id), staleTime: 5_000 });
+  const qc = useQueryClient();
   if (edit) return <EditBody editing={{ channel: id }} back={() => setEdit(false)} done={done} />;
   const p = q.data;
   // Of several agents, with no face of its own: theirs; of one agent in a bare channel: its face.
   const group = members?.members.filter((m) => m.session && m.agent).map((m) => ({ id: m.session!, agent: m.agent! })) ?? [];
   const several = group.length > 1;
   const sole = !agent && group.length === 1 ? group[0] : undefined;
-  const keys: CardKey[] = may ? [{ icon: <PencilLine size={14} />, label: t("profile.edit"), run: () => setEdit(true) }] : [];
+  const keys: CardKey[] = may ? [{ icon: <PencilLine size={14} />, label: t("profile.edit"), run: () => setEdit(true), ahead: () => prefetchEdit(qc, id, row?.id === id ? id : undefined) }] : [];
   return (
     <ProfileCard
       face={

@@ -29,7 +29,7 @@ export type Msg = { n: number; text: string; files: FileRef[]; time?: number; au
  *  workElement): steps, its calls so far; running, while it goes on; tool, the latest call's name;
  *  at, when the first began (ms); ms, how long it all took, once done; from, to: the lines of the
  *  agent's own record it spans (to: none while it runs). */
-export type Work = { steps: number; running: boolean; tool?: string; at?: number; ms?: number; from: number; to?: number };
+export type Work = { steps: number; running: boolean; tool?: string; at?: number; ms?: number; from: number; to?: number; agents?: number };
 
 /** Something that happened to a channel, a line of Iridium's own in it (internal/channel Event):
  *  join, leave (nick), rename (from, nick), on (nick, on: its subscriptions now), recv (before
@@ -194,7 +194,7 @@ export function workIn(content: string): Work | undefined {
   const a: Record<string, string> = {};
   for (const m of head.matchAll(ATTR)) a[m[1]!] = unesc(m[2]!);
   const num = (k: string) => Number(a[k] ?? 0) || 0;
-  return { steps: num("steps"), running: a.running === "true", from: num("from"), ...(a.tool ? { tool: a.tool } : {}), ...(num("at") ? { at: num("at") } : {}), ...(num("ms") ? { ms: num("ms") } : {}), ...(num("to") ? { to: num("to") } : {}) };
+  return { steps: num("steps"), running: a.running === "true", from: num("from"), ...(a.tool ? { tool: a.tool } : {}), ...(num("at") ? { at: num("at") } : {}), ...(num("ms") ? { ms: num("ms") } : {}), ...(num("agents") ? { agents: num("agents") } : {}), ...(num("to") ? { to: num("to") } : {}) };
 }
 
 const AGENT = "agent:";

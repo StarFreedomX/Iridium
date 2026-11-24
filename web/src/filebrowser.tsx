@@ -3,7 +3,8 @@
 // container (<620px) shows one pane at a time.
 import { Dialog } from "@base-ui/react/dialog";
 import { Menu } from "@base-ui/react/menu";
-import { useQuery, type UseQueryResult } from "@tanstack/react-query";
+import { type UseQueryResult } from "@tanstack/react-query";
+import { useQuery } from "./api/query";
 import { ArrowLeft, ChevronRight, Copy, Download, ExternalLink, Eye, FileText, Folder, FolderOpen, House, Link2, LoaderCircle, RefreshCw } from "lucide-react";
 import { lazy, Suspense, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { api, ApiError, queryClient } from "./api/client";
@@ -16,7 +17,7 @@ import { useMachines } from "./data";
 import { t } from "./i18n";
 import { MenuItems, type MenuItem } from "./sidebar";
 import { errText, toast } from "./toast";
-import { cn, IconKey, Tip, useLongPress, useMenuAt, usePointAnchor } from "./ui";
+import { cn, IconKey, Tip, useLongPress, useMenuAt, usePointAnchor, MenuPortal } from "./ui";
 
 const preview = () => import("./chat/preview");
 const PreviewBody = lazy(preview);
@@ -352,7 +353,7 @@ function FolderContents({ machine, dir, folders, selected, onFolder, onFile, cop
       )}
       <FolderStatus folders={folders} />
       <Menu.Root modal={false} open={at !== null} onOpenChange={(open) => !open && setAt(null)}>
-        <Menu.Portal>
+        <MenuPortal>
           <Menu.Positioner anchor={anchor} side="bottom" align="start" sideOffset={4} collisionPadding={8} className="z-50">
             <MenuItems
               items={items}
@@ -361,7 +362,7 @@ function FolderContents({ machine, dir, folders, selected, onFolder, onFile, cop
               finalFocus={(type) => type === "keyboard" && target?.key.getClientRects().length ? target.key : false}
             />
           </Menu.Positioner>
-        </Menu.Portal>
+        </MenuPortal>
       </Menu.Root>
     </>
   );

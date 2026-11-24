@@ -17,7 +17,8 @@
 // its models. Over it all, the harnesses (the user, 2026-11-08): all four at first; pressed, one
 // leaves the whole page or comes back, and the last one taken out puts all four back.
 import { Popover } from "@base-ui/react/popover";
-import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "./api/query";
 import { CircleHelp, LoaderCircle, UserX, X } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent, type ReactNode } from "react";
 import { api } from "./api/client";

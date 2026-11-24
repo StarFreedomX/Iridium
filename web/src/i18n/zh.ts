@@ -313,6 +313,7 @@ export const zh = {
   "work.step": "第 {n} 步",
   "work.step1": "1 步",
   "work.steps": "{n} 步",
+  "work.agents": "{n} 个子代理",
   "work.sec": "{s} 秒",
   "work.min": "{m} 分 {s} 秒",
   "work.hour": "{h} 小时 {m} 分",

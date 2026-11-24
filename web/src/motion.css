@@ -55,26 +55,34 @@
   --turn-out: 4px;
 }
 
-/* --- unfold / fold: Base UI popups (data-starting-style / data-ending-style) --- */
+/* --- unfold / fold: every popup, Base UI's (data-ending-style) and the page's own (ui.tsx
+   usePresence, the same attribute). Transitions, not keyframes: pressed again
+   while it opens or shuts, it turns back from where it is, on the press (web/scripts/motion/pop.mjs
+   P2). Only opacity and transform: its box is where it will stay from its first frame. --- */
+/* Its first style is @starting-style's, not Base UI's data-starting-style: that one is taken off
+   two or three frames after the popup is put in (a layout effect, then a frame, then React's
+   render), so it began to move some 50ms after the press; this way it moves from the first frame
+   it is drawn in. Base UI turns transitions off while it starts (an inline transition: none), so
+   these are !important. Going, by data-closed: Base UI writes it on the press itself, its
+   data-ending-style a layout effect and a frame later (pressed again as it goes, it turned back
+   some 50ms late). */
 .g-unfold {
   transform-origin: var(--transform-origin, center);
   transition:
     transform var(--dur-2) var(--ease-spring),
-    opacity var(--dur-2) var(--ease-out);
+    opacity var(--dur-2) var(--ease-out) !important;
 }
-.g-unfold[data-starting-style],
-.g-unfold[data-ending-style] {
+@starting-style {
+  .g-unfold {
+    opacity: 0;
+    transform: var(--unfold-from);
+  }
+}
+.g-unfold:is([data-closed], [data-ending-style]) {
   opacity: 0;
   transform: var(--unfold-from);
-}
-.g-unfold[data-ending-style] {
-  transition-duration: var(--dur-1);
-  transition-timing-function: var(--ease-out);
-}
-
-/* A popover's inside going to a new height as what is in it changes (said.tsx Grown). */
-.g-grow {
-  transition: height var(--dur-2) var(--ease-out);
+  transition-duration: var(--dur-1) !important;
+  transition-timing-function: var(--ease-out) !important;
 }
 
 /* --- pop: own elements; enter on mount, leave with [data-leaving] --- */
@@ -112,33 +120,32 @@
   }
 }
 
-/* --- slide: forward (default) or back ([data-dir=back]) --- */
+/* --- slide: a page put in a popup, forward (default) or back ([data-dir=back]). A transition from
+   its first style (@starting-style): the page it replaced is gone on the press, the popup as big as
+   this one from that frame on; one pressed back midway is a new page sliding from where it starts. --- */
 .g-slide {
-  animation: g-slide-in var(--dur-3) var(--ease-out) both;
+  transition:
+    opacity var(--dur-3) var(--ease-out),
+    transform var(--dur-3) var(--ease-out);
 }
 .g-slide[data-dir="back"] {
   --slide-x: -24px;
 }
-@keyframes g-slide-in {
-  from {
+@starting-style {
+  .g-slide {
     opacity: 0;
     transform: translateX(var(--slide-x));
   }
 }
 
-/* --- sheet: the phone's sidebar from the foot (sheet.tsx), out or in by its inline transform, its height eased as it
-   grows for the jump box; the composer under it stays, covered, hidden once it is up, and sinks only when taller
-   than it (.g-sink) --- */
+/* --- sheet: the phone's sidebar from the foot (sheet.tsx), out or in by its inline transform; made
+   another size out (the jump box), its top glides there by translate (sheet.tsx), never its height;
+   the composer under it stays, covered, hidden once it is up, and sinks only when taller than it
+   (.g-sink) --- */
 .g-sheet {
   transition:
     transform var(--dur-3) var(--ease-out),
-    box-shadow var(--dur-3) var(--ease-out);
-}
-/* Its height only as it is made another size (sheet.tsx), not as the keyboard moves dvh. */
-.g-sheet.g-sizing {
-  transition:
-    transform var(--dur-3) var(--ease-out),
-    height var(--dur-3) var(--ease-out),
+    translate var(--dur-3) var(--ease-out),
     box-shadow var(--dur-3) var(--ease-out);
 }
 .g-sink {
@@ -164,23 +171,26 @@
   transform-origin: calc(100% - 20px) calc(100% + 28px);
   transition:
     transform var(--dur-2) var(--ease-spring),
-    opacity var(--dur-2) var(--ease-out);
+    opacity var(--dur-2) var(--ease-out) !important;
 }
-/* Its height glides as it is made as tall as another page (app.tsx useFit). */
-.g-dialog[data-glide-h] {
-  transition:
-    transform var(--dur-2) var(--ease-spring),
-    opacity var(--dur-2) var(--ease-out),
-    height var(--dur-3) var(--ease-out);
+/* The usage asked for with the settings open, or back: another dialog in its place, fading in
+   (app.tsx). */
+@starting-style {
+  .g-dialog[data-swapped] {
+    transform: none;
+  }
 }
-.g-dialog[data-starting-style],
-.g-dialog[data-ending-style] {
+@starting-style {
+  .g-dialog {
+    opacity: 0;
+    transform: var(--unfold-from);
+  }
+}
+.g-dialog:is([data-closed], [data-ending-style]) {
   opacity: 0;
   transform: var(--unfold-from);
-}
-.g-dialog[data-ending-style] {
-  transition-duration: var(--dur-1);
-  transition-timing-function: var(--ease-out);
+  transition-duration: var(--dur-1) !important;
+  transition-timing-function: var(--ease-out) !important;
 }
 
 /* --- reveal: room opened, then what is in it (kumo, 2026-11-23: not both at once, its rows
@@ -407,12 +417,24 @@ html[data-turn] .vt-drawer {
   display: none;
 }
 
-/* --- stagger: children of an opening popup rise in turn (set --i on each) --- */
+/* --- stagger: children of an opening popup rise in turn (set --i on each), from their first style
+   (@starting-style), a transition like the popup's own. A key's own press (g-press) goes with it. --- */
 /* All in place by the time the popup has unfolded: the last ones coming after it, its foot still
    empty a moment, read as a flash (the user, 2026-11-08). */
-.g-stagger > * {
-  animation: g-rise var(--dur-2) var(--ease-out) both;
-  animation-delay: calc(min(var(--i, 0), 4) * var(--stagger));
+.g-stagger > *,
+.g-stagger > .g-press {
+  --stagger-at: calc(min(var(--i, 0), 4) * var(--stagger));
+  transition:
+    opacity var(--dur-2) var(--ease-out) var(--stagger-at),
+    transform var(--dur-2) var(--ease-out) var(--stagger-at),
+    background-color var(--dur-1) var(--ease-out),
+    color var(--dur-1) var(--ease-out);
+}
+@starting-style {
+  .g-stagger > * {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
 }
 @keyframes g-rise {
   from {
@@ -491,9 +513,6 @@ html[data-turn] .vt-drawer {
     --slide-x: 0px;
   }
   .g-stagger > * {
-    animation: none;
-  }
-  .g-grow {
     transition: none;
   }
   .g-wait {
@@ -509,9 +528,13 @@ html[data-turn] .vt-drawer {
   .g-sink[data-sunk] {
     transform: none;
   }
-  .g-dialog[data-starting-style],
-  .g-dialog[data-ending-style] {
+  .g-dialog:is([data-closed], [data-ending-style]) {
     transform: none;
+  }
+  @starting-style {
+    .g-dialog {
+      transform: none;
+    }
   }
   html[data-turn] {
     --turn-in: 0px;

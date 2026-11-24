@@ -10,7 +10,7 @@ import { api } from "../../api/client";
 import type { ChannelMembers, Trigger } from "../../api/types.gen";
 import { t } from "../../i18n";
 import { toast } from "../../toast";
-import { cn, IconKey } from "../../ui";
+import { cn, IconKey, MenuPortal } from "../../ui";
 import { useMembers } from "./gate";
 import { memberError } from "./key";
 import { triggerWords, useRecvName, useRecvOptions } from "./recv";
@@ -70,7 +70,7 @@ function AddMenu({ channel, session, add, type }: { channel: string; session: st
         <span className="flex-1">{label}</span>
         <ChevronRight size={14} className="text-ink-4" />
       </Menu.SubmenuTrigger>
-      <Menu.Portal>
+      <MenuPortal>
         <Menu.Positioner className="z-50" sideOffset={4} collisionPadding={8}>
           <Menu.Popup className={cn(POPUP, "no-bar max-h-[min(420px,var(--available-height))] min-w-44 overflow-y-auto")}>
             <div className="g-stagger flex flex-col">
@@ -83,7 +83,7 @@ function AddMenu({ channel, session, add, type }: { channel: string; session: st
             </div>
           </Menu.Popup>
         </Menu.Positioner>
-      </Menu.Portal>
+      </MenuPortal>
     </Menu.SubmenuRoot>
   );
   return (
@@ -91,7 +91,7 @@ function AddMenu({ channel, session, add, type }: { channel: string; session: st
       <Menu.Trigger aria-label={t("on.add")} className="g-press grid size-6 place-items-center rounded-md text-ink-2 hover:bg-fill hover:text-ink data-popup-open:bg-fill pointer-coarse:size-8">
         <Plus size={14} />
       </Menu.Trigger>
-      <Menu.Portal>
+      <MenuPortal>
         <Menu.Positioner className="z-50" side="bottom" align="end" sideOffset={4} collisionPadding={8}>
           <Menu.Popup className={cn(POPUP, "min-w-44")}>
             <div className="g-stagger flex flex-col">
@@ -106,7 +106,7 @@ function AddMenu({ channel, session, add, type }: { channel: string; session: st
             </div>
           </Menu.Popup>
         </Menu.Positioner>
-      </Menu.Portal>
+      </MenuPortal>
     </Menu.Root>
   );
 }

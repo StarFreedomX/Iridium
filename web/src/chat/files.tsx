@@ -11,7 +11,7 @@ import { Copyable } from "./copyable";
 import type { FileRef } from "../api/types.gen";
 import { FileWindow } from "../file-window";
 import { t } from "../i18n";
-import { cn, IconKey, Tip } from "../ui";
+import { cn, IconKey, Tip, DialogPortal } from "../ui";
 import { previewKind, type PreviewKind } from "./preview-lib";
 import { Viewer } from "./zoom";
 
@@ -103,7 +103,7 @@ export function Zoom({ full, name, children }: { full: string; name: string; chi
       <Tip label={t("msg.openImage")}>
         <Dialog.Trigger render={children} />
       </Tip>
-      <Dialog.Portal>
+      <DialogPortal>
         <Dialog.Backdrop className="fixed inset-0 z-50 bg-paper/70 backdrop-blur-sm transition-opacity duration-(--dur-2) data-ending-style:opacity-0 data-starting-style:opacity-0" />
         <Dialog.Popup onKeyDown={spaceShuts(() => setOpen(false))} className="fixed inset-0 z-50 outline-none transition-[opacity,scale] duration-(--dur-2) ease-(--ease-out) data-ending-style:scale-[0.98] data-ending-style:opacity-0 data-starting-style:scale-[0.98] data-starting-style:opacity-0">
           <Dialog.Title className="sr-only">{name}</Dialog.Title>
@@ -123,7 +123,7 @@ export function Zoom({ full, name, children }: { full: string; name: string; chi
             }
           />
         </Dialog.Popup>
-      </Dialog.Portal>
+      </DialogPortal>
     </Dialog.Root>
   );
 }

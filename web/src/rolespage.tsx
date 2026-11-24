@@ -5,7 +5,8 @@
 // chosen at each start (otae, 2026-11-21). A role is made from a session's 编辑资料 (存为角色),
 // or here (the + at the top right: its name and its agent, where it runs; then its own page).
 import { Menu } from "@base-ui/react/menu";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "./api/query";
 import { Check, ChevronLeft, ChevronRight, Plus, Trash2 } from "lucide-react";
 import { useRef, useState, type ReactNode } from "react";
 import { api, ApiError } from "./api/client";
@@ -24,7 +25,7 @@ import { HostPersonas, PersonaEditor, PersonaRow } from "./persona";
 import { RoleBanner, RoleFace, RoleLine, roleModel, useRoles } from "./roles";
 import { Item } from "./settings";
 import { errText, toast } from "./toast";
-import { agentName, cn, IconKey, intoView } from "./ui";
+import { agentName, cn, IconKey, intoView, MenuPortal } from "./ui";
 
 const BOX = "no-ring min-w-0 rounded-md bg-fill px-2.5 text-sm outline-none placeholder:text-ink-3 focus:bg-fill-2";
 const POPUP = "g-unfold glass thick float rounded-lg p-1.5 text-ink outline-none";
@@ -294,14 +295,14 @@ function RolePage({ role, onBack }: { role: Role; onBack: () => void }) {
                 <Menu.Trigger ref={modelKey} aria-label={t("composer.model")} className="g-press flex h-7 max-w-48 min-w-0 cursor-default items-center gap-1 rounded-md bg-fill px-2.5 text-sm outline-none hover:bg-fill-2 data-popup-open:bg-fill-2">
                   <span className="min-w-0 truncate">{v.name || roleModel(role, asked?.models)}</span>
                 </Menu.Trigger>
-                <Menu.Portal>
+                <MenuPortal>
                   <Menu.Positioner side={up ? "top" : "bottom"} align="end" sideOffset={6} collisionPadding={8} className="z-50">
                     <Menu.Popup finalFocus={false} className={cn(POPUP, "flex max-h-[min(560px,var(--available-height))] w-[min(280px,calc(100vw-16px))] flex-col")}>
                       {/* The models alone: the effort is the next row's. */}
                       <ModelList models={defaultFirst(v.models, v.def)} value={v.value} pickModel={(model) => void patch({ model })} levels={[]} level="" setEffort={async () => false} />
                     </Menu.Popup>
                   </Menu.Positioner>
-                </Menu.Portal>
+                </MenuPortal>
               </Menu.Root>
             </Item>
           )}

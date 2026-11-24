@@ -3,7 +3,9 @@
 import { Select } from "@base-ui/react/select";
 import { Check, ChevronDown } from "lucide-react";
 import type { ReactNode } from "react";
-import { cn } from "./ui";
+import { cn, popupPortal } from "./ui";
+
+const SelectPortal = popupPortal(Select.Portal);
 
 /** A choice of a few, our own popup rather than the system's (the user, 2026-11-06): the key shows
  *  the one picked; its list unfolds under it, frosted like the menus, each its label and a faint
@@ -17,7 +19,7 @@ export function Choose({ value, options, onChange, label, disabled, className }:
           <ChevronDown size={14} />
         </Select.Icon>
       </Select.Trigger>
-      <Select.Portal>
+      <SelectPortal>
         <Select.Positioner side="bottom" align="end" sideOffset={6} collisionPadding={8} alignItemWithTrigger={false} className="z-50">
           <Select.Popup className="g-unfold glass thick float max-h-(--available-height) min-w-(--anchor-width) overflow-y-auto rounded-lg p-1.5 text-ink outline-none">
             {options.map((o) => (
@@ -33,7 +35,7 @@ export function Choose({ value, options, onChange, label, disabled, className }:
             ))}
           </Select.Popup>
         </Select.Positioner>
-      </Select.Portal>
+      </SelectPortal>
     </Select.Root>
   );
 }

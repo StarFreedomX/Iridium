@@ -10,7 +10,7 @@ import { useContext, useRef, useState, type ComponentType, type ReactNode } from
 import { FoldMenu } from "./foldstate";
 import { t } from "../i18n";
 import { toast } from "../toast";
-import { own, useEver, useLongPress, usePointAnchor } from "../ui";
+import { own, useEver, useLongPress, usePointAnchor, MenuPortal } from "../ui";
 import type { Act } from "./react";
 
 /** What a channel's message has besides, once react.tsx is loaded. */
@@ -52,7 +52,7 @@ export function Copyable({ copy, children, className, quote, act }: { copy?: str
       <FoldMenu.Provider value={null}>{children}</FoldMenu.Provider>
       {act && acts.Under && <acts.Under act={act} />}
       {ever && <Menu.Root open={at !== null} onOpenChange={(o) => !o && setAt(null)}>
-        <Menu.Portal>
+        <MenuPortal>
           <Menu.Positioner anchor={anchor} side="bottom" align="start" sideOffset={4} collisionPadding={8} className="z-50">
             <Menu.Popup finalFocus={false} className="g-unfold glass thick float min-w-48 rounded-lg p-1.5 text-ink outline-none">
               {act && acts.Top && <acts.Top act={act} />}
@@ -79,7 +79,7 @@ export function Copyable({ copy, children, className, quote, act }: { copy?: str
               {act && acts.Foot && <acts.Foot act={act} />}
             </Menu.Popup>
           </Menu.Positioner>
-        </Menu.Portal>
+        </MenuPortal>
       </Menu.Root>}
     </div>
   );

@@ -2,7 +2,8 @@
 // who may use it, when it was last used — never its value. + stores a new one; a row's menu (a right
 // click or a long press) deletes it, nothing else. What agents' ir asked for of credentials waits
 // on top.
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "./api/query";
 import { Menu } from "@base-ui/react/menu";
 import { ChevronLeft, ChevronUp, LoaderCircle, LockKeyhole, Plus, Trash2 } from "lucide-react";
 import { useRef, useState } from "react";
@@ -13,7 +14,7 @@ import { t, useLang } from "./i18n";
 import { MenuItems } from "./sidebar";
 import { useConfirms } from "./store";
 import { errText, toast } from "./toast";
-import { ago, cn, IconKey, own, useLongPress, useMenuAt, usePointAnchor } from "./ui";
+import { ago, cn, IconKey, own, useLongPress, useMenuAt, usePointAnchor, MenuPortal } from "./ui";
 
 export const secretsQ = { queryKey: ["secrets"], queryFn: api.secrets, staleTime: 30_000 };
 const NAME = /^[A-Z][A-Z0-9_]{0,63}$/;
@@ -149,11 +150,11 @@ function SecretRow({ s }: { s: SecretInfo }) {
         <span className="shrink-0 text-xs text-ink-3 tabular-nums">{s.lastUse ? ago(s.lastUse.at) : t("secrets.unused")}</span>
       </div>
       <Menu.Root open={menuAt !== null} onOpenChange={(o) => !o && setMenuAt(null)}>
-        <Menu.Portal>
+        <MenuPortal>
           <Menu.Positioner anchor={anchor} side="bottom" align="start" sideOffset={4} collisionPadding={8} className="z-50">
             <MenuItems items={[{ icon: <Trash2 size={15} />, label: t("secrets.delete"), sure: t("secrets.deleteSure"), run: () => void remove() }]} />
           </Menu.Positioner>
-        </Menu.Portal>
+        </MenuPortal>
       </Menu.Root>
     </div>
   );

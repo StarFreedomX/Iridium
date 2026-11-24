@@ -12,10 +12,11 @@ import { Toast } from "@base-ui/react/toast";
 import { Tooltip } from "@base-ui/react/tooltip";
 import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType, type CSSProperties, type ReactNode } from "react";
 import { api, queryClient } from "./api/client";
+import { InPopup } from "./api/query";
 import { firstScreen, watchTurns } from "./chats";
 import { CreatePopover, WsPlus } from "./create";
 import { listFromDevice } from "./device/first";
-import { agentsQ, LOCAL_ME, pushQ, useApps, useHome, useMe, useSettings, useUpdate, useWorkspaces } from "./data";
+import { agentsQ, LOCAL_ME, pushQ, selfQ, useApps, useHome, useMe, useSettings, useUpdate, useWorkspaces } from "./data";
 import { FileWindow } from "./file-window";
 import { FileBrowserHandle, loadFileBrowser } from "./filebrowser-trigger";
 import { t, useLang } from "./i18n";
@@ -34,7 +35,7 @@ import { ToastList, toasts } from "./toast";
 import { buildTree, flat, FOLD_STEP } from "./tree";
 import { usePlaces } from "./reorder";
 import { reloadAgain } from "./upgrade";
-import { cn, holdMenu, IrMark, kept, keep, params, PHONE, useMedia, useMinute } from "./ui";
+import { cn, holdMenu, IrMark, kept, keep, params, PHONE, useMedia, useMinute, DialogPortal } from "./ui";
 import { watchUnread } from "./unread";
 import { warmUp } from "./warm";
 
@@ -93,8 +94,9 @@ export const loadChat = ChatPage.load;
 /** The settings and the jump box, their code run, the settings' answers asked: once idle, or a
  *  pointer on their key. */
 const loadPanels = () => {
-  for (const p of [SettingsPage, AppsPage, SecretsPage, CachePage, UsagePage, Jump]) void p.load().catch(() => {});
+  for (const p of [SettingsPage, AppsPage, SecretsPage, RolesPage, CachePage, UsagePage, Jump]) void p.load().catch(() => {});
   void queryClient.prefetchQuery(agentsQ);
+  void queryClient.prefetchQuery({ ...selfQ, staleTime: 30_000 });
   void queryClient.prefetchQuery(pushQ);
   // The credentials' rows too: their page slid in empty and filled after.
   void queryClient.prefetchQuery({ queryKey: ["secrets"], queryFn: api.secrets, staleTime: 30_000 });
@@ -105,7 +107,9 @@ const loadPanels = () => {
 // once. Not after one failed: a module that failed to load stays failed in the browser.
 // What the "+" popover draws (its roles), asked for once idle, apart from the files: drawn
 // whole as it opens, nothing pushed in after (docs/前端设计规范.md "后到的不撑开").
-void settled().then(() => (prefetchRoles(), movesAhead(), void queryClient.prefetchQuery(agentsQ)));
+// The settings' own page and what it draws too, not after every later file has come (a slow link
+// took seconds for those): the me key's dialog opens at its height, not the room's and then its own.
+void settled().then(() => (prefetchRoles(), movesAhead(), void queryClient.prefetchQuery(agentsQ), void SettingsPage.load().catch(() => {}), void queryClient.prefetchQuery({ ...selfQ, staleTime: 30_000 })));
 // The device's own cache: its worker, its sweeps (device/boot.ts), after the first screen.
 void settled().then(() => import("./device/boot"));
 void prefetch().then((all) => {
@@ -474,19 +478,19 @@ export function App() {
         close(under);
       }}
     >
-      <Dialog.Portal>
+      <DialogPortal>
         <Dialog.Popup
           key={usageLook ? "usage" : "settings"}
           ref={setSetsBox}
           data-settings-dialog
           aria-label={t("nav.me")}
           style={settingsStyle}
-          data-glide-h={fit.glide || undefined}
-          className={cn("g-dialog glass thick float fixed z-50 overflow-hidden rounded-lg text-ink outline-none", swapped.current && "g-fade", usageLook ? "w-[min(360px,calc(100vw-16px))]" : "w-[min(288px,calc(100vw-16px))]")}
+          data-swapped={swapped.current || undefined}
+          className={cn("g-dialog glass thick float fixed z-50 overflow-hidden rounded-lg text-ink outline-none", usageLook ? "w-[min(360px,calc(100vw-16px))]" : "w-[min(288px,calc(100vw-16px))]")}
         >
           {setsBody(dialogPage)}
         </Dialog.Popup>
-      </Dialog.Portal>
+      </DialogPortal>
     </Dialog.Root>
   );
 
@@ -513,8 +517,9 @@ export function App() {
                 ]}
               >
                 {[
-                  <div key="me" className="absolute inset-0">{seen && setsBody(setsPage ?? "settings")}</div>,
-                  <div key="usage" className="absolute inset-0">{seen && usagePage()}</div>,
+                  // The sheet's own pages, drawn as it is first pulled: a popup's (api/query.ts).
+                  <div key="me" className="absolute inset-0"><InPopup value>{seen && setsBody(setsPage ?? "settings")}</InPopup></div>,
+                  <div key="usage" className="absolute inset-0"><InPopup value>{seen && usagePage()}</InPopup></div>,
                   sidebar,
                 ]}
               </Pager>
@@ -572,13 +577,12 @@ function Waiting() {
 
 /** The settings' dialog as tall as the page in it would stand: its scroller's whole content and
  *  what is around it. Measured before the first paint as it opens, then as the page or what is in it
- *  changes, the dialog gliding to it (motion.css .g-dialog[data-glide-h]). */
+ *  changes: at once, in the frame it changed (a popup's box is not animated, docs/动画.md; what is
+ *  in it is there as it opens, fetched ahead, and a row opened in it opens its own room). */
 function useFit(el: HTMLElement | null, open: boolean) {
   const [h, setH] = useState<number>();
-  const [glide, setGlide] = useState(false);
   useLayoutEffect(() => {
-    if (!open) return setGlide(false);
-    if (!el) return;
+    if (!open || !el) return;
     const ro = new ResizeObserver(() => measure());
     let watched: Element[] = [];
     const measure = () => {
@@ -608,11 +612,9 @@ function useFit(el: HTMLElement | null, open: boolean) {
     // A page put in (another page, its code come): measured again.
     const mo = new MutationObserver(() => measure());
     mo.observe(el, { childList: true, subtree: true });
-    // Its first height at once; after that, a new one glides.
-    const f = requestAnimationFrame(() => setGlide(true));
-    return () => (ro.disconnect(), mo.disconnect(), cancelAnimationFrame(f));
+    return () => (ro.disconnect(), mo.disconnect());
   }, [open, el]);
-  return { h, glide };
+  return { h };
 }
 
 /** Where the 终端 panel stands, open: above the me key (me.tsx data-settings-key), its left edge on

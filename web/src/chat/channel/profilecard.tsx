@@ -3,9 +3,11 @@
 // the banner's lower edge, then what it is called, what it runs as and its state, its intro (a
 // person's signature), its keys.
 import { FaceGlow } from "../../glow";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "../../api/query";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api } from "../../api/client";
+import { ahead, useAhead } from "../../prefetch";
 import { useCarried } from "../../store";
 import { cn } from "../../ui";
 
@@ -27,14 +29,17 @@ export function useCard(who: string) {
   return q.data;
 }
 
-/** A key of the card. tone: its colour (a removal asked again, red). */
-export type CardKey = { icon: ReactNode; label: string; run: () => void; disabled?: boolean; tone?: string; key?: string };
+/** A key of the card. tone: its colour (a removal asked again, red). ahead: what the page it turns
+ *  the card into draws, fetched as the card opens and as the key is pointed at (prefetch.ts). */
+export type CardKey = { icon: ReactNode; label: string; run: () => void; disabled?: boolean; tone?: string; key?: string; ahead?: () => void };
 
 /** face: 56 across, round. sub: the line under the name (what an agent runs as, a person's
  *  app); state: the line after it (an agent's lamp and state). more: what else it shows, before
  *  its keys; after: what they bring, under them (a script's, script.tsx). */
 export function ProfileCard({ face, name, sub, state, note, background, keys, more, after }: { face: ReactNode; name: string; sub?: ReactNode; state?: ReactNode; note?: string; background?: string; keys: CardKey[]; more?: ReactNode; after?: ReactNode }) {
   const [gone, setGone] = useState<string | null>(null);
+  const aheads = keys.flatMap((k) => (k.ahead ? [k.ahead] : []));
+  useAhead(aheads.length ? () => aheads.forEach((f) => f()) : undefined, [aheads.length]);
   const banner = background && gone !== background ? background : undefined;
   return (
     <div className="flex flex-col">
@@ -62,7 +67,7 @@ export function ProfileCard({ face, name, sub, state, note, background, keys, mo
         {keys.length > 0 && (
           <div className={cn("mt-3 gap-1.5", keys.length > 3 ? "grid grid-cols-2" : "flex")}>
             {keys.map((k) => (
-              <button key={k.key ?? k.label} type="button" disabled={k.disabled} onClick={k.run} className={cn("g-press flex h-8 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md bg-fill px-2 text-sm hover:bg-fill-2 disabled:opacity-50 pointer-coarse:h-10", k.tone ?? "text-ink")}>
+              <button key={k.key ?? k.label} type="button" disabled={k.disabled} onClick={k.run} {...(k.ahead ? ahead(k.ahead) : {})} className={cn("g-press flex h-8 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md bg-fill px-2 text-sm hover:bg-fill-2 disabled:opacity-50 pointer-coarse:h-10", k.tone ?? "text-ink")}>
                 <span className={cn("shrink-0", k.tone ?? "text-ink-2")}>{k.icon}</span>
                 <span className="truncate">{k.label}</span>
               </button>

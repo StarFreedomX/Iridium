@@ -12,7 +12,7 @@
 // following the finger; held there a moment first, the grip lights and the finger makes it taller, or
 // shorter down to its first height, as it stays on this device, what it holds scrolling, with no bar (the user,
 // 2026-11-07). Let go near its first height, it goes back to that.
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { restsAtEnd } from "./chat/stick";
 import { motion } from "./motion";
 import { buzz, cn, keep, kept } from "./ui";
@@ -88,20 +88,46 @@ export function Sheet({ open, setOpen, size: want, raised, name, head = 0, from:
     return () => (ro.disconnect(), clearTimeout(timer));
   }, []);
 
-  // Its height glides only as it is made another size (searching, let go taller), not as the
-  // keyboard changes what dvh is: that would start the glide again each frame.
+  // Made another size out (searching, let go taller), its top glides there by a move alone, not by
+  // its height (docs/动画.md: a popup's box is not animated): taller, it is that tall at once, put
+  // down by the difference and slid up; shorter, it slides down as tall as it was, and is made
+  // shorter once it is there, out of sight under the window's foot. Not as the keyboard changes
+  // what dvh is: that would start it again each frame.
   const sizeIs = `${size} ${!!raised} ${live === null ? grown : "drag"}`;
   const [sized, setSized] = useState(sizeIs);
-  const [sizing, setSizing] = useState(false);
+  const glideFrom = useRef<number | null>(null);
   if (sizeIs !== sized) {
     setSized(sizeIs);
-    setSizing(live === null && open);
+    // Where its top is seen now, as px above the window's foot (a glide under way, from there).
+    const box = live === null && open ? panel.current?.getBoundingClientRect() : undefined;
+    glideFrom.current = box ? innerHeight - box.top : null;
   }
-  useEffect(() => {
-    if (!sizing) return;
-    const t = setTimeout(() => setSizing(false), motion.dur(3) + 60);
-    return () => clearTimeout(t);
-  }, [sizing, sized]);
+  useLayoutEffect(() => {
+    const el = panel.current;
+    const from = glideFrom.current;
+    glideFrom.current = null;
+    if (!el || from === null) return;
+    // Kept as tall as it was by min-height, not its height, which is React's (style prop).
+    const settle = () => {
+      el.style.transition = "none";
+      el.style.minHeight = "";
+      el.style.translate = "";
+      void el.offsetHeight;
+      el.style.transition = "";
+    };
+    settle();
+    const d = el.offsetHeight - from;
+    if (Math.abs(d) < 1) return;
+    el.style.transition = "none";
+    if (d < 0) el.style.minHeight = `${from}px`;
+    el.style.translate = `0 ${Math.max(0, d)}px`;
+    void el.offsetHeight;
+    el.style.transition = "";
+    el.style.translate = `0 ${Math.max(0, -d)}px`;
+    const done = (e: TransitionEvent) => e.target === el && e.propertyName === "translate" && settle();
+    el.addEventListener("transitionend", done);
+    return () => (el.removeEventListener("transitionend", done), settle());
+  }, [sized]);
 
   useEffect(() => {
     if (!open) return;
@@ -326,7 +352,6 @@ export function Sheet({ open, setOpen, size: want, raised, name, head = 0, from:
         "g-sheet vt-drawer fixed inset-x-0 bottom-0 z-40 flex max-h-dvh flex-col overflow-hidden rounded-t-2xl bg-paper pb-[env(safe-area-inset-bottom)] shadow-[var(--shadow-float)] [-webkit-touch-callout:none]",
         // Up to the window's top: under the status bar, its corners square.
         (size === "full" || (live === null && grown >= 0.99)) && "rounded-t-none pt-[env(safe-area-inset-top)]",
-        sizing && "g-sizing",
         drag !== null && "[transition:none]",
         out === 0 && "shadow-none",
       )}

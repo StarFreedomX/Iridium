@@ -7,7 +7,8 @@
 // changed. The face itself changes the face (docs/前端设计规范.md "点头像就是换头像"): a picture
 // chosen, cropped round as this panel's own avatar is (profile.tsx Crop). Yours (a person's):
 // SelfEdit, this panel's own profile (profile.tsx), in the same frame.
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "../../api/query";
 import { ChevronLeft, LoaderCircle, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api } from "../../api/client";
@@ -23,6 +24,7 @@ import { agentName, cn, FaceChangeOver, IconKey, Tip } from "../../ui";
 import type { Editing } from "./editing";
 import { OnSection } from "./onedit";
 import { Face } from "./face";
+import { memoryQ, profileQ } from "./gate";
 import { memberError } from "./key";
 import { validNick } from "./lib";
 
@@ -62,8 +64,10 @@ export function EditBody({ editing, back, done }: { editing: Editing; back?: () 
   useLang();
   const { channel, agent } = editing;
   const qc = useQueryClient();
-  const key = ["profile", channel, agent ?? ""];
-  const q = useQuery({ queryKey: key, queryFn: () => (agent ? api.memberCard(`agent:${agent}`).then((c): Profile => c) : (api.channelProfile(channel) as unknown as Promise<Profile>)), staleTime: 0, retry: false });
+  const pq = profileQ(channel, agent);
+  const key = pq.queryKey;
+  // An agent's: its card, which its face opened, there from the first frame (gate.ts prefetchEdit).
+  const q = useQuery({ ...pq, staleTime: 0, initialData: agent ? () => qc.getQueryData<Profile>(["card", `agent:${agent}`]) : undefined, initialDataUpdatedAt: agent ? () => qc.getQueryState(["card", `agent:${agent}`])?.dataUpdatedAt : undefined });
   useAgain("cards", key);
   const p = q.data;
   const row = useList()?.find((x) => x.id === (agent ?? channel));
@@ -255,8 +259,9 @@ const day = (ms: number, lang: string) => new Date(ms).toLocaleString(lang === "
 function Memories({ session, done }: { session: string; done: () => void }) {
   const lang = useLang();
   const qc = useQueryClient();
-  const key = ["memory", session];
-  const q = useQuery({ queryKey: key, queryFn: () => api.memory(session), staleTime: 0, retry: false });
+  const mq = memoryQ(session);
+  const key = mq.queryKey;
+  const q = useQuery({ ...mq, staleTime: 0 });
   useAgain("memory", key);
   const [sure, setSure] = useState<number | null>(null);
   useEffect(() => {
@@ -276,7 +281,8 @@ function Memories({ session, done }: { session: string; done: () => void }) {
   return (
     <section className="mt-4 flex flex-col">
       <h2 className="m-0 mb-1 flex h-4 items-center text-xs font-medium text-ink-3">{t("profile.memory")}</h2>
-      {q.error ? <p className="m-0 py-3 text-sm text-err">{errText(q.error)}</p> : q.data && !list.length ? <p className="m-0 py-3 text-sm text-ink-3">{t("profile.memoryNone")}</p> : null}
+      {/* Not come yet: the line "none" would take, kept (the page is whole as it opens). */}
+      {q.error ? <p className="m-0 py-3 text-sm text-err">{errText(q.error)}</p> : !list.length ? <p className={cn("m-0 py-3 text-sm text-ink-3", !q.data && "invisible")}>{t("profile.memoryNone")}</p> : null}
       <ul className="m-0 flex list-none flex-col p-0">
         {list.map((m) => (
           <li key={m.id} className="g-fade flex items-start gap-2 py-1.5">

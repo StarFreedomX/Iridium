@@ -4,11 +4,13 @@
 import { Menu } from "@base-ui/react/menu";
 import { Popover } from "@base-ui/react/popover";
 import { Tooltip } from "@base-ui/react/tooltip";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "./api/query";
 import { Bot, Check, ChevronDown, ChevronLeft, ChevronRight, Folder, FolderPlus, LoaderCircle, Play, UserMinus } from "lucide-react";
-import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactElement, type ReactNode } from "react";
+import { Suspense, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactElement, type ReactNode } from "react";
 import type { NewMember, NewSession as NewSessionReq, Trigger, Workspace } from "./api/types.gen";
-import { api, missing } from "./api/client";
+import { api, missing, queryClient } from "./api/client";
+import { ahead, useAhead } from "./prefetch";
 import { openChat } from "./route";
 import type { Agent, Role } from "./api/types.gen";
 import { t } from "./i18n";
@@ -17,11 +19,11 @@ import { choicesQ, draftDefault, DraftNamed } from "./chat/choices";
 import { appAll, hasApp, hasLogin, pressApp, pressLogin } from "./chat/channel/setup";
 import { agentsAt, atMachine, homeAt, MachineBadge, MachineFace, pageAt, type Machine } from "./machines";
 import { onCreateAt } from "./places";
-import { effortName, picked, prefetchRoles, RoleFace, RoleLine, RoleModels, roleStart, useRoles, type RolePick } from "./roles";
+import { DraftModels, effortName, picked, prefetchRoles, RoleFace, RoleLine, RoleModels, roleStart, useRoles, type RolePick } from "./roles";
 import { validNick } from "./chat/channel/lib";
 import { ProfileCard } from "./chat/channel/profilecard";
 import { errText, toast } from "./toast";
-import { AGENTS, agentName, Avatar, cn, homeOf, IconKey, Logo, own, PHONE, PopSurface, tilde, Tip, useLongPress, useMedia, useMenuAt, usePointAnchor } from "./ui";
+import { AGENTS, agentName, Avatar, cn, homeOf, IconKey, Logo, own, PHONE, PopSurface, tilde, Tip, useLongPress, useMedia, useMenuAt, usePointAnchor, MenuPortal, TooltipPortal } from "./ui";
 
 const join = (dir: string, name: string) => (dir.endsWith("/") ? dir + name : `${dir}/${name}`);
 /** One folder's listing; prefetched before it is shown (the popover opening, a row hovered), so the
@@ -546,7 +548,7 @@ function RolesRow({ roles, at, add }: { roles: Role[]; at: object; add: (r: Role
           </button>
         }
       />
-      <Menu.Portal>
+      <MenuPortal>
         <Menu.Positioner side="bottom" align="start" sideOffset={4} collisionPadding={8} className="z-50">
           <Menu.Popup finalFocus={false} className="g-unfold glass thick float no-bar max-h-[min(480px,var(--available-height))] w-[min(288px,calc(100vw-16px))] overflow-y-auto rounded-lg p-1.5 text-ink outline-none">
             <div className="g-stagger flex flex-col">
@@ -562,7 +564,7 @@ function RolesRow({ roles, at, add }: { roles: Role[]; at: object; add: (r: Role
             </div>
           </Menu.Popup>
         </Menu.Positioner>
-      </Menu.Portal>
+      </MenuPortal>
     </Menu.Root>
   );
 }
@@ -572,7 +574,7 @@ function RowMenu({ at, close, recv, setRecv, remove }: { at: { x: number; y: num
   const anchor = usePointAnchor(at);
   return (
     <Menu.Root open={at !== null} onOpenChange={(o) => !o && close()}>
-      <Menu.Portal>
+      <MenuPortal>
         <Menu.Positioner anchor={anchor} side="bottom" align="start" sideOffset={4} collisionPadding={8} className="z-50">
           <Menu.Popup finalFocus={false} className="g-unfold glass thick float min-w-44 rounded-lg p-1.5 text-ink outline-none">
             {recv !== undefined && setRecv && (
@@ -594,7 +596,7 @@ function RowMenu({ at, close, recv, setRecv, remove }: { at: { x: number; y: num
             </Menu.Item>
           </Menu.Popup>
         </Menu.Positioner>
-      </Menu.Portal>
+      </MenuPortal>
     </Menu.Root>
   );
 }
@@ -637,7 +639,6 @@ function BareRow({ remove }: { remove?: () => void }) {
   );
 }
 
-const DraftModels = lazy(() => import("./chat/channel/pick").then((x) => ({ default: x.DraftModels })));
 
 /** One row of the lineup: its face, its 称呼 typed (its role's name or its agent's in grey: the
  *  server's then), its model line (pressed: the model and effort menu, this once), what it
@@ -678,7 +679,7 @@ function SeatRow({ rowRef, seat, at, recv, own: mine, bad, set, remove }: { rowR
             {role ? <RoleLine role={role} at={at} logo className="min-w-0" /> : <span className="min-w-0 truncate">{kindLine}</span>}
             <ChevronDown size={12} className="shrink-0 text-ink-4" />
           </Menu.Trigger>
-          <Menu.Portal>
+          <MenuPortal>
             <Menu.Positioner side="bottom" align="start" sideOffset={4} collisionPadding={8} className="z-50">
               <Menu.Popup finalFocus={false} className="g-unfold glass thick float flex max-h-[min(560px,var(--available-height))] w-[min(300px,calc(100vw-16px))] flex-col rounded-lg p-1.5 text-ink outline-none">
                 {seat.role ? (
@@ -690,7 +691,7 @@ function SeatRow({ rowRef, seat, at, recv, own: mine, bad, set, remove }: { rowR
                 )}
               </Menu.Popup>
             </Menu.Positioner>
-          </Menu.Portal>
+          </MenuPortal>
         </Menu.Root>
       </span>
       {/* What it receives: pressed, the other (kumo, 2026-11-16: a choice, never assumed). */}
@@ -718,14 +719,14 @@ function RoleBeside({ open, anchor, children }: { open: boolean; anchor: Element
   return (
     // A tooltip's, not a popover's: one nested in the panel took its Escape.
     <Tooltip.Root open={open}>
-      <Tooltip.Portal>
+      <TooltipPortal>
         {/* Out from the panel's edge (its row is 6px in from it), the panel's own gap away. */}
         <Tooltip.Positioner side="right" align="start" sideOffset={14} collisionPadding={8} anchor={anchor} className="pointer-events-none z-50">
           <Tooltip.Popup aria-hidden className="g-unfold float w-[min(288px,calc(100vw-16px))] overflow-hidden rounded-lg bg-paper outline-none">
             {open ? children : kept.current}
           </Tooltip.Popup>
         </Tooltip.Positioner>
-      </Tooltip.Portal>
+      </TooltipPortal>
     </Tooltip.Root>
   );
 }
@@ -806,7 +807,7 @@ function PeopleRow({ people, set }: { people: string[]; set: (p: string[]) => vo
           </button>
         }
       />
-      <Menu.Portal>
+      <MenuPortal>
         <Menu.Positioner side="bottom" align="start" sideOffset={4} collisionPadding={8} className="z-50">
           <Menu.Popup finalFocus={false} className="g-unfold glass thick float no-bar max-h-[min(480px,var(--available-height))] min-w-56 max-w-[calc(100vw-16px)] overflow-y-auto rounded-lg p-1.5 text-ink outline-none">
             {/* No headings (kumo, 2026-11-16: no 人 to sort them under): the apps, the bots first. */}
@@ -814,7 +815,7 @@ function PeopleRow({ people, set }: { people: string[]; set: (p: string[]) => vo
             {rows(panel)}
           </Menu.Popup>
         </Menu.Positioner>
-      </Menu.Portal>
+      </MenuPortal>
     </Menu.Root>
   );
 }
@@ -930,7 +931,18 @@ export function retarget(made: string, to: Target | undefined, ms: Machine[]): T
  *  is its group, or in one (the user, 2026-11-08: no workspaces to make first; the server groups it,
  *  discover GroupFor). It opens at this machine each time; a place pressed elsewhere that no listed
  *  group holds opens it at that place's machine, on its agents (places.ts createAt, 2026-11-10). */
+/** What the "+" popovers draw, asked for before they open (docs/前端设计规范.md "弹窗、页面打开时
+ *  就是完整的"): the folder picker's first listing (home, here), the agents, the roles, the model
+ *  menu's code. */
+function prefetchCreate() {
+  prefetchRoles();
+  void queryClient.prefetchQuery(agentsQ);
+  void queryClient.prefetchQuery(foldersQ("~"));
+  DraftModels.ahead();
+}
+
 export function CreatePopover({ trigger }: { trigger: ReactElement }) {
+  const keyAhead = useAhead(prefetchCreate, []);
   const [open, setOpen] = useState(false);
   const [page, setPage] = useState<"folder" | "session">("folder");
   const [folder, setFolder] = useState("~");
@@ -973,7 +985,7 @@ export function CreatePopover({ trigger }: { trigger: ReactElement }) {
         }
       }}
     >
-      <Popover.Trigger render={trigger} />
+      <Popover.Trigger render={trigger} {...keyAhead} />
       <PopSurface align="start" finalFocus={false}>
         {/* Page to page, sliding the way you went: on to the agents, back to the folder. */}
         <div key={page} data-dir={page === "folder" ? "back" : undefined} className={shownAs.current.stepped ? "g-slide" : undefined}>
@@ -1025,9 +1037,9 @@ export function WsPlus({ w, trigger, open, setOpen, opened }: { w: Workspace; tr
   const sub = useSubfolder(folder, setFolder, open);
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
-      {/* Its roles asked for as the "+" is pointed at or pressed (and once idle, app.tsx), not as
+      {/* What it draws asked for as the "+" is pointed at or pressed (and once idle, app.tsx), not as
           it opens: the popover is drawn whole. */}
-      <Popover.Trigger render={trigger} onPointerEnter={prefetchRoles} onPointerDown={prefetchRoles} onFocus={prefetchRoles} />
+      <Popover.Trigger render={trigger} {...ahead(prefetchCreate)} />
       <PopSurface side="bottom" align="end" finalFocus={false}>
         {/* Page to page, sliding the way you went: into the folder, back to the agents (the user, 2026-11-06). */}
         <div key={page} data-dir={page === "session" ? "back" : undefined} className={page !== "session" || stepped ? "g-slide" : ""}>

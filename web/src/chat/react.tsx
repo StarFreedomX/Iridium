@@ -12,7 +12,7 @@ import { LOCAL_ME, useApps, useMe } from "../data";
 import { t } from "../i18n";
 import { useList } from "../store";
 import { errText, toast } from "../toast";
-import { Avatar, cn, own, PopSurface, useLongPress } from "../ui";
+import { Avatar, cn, own, PopSurface, useLongPress, MenuPortal } from "../ui";
 import { Face } from "./channel/face";
 import { acts } from "./copyable";
 import { EMOJI, recentEmoji, ROW, ROWS, usedEmoji } from "./emoji";
@@ -74,7 +74,7 @@ export function ReactRows({ act }: { act: Act }) {
           <span className="min-w-0 flex-1 truncate">{t("top.more")}</span>
           <ChevronRight size={14} className="shrink-0 text-ink-4" />
         </Menu.SubmenuTrigger>
-        <Menu.Portal>
+        <MenuPortal>
           <Menu.Positioner className="z-50" sideOffset={4} collisionPadding={8}>
             <Menu.Popup className={cn(POPUP, "no-bar max-h-[min(360px,var(--available-height))] w-[min(300px,calc(100vw-16px))] overflow-y-auto p-1.5")}>
               {EMOJI.map((g, i) => (
@@ -84,7 +84,7 @@ export function ReactRows({ act }: { act: Act }) {
               ))}
             </Menu.Popup>
           </Menu.Positioner>
-        </Menu.Portal>
+        </MenuPortal>
       </Menu.SubmenuRoot>
       <div className="mx-1 my-1 border-t border-edge" />
     </>

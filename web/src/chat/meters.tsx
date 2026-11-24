@@ -6,7 +6,7 @@
 import { Menu } from "@base-ui/react/menu";
 import { Popover } from "@base-ui/react/popover";
 import { Check, ChevronDown, ChevronRight, Workflow } from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery } from "../api/query";
 import { Fragment, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from "react";
 import type { SessionState as LiveSession } from "../api/types.gen";
 import { api } from "../api/client";
@@ -16,7 +16,7 @@ import { useAgent } from "../data";
 import { t, useLang } from "../i18n";
 import { useContextState, useQuota } from "../store";
 import { errText, toast } from "../toast";
-import { agentName, ago, cn, PHONE, PopSurface, Tip, tokens as tok, useLongPress, useMedia, useMinute } from "../ui";
+import { agentName, ago, cn, PHONE, PopSurface, Tip, tokens as tok, useLongPress, useMedia, useMinute, MenuPortal } from "../ui";
 import { choicesQ } from "./choices";
 import { EffortSlider, levelName, noteLevelNames } from "./effort";
 import { hasMark, ModeMark, modeName } from "../modes";
@@ -431,7 +431,7 @@ export function ModeKey({ mode, open, onOpenChange }: { mode: ReturnType<typeof 
           }
         />
       </Tip>
-      <Menu.Portal>
+      <MenuPortal>
         <Menu.Positioner side="top" align="start" sideOffset={6} collisionPadding={8} className="z-50">
           <Menu.Popup finalFocus={false} className="g-unfold glass thick float min-w-52 rounded-lg p-1.5 text-ink outline-none">
             <Menu.RadioGroup value={mode.now} onValueChange={(v) => void mode.set(v as string)} className="g-stagger flex flex-col">
@@ -447,7 +447,7 @@ export function ModeKey({ mode, open, onOpenChange }: { mode: ReturnType<typeof 
             </Menu.RadioGroup>
           </Menu.Popup>
         </Menu.Positioner>
-      </Menu.Portal>
+      </MenuPortal>
     </Menu.Root>
   );
 }
@@ -733,13 +733,13 @@ export function ModelKey({ s, open, onOpenChange }: { s: LiveSession; open?: boo
           }
         />
       </Tip>
-      <Menu.Portal>
+      <MenuPortal>
         <Menu.Positioner side="top" align="start" sideOffset={6} collisionPadding={8} className="z-50">
           <Menu.Popup finalFocus={false} className={MODEL_POPUP}>
             <SessionModels m={m} />
           </Menu.Popup>
         </Menu.Positioner>
-      </Menu.Portal>
+      </MenuPortal>
     </Menu.Root>
   );
 }

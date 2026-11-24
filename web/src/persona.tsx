@@ -4,7 +4,7 @@
 // whole to write; under it, the personas the agents' hosts give (GET /v1/internal/personas: DSH
 // Desktop's persona plugin, docs/exec.md agent.personas), one pressed taken as it (a copy). All of
 // those come from the hosts: with none, no list.
-import { useQuery } from "@tanstack/react-query";
+import { useQuery } from "./api/query";
 import { ChevronRight, LoaderCircle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api, missing } from "./api/client";

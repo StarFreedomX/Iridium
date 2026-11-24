@@ -5,7 +5,8 @@
 // editor (名称, 介绍, 头像, 命令, 触发), a new one from a template first (唤醒词, 定时提醒, 空白).
 // Opened from a script's face beside what it said, and from the members' list (top.tsx).
 import { Popover } from "@base-ui/react/popover";
-import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { useQuery } from "../../api/query";
 import { ChevronLeft, ChevronRight, CircleOff, CirclePlay, LoaderCircle, PencilLine, Play, Plus, SquareTerminal, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { api, ApiError } from "../../api/client";

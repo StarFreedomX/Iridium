@@ -15,7 +15,7 @@ import { SecretHere } from "../secret";
 import { useSecret } from "../secrets";
 import { t } from "../i18n";
 import { errText, toast } from "../toast";
-import { cn, tilde, Tip } from "../ui";
+import { cn, tilde, Tip, MenuPortal } from "../ui";
 import { argOf, inputOf, kindOf } from "./fold";
 import { Markdown } from "./markdown";
 
@@ -205,7 +205,7 @@ function Decide({ a, cwd, busy, send }: { a: Ask; cwd: string; busy: boolean; se
                   >
                     <ChevronDown size={14} />
                   </Menu.Trigger>
-                  <Menu.Portal>
+                  <MenuPortal>
                     <Menu.Positioner side="top" align="end" sideOffset={6} collisionPadding={8} className="z-50">
                       <Menu.Popup className="g-unfold glass thick float rounded-lg p-1.5 text-ink outline-none">
                         <Menu.Item onClick={() => send({ option: "always" })} className="flex h-8 cursor-default items-center gap-2.5 rounded-md px-2.5 text-base outline-none data-highlighted:bg-fill pointer-coarse:h-11">
@@ -214,7 +214,7 @@ function Decide({ a, cwd, busy, send }: { a: Ask; cwd: string; busy: boolean; se
                         </Menu.Item>
                       </Menu.Popup>
                     </Menu.Positioner>
-                  </Menu.Portal>
+                  </MenuPortal>
                 </Menu.Root>
               )}
             </div>

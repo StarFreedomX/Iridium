@@ -2,14 +2,15 @@
 // conversation, nothing more. Only its hash is kept, so the link shows once, as it is made; made
 // again, the old one stops working; revoked, at once.
 import { Popover } from "@base-ui/react/popover";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "../api/query";
 import { Copy, Globe } from "lucide-react";
 import { useState, type RefObject } from "react";
 import { api } from "../api/client";
 import { MainKey, SecondKey } from "../card";
 import { t } from "../i18n";
 import { errText, toast } from "../toast";
-import { ago } from "../ui";
+import { ago, PopoverPortal } from "../ui";
 
 /** A session's public link, as its popover asks for it; asked ahead of opening it (chat.tsx), so
  *  that it opens whole: its keys came a moment after, and it grew. */
@@ -49,7 +50,7 @@ export function PublicLink({ session, anchor, open, onOpenChange }: { session: s
         if (!o) setUrl("");
       }}
     >
-      <Popover.Portal>
+      <PopoverPortal>
         <Popover.Positioner anchor={anchor} side="bottom" align="end" sideOffset={6} collisionPadding={8} className="z-50">
           <Popover.Popup initialFocus={(type) => type === "keyboard"} className="g-unfold glass thick float flex w-[min(340px,calc(100vw-16px))] flex-col gap-2.5 rounded-lg p-3.5 text-ink outline-none">
             <div className="flex items-center gap-2 text-base font-semibold">
@@ -87,7 +88,7 @@ export function PublicLink({ session, anchor, open, onOpenChange }: { session: s
             )}
           </Popover.Popup>
         </Popover.Positioner>
-      </Popover.Portal>
+      </PopoverPortal>
     </Popover.Root>
   );
 }

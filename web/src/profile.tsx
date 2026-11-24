@@ -3,12 +3,13 @@
 // (its messages' badge), all in one line. Local-only with no Passkey it is 本机, which has
 // nothing to rename. Comes with the panel, not the first screen.
 import { Slider } from "@base-ui/react/slider";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "./api/query";
 import { EyeOff, Laptop, Monitor, PencilLine, Smartphone } from "lucide-react";
 import { useRef, useState, type ReactNode } from "react";
 import { ApiError, api } from "./api/client";
 import { type Device, type Me, type Profile as Card } from "./api/types.gen";
-import { LOCAL_ME, useMe } from "./data";
+import { LOCAL_ME, selfQ, useMe } from "./data";
 import { asDataURL, BannerThumb, FacePick } from "./facepick";
 import { t } from "./i18n";
 import { LocalMark } from "./me";
@@ -126,7 +127,7 @@ export function Profile({ onPicture }: { onPicture: (url: string) => void }) {
 /** The rest of its card (docs/next/group.md "资料卡"): its background; its name and avatar are above (Profile). Saved as changed. */
 export function ProfileMore() {
   const qc = useQueryClient();
-  const q = useQuery({ queryKey: ["self"], queryFn: () => api.self().then((s): Card => s), staleTime: 0, retry: false });
+  const q = useQuery({ ...selfQ, staleTime: 0 });
   const save = async (p: { background?: string }) => {
     qc.setQueryData<Card>(["self"], await api.patchSelf(p));
     void qc.invalidateQueries({ queryKey: ["card"] });

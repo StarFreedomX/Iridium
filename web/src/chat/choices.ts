@@ -3,7 +3,8 @@
 // a session whose agent has not said its models yet (meters.tsx ModelKey). They pop at once
 // (kumo, 2026-11-15: not looked up as the menu opens): kept in this browser for the next visit,
 // and the server answers with what it kept.
-import { useQuery, type QueryClient } from "@tanstack/react-query";
+import { type QueryClient } from "@tanstack/react-query";
+import { useQuery } from "../api/query";
 import type { ReactElement } from "react";
 import { api } from "../api/client";
 import type { Agent, AgentChoices, Model } from "../api/types.gen";

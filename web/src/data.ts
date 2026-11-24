@@ -2,7 +2,8 @@
 // other terminals, the home folder. Each a query; a route an older daemon lacks leaves its part
 // empty rather than failing the page. The workspaces and the update are carried on the stream,
 // asked for once at first.
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "./api/query";
 import { useEffect, useMemo } from "react";
 import { api, ApiError, missing, speakAs } from "./api/client";
 import type { AgentInfo, App, Apps, LastSaid, Me, Session, Settings, UpdateState, Workspace } from "./api/types.gen";
@@ -32,6 +33,8 @@ export function useWorkspaces(): { data: Workspace[] | null | undefined } {
   return { data: carried ?? q.data };
 }
 export const agentsQ = { queryKey: ["agents"], queryFn: orNone(api.agents), staleTime: Infinity };
+/** One's own card (profile.tsx ProfileMore): in the settings and 编辑资料 of one's own card. */
+export const selfQ = { queryKey: ["self"], queryFn: () => api.self(), retry: false };
 export const useAgents = () => useQuery(agentsQ);
 export const useAgent = (a: string) => useAgents().data?.find((x: AgentInfo) => x.agent === a);
 /** Push's keys and each workspace's events, the daemon's own (GET /v1/internal/web/push): the settings show them. */

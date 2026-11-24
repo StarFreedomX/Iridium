@@ -5,7 +5,7 @@
 // show it with the total switch off too, and a level set 开 there turns the switch on, without a
 // word (the user, 2026-11-07). The menus' part (pushmenu.tsx) comes after the first screen: it stays
 // under its size (web/test/build.test.ts).
-import { useQuery } from "@tanstack/react-query";
+import { useQuery } from "./api/query";
 import { useEffect, useState } from "react";
 import type { PushEvents, PushScope, PushState, Session } from "./api/types.gen";
 import { pushQ } from "./data";

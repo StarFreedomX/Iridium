@@ -6,11 +6,8 @@
 // logins and invites (docs/前端设计规范.md). 配对 is a switch, on till turned off; requests wait as
 // cards on top, the code checked against the one the app shows. No TOKEN is handed out here.
 import { Menu } from "@base-ui/react/menu";
-import {
-  useQuery,
-  useQueryClient,
-  type QueryClient,
-} from "@tanstack/react-query";
+import { useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { useQuery } from "./api/query";
 import {
   Check,
   ChevronLeft,
@@ -62,27 +59,7 @@ import { showSecret, useSecret } from "./secrets";
 import { Group, Item } from "./settings";
 import { useConfirms, usePairing } from "./store";
 import { errText, toast, toasts } from "./toast";
-import {
-  agentName,
-  AGENTS as AGENT_MARKS,
-  ago,
-  Avatar,
-  AvatarKey,
-  cn,
-  CopyKey,
-  IconKey,
-  FaceChangeOver,
-  ServerFace,
-  Logo,
-  own,
-  Switch,
-  Tip,
-  useLongPress,
-  useMenuAt,
-  usePointAnchor,
-  intoView,
-  SureKey,
-} from "./ui";
+import { agentName, AGENTS as AGENT_MARKS, ago, Avatar, AvatarKey, cn, CopyKey, IconKey, FaceChangeOver, ServerFace, Logo, own, Switch, Tip, useLongPress, useMenuAt, usePointAnchor, intoView, SureKey, MenuPortal } from "./ui";
 import { MenuItems, type MenuItem } from "./sidebar";
 
 /** ir_web, the built-in app whose logins are people with a passkey; a computer's owner is one. */
@@ -836,7 +813,7 @@ export function useRowMenu() {
     },
     menu: (items: MenuItem[]) => (
       <Menu.Root open={at !== null} onOpenChange={(o) => !o && setAt(null)}>
-        <Menu.Portal>
+        <MenuPortal>
           <Menu.Positioner
             anchor={anchor}
             side="bottom"
@@ -847,7 +824,7 @@ export function useRowMenu() {
           >
             <MenuItems items={items} />
           </Menu.Positioner>
-        </Menu.Portal>
+        </MenuPortal>
       </Menu.Root>
     ),
   };
@@ -1302,7 +1279,7 @@ function PasskeyRow({
             <Mark size={16} />
           </Menu.Trigger>
         </Tip>
-        <Menu.Portal>
+        <MenuPortal>
           <Menu.Positioner
             side="bottom"
             align="start"
@@ -1328,7 +1305,7 @@ function PasskeyRow({
               </div>
             </Menu.Popup>
           </Menu.Positioner>
-        </Menu.Portal>
+        </MenuPortal>
       </Menu.Root>
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-2">

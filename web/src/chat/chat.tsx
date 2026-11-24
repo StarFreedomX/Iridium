@@ -6,6 +6,7 @@ import { Menu } from "@base-ui/react/menu";
 import { Popover } from "@base-ui/react/popover";
 import { ArrowLeft, BarChart3, Ellipsis, FolderOpen, Globe, ListTree, Plus, Settings } from "lucide-react";
 import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
+import { lazyAhead, useAhead } from "../prefetch";
 import type { Device, Session, SessionState as LiveSession } from "../api/types.gen";
 import { queryClient } from "../api/client";
 import { AppKey, WinKeys } from "../appkey";
@@ -21,7 +22,7 @@ import { useList, useSession } from "../store";
 import { drafts, opened } from "../stream";
 import { toast } from "../toast";
 import { groupPath } from "../tree";
-import { agentName, cn, IrMark, lampOf, LogoLamp, PopSurface, sessionStatusText, tilde, Tip, titleOf, untitled } from "../ui";
+import { agentName, cn, IrMark, lampOf, LogoLamp, PopSurface, sessionStatusText, tilde, Tip, titleOf, untitled, MenuPortal } from "../ui";
 import { VoiceDock } from "../voice/dock";
 import { Activity } from "./atwork";
 import { ChannelCard } from "./channel/channelcard";
@@ -42,7 +43,9 @@ import { Stick } from "./stick";
 
 // Top bar's channel controls, loaded lazily: ⋯'s 编辑资料 on a phone (ChannelMenu) and the
 // viewers/members keys at the bar's right (TopRight).
-const ChannelMenu = lazy(() => import("./channel/top"));
+// ChannelMenu's code asked for ahead (its ⋯ pointed at, or idle): a lazy part is its fallback in its
+// first draw even when its code is there, and the menu grew by its row a moment after it opened.
+const ChannelMenu = lazyAhead(() => import("./channel/top").then((m) => m.default));
 const TopRight = lazy(() => import("./channel/top").then((m) => ({ default: m.TopRight })));
 
 const BUSY = new Set(["running", "compacting", "starting", "waiting"]);
@@ -211,6 +214,7 @@ const Bar = memo(function Bar({ s, onSheet, onMe, onBack, recordOnly }: { s?: Se
   const [publicOpen, setPublicOpen] = useState(false);
   const late = useRef(!s).current ? "g-fade" : "";
   const more = useRef<HTMLButtonElement>(null);
+  const moreAhead = useAhead(ChannelMenu.ahead, []);
   const usageHere = () => {
     const b = more.current?.getBoundingClientRect();
     openUsage(b && { x: b.right, y: b.bottom + 6, end: true }, s?.machine);
@@ -272,13 +276,13 @@ const Bar = memo(function Bar({ s, onSheet, onMe, onBack, recordOnly }: { s?: Se
               <Tip label={t("top.more")} side="bottom">
                 <Menu.Trigger
                   render={
-                    <button ref={more} type="button" aria-label={t("top.more")} className={cn("g-press grid size-8 place-items-center rounded-md text-ink-2 hover:bg-fill hover:text-ink data-popup-open:bg-fill pointer-coarse:size-10", late)}>
+                    <button ref={more} type="button" aria-label={t("top.more")} {...moreAhead} className={cn("g-press grid size-8 place-items-center rounded-md text-ink-2 hover:bg-fill hover:text-ink data-popup-open:bg-fill pointer-coarse:size-10", late)}>
                       <Ellipsis size={17} />
                     </button>
                   }
                 />
               </Tip>
-              <Menu.Portal>
+              <MenuPortal>
                 <Menu.Positioner side="bottom" align="end" sideOffset={6} collisionPadding={8} className="z-50">
                   <MenuItems lead={lead} items={acts} tags={sessionTags(s)}>
                     {!recordOnly && (
@@ -288,7 +292,7 @@ const Bar = memo(function Bar({ s, onSheet, onMe, onBack, recordOnly }: { s?: Se
                     )}
                   </MenuItems>
                 </Menu.Positioner>
-              </Menu.Portal>
+              </MenuPortal>
             </Menu.Root>
             <PublicLink key={`public:${s.id}`} session={s.id} anchor={more} open={publicOpen} onOpenChange={setPublicOpen} />
             <EditAt id={s.id} anchor={more} />

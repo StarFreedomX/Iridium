@@ -25,7 +25,7 @@ import { createAt, onOpenPlace, type Place } from "./places";
 import { LinkDot } from "./link";
 import { errText, toast } from "./toast";
 import { manages, useMachines, useMe, useSaidLine, useUpdate } from "./data";
-import { agentName, ago, cn, fine, IconKey, IrMark, keep, kept, Lamp, lampOf, Logo, own, sessionStatusText, statusText, tilde, Tip, titleOf, useEver, untitled, useLongPress, useMenuAt, useMinute, usePointAnchor } from "./ui";
+import { agentName, ago, cn, fine, IconKey, IrMark, keep, kept, Lamp, lampOf, Logo, own, sessionStatusText, statusText, tilde, Tip, titleOf, useEver, untitled, useLongPress, useMenuAt, useMinute, usePointAnchor, MenuPortal } from "./ui";
 import { AppName } from "./appkey";
 import { PLACE_DRAG, SESSION_DRAG } from "./chat/refs";
 import { badge, isQuiet, setQuiet, useAt, useQuiet, useUnread } from "./unread";
@@ -804,7 +804,7 @@ function WsRow({ flip, id, name, root, sessions, hung, machine, remote, folders,
       />
       {menu && (
         <Menu.Root open={at !== null} onOpenChange={(o) => !o && setAt(null)}>
-          <Menu.Portal>
+          <MenuPortal>
             <Menu.Positioner anchor={anchor} side="bottom" align="start" sideOffset={4} collisionPadding={8} className="z-50">
               {items.length ? (
                 <MenuItems
@@ -824,7 +824,7 @@ function WsRow({ flip, id, name, root, sessions, hung, machine, remote, folders,
                 )
               )}
             </Menu.Positioner>
-          </Menu.Portal>
+          </MenuPortal>
         </Menu.Root>
       )}
     </>
@@ -1200,11 +1200,11 @@ function FolderRow({ f, ws, depth, label, hung, open, onToggle, foldBack, newHer
         extra={{ ...lp, onContextMenu: (e: React.MouseEvent) => !lp.onContextMenu(e) && own(e) && (e.preventDefault(), setAt({ x: e.clientX, y: e.clientY })), onClickCapture: lp.onClickCapture, ...dragging }}
       />
       <Menu.Root open={at !== null} onOpenChange={(o) => !o && setAt(null)}>
-        <Menu.Portal>
+        <MenuPortal>
           <Menu.Positioner anchor={anchor} side="bottom" align="start" sideOffset={4} collisionPadding={8} className="z-50">
             <MenuItems items={items} tags={tags} foot={<PushFoot levels={folderLevels(f.path, ws)} i={items.length} />} />
           </Menu.Positioner>
-        </Menu.Portal>
+        </MenuPortal>
       </Menu.Root>
     </>
   );
@@ -1215,7 +1215,7 @@ function SessionMenu({ s, at, close, rename }: { s: Session; at: { x: number; y:
   const anchor = usePointAnchor(at);
   return (
     <Menu.Root open={at !== null} onOpenChange={(o) => !o && close()}>
-      <Menu.Portal>
+      <MenuPortal>
         <Menu.Positioner anchor={anchor} side="bottom" align="start" sideOffset={4} collisionPadding={8} className="z-50">
           <MenuItems
             items={items}
@@ -1223,7 +1223,7 @@ function SessionMenu({ s, at, close, rename }: { s: Session; at: { x: number; y:
             foot={<PushFoot levels={sessionLevels(s)} i={items.length} />}
           />
         </Menu.Positioner>
-      </Menu.Portal>
+      </MenuPortal>
     </Menu.Root>
   );
 }

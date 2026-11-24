@@ -31,18 +31,7 @@ import { Menu } from "@base-ui/react/menu";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import type { Agent } from "../api/types.gen";
 import { Crop } from "../profile";
-import {
-  agentName,
-  cn,
-  CopyKey,
-  FaceChangeOver,
-  IconKey,
-  IrMark,
-  Logo,
-  SureKey,
-  Switch,
-  usePointAnchor,
-} from "../ui";
+import { agentName, cn, CopyKey, FaceChangeOver, IconKey, IrMark, Logo, SureKey, Switch, usePointAnchor, MenuPortal } from "../ui";
 import { ask, clipboardKeys, followTheme, onAnswer, whenReady } from "./bridge";
 import { Fold, useFolding } from "./fold";
 
@@ -953,7 +942,7 @@ function useServerMenu() {
     },
     menu: (items: (s: string) => MenuEntry[]) => (
       <Menu.Root open={at !== null} onOpenChange={(o) => !o && setAt(null)}>
-        <Menu.Portal>
+        <MenuPortal>
           <Menu.Positioner
             anchor={anchor}
             side="bottom"
@@ -998,7 +987,7 @@ function useServerMenu() {
                   })}
             </Menu.Popup>
           </Menu.Positioner>
-        </Menu.Portal>
+        </MenuPortal>
       </Menu.Root>
     ),
   };

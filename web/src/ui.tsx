@@ -1,9 +1,12 @@
 // Shared pieces (from the style sample, web/sample): tooltips that also open on long-press, the
 // popover shell, icon keys, agent logos with their status lamp, terminal avatars, switches.
+import { Dialog } from "@base-ui/react/dialog";
+import { Menu } from "@base-ui/react/menu";
 import { Popover } from "@base-ui/react/popover";
 import { Tooltip } from "@base-ui/react/tooltip";
 import { Bot, Camera, Check, Copy, Monitor, Puzzle, ScrollText, UsersRound, type LucideIcon } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentProps, type CSSProperties, type ReactElement, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentProps, type ComponentType, type CSSProperties, type ReactElement, type ReactNode } from "react";
+import { InPopup } from "./api/query";
 import type { Agent, Status } from "./api/types.gen";
 import { t } from "./i18n";
 import { useCarried } from "./store";
@@ -257,11 +260,11 @@ export function Tip({ label, children, side = "top", align = "center" }: { label
       }}
     >
       <Tooltip.Trigger render={children} />
-      <Tooltip.Portal>
+      <TooltipPortal>
         <Tooltip.Positioner side={side} align={align} sideOffset={6} collisionPadding={8} className="z-70">
           <Tooltip.Popup className="g-unfold glass thick float w-max max-w-80 rounded-md px-2 py-1 text-xs text-ink">{label}</Tooltip.Popup>
         </Tooltip.Positioner>
-      </Tooltip.Portal>
+      </TooltipPortal>
     </Tooltip.Root>
   );
 }
@@ -296,6 +299,64 @@ export function CopyKey({ text }: { text: string }) {
   );
 }
 
+/** A Base UI portal that says what is in it is a popup's (api/query.ts InPopup: what it draws is
+ *  fetched before it opens). Every popup goes through one of these, not Base UI's own
+ *  (web/test/popdata.test.ts). */
+export function popupPortal<P extends { children?: ReactNode }>(Portal: ComponentType<P>) {
+  return function PopupPortal(p: P) {
+    return (
+      <Portal {...p}>
+        <InPopup value>{p.children}</InPopup>
+      </Portal>
+    );
+  };
+}
+export const MenuPortal = popupPortal(Menu.Portal);
+export const PopoverPortal = popupPortal(Popover.Portal);
+export const DialogPortal = popupPortal(Dialog.Portal);
+export const TooltipPortal = popupPortal(Tooltip.Portal);
+
+/** A popup of the page's own, not Base UI's (the composer's lists): kept drawn while it goes, with
+ *  Base UI's data-ending-style, so the same CSS transitions (g-unfold: in from @starting-style)
+ *  open and shut it, turned back midway by the next change. Gives whether to draw it (false once
+ *  gone) and what to put on its surface. */
+export function usePresence(open: boolean): { shown: boolean; attrs: Record<string, "" | undefined>; ref: (el: HTMLElement | null) => void } {
+  const [shown, setShown] = useState(open);
+  if (open && !shown) setShown(true);
+  const ending = shown && !open;
+  const el = useRef<HTMLElement | null>(null);
+  // Ending: gone once its transitions are over; opened again first, it stays.
+  useEffect(() => {
+    if (!ending) return;
+    const node = el.current;
+    let off = false;
+    const done = () => !off && setShown(false);
+    const f = requestAnimationFrame(() => {
+      const runs = node?.getAnimations?.() ?? [];
+      if (!runs.length) return done();
+      void Promise.all(runs.map((a) => a.finished)).then(done, () => {});
+    });
+    return () => ((off = true), cancelAnimationFrame(f));
+  }, [ending]);
+  const ref = useCallback((n: HTMLElement | null) => void (el.current = n), []);
+  return { shown, attrs: { "data-ending-style": ending ? "" : undefined }, ref };
+}
+
+/** A popup of the page's own (the composer's lists over its box), as a menu is: frosted, unfolding
+ *  out of from (its corner, the @ or / it grew from), folding away with what it showed last;
+ *  nothing in it to press while it goes. */
+export function OwnPopup({ open, from = "left bottom", className, style, children, ...rest }: { open: boolean; from?: string } & ComponentProps<"div">) {
+  const p = usePresence(open);
+  const last = useRef(children);
+  if (open) last.current = children;
+  if (!p.shown) return null;
+  return (
+    <div ref={p.ref} {...p.attrs} {...rest} inert={!open || undefined} style={{ "--transform-origin": from, ...style } as CSSProperties} className={cn("g-unfold glass thick float", className)}>
+      <InPopup value>{last.current}</InPopup>
+    </div>
+  );
+}
+
 /** A popover's surface: frosted, unfolding out of its anchor. */
 export function PopSurface({
   children,
@@ -326,13 +387,13 @@ export function PopSurface({
   style?: CSSProperties;
 }) {
   return (
-    <Popover.Portal>
+    <PopoverPortal>
       <Placed side={side} align={align} sideOffset={sideOffset} anchor={anchor} still={still}>
         <Popover.Popup initialFocus={initialFocus ?? ((type) => type === "keyboard")} finalFocus={finalFocus} style={style} className={cn("g-unfold glass thick float rounded-lg text-ink outline-none", className)}>
           {children}
         </Popover.Popup>
       </Placed>
-    </Popover.Portal>
+    </PopoverPortal>
   );
 }
 

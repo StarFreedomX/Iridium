@@ -2,7 +2,7 @@
 // and dsh's presets. They pop at once (kumo, 2026-11-15: not looked up as the menu opens): asked
 // for as the members' menu opens (prefetchChoices), kept in this browser for the next visit, and
 // the server answers with what it kept (../choices.ts).
-import { useQuery } from "@tanstack/react-query";
+import { useQuery } from "../../api/query";
 import { Check } from "lucide-react";
 import type { Agent, Model } from "../../api/types.gen";
 import { t, useLang } from "../../i18n";

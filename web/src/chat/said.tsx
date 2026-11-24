@@ -26,7 +26,7 @@ import type { Block, Device, FileRef, Result } from "../api/types.gen";
 import type { Sent } from "../chats";
 import { errText, toast } from "../toast";
 import { t } from "../i18n";
-import { agentName, Avatar, Badge, cn, IconKey, IrMark, Logo, own, PopSurface, tilde, Tip, titleOf, useEver, useLongPress, useMenuAt } from "../ui";
+import { agentName, Avatar, Badge, cn, IconKey, IrMark, Logo, own, PopSurface, tilde, Tip, titleOf, useEver, useLongPress, useMenuAt, PopoverPortal } from "../ui";
 import { useHome, useMachines } from "../data";
 import { LocalMark } from "../me";
 import { go } from "../route";
@@ -886,13 +886,13 @@ function StepsFold({ steps, session, cwd }: { steps: Step[]; session: string; cw
       </div>
       {everCard && (
         <Popover.Root open={!!selStep} onOpenChange={(o) => !o && setSel(null)}>
-          <Popover.Portal>
+          <PopoverPortal>
             <Popover.Positioner anchor={anchor} side={sel && sel.rect.top + sel.rect.height / 2 > window.innerHeight / 2 ? "top" : "bottom"} align="start" sideOffset={4} collisionPadding={8} collisionAvoidance={{ side: "none", align: "shift", fallbackAxisSide: "none" }} className="z-50">
               <Popover.Popup initialFocus={(type) => type === "keyboard"} className="g-unfold glass thick float flex max-h-[min(72dvh,620px,var(--available-height))] w-[min(620px,calc(100vw-16px))] flex-col overflow-hidden rounded-xl text-ink outline-none">
                 {selStep && <StepCard key={selStep.at} s={selStep} session={session} />}
               </Popover.Popup>
             </Popover.Positioner>
-          </Popover.Portal>
+          </PopoverPortal>
         </Popover.Root>
       )}
     </div>
@@ -981,13 +981,13 @@ function StepCall({ s, session, cwd, bare }: { s: Step; session: string; cwd: st
       <Popover.Trigger ref={row} className={cn(ROW, "w-full shrink-0 text-left outline-none focus-visible:text-ink-2", open && "text-ink-2")}>
         <StepLine s={s} cwd={cwd} bare={bare} />
       </Popover.Trigger>
-      <Popover.Portal>
+      <PopoverPortal>
         <Popover.Positioner anchor={anchor} side={at && at.y + at.h / 2 > window.innerHeight / 2 ? "top" : "bottom"} align="start" sideOffset={4} collisionPadding={8} collisionAvoidance={{ side: "none", align: "shift", fallbackAxisSide: "none" }} className="z-50">
           <Popover.Popup initialFocus={(type) => type === "keyboard"} className="g-unfold glass thick float flex max-h-[min(72dvh,620px,var(--available-height))] w-[min(620px,calc(100vw-16px))] flex-col overflow-hidden rounded-xl text-ink outline-none">
             <StepCard s={s} session={session} />
           </Popover.Popup>
         </Popover.Positioner>
-      </Popover.Portal>
+      </PopoverPortal>
     </Popover.Root>
   );
 }

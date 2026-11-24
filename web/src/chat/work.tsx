@@ -204,10 +204,16 @@ export function WorkLine({ channel, n, session, work, did, span, may, esc }: { c
                     <span className="min-w-0 truncate text-ink-2">{work.tool}</span>
                   </span>
                 )}
+                {!!work.agents && (
+                  <span key={`a${work.agents}`} className="g-fade shrink-0 tabular-nums">
+                    {t("work.agents", { n: work.agents })}
+                  </span>
+                )}
               </>
             ) : (
               <span key="done" className="g-fade flex min-w-0 items-center gap-2 tabular-nums">
                 <span className="shrink-0">{steps === 1 ? t("work.step1") : t("work.steps", { n: steps })}</span>
+                {!!work.agents && <span className="shrink-0">{t("work.agents", { n: work.agents })}</span>}
                 {!!work.ms && <span className="min-w-0 truncate">{tookWords(work.ms)}</span>}
               </span>
             )

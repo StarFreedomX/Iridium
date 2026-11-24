@@ -9,6 +9,7 @@ import type { PushEvents, PushMode, PushRule, PushState } from "./api/types.gen"
 import { t } from "./i18n";
 import { pushEvents, pushOn, ruleAt, type PushLevel } from "./push";
 import { errText, toast } from "./toast";
+import { MenuPortal } from "./ui";
 
 export const PUSH_EVENTS: { k: keyof PushEvents; icon: ReactNode; label: Parameters<typeof t>[0] }[] = [
   { k: "needsYou", icon: <BellRing size={15} />, label: "push.needsYou" },
@@ -123,7 +124,7 @@ export function PushSubmenu({ st, levels, i }: { st: PushState; levels: PushLeve
         {own && <span className="text-xs text-ink-3">{own.mode === "on" ? t("push.on") : t("push.off")}</span>}
         <ChevronRight size={14} className="text-ink-4" />
       </Menu.SubmenuTrigger>
-      <Menu.Portal>
+      <MenuPortal>
         <Menu.Positioner className="z-50" sideOffset={4} collisionPadding={8}>
           <Menu.Popup className="g-unfold glass thick float no-bar max-h-(--available-height) min-w-52 overflow-y-auto rounded-lg p-1.5 text-ink outline-none">
             <div className="g-stagger flex flex-col">
@@ -131,7 +132,7 @@ export function PushSubmenu({ st, levels, i }: { st: PushState; levels: PushLeve
             </div>
           </Menu.Popup>
         </Menu.Positioner>
-      </Menu.Portal>
+      </MenuPortal>
     </Menu.SubmenuRoot>
   );
 }

@@ -8,7 +8,8 @@
 // no version shown, no head, signing out a plain row, asked once (the user, 2026-11-08). Every quota bar shows: nothing here hides one.
 // Changed is saved at once (GET/PUT /v1/internal/settings). Reaping idle agents and going on after a crash
 // or a quota are not here: as the config file says, by default 1h and on (the user, 2026-11-07).
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "./api/query";
 import { ChevronLeft, ChevronRight, LoaderCircle, LogOut, MonitorDown, RefreshCw, Share, SquarePlus } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { api } from "./api/client";
