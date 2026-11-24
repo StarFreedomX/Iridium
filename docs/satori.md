@@ -99,6 +99,16 @@
 | `channel-added` / `channel-updated` / `channel-removed` | 会话出现、改名或换组、归档或消失（看得见它的登录） | — |
 | `login-added` / `login-removed` | 本应用的登录被批准、被移除（发给本应用的连接；网页的连接只收自己的） | — |
 
+实时消息（`docs/next/ui.md`，2026-11-24）：连接在 IDENTIFY 里带 `_live: true` 时，agent 在回合里说的话不再等写完才来：
+
+- 它开始写一段话：`message-created`，`_data.writing: true`，内容是已经写出来的。
+- 写的过程：`message-updated`，同一个 `message.id`，内容是整份，至多 120ms 一次；写完再来一次，不带 `writing`。这些中间的更新不存，断线重连只补最后一次。
+- 它之后调工具：这条消息的内容后面跟 `<iridium:work steps running tool at ms from to/>`（`running` 只在干活时有，`tool` 是最近一次调用的名字，`from`、`to` 是它自己记录里的行号范围），每调一次来一次 `message-updated`；它再开口或回合结束时来最后一次，不带 `running`。
+- 回合里还没说话就调工具：一条没有字的消息，`_data.kind` 是 `work`，只有这个元素。它再说话是下一条消息。
+- 消息在它记录里找到时再来一次 `message-updated`（多了 `_data.block`）。
+- 没带 `_live` 的连接照旧：每条话写完后一次 `message-created`（`progress`、`reply`），没有 `work` 的消息事件。`message.list` 对谁都带 `_data.writing` 和 `<iridium:work>`。
+- 别的频道叫它、它在那里回的话，目前仍是写完才出现（待做）。
+
 `_type` 固定 `iridium`，`_data.origin` 是发起这个回合的应用或网页登录（知道时）。`message.id` 是消息在频道里的编号（提问是卡片的 ID）。几个 agent 的频道里，每个 agent 的话都发，`user` 是说话的那个。
 
 ## 提问和按钮
