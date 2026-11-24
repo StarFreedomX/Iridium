@@ -146,13 +146,16 @@ func windowTitle(title string) string {
 // data-app-drag (the keys, fields and links in it excepted). A page that draws no window keys of
 // its own (data-win-keys; an Iridium from before) gets a strip of its own above it instead, which
 // drags the window, the keys at its right, the page moved down under it: nothing of the page is
-// covered (kumo, 2026-11-23: keys laid over the page's own top right hid its app key).
+// covered (kumo, 2026-11-23: keys laid over the page's own top right hid its app key). Only once
+// the page has been drawn without keys for a few seconds: a page still starting, its keys a
+// moment away, had the strip come and go over it (kumo, 2026-11-24).
 var chromeJS = css(`[data-app-drag]{--app-region:drag}`) + fmt.Sprintf(`(function(){
-var mac=%t,H=32;
+var mac=%t,H=32,miss=0;
 function inv(m){var w=window._wails;if(w&&w.invoke)w.invoke(m)}
 function plain(){var have=document.querySelector("[data-win-keys]:not([data-win-keys=app])"),ours=document.getElementById("ir-strip");
-if(have){if(ours){ours.remove();document.documentElement.style.removeProperty("--ir-strip")}return}
-if(ours||!document.body||!document.getElementById("root")||!document.getElementById("root").children.length)return;
+if(have){miss=0;if(ours){ours.remove();document.documentElement.style.removeProperty("--ir-strip")}return}
+if(ours||!document.body||!document.getElementById("root")||!document.getElementById("root").children.length){miss=0;return}
+if(++miss<4)return;
 var d=document.createElement("div");d.id="ir-strip";d.setAttribute("data-app-drag","");
 d.style.cssText="position:fixed;top:0;left:0;right:0;height:"+H+"px;z-index:2147483647;display:flex;justify-content:flex-end;align-items:center;gap:2px;padding-right:6px;box-sizing:border-box;background:Canvas;color:CanvasText";
 var k=document.createElement("span");k.setAttribute("data-win-keys","app");k.style.cssText="display:flex;gap:2px";

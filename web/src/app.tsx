@@ -33,6 +33,7 @@ import { follow } from "./stream";
 import { ToastList, toasts } from "./toast";
 import { buildTree, flat, FOLD_STEP } from "./tree";
 import { usePlaces } from "./reorder";
+import { reloadAgain } from "./upgrade";
 import { cn, holdMenu, IrMark, kept, keep, params, PHONE, useMedia, useMinute } from "./ui";
 import { watchUnread } from "./unread";
 import { warmUp } from "./warm";
@@ -45,7 +46,21 @@ import { warmUp } from "./warm";
 function part<P extends object>(get: () => Promise<ComponentType<P>>) {
   let code: ComponentType<P> | undefined;
   let coming: Promise<ComponentType<P>> | undefined;
-  const load = () => (coming ??= get().then((c) => (code = memo(c) as unknown as ComponentType<P>)).catch((e) => ((coming = undefined), Promise.reject(e))));
+  // Its code not come (the server a moment away: restarting for a new build, the network gone)
+  // is asked for again, a little later each time; left at the first failure the pane stayed empty
+  // for good, the sidebar drawn beside it (kumo, 2026-11-24). Still not there: the page loads
+  // itself again (upgrade.ts: the build may have gone, its files with it), once in 10 s.
+  const again = async (): Promise<ComponentType<P>> => {
+    for (let i = 0; ; i++) {
+      try {
+        return await get();
+      } catch (e) {
+        if (i >= 4) throw (reloadAgain(), e);
+        await new Promise((r) => setTimeout(r, 400 * 2 ** i));
+      }
+    }
+  };
+  const load = () => (coming ??= again().then((c) => (code = memo(c) as unknown as ComponentType<P>)).catch((e) => ((coming = undefined), Promise.reject(e))));
   const Lazy = lazy(() => load().then((c) => ({ default: c })));
   function Part(p: P) {
     const [C] = useState(() => code ?? Lazy);
