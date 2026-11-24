@@ -310,6 +310,18 @@ export function WorkLine({ channel, n, session, work, did, span, may, esc }: { c
   );
 }
 
+/** Where a step's card opens: under its row, from a fixed way in, so the rows' keys and names to
+ *  its left stay seen and pressed one after another (kumo, 2026-11-25); where the pane is too
+ *  narrow, as far left as it must. A finger's screen: from the row's start. */
+const ASIDE = 176;
+const aside = (el: Element) => ({
+  getBoundingClientRect: () => {
+    const r = el.getBoundingClientRect();
+    const by = matchMedia("(pointer: coarse)").matches ? 0 : Math.min(ASIDE, r.width / 2);
+    return new DOMRect(r.left + by, r.top, r.width - by, r.height);
+  },
+});
+
 /** The steps under a line, opened in place: a row each, all of them, none scrolled in the list
  *  itself. A row pressed: its card out of the row; pressed again, or a press elsewhere, puts it away. */
 function StepList({ reveal, session, steps, only, rows, open, card, setCard, shut }: { reveal: RefObject<HTMLDivElement | null>; session: string; steps?: Step[]; only: Only | null; rows?: number; open: boolean; card: Card | null; setCard: (c: Card | null) => void; shut: () => void }) {
@@ -400,7 +412,7 @@ function StepList({ reveal, session, steps, only, rows, open, card, setCard, shu
       </div>
       {ever && (
         <Popover.Root open={!!card?.open && !!chosen} onOpenChange={(o) => !o && card && setCard({ ...card, open: false })}>
-          <PopSurface anchor={card?.el} still sideOffset={4} className="flex max-h-[min(72dvh,620px,var(--available-height))] w-[min(620px,calc(100vw-16px))] flex-col overflow-hidden">
+          <PopSurface anchor={card?.el && aside(card.el)} still sideOffset={4} className="flex max-h-[min(72dvh,620px,var(--available-height))] w-[min(620px,calc(100vw-16px))] flex-col overflow-hidden">
             {chosen && card && (
               <>
                 {among.length > 1 && (
