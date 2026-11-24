@@ -322,6 +322,23 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     const end = bottomOf(el);
     const from = Math.min(end, Math.max(0, (ours.current >= 0 ? ours.current : el.scrollTop) + over + Math.max(0, self)));
     at.current.y = Math.max(0, end - from);
+    // More came at once than the pane shows (a chat opened with many new messages, an answer come
+    // whole): not followed, which ran the conversation up past what no one had read (kumo,
+    // 2026-11-24: it shot up, twitching, as each lot came). It stays where it is, what came drawn
+    // under it, and the key to go down shows; what comes after is under it too. Not what the user
+    // did (a message sent goes to its end).
+    const seen = el.clientHeight - (parseFloat(el.style.paddingTop) || 0) - pad.current;
+    // By what came now, or by all that is yet to go when that is not the user's own way to the
+    // end (a message sent, still on its way as its block comes).
+    const far = Math.max(200, seen);
+    if (!user && (grow > far || (at.current.y > far && !quick.current))) {
+      moveLog("follow.stay", why, { dy: 0, note: `${Math.round(at.current.y)}px came, ${Math.round(seen)} seen` });
+      put(el, from);
+      leave();
+      setRoom(0);
+      setFresh(true);
+      return;
+    }
     if (grow > 0.5) quick.current = user;
     put(el, from);
     if (at.current.y > 0.5) (moveLog("follow.up", why, { dy: -Math.round(at.current.y), note: user ? "quick" : "" }), run());

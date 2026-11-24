@@ -48,6 +48,15 @@ await scene("gone-up", still, async () => { await p.mouse.move(600, 400); await 
 await scene("back-down", () => "", async () => { const k = p.locator("main button:has-text('New')"); if (await k.count()) await k.first().click(); else await p.evaluate(() => { const e = document.querySelector("main [role=log]"); e.scrollTo({ top: e.scrollHeight }); }); await p.waitForTimeout(1500); return p.evaluate(() => { const e = document.querySelector("main [role=log]"); return { gap: Math.round(e.scrollHeight - e.clientHeight - e.scrollTop) }; }); });
 await scene("turn-again", upOnly, async () => { await start(); ir("api", "message.create", `channel_id=${S}`, "content=@Bee walk me through it STREAM"); await p.waitForTimeout(13000); return stop(); });
 await scene("place-kept", (r) => (Math.abs(r.was - r.now) > 2 ? `left at ${r.was}, back at ${r.now}` : ""), async () => { await p.mouse.move(600, 400); await p.mouse.wheel(0, -900); await p.waitForTimeout(800); const was = await p.evaluate(() => document.querySelector("main [role=log]").scrollTop); await p.goto(url + "?lang=en#/s/" + ids[4]); await p.waitForTimeout(1200); await p.goto(url + "?lang=en#/s/" + S); await p.waitForTimeout(1500); const now = await p.evaluate(() => document.querySelector("main [role=log]").scrollTop); return { was: Math.round(was), now: Math.round(now) }; });
+// Many new messages while another chat is open, then back: more than a screen comes at once.
+await scene("many-new", still, async () => {
+  await p.evaluate(() => { const e = document.querySelector("main [role=log]"); e.scrollTop = e.scrollHeight; }); await p.waitForTimeout(800);
+  await p.evaluate((id) => (location.hash = "#/s/" + id), ids[4]); await p.waitForTimeout(1200);
+  const words = Array.from({ length: 6 }, (_, i) => `line ${i} of a note that is long enough to take its room`).join("\n");
+  for (let i = 0; i < 12; i++) ir("api", "message.create", `channel_id=${S}`, `content=(say nothing) note ${i}\n${words}`);
+  await p.evaluate((id) => (location.hash = "#/s/" + id), S);
+  await p.waitForFunction(() => document.querySelector("main [role=log]")?.firstElementChild?.children.length > 3); await start(); await p.waitForTimeout(3500);
+  const r = await stop(); Object.assign(r, await p.evaluate(() => { const e = document.querySelector("main [role=log]"); return { gap: Math.round(e.scrollHeight - e.clientHeight - e.scrollTop), key: [...document.querySelectorAll("main button")].filter((b) => /New/.test(b.innerText)).length }; })); return r; });
 // A chat with its own agent alone: its turn as it is written (drafts, calls, the row at work, its
 // steps folded as it ends), then a fold of it pressed.
 if (!only || only.startsWith("own")) {
