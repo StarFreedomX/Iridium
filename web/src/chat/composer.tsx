@@ -780,7 +780,7 @@ function Palette({ list, at, agent, grouped, pick, point }: { list: Cmd[]; at: n
                 className={cn("flex h-8 w-full shrink-0 cursor-default items-center gap-2.5 rounded-md px-2.5 text-left text-base outline-none select-none pointer-coarse:h-11", i === at && "bg-fill")}
               >
                 {Icon && <Icon size={15} className="shrink-0 text-ink-2" aria-hidden />}
-                {c.script && <ScriptFace avatar={c.script.avatar} size={15} />}
+                {c.script && <ScriptFace size={15} />}
                 <span className="shrink-0">{c.name}</span>
                 {c.argumentHint && <span className="max-w-[30%] min-w-0 shrink truncate font-mono text-xs text-ink-3">{c.argumentHint}</span>}
                 <span className="min-w-0 flex-1 truncate text-right text-xs text-ink-3">{c.description}</span>

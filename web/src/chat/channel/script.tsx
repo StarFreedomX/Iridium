@@ -10,8 +10,6 @@ import { ChevronLeft, ChevronRight, CircleOff, CirclePlay, LoaderCircle, PencilL
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { api, ApiError } from "../../api/client";
 import type { Agent, NewScript, Script, ScriptBy, ScriptRun } from "../../api/types.gen";
-import { FacePick } from "../../facepick";
-import { isColour } from "../../facevalue";
 import { t, useLang } from "../../i18n";
 import { Segmented } from "../../me";
 import { openChat } from "../../route";
@@ -48,25 +46,22 @@ export function useScripts(channel: string): Script[] | undefined {
  *  open whole. */
 export const prefetchScripts = (qc: QueryClient, channel: string) => void qc.prefetchQuery({ queryKey: scriptsKey(channel), queryFn: () => api.scripts(channel), staleTime: 5_000 });
 
-/** A script's face (its avatar): an emoji on a soft disc, a colour's disc; none, a terminal. */
-export function ScriptFace({ avatar, size }: { avatar?: string; size: number }) {
-  const style = { width: size, height: size };
-  if (avatar && isColour(avatar)) return <span className="block shrink-0 rounded-full shadow-[inset_0_0_0_0.5px_var(--edge)]" style={{ ...style, background: avatar }} />;
+/** A command's mark in a list (a command line's): no face of its own (kumo, 2026-11-24: what it
+ *  says, it says as Iridium). */
+export function ScriptFace({ size }: { size: number }) {
   return (
-    <span className="grid shrink-0 place-items-center rounded-full bg-fill-2 leading-none text-ink-2 select-none" style={{ ...style, fontSize: Math.round(size * 0.58) }}>
-      {avatar || <SquareTerminal size={Math.round(size * 0.58)} strokeWidth={1.75} />}
+    <span className="grid shrink-0 place-items-center rounded-full bg-fill-2 text-ink-2" style={{ width: size, height: size }}>
+      <SquareTerminal size={Math.round(size * 0.58)} strokeWidth={1.75} />
     </span>
   );
 }
-
-/** "IR" by a script's name: what speaks is the channel's IR. */
 export const IrTag = () => <span className="shrink-0 rounded-sm bg-fill-2 px-1 text-[10px] leading-4 font-semibold text-ink-3">IR</span>;
 
 /** A script's state in a word: 已停用, 出错 (its last run did not end well); else none. */
 export const scriptState = (x: Script) => (!x.enabled ? t("script.off") : x.last && x.last.code !== 0 ? t("script.failed") : "");
 
 /** A page of the popover: a command's card, its editor, a new one's draft. */
-export type ScriptPage = { k: "card"; name: string } | { k: "edit"; name: string } | { k: "new" } | { k: "draft"; x: NewScript };
+export type ScriptPage = { k: "card"; name: string } | { k: "edit"; name: string };
 
 /** The popover at anchor, open while page is (a press elsewhere or Esc: done). still: out of a
  *  face in a conversation, where it opened. */
@@ -81,21 +76,6 @@ export function ScriptPop({ channel, anchor, page, done, still, align }: { chann
         {x && <ScriptPages key={JSON.stringify(x)} channel={channel} start={x} done={done} />}
       </PopSurface>
     </Popover.Root>
-  );
-}
-
-/** A script's face beside what it said: pressed, its card. */
-export function ScriptFaceKey({ channel, name }: { channel: string; name: string }) {
-  const face = useRef<HTMLButtonElement>(null);
-  const [open, setOpen] = useState(false);
-  const x = useScripts(channel)?.find((s) => s.name === name);
-  return (
-    <>
-      <button ref={face} type="button" aria-label={name} disabled={!x} onClick={() => setOpen(!open)} className="g-press grid size-7 shrink-0 place-items-center rounded-full select-none">
-        <ScriptFace avatar={x?.avatar} size={28} />
-      </button>
-      <ScriptPop channel={channel} anchor={face} page={open && x ? { k: "card", name } : null} done={() => setOpen(false)} still />
-    </>
   );
 }
 
@@ -115,10 +95,6 @@ function ScriptPages({ channel, start, done }: { channel: string; start: ScriptP
       return <Card key={key} channel={channel} name={page.name} dir={dir} back={back} edit={() => go({ k: "edit", name: page.name })} done={done} />;
     case "edit":
       return <Editor key={key} channel={channel} name={page.name} dir={dir} back={back} saved={saved} />;
-    case "new":
-      return <Editor key={key} channel={channel} draft={{ name: "", run: "", on: [{ message: {} }] }} dir={dir} back={back} saved={saved} />;
-    case "draft":
-      return <Editor key={key} channel={channel} draft={page.x} dir={dir} back={back} saved={saved} />;
   }
 }
 
@@ -210,9 +186,9 @@ function Card({ channel, name, dir, back, edit, done }: { channel: string; name:
         </IconKey>
       )}
       <ProfileCard
-        face={<ScriptFace avatar={x.avatar} size={56} />}
+        face={<ScriptFace size={56} />}
         name={x.name}
-        sub={<IrTag />}
+        sub={t("script.group")}
         state={state && <span className={cn(x.enabled && "text-err")}>{state}</span>}
         keys={keys}
         more={
@@ -349,7 +325,6 @@ function Editor({ channel, name, draft, dir, back, saved }: { channel: string; n
   const was = useScripts(channel)?.find((s) => s.name === name);
   const from = was ?? draft;
   const [nm, setName] = useState(from?.name ?? "");
-  const [avatar, setAvatar] = useState(from?.avatar ?? "");
   const [run, setRun] = useState(from?.run ?? "");
   const [on, setOn] = useState<TriggerDraft[]>(() => (from?.on.length ? from.on.map(draftOf) : [blankTrigger()]));
   const [busy, setBusy] = useState(false);
@@ -359,7 +334,7 @@ function Editor({ channel, name, draft, dir, back, saved }: { channel: string; n
     if (!ok || busy) return;
     setBusy(true);
     setError("");
-    const x = { name: nm, avatar, run, on: on.map(triggerOf) };
+    const x = { name: nm, run, on: on.map(triggerOf) };
     try {
       const s = name ? await api.patchScript(channel, name, x) : await api.addScript(channel, x);
       qc.setQueryData<Script[]>(scriptsKey(channel), (all) => [...(all ?? []).filter((y) => y.name !== name && y.name !== s.name), s]);
@@ -378,7 +353,6 @@ function Editor({ channel, name, draft, dir, back, saved }: { channel: string; n
         {t("script.name")}
         <input value={nm} maxLength={32} onChange={(e) => (setName(e.target.value), setError(""))} aria-invalid={(!!nm && !validNick(nm)) || undefined} className={cn(INPUT, "h-8 pointer-coarse:h-10", nm && !validNick(nm) && "text-err")} />
       </label>
-      <FacePick label={t("script.avatar")} preview={<ScriptFace avatar={avatar} size={28} />} set={async (v) => setAvatar(v)} still />
       <label className={LABEL}>
         {t("script.command")}
         <textarea value={run} rows={2} spellCheck={false} onChange={(e) => (setRun(e.target.value), setError(""))} className={cn(INPUT, "field-sizing-content max-h-40 min-h-[3.25rem] resize-none py-1.5 font-mono text-sm leading-5")} />

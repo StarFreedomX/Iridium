@@ -22,7 +22,7 @@ import { PULL } from "../../sheet";
 import { getCarried, onCarried, setCarried, useCarried, useConfirms, useList, useSession } from "../../store";
 import { also, carries, events, opened, type SatoriEvent } from "../../stream";
 import { errText } from "../../toast";
-import { Arrive, agentName, cn, lampOf, Logo, PopSurface } from "../../ui";
+import { Arrive, agentName, cn, lampOf, Logo, PopSurface, ServerFace } from "../../ui";
 import { Leaving } from "../../moves";
 import { Asks } from "../asks";
 import { placeDropped } from "../at";
@@ -37,7 +37,6 @@ import { askQueue, groupMessages, quoteAt, readMarks, stillWaiting, watchExtra, 
 import { channelLog } from "./log";
 import { onOf } from "./scripts";
 import { useRecvLabel } from "./recv";
-import { IrTag, ScriptFaceKey } from "./script";
 import { betweenAgents, linesOf } from "./merge";
 import { Foldable } from "../longwords";
 import { foldsOnce, useReadTo } from "../foldstate";
@@ -536,7 +535,7 @@ export function GroupView({ g, channel, agents, who, record, call, may, quote, q
       </div>
     );
   }
-  if (a.kind === "script") return <ScriptGroup g={g} name={a.name} channel={channel} agents={agents} quote={quote} quoted={quoted} old={old} jump={jump} />;
+  if (a.kind === "script") return <ScriptGroup g={g} channel={channel} agents={agents} quote={quote} quoted={quoted} old={old} jump={jump} />;
   const now = agents.find((x) => x.session === a.session);
   // One no longer in the channel: its harness as the list still has its session.
   const agent = now?.agent ?? list?.find((x) => x.id === a.session)?.agent;
@@ -580,16 +579,15 @@ export function GroupView({ g, channel, agents, who, record, call, may, quote, q
   );
 }
 
-/** A script's messages (docs/channels.md "脚本"): its face (pressed, its card), its name and IR's
- *  tag over what it printed, as an agent's words are drawn. */
-function ScriptGroup({ g, name, channel, agents, quote, quoted, old, jump }: { g: Group; name: string; channel: string; agents: AgentRow[]; quote?: (m: Msg) => void; quoted: (n: number) => { who: string; text: string } | undefined; old?: (m: Msg) => boolean; jump?: (n: number) => void }) {
+/** A command's messages (docs/channels.md "命令"): said as Iridium, its face and name over what
+ *  it printed, as an agent's words are drawn (kumo, 2026-11-24: no face or name of its own). */
+function ScriptGroup({ g, channel, agents, quote, quoted, old, jump }: { g: Group; channel: string; agents: AgentRow[]; quote?: (m: Msg) => void; quoted: (n: number) => { who: string; text: string } | undefined; old?: (m: Msg) => boolean; jump?: (n: number) => void }) {
   return (
     <MsgRow className="flex min-w-0 items-start gap-2.5">
-      <ScriptFaceKey channel={channel} name={name} />
+      <ServerFace size={28} />
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
         <div className="flex h-4 min-w-0 items-center gap-1.5">
-          <span className="min-w-0 truncate text-xs font-medium text-ink-2">{name}</span>
-          <IrTag />
+          <span className="min-w-0 truncate text-xs font-medium text-ink-2">Iridium</span>
           <When time={g.msgs[0]!.time} />
         </div>
         {g.msgs.map((m) => {

@@ -145,7 +145,7 @@ func (s *Server) scriptAdd(w http.ResponseWriter, r *http.Request) {
 		refuse(w, http.StatusBadRequest, "bad_request", err.Error())
 		return
 	}
-	x := store.Script{Channel: ch, Name: strings.TrimSpace(req.Name), Avatar: strings.TrimSpace(req.Avatar), Run: strings.TrimSpace(req.Run), Enabled: req.Enabled == nil || *req.Enabled}
+	x := store.Script{Channel: ch, Name: strings.TrimSpace(req.Name), Run: strings.TrimSpace(req.Run), Enabled: req.Enabled == nil || *req.Enabled}
 	on, err := cleanTriggers(req.On, x.Name)
 	if err == nil {
 		err = checkScript(x)
@@ -194,7 +194,6 @@ func (s *Server) scriptPatch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	set("name", &x.Name, p.Name)
-	set("avatar", &x.Avatar, p.Avatar)
 	set("run", &x.Run, p.Run)
 	if p.On != nil {
 		on, err := cleanTriggers(*p.On, x.Name)
@@ -312,8 +311,6 @@ func checkScript(x store.Script) error {
 		return errors.New("run: the command line to run")
 	case utf8.RuneCountInString(x.Run) > scriptRunMax:
 		return fmt.Errorf("run: at most %d characters", scriptRunMax)
-	case utf8.RuneCountInString(x.Avatar) > 16:
-		return errors.New("avatar: an emoji or a colour (#rrggbb)")
 	}
 	return nil
 }
@@ -381,7 +378,7 @@ func byOf(raw string) api.ScriptBy {
 }
 
 func (s *Server) scriptOut(x store.Script) api.Script {
-	out := api.Script{Channel: x.Channel, Name: x.Name, Avatar: x.Avatar, Run: x.Run, On: triggersOf(x), Enabled: x.Enabled, Made: byOf(x.Made), Changed: byOf(x.Changed)}
+	out := api.Script{Channel: x.Channel, Name: x.Name, Run: x.Run, On: triggersOf(x), Enabled: x.Enabled, Made: byOf(x.Made), Changed: byOf(x.Changed)}
 	if out.Made.At == 0 {
 		out.Made.At = x.CreatedAt
 	}
@@ -632,7 +629,9 @@ func (s *Server) scriptSay(x store.Script, text string, lk link, quote int64, ca
 	if err != nil {
 		return 0, err
 	}
-	u := satori.User{ID: scriptMember(x.Name), Name: x.Name}
+	// Said as IR, Iridium itself (kumo, 2026-11-24: a command has no face or name of its own); which
+	// command said it is kept with it (Data.Script), and what it wakes is counted as the command's.
+	u := satori.User{ID: satori.NoteUser, Name: "Iridium"}
 	id := session.NewInputID()
 	seq := s.sat.Input(st.Session, id, text, u, lk.origin, channel.Data{Script: x.Name, Quote: quote})
 	if seq == 0 {
@@ -640,7 +639,7 @@ func (s *Server) scriptSay(x store.Script, text string, lk link, quote int64, ca
 	}
 	s.names(ch, seq, text, "")
 	list, _ := s.agentsOf(ch)
-	who := deliver.From{Member: u.ID, Quiet: true}
+	who := deliver.From{Member: scriptMember(x.Name), Quiet: true}
 	wake, _, _, limit := s.wakes(text, who, lk, list)
 	if limit > 0 {
 		s.stopped(ch, seq, limit, lk.origin)

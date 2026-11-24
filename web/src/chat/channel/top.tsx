@@ -6,7 +6,7 @@
 import { Menu } from "@base-ui/react/menu";
 import { Popover } from "@base-ui/react/popover";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, ChevronRight, PencilLine, Plus, UserPlus, Users } from "lucide-react";
+import { Check, ChevronRight, PencilLine, UserPlus, Users } from "lucide-react";
 import { useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { api } from "../../api/client";
 import type { Agent, ChannelMembers, Script, Viewer } from "../../api/types.gen";
@@ -184,7 +184,7 @@ function MemberList({ id, ask, script }: { id: string; ask: (a: Ask) => void; sc
       ))}
       {/* 订阅事件 (docs/channels.md "唤醒"): the channel's rules, a sentence each, whom it wakes or
           what it runs after it; an agent's opens its 编辑资料, a command's its card. */}
-      <Rules id={id} agents={agents} scripts={scripts} may={may} script={script} />
+      <Rules id={id} agents={agents} scripts={scripts} script={script} />
       {/* No 人 / 所有人 here (kumo, 2026-11-16): who the people are is 邀请's to show and set. */}
       {may && <Invite id={id} />}
     </>
@@ -192,8 +192,9 @@ function MemberList({ id, ask, script }: { id: string; ask: (a: Ask) => void; sc
 }
 
 /** 订阅事件: each agent's on, an entry a row ("成员加入时 → @xiaoke 欢迎新人"), and each command
- *  (its face, "每天 09:00 → 日报"); 新建: an agent's (its 编辑资料) or a command. */
-function Rules({ id, agents, scripts, may, script }: { id: string; agents: ChannelMembers["members"]; scripts: Script[]; may: boolean; script: (p: ScriptPage) => void }) {
+ *  ("每天 09:00 → 日报"). None is made here (kumo, 2026-11-24): an agent's in its 编辑资料, a
+ *  command by a Bot or ir. */
+function Rules({ id, agents, scripts, script }: { id: string; agents: ChannelMembers["members"]; scripts: Script[]; script: (p: ScriptPage) => void }) {
   const name = useRecvName(id);
   const w = triggerWords();
   const rows: { key: string; face: ReactNode; line: string; state?: string; off?: boolean; open: () => void }[] = [];
@@ -209,9 +210,9 @@ function Rules({ id, agents, scripts, may, script }: { id: string; agents: Chann
   }
   for (const x of scripts) {
     const state = scriptState(x);
-    rows.push({ key: `script:${x.name}`, face: <ScriptFace avatar={x.avatar} size={16} />, line: t("on.to", { line: x.on.map((tr) => ruleLine(tr, name, w)).join(t("on.or")), who: x.name }), state, off: x.enabled, open: () => script({ k: "card", name: x.name }) });
+    rows.push({ key: `script:${x.name}`, face: <ScriptFace size={16} />, line: t("on.to", { line: x.on.map((tr) => ruleLine(tr, name, w)).join(t("on.or")), who: x.name }), state, off: x.enabled, open: () => script({ k: "card", name: x.name }) });
   }
-  if (!rows.length && !may) return null;
+  if (!rows.length) return null;
   return (
     <>
       <div className={HEAD}>{t("on.group")}</div>
@@ -222,20 +223,6 @@ function Rules({ id, agents, scripts, may, script }: { id: string; agents: Chann
           {r.state && <span className={cn("shrink-0 text-xs", r.off ? "text-err" : "text-ink-3")}>{r.state}</span>}
         </Menu.Item>
       ))}
-      {may && (
-        <Sub icon={<Plus size={15} />} label={t("on.new")} i={0}>
-          {agents.map((m) => (
-            <Menu.Item key={m.member} onClick={() => requestAnimationFrame(() => openEdit({ channel: id, agent: m.session! }))} className={ITEM}>
-              <Face id={m.session!} agent={m.agent ?? "claude"} size={16} />
-              <span className="min-w-0 flex-1 truncate">@{m.nick || agentName(m.agent ?? "claude")}</span>
-            </Menu.Item>
-          ))}
-          <Menu.Item onClick={() => script({ k: "new" })} className={ITEM}>
-            <ScriptFace size={16} />
-            <span className="flex-1">{t("on.newCommand")}</span>
-          </Menu.Item>
-        </Sub>
-      )}
     </>
   );
 }

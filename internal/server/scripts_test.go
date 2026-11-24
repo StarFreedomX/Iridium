@@ -21,7 +21,7 @@ func TestScripts(t *testing.T) {
 
 	// A word that calls the agent.
 	var x api.Script
-	fish := api.NewScript{Name: "fish", Avatar: "🐟", Run: `printf '@claude 有人喊你：%s' "$IR_TEXT"`, On: []api.Trigger{{Message: &api.MessageTrigger{From: []string{"*"}, Words: []string{"大肥鱼"}}}}}
+	fish := api.NewScript{Name: "fish", Run: `printf '@claude 有人喊你：%s' "$IR_TEXT"`, On: []api.Trigger{{Message: &api.MessageTrigger{From: []string{"*"}, Words: []string{"大肥鱼"}}}}}
 	l.want(200, "web", "POST", path, fish, &x)
 	if x.Name != "fish" || !x.Enabled || x.Made.Member == "" || x.Made.At == 0 || len(x.On) != 1 {
 		t.Fatalf("added: %+v", x)
@@ -44,7 +44,7 @@ func TestScripts(t *testing.T) {
 	l.waitSaid("web", ch, "iridium", "添加了命令「fish」")
 
 	_, sr := l.send("web", ch, api.Send{Text: "大肥鱼 在吗"})
-	l.waitSaid("web", ch, "script:fish", "有人喊你：大肥鱼 在吗")
+	l.waitSaid("web", ch, "iridium", "有人喊你：大肥鱼 在吗")
 	// One thing wakes an agent once: the words woke it, the script naming it as well does not.
 	l.waitSaid("web", ch, "ok: 大肥鱼 在吗")
 	time.Sleep(300 * time.Millisecond)
@@ -66,7 +66,7 @@ func TestScripts(t *testing.T) {
 	}
 	l.idle(ch)
 	l.send("web", ch, api.Send{Text: "/echo hi there"})
-	l.waitSaid("web", ch, "script:echo", "args=hi there by ")
+	l.waitSaid("web", ch, "iridium", "args=hi there by ")
 	time.Sleep(300 * time.Millisecond)
 	for _, m := range l.said("web", ch) {
 		if strings.Contains(m, "ok: /echo") {
@@ -92,7 +92,7 @@ func TestScripts(t *testing.T) {
 	if code := l.sat("script-in:"+ch+"/echo", "message.create", map[string]any{"channel_id": ch, "content": "said with ir"}, &raw); code != 200 {
 		t.Fatalf("a script's ir: %d %s", code, raw)
 	}
-	l.waitSaid("web", ch, "script:echo", "said with ir")
+	l.waitSaid("web", ch, "iridium", "said with ir")
 
 	// Off: it keeps its place and does not run.
 	off := false
@@ -114,14 +114,14 @@ func TestScripts(t *testing.T) {
 	// A line of the channel's own: someone joined.
 	l.want(200, "web", "POST", path, api.NewScript{Name: "hello", Run: `echo "welcome"`, On: []api.Trigger{{Event: []string{"join"}}}}, nil)
 	l.want(200, "web", "POST", "/v1/internal/channels/"+ch+"/members", api.NewMember{Agent: api.AgentClaude, Nick: "guest"}, nil)
-	l.waitSaid("web", ch, "script:hello", "welcome")
+	l.waitSaid("web", ch, "iridium", "welcome")
 
 	// A time.
 	l.want(200, "web", "POST", path, api.NewScript{Name: "tick", Run: `echo "tick $IR_TRIGGER"`, On: []api.Trigger{{Cron: "*/5 * * * *"}}}, nil)
 	l.s.cronTick(time.Date(2026, 11, 17, 9, 3, 0, 0, time.Local))
 	l.s.cronTick(time.Date(2026, 11, 17, 9, 5, 0, 0, time.Local))
 	l.s.cronTick(time.Date(2026, 11, 17, 9, 5, 0, 0, time.Local))
-	l.waitSaid("web", ch, "script:tick", "tick cron")
+	l.waitSaid("web", ch, "iridium", "tick cron")
 	time.Sleep(300 * time.Millisecond)
 	n := 0
 	for _, m := range l.said("web", ch) {

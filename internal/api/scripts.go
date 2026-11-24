@@ -4,13 +4,11 @@ package api
 // (Iridium itself, one of every channel's members) runs when one of its triggers (On) fires, in
 // the channel's folder at the host. What it prints is said in the channel under its name; with
 // ir it may do anything else (IRIDIUM_SCRIPT names it, its words are said as its own).
-// Name: one in the channel, as a nick is written; Avatar (an emoji, or a colour
-// "#rrggbb"): its card. Enabled: off, it keeps its place and does not run. Made, Changed: who
+// Name: one in the channel, as a nick is written; Enabled: off, it keeps its place and does not run. Made, Changed: who
 // made it and who changed it last; Last: its latest run.
 type Script struct {
 	Channel string     `json:"channel"`
 	Name    string     `json:"name"`
-	Avatar  string     `json:"avatar,omitempty"`
 	Run     string     `json:"run"`
 	On      []Trigger  `json:"on"`
 	Enabled bool       `json:"enabled"`
@@ -64,7 +62,6 @@ type ScriptBy struct {
 // NewScript adds a script to a channel (POST …/scripts). Enabled: none, on.
 type NewScript struct {
 	Name    string    `json:"name"`
-	Avatar  string    `json:"avatar,omitempty"`
 	Run     string    `json:"run"`
 	On      []Trigger `json:"on"`
 	Enabled *bool     `json:"enabled,omitempty"`
@@ -73,7 +70,6 @@ type NewScript struct {
 // ScriptPatch changes a script (PATCH …/scripts/{name}); what is not given stays.
 type ScriptPatch struct {
 	Name    *string    `json:"name,omitempty"`
-	Avatar  *string    `json:"avatar,omitempty"`
 	Run     *string    `json:"run,omitempty"`
 	On      *[]Trigger `json:"on,omitempty"`
 	Enabled *bool      `json:"enabled,omitempty"`
