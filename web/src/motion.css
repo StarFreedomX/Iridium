@@ -72,6 +72,11 @@
   transition-timing-function: var(--ease-in);
 }
 
+/* A popover's inside going to a new height as what is in it changes (said.tsx Grown). */
+.g-grow {
+  transition: height var(--dur-2) var(--ease-out);
+}
+
 /* --- pop: own elements; enter on mount, leave with [data-leaving] --- */
 .g-pop {
   animation: g-pop-in var(--dur-2) var(--ease-spring) both;
@@ -492,6 +497,9 @@ html[data-turn] .vt-drawer {
   }
   .g-stagger > * {
     animation: none;
+  }
+  .g-grow {
+    transition: none;
   }
   .g-wait {
     animation: g-wait-in var(--dur-1) linear 160ms both;

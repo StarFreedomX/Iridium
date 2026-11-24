@@ -9,7 +9,7 @@ import { LongWords } from "./longwords";
 import { FORWARD_CARD, ForwardHead, ForwardRow, Forwards } from "./forwardcard";
 import { msgWords, splitForwards, withForwards } from "./forward";
 import { FOLD_AT, linesOf } from "./channel/merge";
-import { Archive, ArchiveRestore, ArrowUpRight, BookOpen, Bot, BotMessageSquare, ChartColumn, Check, ChevronLeft, ChevronRight, CircleStop, CircleX, Clock, CloudDownload, CloudUpload, Copy, Cpu, Earth, FileCode, FileDiff, FilePen, Files as FilesIcon, FileText, FlaskConical, FolderGit2, FolderOpen, Folders, FoldVertical, GitBranch, GitCommitHorizontal, GitPullRequest, Globe, Hammer, History, Hourglass, KeyRound, Laptop, Link2, List, ListChecks, LoaderCircle, LockKeyhole, MessageCircleQuestionMark, MessageSquarePlus, Monitor, MonitorSmartphone, MousePointerClick, Network, Package, PencilLine, Plug, RotateCcw, RotateCw, Search, Send, ServerCog, SlidersHorizontal, Smartphone, SquareTerminal, Terminal, Trash2, type LucideIcon, UserRound, Workflow as WorkflowIcon, Wrench, X } from "lucide-react";
+import { Archive, ArchiveRestore, ArrowUpRight, BookOpen, Bot, BotMessageSquare, ChartColumn, Check, ChevronRight, CircleStop, CircleX, Clock, CloudDownload, CloudUpload, Copy, Cpu, Earth, FileCode, FileDiff, FilePen, Files as FilesIcon, FileText, FlaskConical, FolderGit2, FolderOpen, Folders, FoldVertical, GitBranch, GitCommitHorizontal, GitPullRequest, Globe, Hammer, History, Hourglass, KeyRound, Laptop, Link2, List, ListChecks, LoaderCircle, LockKeyhole, MessageCircleQuestionMark, MessageSquarePlus, Monitor, MonitorSmartphone, MousePointerClick, Network, Package, PencilLine, Plug, RotateCcw, RotateCw, Search, Send, ServerCog, SlidersHorizontal, Smartphone, SquareTerminal, Terminal, Trash2, type LucideIcon, UserRound, Workflow as WorkflowIcon, Wrench, X } from "lucide-react";
 import { Copyable } from "./copyable";
 import { Dispatch, Sent as SentTo, TaskBack } from "./dispatched";
 import { handBack, toldOf } from "./dispatch";
@@ -751,8 +751,6 @@ const ROW = "flex h-7 min-w-0 cursor-default list-none items-center gap-2 rounde
  *  Each, pressed, shows what it was given and what came back in a card (StepView). */
 /** What is said before a steps' line's marks (where the work was done, away.tsx): its row's. */
 export const StepsHead = createContext<ReactNode>(null);
-/** In a steps' popover: a step pressed is shown in that popover, not in one of its own. */
-const Drill = createContext<((s: Step) => void) | null>(null);
 
 function Fold({ steps, session, cwd }: { steps: Step[]; session: string; cwd: string }) {
   const one = steps.length === 1 ? steps[0]! : undefined;
@@ -773,25 +771,28 @@ function Fold({ steps, session, cwd }: { steps: Step[]; session: string; cwd: st
 /** Steps as one line, as high whatever they are (kumo, 2026-11-24: nothing in the conversation
  *  opens in place; its height changes only as a message comes or is taken back): each kind's
  *  mark and how many. Pressed, they are listed in a popover as tall as they are, to a most it
- *  scrolls inside past (kumo, 2026-11-24: one step is not given a whole pane); a step pressed there is shown in the same popover, with a way back. */
+ *  scrolls inside past (kumo, 2026-11-24: one step is not given a whole pane); a step pressed there opens its card out of the press, a second popover over the first (kumo,
+ *  2026-11-24). The line pressed again shuts it. */
 function StepsKey({ steps, session, cwd }: { steps: Step[]; session: string; cwd: string }) {
   const head = useContext(StepsHead);
   const [open, setOpen] = useState(false);
   const ever = useEver(open);
-  const [detail, setDetail] = useState<Step | null>(null);
   const row = useRef<HTMLButtonElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const runs = foldLine(steps);
   const diff = diffSum(runs);
   // More steps as it is open (a turn at work): kept at the newest unless scrolled up from it.
   const atEnd = useRef(true);
+  // Whether it was open as the line was pressed: the press itself shuts it first (a press outside
+  // it, the focus gone from it), and the click after would open it again.
+  const was = useRef(false);
   useLayoutEffect(() => {
     const el = list.current;
     if (el && atEnd.current) el.scrollTop = el.scrollHeight;
-  }, [steps.length, open, detail]);
+  }, [steps.length, open]);
   return (
     <>
-      <button ref={row} type="button" aria-haspopup="dialog" aria-expanded={open} aria-label={foldSaid(runs)} onClick={() => (setDetail(null), setOpen(!open))} className={cn(ROW, "-my-0.5 w-full text-left outline-none focus-visible:text-ink-2", open && "text-ink-2")}>
+      <button ref={row} type="button" aria-haspopup="dialog" aria-expanded={open} aria-label={foldSaid(runs)} onPointerDown={() => (was.current = open)} onClick={(e) => setOpen(e.detail > 0 ? !was.current : !open)} className={cn(ROW, "-my-0.5 w-full text-left outline-none focus-visible:text-ink-2", open && "text-ink-2")}>
         {head}
         <span className="min-w-0 truncate">
             {runs.map((r, i) => (
@@ -814,28 +815,44 @@ function StepsKey({ steps, session, cwd }: { steps: Step[]; session: string; cwd
       </button>
       {ever && (
         <Popover.Root open={open} onOpenChange={setOpen}>
-          <PopSurface anchor={row.current} still align="start" sideOffset={4} className="flex max-h-[min(60dvh,520px,var(--available-height))] w-[min(620px,calc(100vw-16px))] flex-col overflow-hidden">
-            {detail ? (
-              <>
-                <button type="button" onClick={() => setDetail(null)} aria-label={t("nav.back")} className={cn(ROW, "h-9 shrink-0 px-2 shadow-[inset_0_-0.5px_0_var(--edge)]")}>
-                  <ChevronLeft size={14} className="shrink-0" />
-                  <span className="min-w-0 flex-1 truncate">
-                    <StepLine s={detail} cwd={cwd} />
-                  </span>
-                </button>
-                <StepCard s={detail} session={session} />
-              </>
-            ) : (
-              <div ref={list} onScroll={(e) => (atEnd.current = e.currentTarget.scrollHeight - e.currentTarget.clientHeight - e.currentTarget.scrollTop < 24)} className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-3 py-2">
-                <Drill.Provider value={setDetail}>
-                  {steps.map((s) => (s.kind === "tool" && toldOf(s) ? <Dispatch key={s.at} call={s as Tool} session={session} /> : <StepView key={s.at} s={s} session={session} cwd={cwd} lifted />))}
-                </Drill.Provider>
-              </div>
-            )}
+          <PopSurface anchor={row.current} still align="start" sideOffset={4} className="w-[min(620px,calc(100vw-16px))] overflow-hidden">
+           <Grown className="flex max-h-[min(60dvh,520px,var(--available-height))] flex-col">
+            <div ref={list} onScroll={(e) => (atEnd.current = e.currentTarget.scrollHeight - e.currentTarget.clientHeight - e.currentTarget.scrollTop < 24)} className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-3 py-2">
+              {steps.map((s) => (s.kind === "tool" && toldOf(s) ? <Dispatch key={s.at} call={s as Tool} session={session} /> : <StepView key={s.at} s={s} session={session} cwd={cwd} lifted />))}
+            </div>
+           </Grown>
           </PopSurface>
         </Popover.Root>
       )}
     </>
+  );
+}
+
+/** A popover's inside, as tall as what is in it to its most (className's max-height, past which
+ *  what is in it scrolls): its height goes to a new one on a curve, not at once, as what is in it
+ *  changes (a step gone into, steps coming); nothing outside the popover is laid out by it (kumo,
+ *  2026-11-24). The first height is taken as it is. */
+function Grown({ className, children }: { className: string; children: ReactNode }) {
+  const clip = useRef<HTMLDivElement>(null);
+  const body = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const c = clip.current;
+    const b = body.current;
+    if (!c || !b) return;
+    c.style.height = `${b.offsetHeight}px`;
+    const ro = new ResizeObserver(() => {
+      c.classList.add("g-grow");
+      c.style.height = `${b.offsetHeight}px`;
+    });
+    ro.observe(b);
+    return () => ro.disconnect();
+  }, []);
+  return (
+    <div ref={clip} className="overflow-hidden">
+      <div ref={body} className={className}>
+        {children}
+      </div>
+    </div>
   );
 }
 
@@ -896,16 +913,9 @@ function StepCall({ s, session, cwd, bare }: { s: Step; session: string; cwd: st
     setAt({ x: pointed ? e.clientX : (r?.left ?? 0) + 22, y: r?.bottom ?? (pointed ? e.clientY : 0) });
   };
   const anchor = usePointAnchor(at);
-  const drill = useContext(Drill);
-  if (drill)
-    return (
-      <button type="button" onClick={() => drill(s)} className={cn(ROW, "w-full shrink-0 text-left outline-none focus-visible:text-ink-2")}>
-        <StepLine s={s} cwd={cwd} bare={bare} />
-      </button>
-    );
   return (
     <Popover.Root open={open} onOpenChange={toggle}>
-      <Popover.Trigger ref={row} className={cn(ROW, "w-full text-left outline-none focus-visible:text-ink-2", open && "text-ink-2")}>
+      <Popover.Trigger ref={row} className={cn(ROW, "w-full shrink-0 text-left outline-none focus-visible:text-ink-2", open && "text-ink-2")}>
         <StepLine s={s} cwd={cwd} bare={bare} />
       </Popover.Trigger>
       <Popover.Portal>
