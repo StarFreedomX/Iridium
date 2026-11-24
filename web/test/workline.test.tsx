@@ -60,8 +60,8 @@ test("pressed: its steps read from the record over the lines it spans, opened in
   expect(rows).toHaveLength(2); // the call at line 20 is past the work's end
   expect(rows[0]).toContain("go test");
   expect(rows[1]).toContain("Read");
-  // Two steps: the list two rows high.
-  expect(el.innerHTML).toContain("--rows: 3");
+  // Two steps: the list two rows high, its key to put it away under it.
+  expect(el.innerHTML).toContain("--rows: 2");
   await act(async () => key.click());
   expect(isOpen("c2", 5)).toBe(false);
 });

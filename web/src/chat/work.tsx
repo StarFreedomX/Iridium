@@ -374,7 +374,7 @@ function StepList({ reveal, session, steps, only, rows, open, card, setCard, shu
       <div ref={reveal} inert={!open || undefined} aria-hidden={!open || undefined} className={cn("g-reveal", snap && "g-snap")} data-open={open ? "" : undefined}>
         <div className="min-h-0 min-w-0 overflow-hidden">
           {ever && (
-            <div style={rows ? ({ "--rows": Math.max(rows, list.length) + 1 } as CSSProperties) : undefined} className={cn("ml-[3px] flex min-w-0 flex-col overflow-hidden pl-3 shadow-[inset_1px_0_0_var(--edge)]", !!rows && "min-h-[calc(var(--rows)*28px)] pointer-coarse:min-h-[calc(var(--rows)*36px)]")}>
+            <div style={rows ? ({ "--rows": Math.max(rows, list.length) } as CSSProperties) : undefined} className={cn("ml-[3px] flex min-w-0 flex-col overflow-hidden pl-3 shadow-[inset_1px_0_0_var(--edge)]", !!rows && "min-h-[calc(var(--rows)*28px)] pointer-coarse:min-h-[calc(var(--rows)*36px)]")}>
               {list.map((s) =>
                 row(
                   s.at,
@@ -385,12 +385,16 @@ function StepList({ reveal, session, steps, only, rows, open, card, setCard, shu
                   </>,
                 ),
               )}
-              {/* Put away from its end too, where a long one leaves its line far above (kumo, 2026-11-24). */}
-              <button type="button" onClick={shut} className={cn(ROW, "w-full shrink-0 cursor-pointer gap-1 text-left text-xs text-ink-4 outline-none hover:text-ink-2 focus-visible:text-ink-2")}>
-                <ChevronRight size={12} className="-rotate-90" />
-                {t("nav.less")}
-              </button>
             </div>
+          )}
+          {/* Put away from its end too, where a long one leaves its line far above (kumo,
+              2026-11-24): the whole row from the left edge, under the line's own key, the line
+              over it ending before it. */}
+          {ever && (
+            <button type="button" onClick={shut} className={cn(ROW, "w-full shrink-0 cursor-pointer gap-1.5 text-left text-xs text-ink-4 outline-none hover:text-ink-2 focus-visible:text-ink-2")}>
+              <ChevronRight size={13} aria-hidden className="shrink-0 -rotate-90" />
+              {t("nav.less")}
+            </button>
           )}
         </div>
       </div>

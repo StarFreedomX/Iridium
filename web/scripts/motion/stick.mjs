@@ -273,8 +273,8 @@ const workButton = (lo, hi) =>
     const e = document.querySelector("main [role=log]") ?? document.querySelector("[role=log]");
     const er = e.getBoundingClientRect();
     const bs = [...e.querySelectorAll("[data-seq] button[aria-expanded]")].filter((b) => {
-      // A work line says its steps (a face, pressed, opens a card).
-      if (!/\d/.test(b.innerText)) return false;
+      // A work line's key opens its steps with a chevron (a face, pressed, opens a card).
+      if (!b.querySelector(".lucide-chevron-right")) return false;
       const r = b.getBoundingClientRect();
       return r.top - er.top > lo && r.bottom - er.top < hi && r.width > 0;
     });
