@@ -188,6 +188,8 @@ export const zh = {
   "msg.failedN": "{n} 个出错",
   "msg.input": "输入",
   "msg.output": "输出",
+  "record.steps": "{n} 步",
+  "record.failed": "{n} 次出错",
   "msg.noResult": "暂无结果",
   "msg.whole": "看全文（{n} 字）",
   "msg.retry": "重试",

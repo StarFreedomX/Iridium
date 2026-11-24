@@ -188,6 +188,8 @@ export const en: Dict = {
   "msg.failedN": "{n} failed",
   "msg.input": "Input",
   "msg.output": "Output",
+  "record.steps": "{n} steps",
+  "record.failed": "{n} failed",
   "msg.noResult": "No result",
   "msg.whole": "Show all ({n} chars)",
   "msg.retry": "Retry",

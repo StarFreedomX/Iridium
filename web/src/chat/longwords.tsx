@@ -27,8 +27,9 @@ type Prev = { h: number; mine: boolean; el: HTMLElement | null };
 /** fold: these are words between agents; lines: how long they are. ctl: the message's fold, set by
  *  hand or of itself (foldstate.ts), in place of fold: folded, its first lines (FOLD_SHOW of long
  *  words, else one), the rest a line saying how many. onOpen: as it is opened (the whole of words
- *  cut short asked for: one key for both, kumo, 2026-11-21). prev: Foldable's. */
-export function LongWords({ fold, lines, children, ctl, onOpen, prev }: { fold: boolean; lines: number; children: ReactNode; ctl?: Fold; onOpen?: () => void; prev?: RefObject<Prev> }) {
+ *  cut short asked for: one key for both, kumo, 2026-11-21). prev: Foldable's. quiet: its key says
+ *  展开 alone, not how many lines (a step's record, kumo, 2026-11-24). */
+export function LongWords({ fold, lines, children, ctl, onOpen, prev, quiet }: { fold: boolean; lines: number; children: ReactNode; ctl?: Fold; onOpen?: () => void; prev?: RefObject<Prev>; quiet?: boolean }) {
   useLang();
   const [own, setOwn] = useState(false);
   // Opened by a press here: 收起 under it, to fold it again.
@@ -77,7 +78,7 @@ export function LongWords({ fold, lines, children, ctl, onOpen, prev }: { fold: 
       {folds && (
         <button type="button" onClick={toggle} aria-expanded={open} className="g-press mt-1 flex h-6 w-fit items-center gap-1.5 rounded-md text-xs text-ink-3 hover:text-ink-2 pointer-coarse:h-9">
           <Ellipsis size={13} />
-          {open ? t("nav.less") : more > 0 ? t("chat.moreLines", { n: more }) : t("menu.unfold")}
+          {open ? t("nav.less") : more > 0 && !quiet ? t("chat.moreLines", { n: more }) : t("menu.unfold")}
         </button>
       )}
     </div>

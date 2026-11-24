@@ -32,7 +32,7 @@ import { go } from "../route";
 import { Files, isLink, Picture, previews, SentFile, shownAs } from "./files";
 import { Pictures } from "./pictures";
 import { cmdOfCall, cpOfCall, isShell, newOfCall, type Cmd, type CpSide } from "./cmd";
-import { argOf, diffSum, foldLine, foldSaid, kindOf, runCmds, type Diff, type Kind, type Shown, type Step, type Tool } from "./fold";
+import { argOf, inputOf, diffSum, foldLine, foldSaid, kindOf, kindOfStep, runCmds, type Diff, type Kind, type Shown, type Step, type Tool } from "./fold";
 import { Code } from "./hl";
 import { Markdown, Streamed } from "./markdown";
 import { partialInput } from "./partial";
@@ -787,12 +787,18 @@ function StepsKey({ steps, session, cwd }: { steps: Step[]; session: string; cwd
   // it, the focus gone from it), and the click after would open it again.
   const was = useRef(false);
   useLayoutEffect(() => {
-    const el = list.current;
-    if (el && atEnd.current) el.scrollTop = el.scrollHeight;
+    const end = () => {
+      const el = list.current;
+      if (el && atEnd.current) el.scrollTop = el.scrollHeight;
+    };
+    end();
+    // As it opens its most is not known till it is placed (--available-height): once more then.
+    const f = requestAnimationFrame(end);
+    return () => cancelAnimationFrame(f);
   }, [steps.length, open]);
   return (
     <>
-      <button ref={row} type="button" aria-haspopup="dialog" aria-expanded={open} aria-label={foldSaid(runs)} onPointerDown={() => (was.current = open)} onClick={(e) => setOpen(e.detail > 0 ? !was.current : !open)} className={cn(ROW, "-my-0.5 w-full text-left outline-none focus-visible:text-ink-2", open && "text-ink-2")}>
+      <button ref={row} type="button" aria-haspopup="dialog" aria-expanded={open} aria-label={foldSaid(runs)} onPointerDown={() => (was.current = open)} onClick={(e) => ((atEnd.current = true), setOpen(e.detail > 0 ? !was.current : !open))} className={cn(ROW, "-my-0.5 w-full text-left outline-none focus-visible:text-ink-2", open && "text-ink-2")}>
         {head}
         <span className="min-w-0 truncate">
             {runs.map((r, i) => (
@@ -815,16 +821,100 @@ function StepsKey({ steps, session, cwd }: { steps: Step[]; session: string; cwd
       </button>
       {ever && (
         <Popover.Root open={open} onOpenChange={setOpen}>
-          <PopSurface anchor={row.current} still align="start" sideOffset={4} className="w-[min(620px,calc(100vw-16px))] overflow-hidden">
-           <Grown className="flex max-h-[min(60dvh,520px,var(--available-height))] flex-col">
-            <div ref={list} onScroll={(e) => (atEnd.current = e.currentTarget.scrollHeight - e.currentTarget.clientHeight - e.currentTarget.scrollTop < 24)} className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-3 py-2">
-              {steps.map((s) => (s.kind === "tool" && toldOf(s) ? <Dispatch key={s.at} call={s as Tool} session={session} /> : <StepView key={s.at} s={s} session={session} cwd={cwd} lifted />))}
+          <PopSurface anchor={row.current} still align="start" sideOffset={4} className="w-[min(720px,calc(100vw-16px))] overflow-hidden">
+           <Grown className="flex max-h-[min(70dvh,var(--available-height))] flex-col">
+            <RecordHead steps={steps} diff={diff} />
+            <div ref={list} onScroll={(e) => (atEnd.current = e.currentTarget.scrollHeight - e.currentTarget.clientHeight - e.currentTarget.scrollTop < 24)} className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-3 pb-2">
+              {steps.map((s) => (s.kind === "tool" && toldOf(s) ? <Dispatch key={s.at} call={s as Tool} session={session} /> : <Record key={s.at} s={s} session={session} cwd={cwd} />))}
             </div>
            </Grown>
           </PopSurface>
         </Popover.Root>
       )}
     </>
+  );
+}
+
+/** How long, short: 0.2s, 41s, 3m05s. */
+const lasted = (ms: number) => (ms < 950 ? `${(ms / 1000).toFixed(1)}s` : ms < 60_000 ? `${Math.round(ms / 1000)}s` : `${Math.floor(ms / 60_000)}m${String(Math.round((ms % 60_000) / 1000)).padStart(2, "0")}s`);
+
+/** Over a record's steps, staying as they scroll: where they were done (its row's, StepsHead), how
+ *  many, how many failed, the lines their edits changed, when. */
+function RecordHead({ steps, diff }: { steps: Step[]; diff?: Diff }) {
+  const head = useContext(StepsHead);
+  const fails = steps.filter(failed).length;
+  const first = steps.find((s) => s.time)?.time;
+  const last = steps.findLast((s) => (s.kind === "tool" && s.result?.time) || s.time);
+  const end = last && ((last.kind === "tool" && last.result?.time) || last.time);
+  return (
+    <div className="flex h-9 shrink-0 items-center gap-2.5 px-3 text-xs text-ink-3 shadow-[inset_0_-0.5px_0_var(--edge)]">
+      {head}
+      <span className="shrink-0 tabular-nums">{t("record.steps", { n: steps.length })}</span>
+      {fails > 0 && <span className="shrink-0 text-err tabular-nums">{t("record.failed", { n: fails })}</span>}
+      {diff && <DiffStat d={diff} />}
+      {first && end ? <span className="ml-auto shrink-0 tabular-nums">{clock(first) === clock(end) ? clock(first) : `${clock(first)}–${clock(end)}`}</span> : null}
+    </div>
+  );
+}
+
+/** One step in its record, all of it at one level (kumo, 2026-11-24: nothing pressed to see what a
+ *  step did): its line, how long it took, then what it was given and what came back, each folded
+ *  past its first lines as long words between agents are (LongWords, its key 展开 alone), opened
+ *  where it is: the popover scrolls, the conversation is not laid out by it. A shell's command is
+ *  on its line unless long; what was read is not shown again, only that it was. */
+function Record({ s, session, cwd }: { s: Step; session: string; cwd: string }) {
+  const took = s.kind === "tool" && s.time && s.result?.time ? s.result.time - s.time : undefined;
+  const kind = kindOfStep(s);
+  const command = s.kind === "tool" && isShell(s.name) ? (argOf(s, cwd).arg ?? "") : undefined;
+  const given = s.kind === "tool" && (command !== undefined ? command.length > 72 || command.includes("\n") : kind !== "read");
+  // What the agent said its long command is for, on its line in the command's place.
+  const about = command !== undefined ? inputOf(s.input).description : undefined;
+  const said = typeof about === "string" && about.trim() ? about : undefined;
+  const back = s.kind === "tool" && s.result && (kind !== "read" || s.result.error || !!s.result.images?.length) && (s.result.text.trim() !== "" || !!s.result.images?.length);
+  return (
+    <section className="grid min-w-0 gap-1.5 border-b-[0.5px] border-edge py-2 last:border-b-0">
+      <div className="flex h-7 min-w-0 items-center gap-2 text-sm text-ink-3 pointer-coarse:h-9">
+        {s.kind === "thinking" ? (
+          <>
+            <StepIcon s={s} />
+            <span className="shrink-0 text-ink-2">{t("msg.thinking")}</span>
+          </>
+        ) : given && said ? (
+          <>
+            <StepIcon s={s} />
+            <span className="min-w-0 truncate text-ink-2">{said}</span>
+            {failed(s) && <CircleX size={13} className="shrink-0 text-err" aria-label={t("msg.failed")} />}
+          </>
+        ) : (
+          <StepLine s={s} cwd={cwd} />
+        )}
+        {took !== undefined && <span className="ml-auto shrink-0 pl-2 text-xs tabular-nums">{lasted(took)}</span>}
+      </div>
+      {s.kind === "thinking" ? (
+        <Folded text={s.text ?? ""}>{(asked) => <Clipped text={s.text ?? ""} length={s.length} at={s.at} session={session} prose asked={asked} />}</Folded>
+      ) : (
+        <>
+          {given && <Folded text={command ?? pretty(s.input ?? "")}>{(asked) => (command !== undefined ? <Pre text={command} lang="bash" /> : <Clipped text={s.input ?? ""} length={s.length} at={s.at} session={session} fields asked={asked} />)}</Folded>}
+          {back && s.result && (
+            <Folded text={s.result.text} more={!!s.result.length}>
+              {(asked) => <Clipped text={s.result!.text} length={s.result!.length} at={s.result!.at} session={session} error={s.result!.error} asked={asked} />}
+            </Folded>
+          )}
+          {!!s.result?.images?.length && <Pictures session={session} s={s} />}
+        </>
+      )}
+    </section>
+  );
+}
+
+/** Text in a record, folded past its first lines; opened, its whole is brought if the page has
+ *  only its start (more: it has, however few its lines). */
+function Folded({ text, more, children }: { text: string; more?: boolean; children: (asked: boolean) => ReactNode }) {
+  const [opened, setOpened] = useState(false);
+  return (
+    <LongWords fold quiet lines={Math.max(linesOf(text), more ? FOLD_AT + 1 : 0)} onOpen={() => setOpened(true)}>
+      {children(opened)}
+    </LongWords>
   );
 }
 
