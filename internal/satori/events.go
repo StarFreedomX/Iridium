@@ -251,9 +251,19 @@ func (s *Service) handle(n session.Notice, at time.Time) {
 		m.CreatedAt = time.Now().UnixMilli()
 		m.User = s.agentOf(n.Session)
 		for _, ch := range s.askChannels(n.Session) {
-			s.noteIn(ch, n.Session, channel.KindAsk, Plain(Parse(m.Content), nil), m.ID, n.From)
+			l, noted := s.noteIn(ch, n.Session, channel.KindAsk, Plain(Parse(m.Content), nil), m.ID, n.From)
 			mc := m
-			s.emit(s.channelSession(ch), Event{Type: "message-created", Message: &mc, User: mc.User}, nil, "ask", n.From)
+			s.emitTo(toWhole, false, s.channelSession(ch), "", Event{Type: "message-created", Message: &mc, User: mc.User}, nil, "ask", n.From)
+			// To a page: the channel's own message of it, under its number, with the ask itself:
+			// the page puts it in place of its composer till it is over.
+			if noted || l.Seq != 0 {
+				lm := m
+				lm.ID = strconv.FormatInt(l.Seq, 10)
+				d := logData(l)
+				d.Ask = s.askData(*n.Ask)
+				lm.Data = d
+				s.emitTo(toLive, false, s.channelSession(ch), "", Event{Type: "message-created", Message: &lm, User: lm.User}, nil, "ask", n.From)
+			}
 		}
 	case session.NoticeAskDone:
 		card := cardID(n.Session, n.RequestID)
@@ -267,7 +277,17 @@ func (s *Service) handle(n session.Notice, at time.Time) {
 			m := *e.ev.Message
 			m.Content = closedContent(m.Content)
 			m.UpdatedAt = time.Now().UnixMilli()
-			s.emit(ss, Event{Type: "message-updated", Message: &m, User: m.User}, nil, "ask", "")
+			s.emitTo(toWhole, false, ss, "", Event{Type: "message-updated", Message: &m, User: m.User}, nil, "ask", "")
+		}
+		// To a page: its message of the ask, over (no ask with it).
+		for _, ch := range s.askChannels(n.Session) {
+			l, ok := s.log.ByRef(ch, card)
+			if !ok {
+				continue
+			}
+			ss := s.channelSession(ch)
+			lm := Message{ID: strconv.FormatInt(l.Seq, 10), Content: s.logContent(l), User: s.authorOf(l, nil), CreatedAt: l.At, UpdatedAt: time.Now().UnixMilli(), Data: logData(l)}
+			s.emitTo(toLive, false, ss, "", Event{Type: "message-updated", Message: &lm, User: lm.User}, nil, "ask", "")
 		}
 	case session.NoticeError:
 		// Told where its asks are (kumo, 2026-11-15): its own channel and each it is in beside,

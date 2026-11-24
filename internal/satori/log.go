@@ -1,6 +1,7 @@
 package satori
 
 import (
+	"encoding/json"
 	"cmp"
 	"context"
 	"fmt"
@@ -157,6 +158,12 @@ func (s *Service) logMessage(c Caller, m channel.Message, ch *Channel, guild *Gu
 	out.Content += fileElements(c.App, c.Login, fileOwner(m), s.logFiles(m))
 	// The files' paths only for the pages (ir_web, the host): an app gets the counts.
 	out.Content += activityElement(s.placed(m), c.Only) + workElement(m.D.Work)
+	if m.Kind == channel.KindAsk && m.D.Card != "" {
+		if d, ok := out.Data.(LogData); ok {
+			d.Ask = s.openAskData(m.D.Card)
+			out.Data = d
+		}
+	}
 	return out
 }
 
@@ -249,6 +256,10 @@ type LogData struct {
 	Reactions []ReactionSum `json:"reactions,omitempty"`
 	// Writing: the agent is writing it now (channel.Data.Writing).
 	Writing bool `json:"writing,omitempty"`
+	// Ask: an ask's message while the ask is open: the ask itself (api.Ask, its words masked),
+	// for a page to put in place of its composer till it is answered (docs/next/ui.md). None once
+	// it is over: the message-updated that says so has none.
+	Ask json.RawMessage `json:"ask,omitempty"`
 }
 
 func logData(m channel.Message) LogData {
@@ -543,4 +554,35 @@ func (s *Service) messageList(_ context.Context, c Caller, body []byte) (any, er
 	}
 	s.withReactions(c, st.ID, out.Data)
 	return out, nil
+}
+
+// openAskData is the ask of card, as a page takes it, while it is open; nil once it is over.
+func (s *Service) openAskData(card string) json.RawMessage {
+	id := cardSession(card)
+	if id == "" {
+		return nil
+	}
+	st, err := s.b.Session(id)
+	if err != nil {
+		return nil
+	}
+	for _, a := range st.Asks {
+		if cardID(id, a.RequestID) == card {
+			return s.askData(a)
+		}
+	}
+	return nil
+}
+
+// askData is ask a as a message carries it: its words masked.
+func (s *Service) askData(a api.Ask) json.RawMessage {
+	b, err := json.Marshal(a)
+	if err != nil {
+		return nil
+	}
+	masked := s.b.Mask(string(b))
+	if !json.Valid([]byte(masked)) {
+		return nil
+	}
+	return json.RawMessage(masked)
 }

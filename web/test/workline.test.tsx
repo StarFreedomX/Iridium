@@ -61,7 +61,7 @@ test("pressed: its steps read from the record over the lines it spans, opened in
   expect(rows[0]).toContain("go test");
   expect(rows[1]).toContain("Read");
   // Two steps: the list two rows high.
-  expect(el.innerHTML).toContain("--rows: 2");
+  expect(el.innerHTML).toContain("--rows: 3");
   await act(async () => key.click());
   expect(isOpen("c2", 5)).toBe(false);
 });

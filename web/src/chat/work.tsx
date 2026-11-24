@@ -22,8 +22,6 @@ import { Pictures } from "./pictures";
 import { KindIcon, lasted, ROW, StepCard, StepLine, tookOf } from "./said";
 import { byHand } from "./stick";
 
-/** How many step rows show at most; past that the list scrolls in itself. */
-export const ROWS = 8;
 
 // --- the steps, read from the agent's record ---
 
@@ -158,15 +156,9 @@ export function WorkLine({ channel, n, session, work, did, span, may, esc }: { c
   const blocks = useSpan(session, from);
   const [card, setCard] = useState<Card | null>(null);
   const reveal = useRef<HTMLDivElement>(null);
-  // How many rows high its steps are, set as they open: ROWS while the work goes on, else as many
-  // as it has (said by the work, or read already).
-  const rowsNow = () => {
-    if (running) return ROWS;
-    const read = blocks ? stepsOf(blocks, false).slice(0, work ? Math.max(steps, 1) : undefined) : undefined;
-    const have = read && (!work || read.length >= steps) ? runsOf(read).length : steps || ROWS;
-    return Math.max(1, Math.min(ROWS, have));
-  };
-  const [rows, setRows] = useState(rowsNow);
+  // All its steps, a row each (kumo, 2026-11-24: 直接全展开): as many rows as the work says it
+  // has, so that it is whole as it opens, before they are read.
+  const rows = work ? Math.max(steps, 1) : undefined;
   const read = () => from !== undefined && void (work ? readSteps(session, from, undefined, steps) : readSteps(session, from, to)).catch(() => {});
   // Read as it is open, and again as its steps go on.
   useEffect(() => void (open && read()), [open, steps, running, to]);
@@ -179,7 +171,6 @@ export function WorkLine({ channel, n, session, work, did, span, may, esc }: { c
     if (open) setCard((c) => c && { ...c, open: false });
     else {
       read();
-      setRows(rowsNow());
     }
     setOpen(channel, n, !open);
   };
@@ -236,39 +227,15 @@ export function WorkLine({ channel, n, session, work, did, span, may, esc }: { c
         </button>
         {running && may && <StopKey session={session} esc={esc} />}
       </div>
-      {opens && <StepList reveal={reveal} session={session} blocks={blocks} running={running} rows={rows} open={open} card={card} setCard={setCard} limit={work ? Math.max(steps, 1) : undefined} />}
+      {opens && <StepList reveal={reveal} session={session} blocks={blocks} running={running} rows={rows} open={open} card={card} setCard={setCard} limit={work ? Math.max(steps, 1) : undefined} shut={toggle} />}
     </div>
   );
 }
 
-/** Steps one after another by the same tool, as one row. */
-export type Run = { at: string; steps: Step[] };
-export function runsOf(steps: Step[]): Run[] {
-  const out: Run[] = [];
-  for (const s of steps) {
-    const last = out.at(-1);
-    const head = last?.steps[0];
-    if (last && head && head.kind === "tool" && s.kind === "tool" && head.name === s.name) last.steps.push(s);
-    else out.push({ at: s.at, steps: [s] });
-  }
-  return out;
-}
-
-/** The rows shown of runs: all of them, or (more than ROWS) the latest, under one row for those
- *  before (kumo, 2026-11-24: no list that scrolls inside the conversation). */
-export function rowsOf(runs: Run[]): { earlier: Step[]; shown: Run[] } {
-  if (runs.length <= ROWS) return { earlier: [], shown: runs };
-  const cut = runs.length - (ROWS - 1);
-  return { earlier: runs.slice(0, cut).flatMap((r) => r.steps), shown: runs.slice(cut) };
-}
-
-/** The steps under a line, opened in place: a row for each run of one tool, at most ROWS, none
- *  scrolled. Its height (rows) is set as it opens and kept while it is: ROWS while the work goes
- *  on, as many as there are once it is done. A row pressed: its card out of the row; of several
- *  steps, the card lists them over the one chosen. */
-function StepList({ reveal, session, blocks, running, rows, open, card, setCard, limit }: { reveal: RefObject<HTMLDivElement | null>; session: string; blocks?: Block[]; running: boolean; rows: number; open: boolean; limit?: number; card: Card | null; setCard: (c: Card | null) => void }) {
+/** The steps under a line, opened in place: a row each, all of them, none scrolled in the list
+ *  itself. A row pressed: its card out of the row; pressed again, or a press elsewhere, puts it away. */
+function StepList({ reveal, session, blocks, running, rows, open, card, setCard, limit, shut }: { reveal: RefObject<HTMLDivElement | null>; session: string; blocks?: Block[]; running: boolean; rows?: number; open: boolean; limit?: number; shut: () => void; card: Card | null; setCard: (c: Card | null) => void }) {
   const list = useMemo(() => (blocks ? stepsOf(blocks, running).slice(0, limit) : []), [blocks, running, limit]);
-  const { earlier, shown: runs } = useMemo(() => rowsOf(runsOf(list)), [list]);
   // Made as it is first opened.
   const ever = useEver(open);
   const wasOn = useRef("");
@@ -329,19 +296,22 @@ function StepList({ reveal, session, blocks, running, rows, open, card, setCard,
       <div ref={reveal} inert={!open || undefined} aria-hidden={!open || undefined} className={cn("g-reveal", snap && "g-snap")} data-open={open ? "" : undefined}>
         <div className="min-h-0 min-w-0 overflow-hidden">
           {ever && (
-            <div style={{ "--rows": rows } as CSSProperties} className="ml-[3px] flex h-[calc(var(--rows)*28px)] min-w-0 flex-col overflow-hidden pl-3 shadow-[inset_1px_0_0_var(--edge)] pointer-coarse:h-[calc(var(--rows)*36px)]">
-              {earlier.length > 0 && row("earlier", earlier, <span className="shrink-0 text-xs text-ink-4">{t("work.earlier", { n: earlier.length })}</span>)}
-              {runs.map((r) =>
+            <div style={rows ? ({ "--rows": Math.max(rows, list.length) + 1 } as CSSProperties) : undefined} className={cn("ml-[3px] flex min-w-0 flex-col overflow-hidden pl-3 shadow-[inset_1px_0_0_var(--edge)]", !!rows && "min-h-[calc(var(--rows)*28px)] pointer-coarse:min-h-[calc(var(--rows)*36px)]")}>
+              {list.map((s) =>
                 row(
-                  r.at,
-                  r.steps,
+                  s.at,
+                  [s],
                   <>
-                    <StepLine s={r.steps[0]!} />
-                    {r.steps.length > 1 && <span className="shrink-0 text-xs text-ink-4 tabular-nums">× {r.steps.length}</span>}
-                    {took(r.steps)}
+                    <StepLine s={s} />
+                    {took([s])}
                   </>,
                 ),
               )}
+              {/* Put away from its end too, where a long one leaves its line far above (kumo, 2026-11-24). */}
+              <button type="button" onClick={shut} className={cn(ROW, "w-fit shrink-0 gap-1 text-xs text-ink-4 outline-none hover:text-ink-2 focus-visible:text-ink-2")}>
+                <ChevronRight size={12} className="-rotate-90" />
+                {t("nav.less")}
+              </button>
             </div>
           )}
         </div>
