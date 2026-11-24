@@ -5,7 +5,7 @@
 import { Menu } from "@base-ui/react/menu";
 import { Popover } from "@base-ui/react/popover";
 import { ArrowLeft, BarChart3, Ellipsis, FolderOpen, Globe, ListTree, Plus, Settings } from "lucide-react";
-import { lazy, memo, Suspense, useContext, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
+import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
 import type { Device, Session, SessionState as LiveSession } from "../api/types.gen";
 import { queryClient } from "../api/client";
 import { AppKey, WinKeys } from "../appkey";
@@ -18,12 +18,12 @@ import { shownPath } from "../machines";
 import { back as goBack, openChat, openRecord, openUsage } from "../route";
 import { MenuItems, Rename, sessionActions, sessionTags } from "../sidebar";
 import { useList, useSession } from "../store";
-import { carries, drafts, opened } from "../stream";
+import { drafts, opened } from "../stream";
 import { toast } from "../toast";
 import { groupPath } from "../tree";
 import { agentName, cn, IrMark, lampOf, LogoLamp, PopSurface, sessionStatusText, tilde, Tip, titleOf, untitled } from "../ui";
 import { VoiceDock } from "../voice/dock";
-import { Activity, TurnFrame } from "./atwork";
+import { Activity } from "./atwork";
 import { ChannelCard } from "./channel/channelcard";
 import { EditBody } from "./channel/edit";
 import { closeEdit, useEditing } from "./channel/editing";
@@ -33,14 +33,12 @@ import { ChannelPage } from "./channel/page";
 import { CARD_POP } from "./channel/profilecard";
 import { renameOnly } from "./cmd";
 import { Crash } from "./crash";
-import { dispatched, type Start } from "./dispatch";
 import { folded, foldKey } from "./fold";
 import { Draft } from "./markdown";
 import { PublicLink, publicLinkQ } from "./publiclink";
 import { sourceOf, withDevice } from "./refs";
-import { Said, When } from "./said";
+import { Said } from "./said";
 import { Stick } from "./stick";
-import { Dispatching, SubFaceKey, SubHead, useSub } from "./subwork";
 
 // Top bar's channel controls, loaded lazily: ⋯'s 编辑资料 on a phone (ChannelMenu) and the
 // viewers/members keys at the bar's right (TopRight).
@@ -69,7 +67,6 @@ export function ChatPage({ id, record, sheet = 0, onSheet, onMe }: { id: string;
       sheet={sheet}
       record={openRecord}
       bar={(cur) => <Bar s={cur} onSheet={onSheet} onMe={onMe} />}
-      subTurn={(sub) => <SubTurn s={sub} />}
     />
   );
 }
@@ -336,69 +333,5 @@ function FaceKey({ s, stack, solo, className, ...rest }: { s: Session; stack?: {
         <ChannelCard id={s.id} agent={solo?.agent ?? s.agent} done={() => setOpen(false)} />
       </PopSurface>
     </Popover.Root>
-  );
-}
-
-const noSource = () => ({ kind: "you" }) as ReturnType<ComponentProps<typeof Said>["source"]>;
-
-/** A subagent at work as its own turn under the conversation. */
-function SubTurn({ s }: { s: Session }) {
-  useLang();
-  const { parent, d } = useContext(Dispatching);
-  const start: Start | undefined = s.call ? d?.starts.find((x) => x.id === s.call) : undefined;
-  const sub = useSub(parent ?? s.parent, { name: start?.name ?? "", model: start?.model, session: s });
-  const st = useSession(s.id);
-  const [chat] = useState(() => chatOf(s.id));
-  const log = chat.log;
-  const [, redraw] = useState(0);
-  const changed = () => redraw((n) => n + 1);
-  useEffect(() => {
-    let live = true;
-    const more = () => void log.newer().then(() => live && changed(), () => {});
-    if (!log.loaded || !fresh(log.came)) more();
-    opened.add(more);
-    return () => {
-      live = false;
-      opened.delete(more);
-    };
-  }, [s.id]);
-  const carried = carries(`session:${s.id}`);
-  const end = st?.end ?? 0;
-  useEffect(() => {
-    if (!log.loaded || (carried && end <= log.end)) return;
-    let live = true;
-    void log.newer().then(() => live && changed(), () => {});
-    return () => void (live = false);
-  }, [carried ? end : s.updatedAt, log.loaded]);
-  const shown = folded(log.blocks).filter((b) => b.kind !== "user");
-  const running = shown.flatMap((b) => (b.kind === "running" ? [b.tool] : []));
-  const rows = shown.filter((b) => b.kind !== "running");
-  const cwd = st?.cwd ?? s.cwd;
-  const node = (b: (typeof rows)[number]) => <Said key={b.kind === "fold" ? (foldKey(b.steps) ?? b.at) : b.at} b={b} session={s.id} cwd={cwd} source={noSource} onJump={openChat} />;
-  const face = <SubFaceKey sub={sub} />;
-  const time = rows.map((b) => (b.kind === "fold" ? b.steps[0]?.time : "time" in b ? b.time : undefined)).find(Boolean);
-  const head = (
-    <SubHead name={sub.name}>
-      <When time={time} />
-    </SubHead>
-  );
-  const activity = (under: boolean) => <Activity calls={[]} running={running} cwd={cwd} quiet grew={`${s.id} ${log.end} ${running.length}`} under={under} />;
-  return (
-    <Dispatching.Provider value={{ parent: s.id, by: sub.name, d: dispatched(shown) }}>
-      <div role="group" aria-label={`${sub.name} · ${t("sub.working")}`} className="flex min-w-0 flex-col gap-5">
-        {rows.length ? (
-          <>
-            <TurnFrame face={face} head={head}>
-              {rows.map(node)}
-            </TurnFrame>
-            {activity(false)}
-          </>
-        ) : (
-          <TurnFrame face={face} head={head}>
-            {activity(true)}
-          </TurnFrame>
-        )}
-      </div>
-    </Dispatching.Provider>
   );
 }

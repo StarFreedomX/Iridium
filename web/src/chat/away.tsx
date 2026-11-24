@@ -1,6 +1,6 @@
 // Where work was done when that is not the channel's folder (the user, 2026-11-18): said at the
-// head of its steps' line (said.tsx StepsHead): a computer's face, its name and its link's lamp;
-// a folder here its mark and its name.
+// head of an agent's work line (work.tsx): a computer's face, its name and its link's lamp; a
+// folder here its mark and its name.
 import { Folder } from "lucide-react";
 import { useMachines } from "../data";
 import { t } from "../i18n";
@@ -40,8 +40,9 @@ function Link({ m }: { m: Machine }) {
 }
 
 /** The line that says where: the mark, the name (never wrapped: cut short), the path after it,
- *  a gap between them and no dot (docs/前端设计规范.md: 不用“·”分隔). */
-export function Where({ place }: { place?: Place }) {
+ *  a gap between them and no dot (docs/前端设计规范.md: 不用“·”分隔). short: the mark and the
+ *  name alone (a prefix of a line that says more). */
+export function Where({ place, short }: { place?: Place; short?: boolean }) {
   const ms = useMachines();
   if (!place) return null;
   for (const x of ms) lastMachine.set(x.id, x);
@@ -51,9 +52,9 @@ export function Where({ place }: { place?: Place }) {
   return (
     <span className="mr-1 flex min-w-0 shrink items-center gap-1.5" title={`${place.machine ? `${name}:` : ""}${place.path}`}>
       {m ? <MachineFace m={m} size={16} className={cn(!m.online && "opacity-50 grayscale")} /> : <Folder size={14} className="shrink-0" aria-hidden />}
-      <span className="max-w-[55%] shrink-0 truncate font-medium text-ink-2">{name}</span>
+      <span className={cn("shrink-0 truncate font-medium text-ink-2", short ? "max-w-40" : "max-w-[55%]")}>{name}</span>
       {m && <Link m={m} />}
-      <span className="min-w-0 truncate">{m && place.machine && m.sep === "\\" ? path.replaceAll("/", "\\") : path}</span>
+      {!short && <span className="min-w-0 truncate">{m && place.machine && m.sep === "\\" ? path.replaceAll("/", "\\") : path}</span>}
     </span>
   );
 }

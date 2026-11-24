@@ -194,6 +194,7 @@ func (s *Service) handle(n session.Notice, at time.Time) {
 		s.rest(n.Session, origin)
 		if s.log != nil {
 			s.log.Listen(n.Session, at.Add(-2*time.Second).UnixMilli())
+			s.sayingOf(n.Session).from = s.endOf(n.Session)
 		}
 		if s.onBegan != nil {
 			s.onBegan(n.Session)

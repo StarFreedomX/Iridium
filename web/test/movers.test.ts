@@ -39,6 +39,7 @@ test("a conversation's scroll place written only by its follow, and where a thin
     "chat/meters.tsx", // the model list's own rows
     "chat/said.tsx", // a fold of steps' own list (scrolled in place, capped), kept at its newest
     "chat/stick.tsx",
+    "chat/work.tsx", // an agent's work line's own list of steps (a fixed height), kept at its newest
   ]);
 });
 
@@ -52,5 +53,6 @@ test("a row's room opened or shut by CSS only where it is listed", () => {
     "chat/forwardcard.tsx",
     "chat/react.tsx",
     "chat/said.tsx",
+    "chat/work.tsx", // an agent's work line, pressed: its steps open under it (layoutMoves told first)
   ]);
 });

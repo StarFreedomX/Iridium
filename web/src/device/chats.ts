@@ -1,7 +1,7 @@
 // The chats this device keeps (docs/plan.md "本机缓存"): of each session visited, the newest page
 // of its record as its first screen draws it (the older pages are not kept: scrolling up asks for
 // them), its state and members, and with other agents in its channel the channel's newest
-// messages, their states and the work under their words. Opening it draws this at once; the
+// messages and their states. Opening it draws this at once; the
 // server's first screen takes its place as it comes (chats.ts take, log.ts take). Written as a
 // turn ends, as the page goes to the background, and when idle; never at each piece. Let go as
 // the session is archived or deleted, unused for the days kept, past the size (store.ts sweep),
@@ -9,14 +9,15 @@
 import { queryClient } from "../api/client";
 import type { Block, ChannelMembers, ChannelReads, Session, SessionState } from "../api/types.gen";
 import { heldChats, lineOf, peekChat, type Chat } from "../chats";
-import { workKey, type Msg } from "../chat/channel/lib";
+import type { Msg } from "../chat/channel/lib";
 import { channelLog, heldLog, keptChannelIds } from "../chat/channel/log";
 import { getCarried, onCarried, setCarried } from "../store";
 import { listFromDevice } from "./first";
 import { asked, db, done, drop, entries, getConf } from "./store";
 
-/** The copy's format: one that is not this is dropped whole. */
-export const FORMAT = 2;
+/** The copy's format: one that is not this is dropped whole (3: the work under an agent's words
+ *  is in its message, docs/next/ui.md). */
+export const FORMAT = 3;
 /** As much of the record as its newest page (internal/transcript PageMessages, PageBlocks). */
 const PAGE_MESSAGES = 20;
 const PAGE_BLOCKS = 200;
@@ -33,7 +34,6 @@ export type Copy = {
   reads?: ChannelReads;
   chan?: { msgs: Msg[]; more: boolean };
   sessions?: Record<string, SessionState>;
-  work?: [unknown[], unknown][];
 };
 
 const keyOf = (id: string) => `chat:${id}`;
@@ -83,12 +83,6 @@ export function copyOf(id: string, it?: Chat, now = Date.now()): Copy | null {
       if (s) sessions[m.session] = s;
     }
     c.sessions = sessions;
-    c.work = msgs.flatMap((m) => {
-      if (!m.src) return [];
-      const k = workKey(m.src);
-      const w = queryClient.getQueryData(k);
-      return w === undefined ? [] : [[k, w] as [unknown[], unknown]];
-    });
   }
   return c;
 }
@@ -123,7 +117,6 @@ export async function restore(id: string, it: Chat): Promise<boolean> {
     channelLog(id).log.restore(c.chan.msgs, c.chan.more);
     if (c.reads && !getCarried(`reads:${id}`)) setCarried(`reads:${id}`, c.reads);
     for (const [x, st] of Object.entries(c.sessions ?? {})) if (!getCarried(`session:${x}`)) setCarried(`session:${x}`, st);
-    for (const [k, w] of c.work ?? []) if (queryClient.getQueryData(k) === undefined) queryClient.setQueryData(k, w);
   }
   void used(c.key);
   return true;

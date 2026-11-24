@@ -64,7 +64,7 @@ import type { MemberCard, Memory, Profile as Card, ProfilePatch, Self } from "./
 import type { NewScript, Script, ScriptPatch, ScriptRun } from "./types.gen";
 
 /** A message of a channel's log (Satori's message.list): id its number there. */
-export type ChannelMessage = { id: string; content: string; created_at?: number; user?: { id: string; name?: string; nick?: string; is_bot?: boolean }; _data?: { kind?: string; event?: unknown; session?: string; block?: string; from?: number; to?: number; input?: string; device?: Device; script?: string; reactions?: ReactionSum[] } };
+export type ChannelMessage = { id: string; content: string; created_at?: number; user?: { id: string; name?: string; nick?: string; is_bot?: boolean }; _data?: { kind?: string; event?: unknown; session?: string; block?: string; from?: number; to?: number; input?: string; device?: Device; script?: string; reactions?: ReactionSum[]; writing?: boolean } };
 /** One emoji on a message (docs/channels.md "表情"): who put it on, in that order. */
 export type ReactionSum = { emoji: string; count: number; users: { id: string; name?: string }[]; me?: boolean };
 /** Told what the page reads of a channel's log and of a session's record (chat/reactions.ts:

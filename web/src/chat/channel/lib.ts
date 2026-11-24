@@ -1,6 +1,6 @@
 // A channel of several agents (docs/channels.md), what the page reads of it, pure for tests: its
-// messages as the log gives them (Satori's message.list: only what was said), grouped under their
-// speakers; the @nick that calls an agent, found in words as the server finds it
+// messages as the log gives them (Satori's message.list: only what was said; rows.ts puts them in
+// order and under their speakers); the @nick that calls an agent, found in words as the server finds it
 // (internal/deliver Mentions) and put into the composer; the agents listed under a channel's row;
 // a channel's lamp.
 import type { ChannelMessage } from "../../api/client";
@@ -20,104 +20,16 @@ export type Src = { session: string; block?: string; from?: number; to?: number 
 
 /** input: a person's message, the input it was sent as (a session's record has it by that id);
  *  an agent's sent with ir, the same. A merged forward in its text is drawn apart (forward.ts
- *  msgWords). */
-export type Msg = { n: number; text: string; files: FileRef[]; time?: number; author: Author; kind?: string; did?: Did; event?: ChEvent; src?: Src; quote?: number; input?: string };
+ *  msgWords). writing: an agent's, still being written (docs/next/ui.md: told as it begins and as
+ *  it grows); work: what the agent did after it (<iridium:work>); a message of kind "work" is
+ *  that alone, no words. did: what it did before it, as older messages say (<iridium:activity>). */
+export type Msg = { n: number; text: string; files: FileRef[]; time?: number; author: Author; kind?: string; did?: Did; work?: Work; writing?: boolean; event?: ChEvent; src?: Src; quote?: number; input?: string };
 
-/** The line of a block's at ("<line>.<n>"). */
-export const lineOf = (at: string) => Number.parseInt(at, 10);
-
-/** The work under an agent's message from what its record has around it (newest last): with ir,
- *  the blocks of lines from..to; said straight out, those after the last thing it said or was
- *  given before the block. Its thinking, tool calls, and words it said on the way. */
-export function workOf<B extends { at: string; kind: string; text?: string }>(blocks: B[], src: Src, said?: string, prev?: string): B[] {
-  // The words said themselves are drawn under the work: not again in it (a reply said for the
-  // agent at its turn's end is the last words of its stretch).
-  const same = (b: B) => b.kind === "assistant" && !!said?.trim() && b.text?.trim() === said.trim();
-  // A stretch begins where the one before ended (its to): words said for the agent as it wrote
-  // them are at that line, the message before this one, drawn there and not again here.
-  // Not always at that very line: where a stretch ends is where the record had been read to as
-  // the words were heard, and a line with nothing to draw (thinking kept to itself) may stand
-  // between that and the words. They are then the first words of this stretch, the same as the
-  // message before (prev): not drawn again here, a second time under themselves (kumo,
-  // 2026-11-23).
-  const before = (b: B) => b.kind === "assistant" && lineOf(b.at) === src.from;
-  if (src.from !== undefined && src.to !== undefined) {
-    const out = blocks.filter((b) => lineOf(b.at) >= src.from! && lineOf(b.at) < src.to! && b.kind !== "user" && b.kind !== "system" && !same(b) && !before(b));
-    const first = out.findIndex((b) => b.kind === "assistant" && !!b.text?.trim());
-    if (first >= 0 && !!prev?.trim() && out[first]!.text!.trim() === prev.trim()) out.splice(first, 1);
-    return out;
-  }
-  if (!src.block) return [];
-  const end = lineOf(src.block);
-  const out: B[] = [];
-  for (let i = blocks.length - 1; i >= 0; i--) {
-    const b = blocks[i]!;
-    if (lineOf(b.at) >= end) continue;
-    if (b.kind === "user" || b.kind === "system" || (b.kind === "assistant" && b.text?.trim())) break;
-    out.unshift(b);
-  }
-  return out;
-}
-
-/** The words of the message before the one src is of: the same agent's, its stretch ending where
- *  this one begins (workOf's prev). */
-export function saidBefore(msgs: Msg[], src: Src): string | undefined {
-  if (src.from === undefined) return undefined;
-  // One said before the agent's record had a line (the first words of a session just made: no
-  // end to its stretch) begins where this one does: its words are before this one's all the same,
-  // and were drawn again under themselves.
-  return msgs.findLast((m) => m.src?.session === src.session && (m.src.to === src.from || (m.src.to === undefined && src.to !== undefined && m.src.from === src.from)))?.text;
-}
-
-/** Whether a block's at ("<line>.<n>") comes after another's. */
-const atAfter = (a: string, b: string) => {
-  const [la = 0, na = 0] = a.split(".").map(Number);
-  const [lb = 0, nb = 0] = b.split(".").map(Number);
-  return la > lb || (la === lb && na > nb);
-};
-
-/** What an agent at work has done in its turn so far (kumo, 2026-11-18: as its own page shows it,
- *  not dots alone): its record's blocks since it was last given something, and since its last
- *  words in the channel (said: where they are from in its record), whose work is under them. */
-/** spoken: whether words are among what it has said in the channel of late. Its words heard as
- *  they were said come without where they are from (said) till the log is read again: what it
- *  wrote up to them is theirs all the same, not drawn a second time under them as at work. */
-export function liveOf<B extends { at: string; kind: string; text?: string }>(blocks: B[], said?: Src, spoken?: (text: string) => boolean): B[] {
-  let out = blocks.slice(blocks.findLastIndex((b) => b.kind === "user") + 1).filter((b) => b.kind !== "system");
-  // From where its last words ended, those words not again (they are at that line: workOf).
-  if (said?.to !== undefined) out = out.filter((b) => lineOf(b.at) > said.to! || (lineOf(b.at) === said.to && b.kind !== "assistant"));
-  else if (said?.block) out = out.filter((b) => atAfter(b.at, said.block!));
-  if (spoken) out = out.slice(out.findLastIndex((b) => b.kind === "assistant" && !!b.text?.trim() && spoken(b.text.trim())) + 1);
-  return out;
-}
-
-/** What an agent at work did in its turn before each thing it was given meanwhile (kumo,
- *  2026-11-23: words sent into a turn were drawn over all of it, the steps done before them too,
- *  as if they had begun it): its record's blocks since its last words in the channel (said,
- *  spoken, as liveOf), cut where the record has what it was given; each part with the number of
- *  the message that ended it (before) and of the one it began at (after; 0: none of this
- *  channel's). given: the message a user block is, when it is one of this channel's. The part after
- *  the last is liveOf's; after: what that one began at. */
-export function liveParts<B extends { at: string; kind: string; text?: string }>(blocks: B[], given: (b: B) => number | undefined, said?: Src, spoken?: (text: string) => boolean): { parts: { after: number; before: number; blocks: B[] }[]; after: number } {
-  const all = blocks.filter((b) => b.kind !== "system");
-  const from = spoken ? all.findLastIndex((b) => b.kind === "assistant" && !!b.text?.trim() && spoken(b.text.trim())) + 1 : 0;
-  const live = (b: B, i: number) => i >= from && (said?.to !== undefined ? lineOf(b.at) > said.to || (lineOf(b.at) === said.to && b.kind !== "assistant") : !said?.block || atAfter(b.at, said.block));
-  const parts: { after: number; before: number; blocks: B[] }[] = [];
-  let cur: B[] = [];
-  let after = 0;
-  let known = false;
-  all.forEach((b, i) => {
-    if (b.kind !== "user") return void (live(b, i) && cur.push(b));
-    const seq = given(b);
-    // Only what is between two things this channel gave it: what was done before the first is
-    // another turn's, or another channel's.
-    if (seq !== undefined && known && cur.length) parts.push({ after, before: seq, blocks: cur });
-    known = seq !== undefined;
-    after = seq ?? 0;
-    cur = [];
-  });
-  return { parts, after };
-}
+/** What an agent did after a message of its turn (<iridium:work>, internal/satori/live.go
+ *  workElement): steps, its calls so far; running, while it goes on; tool, the latest call's name;
+ *  at, when the first began (ms); ms, how long it all took, once done; from, to: the lines of the
+ *  agent's own record it spans (to: none while it runs). */
+export type Work = { steps: number; running: boolean; tool?: string; at?: number; ms?: number; from: number; to?: number };
 
 /** Something that happened to a channel, a line of Iridium's own in it (internal/channel Event):
  *  join, leave (nick), rename (from, nick), on (nick, on: its subscriptions now), recv (before
@@ -274,6 +186,17 @@ export function didOf(content: string): Did | undefined {
   return { bash: num("bash"), failed: num("failed"), cmds: a.cmds ?? "", read: num("read"), web: num("search") + num("fetch"), agents: num("agents"), other: num("other"), files: num("files"), add: num("add"), del: num("del"), paths };
 }
 
+/** The <iridium:work> of a message's content, if it has one. */
+export function workIn(content: string): Work | undefined {
+  const all = [...content.matchAll(/<iridium:work\b[^>]*>/g)];
+  const head = all.at(-1)?.[0];
+  if (!head) return undefined;
+  const a: Record<string, string> = {};
+  for (const m of head.matchAll(ATTR)) a[m[1]!] = unesc(m[2]!);
+  const num = (k: string) => Number(a[k] ?? 0) || 0;
+  return { steps: num("steps"), running: a.running === "true", from: num("from"), ...(a.tool ? { tool: a.tool } : {}), ...(num("at") ? { at: num("at") } : {}), ...(num("ms") ? { ms: num("ms") } : {}), ...(num("to") ? { to: num("to") } : {}) };
+}
+
 const AGENT = "agent:";
 
 /** m of the log as the page draws it; none for one without a number. */
@@ -286,63 +209,9 @@ export function msgOf(m: ChannelMessage): Msg | undefined {
   const author: Author = script ? { kind: "script", name: script } : u?.id.startsWith(AGENT) ? { kind: "agent", session: u.id.slice(AGENT.length), nick: u.nick ?? "", name: u.name ?? "" } : !u || u.id === "iridium" ? { kind: "iridium" } : { kind: "person", id: u.id, name: u.name ?? "", ...(m._data?.device ? { device: m._data.device } : {}) };
   // The message it answers: Satori's <quote id/> at its start.
   const q = /^<quote id="(\d+)"\s*\/>/.exec(m.content);
-  return { n, text: b.text ?? "", files: b.files ?? [], author, ...(q ? { quote: Number(q[1]) } : {}), ...(m.created_at ? { time: m.created_at } : {}), ...(m._data?.kind ? { kind: m._data.kind } : {}), ...(m._data?.input ? { input: m._data.input } : {}), ...(author.kind === "agent" && didOf(m.content) ? { did: didOf(m.content)! } : {}), ...(m._data?.event && typeof m._data.event === "object" ? { event: m._data.event as ChEvent } : {}), ...(author.kind === "agent" && m._data?.session ? { src: { session: m._data.session, ...(m._data.block ? { block: m._data.block } : {}), ...(typeof m._data.from === "number" ? { from: m._data.from } : {}), ...(m._data.to ? { to: m._data.to } : {}) } } : {}) };
-}
-
-/** The key the work under a message from src is kept by (page.tsx Work; chats.ts firstScreen
- *  puts in what the first screen brought). */
-export const workKey = (src: Src) => ["work", src.session, src.block ?? "", src.from ?? 0, src.to ?? 0];
-
-const sameSrc = (a?: Src, b?: Src) => a?.session === b?.session && a?.block === b?.block && a?.from === b?.from && a?.to === b?.to;
-
-/** have with more put in: each number once (the later one wins: a message read again, changed:
- *  its words, or where it is from in its agent's record, or a person's input id, which one heard
- *  as it was said may not have), in order. The same array when nothing changed. */
-export function merge(have: Msg[], more: Msg[]): Msg[] {
-  if (!more.length) return have;
-  const by = new Map(have.map((m) => [m.n, m]));
-  let changed = false;
-  for (const m of more) {
-    const was = by.get(m.n);
-    if (was && was.text === m.text && was.files.length === m.files.length && was.kind === (m.kind ?? was.kind) && !was.did === !m.did && !was.event === !m.event && was.quote === m.quote && (!m.src || sameSrc(was.src, m.src)) && (!m.input || was.input === m.input)) continue;
-    // What a reading does not say (the kind, the source) stays as it was known.
-    by.set(m.n, was ? { ...m, ...(!m.kind && was.kind ? { kind: was.kind } : {}), ...(!m.src && was.src ? { src: was.src } : {}), ...(!m.input && was.input ? { input: was.input } : {}) } : m);
-    changed = true;
-  }
-  return changed ? [...by.values()].sort((a, b) => a.n - b.n) : have;
-}
-
-/** Messages one after another under one head: an agent's, while the same agent speaks, and a
- *  script's the same; Iridium's lines in a row close together; a person's each by itself. */
-export type Group = { key: string; author: Author; msgs: Msg[] };
-
-/** Where each reader's mark goes (docs/channels.md "已读"): under the group that holds the last
- *  message it has read, by the group's key; one that has read nothing shown, or all of what is
- *  before the first group, has none. skip: the member that is looking. */
-export function readMarks<R extends { member: string; seq: number }>(groups: Group[], readers: R[], skip?: string): Map<string, R[]> {
-  const out = new Map<string, R[]>();
-  for (const r of readers) {
-    if (r.member === skip || r.seq < 1) continue;
-    let at: Group | undefined;
-    for (const g of groups) {
-      if (g.msgs[0]!.n > r.seq) break;
-      at = g;
-    }
-    if (at) out.set(at.key, [...(out.get(at.key) ?? []), r]);
-  }
-  return out;
-}
-
-export function groupMessages(msgs: Msg[]): Group[] {
-  const out: Group[] = [];
-  for (const m of msgs) {
-    const last = out.at(-1);
-    if (last && m.author.kind === "agent" && last.author.kind === "agent" && last.author.session === m.author.session) last.msgs.push(m);
-    else if (last && m.author.kind === "script" && last.author.kind === "script" && last.author.name === m.author.name) last.msgs.push(m);
-    else if (last && m.author.kind === "iridium" && last.author.kind === "iridium") last.msgs.push(m);
-    else out.push({ key: `m${m.n}`, author: m.author, msgs: [m] });
-  }
-  return out;
+  const did = author.kind === "agent" ? didOf(m.content) : undefined;
+  const work = author.kind === "agent" ? workIn(m.content) : undefined;
+  return { n, text: b.text ?? "", files: b.files ?? [], author, ...(q ? { quote: Number(q[1]) } : {}), ...(m.created_at ? { time: m.created_at } : {}), ...(m._data?.kind ? { kind: m._data.kind } : {}), ...(m._data?.input ? { input: m._data.input } : {}), ...(did ? { did } : {}), ...(work ? { work } : {}), ...(m._data?.writing ? { writing: true } : {}), ...(m._data?.event && typeof m._data.event === "object" ? { event: m._data.event as ChEvent } : {}), ...(author.kind === "agent" && m._data?.session ? { src: { session: m._data.session, ...(m._data.block ? { block: m._data.block } : {}), ...(typeof m._data.from === "number" ? { from: m._data.from } : {}), ...(m._data.to ? { to: m._data.to } : {}) } } : {}) };
 }
 
 const NICK_RUNE = /[\p{L}\p{N}_-]/u;
@@ -519,54 +388,6 @@ export function channelLamp(own: Status, members: Status[]): Status {
   if (members.includes("waiting")) return "waiting";
   if (WORKING.has(own)) return own;
   return members.some((s) => WORKING.has(s)) ? "running" : own;
-}
-
-/** A message sent from here, till the channel's log has it: seq, its number once the server
- *  answered; from, the log's last number as it was sent. */
-/** How far a server's clock may be behind this one's: a block or message that many ms before a
- *  sent one was made may be it. */
-const SKEW = 120_000;
-/** Whether something written at time (ms; not known: yes) may be what was made at made. */
-export const madeBy = (made: number | undefined, time: number | undefined) => !made || !time || time >= made - SKEW;
-
-export type Waiting = { text: string; seq?: number; from: number; failed?: string; made?: number };
-
-/** Whether what was sent is still not in the log: by its number once known; before that, by a
- *  person's same words said since it was sent. A failed one stays, to be sent again. */
-export function stillWaiting(s: Waiting, msgs: Msg[]): boolean {
-  if (s.failed !== undefined) return true;
-  return !arrived(s, msgs);
-}
-
-/** What was sent, as the log has it: by its number once known; before that, by a person's same
- *  words said since it was sent. */
-export function arrived(s: Waiting, msgs: Msg[]): Msg | undefined {
-  if (s.seq) return msgs.find((m) => m.n === s.seq);
-  return msgs.find((m) => m.n > s.from && madeBy(s.made, m.time) && m.author.kind === "person" && m.text.trim() === s.text.trim());
-}
-
-/** Nothing shown changes places (kumo, 2026-11-24: 彻底禁止换位, 旧消息完全不变): a message sent
- *  from this page stays where its bubble was put, under what the page had then, whatever the
- *  channel was given before the server had it (an agent's line come meanwhile was drawn over the
- *  bubble, which then went up past it). at: such a message's number → its place, between the
- *  numbers it was sent after and before; the rest by their numbers. A page opened afterwards has
- *  the server's order. */
-export const placeOf = (m: Msg, at: ReadonlyMap<number, number>) => at.get(m.n) ?? m.n;
-export type Row<S> = { msgs: Msg[] } | { sent: S };
-/** The conversation's rows in the order shown: the messages by their places, each run of them
- *  between two bubbles still waiting (sent, each at its place; one with none at the end). */
-export function shownRows<S extends { place?: number }>(msgs: Msg[], at: ReadonlyMap<number, number>, sent: S[]): Row<S>[] {
-  const all: { k: number; m?: Msg; x?: S }[] = [...msgs.map((m) => ({ k: placeOf(m, at), m })), ...sent.map((x) => ({ k: x.place ?? Infinity, x }))];
-  // Stable: messages before bubbles at the same place, each kind in the order given.
-  if (at.size || sent.length) all.sort((a, b) => a.k - b.k);
-  const out: Row<S>[] = [];
-  for (const it of all) {
-    const last = out.at(-1);
-    if (it.x) out.push({ sent: it.x });
-    else if (last && "msgs" in last) last.msgs.push(it.m!);
-    else out.push({ msgs: [it.m!] });
-  }
-  return out;
 }
 
 /** The states the stream is asked for besides the channel's own: its other agents' sessions

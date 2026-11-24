@@ -3,7 +3,6 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { queryClient, speakAs } from "../src/api/client";
 import { heldLog } from "../src/chat/channel/log";
-import { workKey } from "../src/chat/channel/lib";
 import { chatOf, firstScreen, fresh, freshState, isWhole, stateAhead } from "../src/chats";
 import { getCarried } from "../src/store";
 
@@ -22,7 +21,7 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
-test("one answer brings the state, members, reads, channel log, agent states and work; nothing is asked twice", async () => {
+test("one answer brings the state, members, reads, channel log and agent states; nothing is asked twice", async () => {
   answer = () => ({
     session: state("s1"),
     members: { channel: "s1", multi: true, joined: true, members: [{ member: "agent:s1", session: "s1", on: [{ message: { from: ["*"] } }] }, { member: "agent:s2", session: "s2", on: [] }] },
@@ -49,7 +48,6 @@ test("one answer brings the state, members, reads, channel log, agent states and
   const log = heldLog("s1")!;
   expect(log.msgs.map((m) => m.n)).toEqual([1, 2]);
   expect(fresh(log.came)).toBe(true);
-  expect(queryClient.getQueryData<{ at: string }[]>(workKey(log.msgs[1]!.src!))?.map((b) => b.at)).toEqual(["5.0"]);
 });
 
 test("record mode asks for ?record=1 and populates the session transcript; failures stay safe", async () => {

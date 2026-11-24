@@ -39,6 +39,10 @@ type saying struct {
 	carrier int64
 	// last: the words of the last message it said in this turn.
 	last string
+	// from: how far its record went when the message that carries the work began (or its turn,
+	// for one of no words): where that work's steps begin, whatever of them the record has by
+	// the time the first is told.
+	from int64
 	// whole: the message being written was read in from the agent's record, whole, before it
 	// was heard: nothing more of it is told till it is said.
 	whole bool
@@ -204,6 +208,7 @@ func (s *Service) writing(id, piece, origin string) {
 		if strings.TrimSpace(st.text.String()) == "" {
 			return // nothing to show yet
 		}
+		st.from = s.endOf(id)
 		m, adopted, err := s.log.Begin(id, st.text.String(), true, s.heardOf(id))
 		if err != nil || m.Seq == 0 {
 			s.logf("satori: channel of %s: %v", id, err)
@@ -274,6 +279,7 @@ func (s *Service) say(id, text, origin string) {
 		if strings.TrimSpace(text) == "" {
 			return
 		}
+		st.from = s.endOf(id)
 		got, _, err := s.log.Begin(id, text, false, s.heardOf(id))
 		if err != nil || got.Seq == 0 {
 			s.logf("satori: channel of %s: %v", id, err)
@@ -337,10 +343,10 @@ func (s *Service) step(id, tool, origin string) {
 	// (kumo, 2026-11-24: the steps under words sent into a turn counted those from before them).
 	if st.carrier != 0 && st.seq == 0 && s.log.End(id) > st.carrier {
 		s.settle(id, st.carrier, origin)
-		st.carrier = 0
+		st.carrier, st.from = 0, s.endOf(id)
 	}
 	if st.carrier == 0 {
-		m, err := s.log.BeginWork(id, channel.Work{Steps: 1, Tool: tool, Running: true, At: now, From: s.endOf(id)})
+		m, err := s.log.BeginWork(id, channel.Work{Steps: 1, Tool: tool, Running: true, At: now, From: st.from})
 		if err != nil || m.Seq == 0 {
 			s.logf("satori: channel of %s: %v", id, err)
 			return
@@ -349,13 +355,9 @@ func (s *Service) step(id, tool, origin string) {
 		s.tellLive("message-created", m, false, origin)
 		return
 	}
-	end := int64(-1)
 	m, ok := s.log.SetWork(id, st.carrier, func(w *channel.Work) {
 		if w.Steps == 0 {
-			if end < 0 {
-				end = s.endOf(id)
-			}
-			w.At, w.From = now, end
+			w.At, w.From = now, st.from
 		}
 		w.Steps++
 		w.Tool, w.Running, w.Ms, w.To = tool, true, 0, 0

@@ -2,14 +2,17 @@
 import { describe, expect, test } from "vitest";
 import type { ChannelMessage, ChannelPage } from "../src/api/client";
 import type { Session } from "../src/api/types.gen";
-import { askQueue, eventParts, personName, type EventWords, channelLamp, givenParts, givenTurn, groupMessages, insertNick, isMulti, linkNicks, matchAgents, mayDM, merge, msgOf, ownAgent, nickOfURL, nickParts, nickSpans, readMarks, stillWaiting, userOf, validNick, watchExtra, workOf, liveOf, liveParts } from "../src/chat/channel/lib";
+import { askQueue, eventParts, personName, type EventWords, channelLamp, givenParts, givenTurn, insertNick, isMulti, linkNicks, matchAgents, mayDM, msgOf, ownAgent, nickOfURL, nickParts, nickSpans, userOf, validNick, watchExtra, type Msg } from "../src/chat/channel/lib";
 import { ChannelLog } from "../src/chat/channel/log";
+import { grouped, ordered, readMarks, upsert } from "../src/chat/channel/rows";
 import { buildTree, standing } from "../src/tree";
 
 const agent = (n: number, session: string, text = "hi"): ChannelMessage => ({ id: String(n), content: text, user: { id: `agent:${session}`, name: "pi Low", nick: session, is_bot: true }, created_at: n });
 const person = (n: number, text = "hi"): ChannelMessage => ({ id: String(n), content: text, user: { id: "local", name: "主机" }, created_at: n });
 const note = (n: number, text = "x"): ChannelMessage => ({ id: String(n), content: text, user: { id: "iridium", name: "Iridium", is_bot: true } });
 const msgs = (...ms: ChannelMessage[]) => ms.map((m) => msgOf(m)!);
+/** Groups of messages alone, none of them the one looking's. */
+const groupMessages = (ms: Msg[]) => grouped(ordered(ms, new Map(), []), () => false).map((g) => ({ key: g.key, msgs: g.lines.map((l) => l.m!) }));
 
 describe("a channel's messages", () => {
   test("read: the number, the words unescaped, who said it, the files", () => {
@@ -22,38 +25,26 @@ describe("a channel's messages", () => {
     expect(msgOf({ id: "4", content: "hi", user: { id: "iridium", name: "echo" }, _data: { script: "echo" } })!.author).toEqual({ kind: "script", name: "echo" });
     expect(msgOf({ id: "ask:s1:r", content: "" })).toBeUndefined();
   });
-  test("grouped: an agent's in a row share a head; a person's and Iridium's stand alone", () => {
+  test("grouped: one sender's in a row share a head, nobody else's between; Iridium's lines together", () => {
     const g = groupMessages(msgs(person(1), person(2), agent(3, "a"), agent(4, "a"), agent(5, "b"), note(6), agent(7, "b"), agent(8, "b")));
-    expect(g.map((x) => x.msgs.map((m) => m.n))).toEqual([[1], [2], [3, 4], [5], [6], [7, 8]]);
-    expect(g.map((x) => x.key)).toEqual(["m1", "m2", "m3", "m5", "m6", "m7"]);
+    expect(g.map((x) => x.msgs.map((m) => m.n))).toEqual([[1, 2], [3, 4], [5], [6], [7, 8]]);
+    expect(g.map((x) => x.key)).toEqual(["m1", "m3", "m5", "m6", "m7"]);
   });
   test("merged: each number once, in order, the later reading kept; nothing new, the same array", () => {
     const have = msgs(person(1), agent(3, "a"));
-    expect(merge(have, [])).toBe(have);
-    expect(merge(have, msgs(agent(3, "a")))).toBe(have);
-    const next = merge(have, msgs(agent(2, "b"), agent(3, "a", "changed"), agent(3, "a", "changed")));
+    expect(upsert(have, [])).toBe(have);
+    expect(upsert(have, msgs(agent(3, "a")))).toBe(have);
+    const next = upsert(have, msgs(agent(2, "b"), agent(3, "a", "changed"), agent(3, "a", "changed")));
     expect(next.map((m) => [m.n, m.text])).toEqual([[1, "hi"], [2, "hi"], [3, "changed"]]);
     // The kind an event said stays when the log, which says none, reads the message again.
-    const said = merge([{ ...msgs(agent(4, "a"))[0]!, kind: "reply" }], msgs(agent(4, "a", "more")));
+    const said = upsert([{ ...msgs(agent(4, "a"))[0]!, kind: "reply" }], msgs(agent(4, "a", "more")));
     expect(said[0]).toMatchObject({ text: "more", kind: "reply" });
     // One heard as it was said, then read with where it is from in its agent's record: that kept.
     const heard = msgs(agent(5, "a"));
-    const backed = merge(heard, [msgOf({ ...agent(5, "a"), _data: { session: "a", block: "12.0" } })!]);
+    const backed = upsert(heard, [msgOf({ ...agent(5, "a"), _data: { session: "a", block: "12.0" } })!]);
     expect(backed).not.toBe(heard);
     expect(backed[0]!.src).toEqual({ session: "a", block: "12.0" });
-    expect(merge(backed, [msgOf({ ...agent(5, "a"), _data: { session: "a", block: "12.0" } })!])).toBe(backed);
-  });
-  test("sent from here: gone once the log has its number, or before that the same words said since", () => {
-    const log = msgs(person(1, "one"), agent(2, "a"), person(3, "two"));
-    expect(stillWaiting({ text: "two", seq: 3, from: 2 }, log)).toBe(false);
-    expect(stillWaiting({ text: "two", seq: 4, from: 2 }, log)).toBe(true);
-    expect(stillWaiting({ text: " two ", from: 2 }, log)).toBe(false);
-    expect(stillWaiting({ text: "one", from: 2 }, log)).toBe(true); // said before it was sent
-    expect(stillWaiting({ text: "hi", from: 0 }, msgs(agent(1, "a")))).toBe(true); // an agent's, not yours
-    expect(stillWaiting({ text: "two", seq: 3, from: 2, failed: "no" }, log)).toBe(true);
-    // Made long after the same words were said: not those.
-    expect(stillWaiting({ text: "two", from: 0, made: 3 + 3_600_000 }, log)).toBe(true);
-    expect(stillWaiting({ text: "two", from: 0, made: 3 + 1_000 }, log)).toBe(false);
+    expect(upsert(backed, [msgOf({ ...agent(5, "a"), _data: { session: "a", block: "12.0" } })!])).toBe(backed);
   });
 });
 
@@ -161,7 +152,7 @@ describe("what an agent was given", () => {
 describe("who has read", () => {
   test("a reader's mark is under the group that holds the last message it read", () => {
     const m = (n: number, session?: string) => ({ n, text: "", files: [], author: session ? { kind: "agent" as const, session, nick: session, name: "" } : { kind: "person" as const, id: "u", name: "u" } });
-    const groups = groupMessages([m(1), m(2, "a"), m(3, "a"), m(5)] as never);
+    const groups = grouped(ordered([m(1), m(2, "a"), m(3, "a"), m(5)] as never, new Map(), []), () => false);
     const marks = readMarks(groups, [{ member: "x", seq: 3 }, { member: "y", seq: 9 }, { member: "me", seq: 9 }, { member: "z", seq: 0 }, { member: "w", seq: 4 }], "me");
     expect([...marks].map(([k, rs]) => `${k}:${rs.map((r) => r.member).join("")}`)).toEqual(["m2:xw", "m5:y"]);
   });
@@ -246,7 +237,7 @@ describe("the list", () => {
   });
 });
 
-import { didOf, saidBefore, type Msg } from "../src/chat/channel/lib";
+import { didOf } from "../src/chat/channel/lib";
 
 describe("didOf", () => {
   test("reads what the agent did from the element after the words", () => {
@@ -307,148 +298,4 @@ describe("a channel's events", () => {
     expect(personName("ir_web/zz", apps, logins)).toBe("ir_web/zz");
     expect(personName("*", apps, logins)).toBe("*");
   });
-});
-
-describe("workOf", () => {
-  const bs = [
-    { at: "10.0", kind: "user", text: "do it" },
-    { at: "11.0", kind: "thinking", text: "hm" },
-    { at: "12.0", kind: "tool", name: "Bash" },
-    { at: "13.0", kind: "assistant", text: "half way" },
-    { at: "14.0", kind: "tool", name: "Read" },
-    { at: "15.0", kind: "assistant", text: "done" },
-    { at: "16.0", kind: "tool", name: "Edit" },
-  ];
-  test("said straight out: after the last words before its block", () => {
-    expect(workOf(bs, { session: "s", block: "15.0" }).map((b) => b.at)).toEqual(["14.0"]);
-    expect(workOf(bs, { session: "s", block: "13.0" }).map((b) => b.at)).toEqual(["11.0", "12.0"]);
-  });
-  test("with ir: the lines from..to, but what it was given", () => {
-    expect(workOf(bs, { session: "s", from: 10, to: 16 }).map((b) => b.at)).toEqual(["11.0", "12.0", "13.0", "14.0", "15.0"]);
-  });
-  test("a reply said for it at its turn's end: its words drawn once, under the work, not in it", () => {
-    expect(workOf(bs, { session: "s", from: 10, to: 16 }, " done\n").map((b) => b.at)).toEqual(["11.0", "12.0", "13.0", "14.0"]);
-  });
-  test("the stretch before ended a line short of its words (a line with nothing to draw between): those words, the message before, are not drawn again in this one", () => {
-    // The message before was "half way" (13.0), its stretch ending at 12: this one begins at 12.
-    expect(workOf(bs, { session: "s", from: 12, to: 15 }, "done", "half way").map((b) => b.at)).toEqual(["12.0", "14.0"]);
-    // Words on the way that are not the message before stay.
-    expect(workOf(bs, { session: "s", from: 12, to: 15 }, "done", "other").map((b) => b.at)).toEqual(["12.0", "13.0", "14.0"]);
-  });
-  test("words said on the way end one stretch and begin the next: drawn under the one before only", () => {
-    expect(workOf(bs, { session: "s", from: 10, to: 13 }).map((b) => b.at)).toEqual(["11.0", "12.0"]);
-    expect(workOf(bs, { session: "s", from: 13, to: 15 }, "done").map((b) => b.at)).toEqual(["14.0"]);
-  });
-});
-
-describe("liveOf said", () => {
-  test("since words said on the way: not those words again", () => {
-    const bs = [
-      { at: "1.0", kind: "user", text: "go" },
-      { at: "2.0", kind: "tool" },
-      { at: "3.0", kind: "assistant", text: "first words" },
-      { at: "4.0", kind: "tool" },
-    ];
-    expect(liveOf(bs, { session: "s", from: 1, to: 3 }).map((b) => b.at)).toEqual(["4.0"]);
-  });
-});
-
-describe("liveOf spoken", () => {
-  test("words heard said without where they are from are not drawn again as at work", () => {
-    const bs = [
-      { at: "1.0", kind: "user", text: "go" },
-      { at: "2.0", kind: "tool" },
-      { at: "3.0", kind: "assistant", text: "first words" },
-      { at: "4.0", kind: "tool" },
-    ];
-    expect(liveOf(bs, undefined, (x) => x === "first words").map((b) => b.at)).toEqual(["4.0"]);
-    expect(liveOf(bs, undefined, () => false).map((b) => b.at)).toEqual(["2.0", "3.0", "4.0"]);
-  });
-});
-
-describe("liveOf", () => {
-  const bs = [
-    { at: "8.0", kind: "tool", name: "Old" },
-    { at: "10.0", kind: "user", text: "do it" },
-    { at: "11.0", kind: "thinking", text: "hm" },
-    { at: "12.0", kind: "tool", name: "Bash" },
-    { at: "13.0", kind: "assistant", text: "half way" },
-    { at: "13.1", kind: "tool", name: "Read" },
-    { at: "14.0", kind: "tool", name: "Edit" },
-  ];
-  test("since it was last given something", () => {
-    expect(liveOf(bs).map((b) => b.at)).toEqual(["11.0", "12.0", "13.0", "13.1", "14.0"]);
-  });
-  test("after its last words in the channel: said straight out, past their block", () => {
-    expect(liveOf(bs, { session: "s", block: "13.0" }).map((b) => b.at)).toEqual(["13.1", "14.0"]);
-  });
-  test("after its last words in the channel: from where it spoke, those words (at that line) not again", () => {
-    expect(liveOf(bs, { session: "s", from: 10, to: 13 }).map((b) => b.at)).toEqual(["13.1", "14.0"]);
-  });
-  test("words of an earlier turn cut nothing", () => {
-    expect(liveOf(bs, { session: "s", block: "5.0" }).map((b) => b.at)).toEqual(["11.0", "12.0", "13.0", "13.1", "14.0"]);
-  });
-});
-
-describe("a message that answers another", () => {
-  test("its <quote id/> is the number it answers", () => {
-    const m = msgOf({ id: "7", content: '<quote id="3"/>more please', user: { id: "u", name: "kumo" } });
-    expect(m?.quote).toBe(3);
-    expect(m?.text).toBe("more please");
-    expect(msgOf({ id: "8", content: "plain", user: { id: "u", name: "kumo" } })?.quote).toBeUndefined();
-  });
-});
-
-describe("liveParts", () => {
-  const given = (b: { text?: string }) => (/^#(\d+)/.exec(b.text ?? "") ? Number(/^#(\d+)/.exec(b.text ?? "")![1]) : undefined);
-  const bs = [
-    { at: "1.0", kind: "user", text: "#5: do it" },
-    { at: "2.0", kind: "tool" },
-    { at: "3.0", kind: "tool" },
-    { at: "4.0", kind: "user", text: "#7: and this" },
-    { at: "5.0", kind: "tool" },
-    { at: "6.0", kind: "user", text: "#8: more" },
-    { at: "7.0", kind: "tool" },
-  ];
-  test("cuts the turn where it was given something more", () => {
-    const r = liveParts(bs, given);
-    expect(r.parts.map((p) => [p.after, p.before, p.blocks.map((b) => b.at)])).toEqual([[5, 7, ["2.0", "3.0"]], [7, 8, ["5.0"]]]);
-    expect(r.after).toBe(8);
-  });
-  test("has no part for what was done before the first thing given, nor with nothing done", () => {
-    expect(liveParts([{ at: "0.0", kind: "tool" }, ...bs.slice(0, 1), bs[3]!, bs[4]!], given).parts).toEqual([]);
-    expect(liveParts([{ at: "0.0", kind: "user", text: "typed at its terminal" }, { at: "0.5", kind: "tool" }, bs[3]!], given).parts).toEqual([]);
-  });
-  test("leaves out what is under its last words, the parts known by the same numbers", () => {
-    const r = liveParts(bs, given, { session: "s", from: 1, to: 3 });
-    expect(r.parts.map((p) => [p.after, p.before, p.blocks.map((b) => b.at)])).toEqual([[5, 7, ["3.0"]], [7, 8, ["5.0"]]]);
-  });
-});
-
-describe("workOf the words before", () => {
-  // As recorded (2026-11-24): a stretch ends where the record had been read to as the words were
-  // heard, a line before the words themselves, which are then the first of the next stretch.
-  const bs = [
-    { at: "100.0", kind: "tool" },
-    { at: "120.0", kind: "assistant", text: "first words" },
-    { at: "130.0", kind: "tool" },
-    { at: "150.0", kind: "assistant", text: "second words" },
-  ];
-  test("are not drawn again at the head of the next stretch", () => {
-    expect(workOf(bs, { session: "s", from: 110, to: 140 }, "second words", "first words").map((b) => b.at)).toEqual(["130.0"]);
-  });
-  test("are, when not told (what the fix passes now)", () => {
-    expect(workOf(bs, { session: "s", from: 110, to: 140 }, "second words").map((b) => b.at)).toEqual(["120.0", "130.0"]);
-  });
-});
-
-test("saidBefore: words said before the record had a line begin where the next ones do", () => {
-  const a = { name: "far", agent: "claude" } as unknown as Msg["author"];
-  const msgs: Msg[] = [
-    { n: 3, text: "Looking first.", files: [], author: a, src: { session: "s", from: 0 } },
-    { n: 4, text: "Found.", files: [], author: a, src: { session: "s", from: 0, to: 3865 } },
-  ];
-  expect(saidBefore(msgs, msgs[1]!.src!)).toBe("Looking first.");
-  expect(saidBefore(msgs, msgs[0]!.src!)).toBeUndefined();
-  expect(saidBefore([{ ...msgs[0]!, src: { session: "s", from: 10, to: 20 } }, { ...msgs[1]!, src: { session: "s", from: 20, to: 30 } }], { session: "s", from: 20, to: 30 })).toBe("Looking first.");
 });

@@ -124,8 +124,8 @@ function recall(channel: string, seq: number, from: { block?: string; input?: st
 /** Told the channel whose kept record lost a block to a message taken back: its chat draws again. */
 export const recalls = new Set<(channel: string) => void>();
 
-/** Takes in an event: an emoji put on or taken off; a message said (what its block is), or taken
- *  back. */
+/** Takes in an event: an emoji put on or taken off; a message said or changed (what its block
+ *  is), or taken back. */
 export function hear(e: SatoriEvent) {
   const ch = e.channel?.id;
   const n = Number(e.message?.id);
@@ -144,6 +144,7 @@ export function hear(e: SatoriEvent) {
       return changed();
     }
     case "message-created":
+    case "message-updated":
       if (e.message) take(ch, e.message as ChannelMessage, false);
       return changed();
     case "message-deleted":

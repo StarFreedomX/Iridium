@@ -1,12 +1,10 @@
 // The conversations the page holds (docs/api.md "消息页", Rhodium architecture §7.7): each session's
-// blocks as fetched, paged back as you scroll up, the drafts after them, and what you sent that the
-// transcript has yet to bring. Those seen lately stay in memory, up to KEPT_BLOCKS blocks in all, so
+// blocks as fetched, paged back as you scroll up, the drafts after them. Those seen lately stay in memory, up to KEPT_BLOCKS blocks in all, so
 // going back to one draws it at once and fetches only what came since. Also what is fetched ahead
 // (plan "弱网"): a row the mouse rests on, a session whose turn ends off screen, and those the page
 // warms of its own (src/warm.ts picks them): each one's newest page, held apart till it is visited.
 import { api, queryClient, type First } from "./api/client";
 import type { Block, DraftEvent, MessagePage, Session, SessionState } from "./api/types.gen";
-import { madeBy, saidBefore, workKey, workOf, type Src } from "./chat/channel/lib";
 import { anyUnsentChannel, channelLog, heldLog } from "./chat/channel/log";
 import { getCarried, setCarried } from "./store";
 
@@ -14,9 +12,9 @@ import { getCarried, setCarried } from "./store";
  *  a read ahead of its turn) asks for none of it again. */
 export const fresh = (at: number) => Date.now() - at < 3_000;
 
-/** A message of yours sent from this page, till the transcript has it: input, the id the server gave
- *  it (Claude's uuid, which the user block carries); text, as typed; files, upload refs with their
- *  names; from, where the transcript ended as it was sent. failed: why it did not go. mid: sent into a turn already on. seq: its
+/** A message of yours sent from this page, till the channel's log has it (channel/log.ts): input,
+ *  its id, chosen here (its message and the agent's record have it by that id); text, as typed; files, upload refs with their
+ *  names; from, where the log ended as it was sent. failed: why it did not go. mid: sent into a turn already on. seq: its
  *  number in its channel, once the server said it. queued: the server keeps it for the turn's end (a command) or the quota (a clock by
  *  its bubble); waited: seen in the session's queue; gone: answered, and nothing of it will come
  *  in the transcript (a command the agent ran itself); at: when it was answered. */
@@ -24,39 +22,6 @@ export type Sent = { key: string; made?: number; text: string; files: { ref: str
 
 /** Where a block's transcript line begins: its at up to the dot. */
 export const lineOf = (b: { at: string }) => parseInt(b.at);
-
-/** A /compact you sent: no bubble, the chat's compaction line says it (chat/said.tsx Compaction). */
-export const compactSent = (s: Sent) => /^\/compact(\s|$)/.test(s.text.trim());
-
-/** Whether user block b is s by what it says, for an agent whose transcript keeps no input id
- *  (pi): its words at the head; with none, attachments alone, the same files (a ref is the path's,
- *  the upload's and the block's alike), or else a block of attachment lines alone. */
-const sameWords = (s: Sent, b: Block) => {
-  const text = s.text.trim();
-  if (text) return b.text !== undefined && b.text.trim().startsWith(text.slice(0, 200));
-  if (!s.files.length) return false;
-  if (s.files.every((f) => b.files?.some((g) => g.ref === f.ref))) return true;
-  return /^\[附件\] `/.test((b.text ?? "").trim());
-};
-
-/** Those sent not yet in the transcript: each finds its own among the user blocks written since it
- *  was sent, by its input id, else by its words (attachments alone: their files); a /compact, the compaction written since. A
- *  failed one stays, unless its block came after all (only the answer was lost): by its id alone. */
-export function unsent(sent: Sent[], blocks: Block[]): Sent[] {
-  let past = 0;
-  // By its words only a block written since it was made (kumo, 2026-11-23: one sent while the
-  // page showed an older copy of the chat took an earlier "继续" of yours for its own, and looked
-  // sent; it had not gone).
-  return sent.filter((s) => {
-    s.from = Math.max(s.from, past);
-    if (s.failed !== undefined) return !(s.input && blocks.some((b) => b.kind === "user" && b.id === s.input));
-    if (compactSent(s)) return !blocks.some((b) => b.kind === "system" && b.event === "compact" && lineOf(b) >= s.from);
-    const b = blocks.find((b) => b.kind === "user" && ((s.input && b.id === s.input) || (lineOf(b) >= s.from && madeBy(s.made, b.time) && sameWords(s, b))));
-    if (!b) return true;
-    past = lineOf(b) + 1;
-    return false;
-  });
-}
 
 /** How long one answered as queued may be missing from the session's queue before it counts as
  *  gone from it: its state comes on another stream than the answer. */
@@ -116,7 +81,6 @@ const same = (d: Draft, block: string) => {
 export class Messages {
   blocks: Block[] = [];
   drafts: Draft[] = [];
-  sent: Sent[] = [];
   start = 0;
   end = 0;
   more = false;
@@ -180,7 +144,7 @@ export class Messages {
     for (;;) {
       const from = this.end;
       const p = await this.get(this.id, { after: from });
-      if (p.end <= this.end) return (this.came = Date.now()), this.recheck();
+      if (p.end <= this.end) return void (this.came = Date.now());
       // Two fetches may ask from the same place: each block goes in once.
       const added = p.blocks.filter((b) => lineOf(b) >= this.end);
       this.blocks = [...this.blocks, ...added];
@@ -256,16 +220,7 @@ export class Messages {
         this.forget(this.drafts.shift()!);
       } else this.loose.push(text);
     }
-    this.sent = unsent(this.sent, this.blocks);
     this.version++;
-  }
-
-  /** What was sent, checked again against the blocks it has: an answer (the input id) that came
-   *  after its block, a turn that ended with nothing new to fetch. */
-  recheck() {
-    const n = this.sent.length;
-    this.sent = unsent(this.sent, this.blocks);
-    if (this.sent.length !== n) this.version++;
   }
 
   /** The blocks the session's state carries (SessionState.tail, with the files they name), when
@@ -425,8 +380,6 @@ export function chatOf(id: string): Chat {
   for (const c of kept.values()) all += c.log.blocks.length;
   for (const [k, c] of kept) {
     if (all <= KEPT_BLOCKS || c === it) break;
-    // One with words not yet in its transcript (going, failed) is kept: they are nowhere else.
-    if (c.log.sent.length) continue;
     all -= c.log.blocks.length;
     kept.delete(k);
     whole.delete(k);
@@ -531,7 +484,7 @@ const stateCame = new Map<string, number>();
 export const freshState = (id: string) => fresh(stateCame.get(id) ?? 0);
 
 /** Channel id's first screen, in one answer (GET …/first), put where the page reads each part:
- *  its state, members, reads, newest log, agents' states and the work under their words.
+ *  its state, members, reads, newest log and agents' states.
  *  record: true fetches the raw transcript alone (TranscriptView). Never rejects. */
 export function firstScreen(id: string, it: Chat = chatOf(id), init?: RequestInit, record = false): Promise<void> {
   if (record) {
@@ -637,15 +590,8 @@ function putFirst(id: string, f: First, log: Messages): void {
     stateCame.set(x, Date.now());
   }
   if (!f.log) return;
-  const ch = channelLog(id).log;
-  ch.take(f.log);
+  channelLog(id).log.take(f.log);
   if (f.reads && !getCarried(`reads:${id}`)) setCarried(`reads:${id}`, f.reads);
-  // The work under all agents' words, as page.tsx Work would have fetched it.
-  const said = new Map(ch.msgs.flatMap((m) => (m.src ? [[workKey(m.src).join(" "), m.text] as const] : [])));
-  for (const w of f.work ?? []) {
-    const src: Src = { session: w.session, ...(w.block ? { block: w.block } : {}), ...(typeof w.from === "number" ? { from: w.from } : {}), ...(w.to ? { to: w.to } : {}) };
-    queryClient.setQueryData(workKey(src), workOf(w.blocks, src, said.get(workKey(src).join(" ")), saidBefore(ch.msgs, src)));
-  }
 }
 
 /** Watches the list for turns that end: tells turnEnded. */
@@ -659,7 +605,7 @@ export function watchTurns(list: Session[] | undefined, was: Map<string, string>
 
 /** Whether a message you sent failed and waits to be tried again, in any chat kept: one loading the
  *  page again would lose (src/upgrade.ts). */
-export const anyUnsent = () => anyUnsentChannel() || [...kept.values()].some((c) => c.log.sent.some((s) => s.failed !== undefined));
+export const anyUnsent = anyUnsentChannel;
 
 /** A chat the page warms of its own (src/warm.ts): seen, the session's updatedAt as its page was
  *  last asked for (a later one: more to fetch); mine, visited (kept now): its fetches are no longer

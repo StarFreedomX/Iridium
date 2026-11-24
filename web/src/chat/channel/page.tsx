@@ -1,17 +1,18 @@
 // A channel as a chat (docs/channels.md): every chat in Iridium — 0, 1, or several agents — is
 // drawn by this one page. Its members are a key at the bar's right (top.tsx). The conversation is
-// the channel's log: your words a bubble on the right, anyone else's on the left under their face;
-// an agent's as Markdown under its face, nick and what it runs as, its usage (context ring, quota
-// bars) after that, over them its steps from its own record; Iridium's lines small and centred.
+// the channel's messages and nothing else (docs/next/ui.md §1), as the log holds them (log.ts,
+// rows.ts): your words a bubble on the right, anyone else's on the left under their face, one face
+// for a run of one sender's; an agent's as Markdown under its face, nick and what it runs as, its
+// usage (context ring, quota bars) after that, what it did after each one line under it (work.tsx);
+// Iridium's lines small and centred.
 // When the channel has a single agent, /commands, /model, /mode, /clear, Shift+Tab and Esc work
 // directly on that agent.
 import { flushSync } from "react-dom";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
 import { Popover } from "@base-ui/react/popover";
-import { useQuery } from "@tanstack/react-query";
 import { api } from "../../api/client";
 import type { Block, ChannelReads, Reader, SessionState as LiveSession, Session } from "../../api/types.gen";
-import { firstScreen, fresh, freshState, isWhole, peekChat, stateAhead, type Sent } from "../../chats";
+import { firstScreen, fresh, freshState, isWhole, stateAhead, type Sent } from "../../chats";
 import { LOCAL_ME, useApps, useMe, useWhoList, useWorkspaces } from "../../data";
 import { t, useLang } from "../../i18n";
 import { pushIn, pushing } from "../../motion";
@@ -20,9 +21,7 @@ import { PULL } from "../../sheet";
 import { getCarried, onCarried, setCarried, useCarried, useConfirms, useList, useSession } from "../../store";
 import { also, carries, events, opened, type SatoriEvent } from "../../stream";
 import { errText } from "../../toast";
-import { Arrive, agentName, cn, lampOf, PopSurface, ServerFace } from "../../ui";
-import { Leaving } from "../../moves";
-import { working as subWorking } from "../../tree";
+import { agentName, cn, lampOf, PopSurface, ServerFace } from "../../ui";
 import { useSecret } from "../../secrets";
 import { Asks, Denials } from "../asks";
 import { placeDropped } from "../at";
@@ -31,12 +30,13 @@ import { Copyable } from "../copyable";
 import { Crash } from "../crash";
 import { ContextRing, ModeKey, ModelKey, modelView, QuotaBars, useMode } from "../meters";
 import { fromSatori, PLACE_DRAG, SESSION_DRAG, sourceOf, withDevice, yours, type Source } from "../refs";
-import { Assistant, Attached, Compaction, Letter, Line, MsgRow, Pending, Said, StepsHead, When, YouBubble } from "../said";
+import { Assistant, Attached, Compaction, Letter, Line, MsgRow, Pending, When, YouBubble } from "../said";
 import { ShellRuns } from "../shell";
-import { folded, foldKey } from "../fold";
 import { Stick, toEnd } from "../stick";
-import { askQueue, groupMessages, quoteAt, readMarks, stillWaiting, arrived, shownRows, watchExtra, type AgentRow, type Did, type Group, type Msg, type Src, lineOf, workOf, saidBefore, workKey, eventParts, personName, type EventWords } from "./lib";
+import { WorkLine } from "../work";
+import { askQueue, quoteAt, watchExtra, type AgentRow, type Did, type Msg, type Work, eventParts, personName, type EventWords } from "./lib";
 import { channelLog } from "./log";
+import { doneBefore, readMarks, type Group, type Person } from "./rows";
 import { lendActs } from "./menu";
 import { onOf } from "./scripts";
 import { useRecvLabel } from "./recv";
@@ -50,8 +50,6 @@ import { mayAct, useMembers } from "./gate";
 import { NotJoined } from "./key";
 import { Face as ChannelFace, MemberFace } from "./face";
 import { AgentFace } from "./members";
-import { OtherTurn } from "../atwork";
-import { useAway, Where } from "../away";
 import { PersonCard, PersonMenu, useNamed } from "./person";
 import { NickLink, Nicks, NickWords } from "./nick";
 import { useRecalled } from "../reactions";
@@ -63,13 +61,6 @@ const BUSY = new Set(["running", "compacting", "starting", "waiting"]);
 const turning = (s?: { status: string; asks: unknown[]; denials?: unknown[] }) => !!s && BUSY.has(s.status) && !(s.status === "waiting" && !s.asks.length && !!s.denials?.length);
 
 let lastStackH = 120;
-let placeN = 0; // the bubbles sent after the same message, in the order sent (Sent.place)
-/** How long a turn just begun is held back for the answer to the send that began it (ms): what a
- *  send takes over a usual link, no more. */
-const SEND_HOLD = 1500;
-/** How long an agent whose turn ended stays drawn at work for its message to come (ms): the time
- *  between its state and its message over a usual link, no more. */
-const LINGER = 600;
 
 const ghostOf = (row: Session): LiveSession => ({ ...row, asks: [], tasks: [], denials: [], queue: [], end: 0, proc: -1 });
 
@@ -81,9 +72,8 @@ export function useStates(ids: string[]): (LiveSession | undefined)[] {
   return ids.map((id) => getCarried<LiveSession>(`session:${id}`));
 }
 
-/** bar: the chat's top bar (chat.tsx Bar). record: opens a session's read-only TranscriptView.
- *  subTurn: draws a subagent at work under the conversation. */
-export function ChannelPage({ id, sheet = 0, bar, record, subTurn }: { id: string; sheet?: number; bar: (s: Session | undefined) => ReactNode; record: (session: string) => void; subTurn?: (s: Session) => ReactNode }) {
+/** bar: the chat's top bar (chat.tsx Bar). record: opens a session's read-only TranscriptView. */
+export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?: number; bar: (s: Session | undefined) => ReactNode; record: (session: string) => void }) {
   useLang();
   const [whole, setWhole] = useState(() => isWhole(id));
   useState(() => void (isWhole(id) || firstScreen(id)));
@@ -152,15 +142,6 @@ export function ChannelPage({ id, sheet = 0, bar, record, subTurn }: { id: strin
     if (was?.id === id && s.next && s.next !== was.next) openChat(s.next);
   }, [id, !!s, s?.bare, s?.next]);
 
-  // Subagents at work for any agent in this channel.
-  const sessionSet = useMemo(() => new Set(sessions), [sessions.join(" ")]);
-  const subs = (list ?? []).filter((x) => x.subagent && !!x.parent && sessionSet.has(x.parent) && subWorking(x, list?.find((y) => y.id === x.parent), Date.now()));
-  const subKey = subs.map((x) => x.id).join(" ");
-  useEffect(() => {
-    also(subKey ? subKey.split(" ").map((x) => `session:${x}`) : [], "subs");
-    return () => also([], "subs");
-  }, [subKey]);
-
   // The stream carries the agents' states too, as far as it has room; the rest are asked for as
   // the list says they changed.
   const key = sessions.join(" ");
@@ -186,40 +167,30 @@ export function ChannelPage({ id, sheet = 0, bar, record, subTurn }: { id: strin
     });
   }, [moved.join(" ")]);
 
-  // The newest page, or what was kept; then each message as its event brings it. What the events
-  // may have missed (the stream down a while) is read once it is back, and as an agent's turn moves.
+  // The newest page, or what was kept; then each message as its events bring it: made, changed,
+  // taken back (log.ts heard). What the events may have missed (the stream down a while) is read
+  // once it is back, the messages still being written then with it.
   useEffect(() => {
     let live = true;
     const more = () => void log.newer().then(() => live && changed(), () => {});
+    const back = () => void log.newer(true).then(() => live && changed(), () => {});
     if (!fresh(log.came)) more();
     const hear = (e: SatoriEvent) => {
-      if ((e.type !== "message-created" && e.type !== "message-deleted") || e.channel?.id !== id || !e.message) return;
-      log.heard({ ...e.message, _data: { ...e._data, ...e.message._data } }, e.type === "message-deleted");
+      if ((e.type !== "message-created" && e.type !== "message-updated" && e.type !== "message-deleted") || e.channel?.id !== id || !e.message) return;
+      log.heard({ ...e.message, _data: { ...e._data, ...e.message._data } }, e.type);
       changed();
     };
     events.add(hear);
-    opened.add(more);
+    opened.add(back);
     return () => {
       live = false;
       events.delete(hear);
-      opened.delete(more);
+      opened.delete(back);
     };
   }, [id]);
-  const turns = states.map((st) => `${st?.status}:${st?.end}`).join(" ");
-  const turnsOpen = useRef(true);
-  useEffect(() => {
-    const now = turnsOpen.current;
-    turnsOpen.current = false;
-    if (log.loaded && !(now && fresh(log.came))) void log.newer().then(changed, () => {});
-  }, [turns]);
 
-  // What was sent from here, till the log has it.
-  // One that has come keeps the place its bubble had (lib.ts placeOf).
-  for (const x of entry.sent) {
-    const m = x.failed === undefined && x.place !== undefined ? arrived(x, log.msgs) : undefined;
-    if (m && !entry.placed.has(m.n)) entry.placed.set(m.n, x.place!);
-  }
-  const sent = (entry.sent = entry.sent.filter((x) => stillWaiting(x, log.msgs)));
+  // What was sent from here, till the log has it (log.ts: by its input id or its number).
+  const sent = log.sent;
   const bubbles = useRef(new Map<string, HTMLDivElement>());
   const fly = useRef<string | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
@@ -229,7 +200,7 @@ export function ChannelPage({ id, sheet = 0, bar, record, subTurn }: { id: strin
   useLayoutEffect(() => {
     const el = fly.current && bubbles.current.get(fly.current);
     if (el) {
-      const x = entry.sent.find((y) => y.key === fly.current);
+      const x = log.sent.find((y) => y.key === fly.current);
       fly.current = null;
       toEnd(scroller.current);
       const t = pushIn(el);
@@ -240,32 +211,28 @@ export function ChannelPage({ id, sheet = 0, bar, record, subTurn }: { id: strin
         flew.current.delete(x);
         continue;
       }
-      const row = x.seq ? scroller.current?.querySelector<HTMLElement>(`[data-seq="${x.seq}"]`) : null;
+      const n = log.became(x);
+      const row = n !== undefined ? scroller.current?.querySelector<HTMLElement>(`[data-seq="${n}"]`) : null;
       if (!row) continue;
       flew.current.delete(x);
       pushIn(row, t);
     }
   });
   const onSent = (x: Sent) => {
-    x.from = log.end;
-    x.place = log.end + 0.5 + (placeN = (placeN + 1) % 4096) / 8192;
     x.mid = agents.some((a) => WORKING.has(a.status));
-    entry.sent.push(x);
+    log.send(x);
     fly.current = x.key;
     changed();
   };
-  // Failed, shown so even if it was taken for come.
   const sentDone = (x: Sent) => {
     x.at = Date.now();
-    if (x.failed !== undefined && !entry.sent.includes(x)) entry.sent.push(x);
+    log.answered(x);
     changed();
   };
   const retry = async (x: Sent) => {
     x.failed = undefined;
     x.at = undefined;
-    // Sent again: under what has come since, not back where it failed.
-    x.from = log.end;
-    x.place = log.end + 0.5 + (placeN = (placeN + 1) % 4096) / 8192;
+    log.resend(x);
     changed();
     try {
       const r = await api.send(id, x.text, x.files.map((f) => f.ref), x.input, x.quote);
@@ -273,8 +240,7 @@ export function ChannelPage({ id, sheet = 0, bar, record, subTurn }: { id: strin
     } catch (e) {
       x.failed = errText(e);
     }
-    x.at = Date.now();
-    changed();
+    sentDone(x);
   };
 
   // The bottom stack's height pads the conversation's end.
@@ -319,10 +285,12 @@ export function ChannelPage({ id, sheet = 0, bar, record, subTurn }: { id: strin
   // Who said a person's words, and whether it is the one looking: only those are on the right
   // (the user, 2026-11-13); another login, an app, a Bot or another session's ir on the left, under its own face.
   const who = personWho(self, terminals, list ?? [], workspaces ?? [], s);
-  const shown = shownRows(log.msgs, entry.placed, sent);
-  const shownKey = shown.map((r) => ("sent" in r ? `s${r.sent.key}` : `${r.msgs[0]!.n}-${r.msgs.at(-1)!.n}:${r.msgs.length}`)).join(" ");
-  const rows = useMemo(() => shown.map((r) => ("sent" in r ? r : { groups: groupMessages(r.msgs) })), [log.msgs, shownKey]);
-  const groups = useMemo(() => rows.flatMap((r) => ("groups" in r ? r.groups : [])), [rows]);
+  const whoNow = useRef(who);
+  whoNow.current = who;
+  const mine = useMemo(() => (a: Person) => whoNow.current(a).mine, [self.id, self.host, terminals]);
+  // The conversation, as the log gives it (log.ts, rows.ts): its rows in order, under their heads.
+  const groups = log.groups(mine);
+  const hidden = useMemo(() => doneBefore(log.msgs), [log.msgs]);
   // Words between agents fold when long (folds.ts betweenAgents).
   const nickSet = new Set(agents.map((a) => a.nick.toLowerCase()).filter(Boolean));
   const fold = (m: Msg) => betweenAgents(m, log.msgs, nickSet);
@@ -352,6 +320,18 @@ export function ChannelPage({ id, sheet = 0, bar, record, subTurn }: { id: strin
   };
   // A quote pressed: the message it answers, brought if the page has not got it (channel/jump.ts).
   const jump = (n: number) => void goTo(scroller.current, () => seqEl(scroller.current, n), () => around(log, n), changed);
+  // A bubble of what was sent from here, not yet its message.
+  const pending = (x: Sent, bare: boolean) => (
+    <Pending
+      s={x}
+      who={yours(self)}
+      bare={bare}
+      words={<NickWords text={x.text} />}
+      bubbleRef={(el) => void (el ? bubbles.current.set(x.key, el) : bubbles.current.delete(x.key))}
+      retry={() => retry(x)}
+      drop={() => (log.unsend(x), changed())}
+    />
+  );
 
   // How far each member has read (docs/channels.md "已读"): asked once, then as the stream
   // brings it. This page has read what it shows: said as the log's end moves while it is seen,
@@ -384,38 +364,6 @@ export function ChannelPage({ id, sheet = 0, bar, record, subTurn }: { id: strin
   const olds = useMemo(() => (readTo === undefined ? undefined : oldRead(log.msgs, readTo)), [log.msgs, readTo]);
   const old = (m: Msg) => foldsOnce(id, `m${m.n}`, olds?.has(m.n));
   const working = agents.filter((a) => WORKING.has(a.status));
-  // Hold back newly started agent turns while the triggering send HTTP is still in flight
-  // (kumo, 2026-11-24: SSE running can arrive before api.send responds, flashing a reply under a
-  // still-sending bubble).
-  // Not past SEND_HOLD: the answer late or never come (a weak link) while the agent is
-  // already at work, its turn is shown; held till the answer, it was not drawn at all.
-  const heldTill = Math.max(0, ...sent.map((x) => (!x.mid && x.at === undefined && x.left === undefined && x.failed === undefined ? (x.made ?? 0) + SEND_HOLD : 0)));
-  const sendingBefore = heldTill > Date.now();
-  useEffect(() => {
-    if (!sendingBefore) return;
-    const timer = setTimeout(changed, Math.max(0, heldTill - Date.now()) + 1);
-    return () => clearTimeout(timer);
-  }, [sendingBefore, heldTill]);
-  // An agent whose turn just ended stays drawn at work till what it said is in the log: its state
-  // comes a little before its message, and gone at once, the conversation was without both for
-  // that long (a block taller than the pane: nothing seen at all). LINGER at most: a turn that
-  // ended with nothing said.
-  const lingers = useRef(new Map<string, { from: number; till: number }>());
-  const wasWorking = useRef<string[]>([]);
-  {
-    const now = Date.now();
-    const on = new Set(working.map((a) => a.session));
-    for (const x of wasWorking.current) if (!on.has(x) && !lingers.current.has(x)) lingers.current.set(x, { from: log.end, till: now + LINGER });
-    wasWorking.current = [...on];
-    for (const [x, l] of lingers.current) if (on.has(x) || now >= l.till || log.msgs.some((m) => m.n > l.from && m.author.kind === "agent" && m.author.session === x)) lingers.current.delete(x);
-  }
-  const lingerTill = Math.min(Infinity, ...[...lingers.current.values()].map((l) => l.till));
-  useEffect(() => {
-    if (lingerTill === Infinity) return;
-    const timer = setTimeout(changed, Math.max(0, lingerTill - Date.now()) + 1);
-    return () => clearTimeout(timer);
-  }, [lingerTill]);
-  const shownWorking = sendingBefore ? [] : agents.filter((a) => WORKING.has(a.status) || lingers.current.has(a.session));
   const secretAt = useSecret()?.at;
   const secretHere = secretAt === id || (!!solo && secretAt === solo.session);
   const asking = agents.some((a) => !!stateAt(a.session)?.asks.length) || agents.some((a) => confirms.some((c) => c.session === a.session && c.kind !== "ask")) || secretHere;
@@ -424,7 +372,10 @@ export function ChannelPage({ id, sheet = 0, bar, record, subTurn }: { id: strin
   if (!compacting) compactSince.current = 0;
   else if (soloState?.compactingSince) compactSince.current = soloState.compactingSince;
   else if (!compactSince.current) compactSince.current = Date.now();
-  const grew = `${log.end} ${sent.length} ${working.map((a) => `${a.session}:${stateAt(a.session)?.end ?? 0}`).join(" ")} ${subs.map((x) => `${x.id}:${x.updatedAt}`).join(",")}`;
+  // The conversation grew at its end: a message come, a bubble, the last message written on.
+  const last = log.msgs.at(-1);
+  const grew = `${log.end} ${sent.length} ${last?.text.length ?? 0}`;
+  const busy = working.length > 0 || log.msgs.some((m) => m.writing || m.work?.running);
   const padTop = 64; // the bar's 48px, a gap
 
   if (!s) {
@@ -439,62 +390,21 @@ export function ChannelPage({ id, sheet = 0, bar, record, subTurn }: { id: strin
   return (
     <Nicks.Provider value={nicks}>
       <div className="relative h-full" onDragOver={(e) => files(e) || session(e) || place(e)} onDrop={drop}>
-        <Stick key={hold ? "hold" : "whole"} scroller={scroller} tail={grew} older={() => log.older()} busy={working.length > 0 || subs.length > 0} draw={changed} place={entry.place} bottom={stackH} quiet={asking} style={{ paddingTop: padTop, paddingBottom: stackH + 20 }}>
+        <Stick key={hold ? "hold" : "whole"} scroller={scroller} tail={grew} older={() => log.older()} busy={busy} draw={changed} place={entry.place} bottom={stackH} quiet={asking} style={{ paddingTop: padTop, paddingBottom: stackH + 20 }}>
           <div data-column className="mx-auto flex max-w-(--chat-w) flex-col gap-5 px-4 [--depart-gap:1.25rem] sm:px-6">
-            {!hold && rows.map((r) =>
-              "groups" in r ? (
-                r.groups.map((g) => (
-                  <div key={g.key} className="relative flex min-w-0 flex-col">
-                    <GroupView g={g} channel={id} agents={agents} who={who} record={record} call={call} may={may} quote={may ? quoting : undefined} quoted={quoted} bars={bars} fold={fold} old={old} jump={jump} />
-                    {/* In the gap under it, over nothing: coming late, it moves nothing (docs/前端设计规范.md). */}
-                    {SHOW_READS && marks.has(g.key) && <ReadMarks readers={marks.get(g.key)!} agents={agents} />}
-                  </div>
-                ))
-              ) : (
-                <Pending
-                  key={r.sent.key}
-                  s={r.sent}
-                  who={yours(self)}
-                  taken={!r.sent.mid && shownWorking.length > 0}
-                  words={<NickWords text={r.sent.text} />}
-                  bubbleRef={(el) => void (el ? bubbles.current.set(r.sent.key, el) : bubbles.current.delete(r.sent.key))}
-                  retry={() => retry(r.sent)}
-                  drop={() => ((entry.sent = entry.sent.filter((y) => y !== r.sent)), changed())}
-                />
-              ),
-            )}
+            {!hold &&
+              groups.map((g) => (
+                <div key={g.key} className="relative flex min-w-0 flex-col">
+                  <GroupView g={g} channel={id} agents={agents} who={who} record={record} call={call} may={may} quote={may ? quoting : undefined} quoted={quoted} bars={bars} fold={fold} old={old} jump={jump} wrote={log.wrote} hidden={hidden} pending={pending} />
+                  {/* In the gap under it, over nothing: coming late, it moves nothing (docs/前端设计规范.md). */}
+                  {SHOW_READS && marks.has(g.key) && <ReadMarks readers={marks.get(g.key)!} agents={agents} />}
+                </div>
+              ))}
             {!hold && log.loaded && compacting && (
               <div className="-mt-1">
                 <Compaction since={compactSince.current} />
               </div>
             )}
-            {/* Each called agent at work: its face and name at once, as its words will be, the dots
-                under them, and live streaming drafts + tool calls; collapsed cleanly when idle so
-                there is no dead empty gap under the last message. */}
-            {!hold && log.loaded && !compacting && (
-              <div data-tail className="-mt-2 flex flex-col gap-5 empty:hidden">
-                <Leaving
-                  items={shownWorking}
-                  keyOf={(a) => a.session}
-                  draw={(a, leaving) => {
-                    const last = groups.at(-1)?.author;
-                    // Under its own last words, no face again: only the first drawn (bare under another's
-                    // block, its dots read as that one's).
-                    const alone = !sent.length && last?.kind === "agent" && last.session === a.session && shownWorking[0]?.session === a.session;
-                    return (
-                      <Arrive on={!alone} off={leaving} as="g-fade">
-                        <OtherTurn spoken={new Set(log.msgs.slice(-12).flatMap((m) => (m.author.kind === "agent" && m.author.session === a.session && m.text.trim() ? [m.text.trim()] : [])))} a={a} channel={id} st={stateAt(a.session)} said={log.msgs.findLast((m) => m.author.kind === "agent" && m.author.session === a.session && !!m.src)?.src} alone={alone} bars={bars(a.session)} call={may ? call : undefined} record={record} may={may} esc={agents.length === 1} />
-                      </Arrive>
-                    );
-                  }}
-                />
-              </div>
-            )}
-            {!hold && subTurn && subs.map((x) => (
-              <div key={x.id} className="g-arrive">
-                <div>{subTurn(x)}</div>
-              </div>
-            ))}
             {!hold && soloState?.denials?.length ? <Denials session={soloState.id} denials={soloState.denials} cwd={soloState.cwd} stuck={soloState.status === "waiting" && !soloState.asks.length} /> : null}
             {!hold && soloState?.status === "error" && soloState.error && <Crash error={soloState.error} />}
           </div>
@@ -699,65 +609,32 @@ function blockFor(m: Msg, agents: AgentRow[]): Block {
   return b;
 }
 
-/** One speaker's messages: a person's bubble; an agent's words under its head; Iridium's line.
- *  Each message by its number (data-seq, where a quote goes: jump), folding by hand or of itself
- *  (old; fold: words between agents). */
-export function GroupView({ g, channel, agents, who, record, call, may, quote, quoted, bars, fold, old, jump }: { fold?: (m: Msg) => boolean; old?: (m: Msg) => boolean; jump?: (n: number) => void; g: Group; channel: string; agents: AgentRow[]; who: Who; record: (session: string) => void; call: (nick: string) => void; may: boolean; quote?: (m: Msg) => void; quoted: (n: number) => { who: string; text: string } | undefined; bars: (session: string) => ReactNode }) {
+/** One speaker's rows (rows.ts Group): a person's bubbles, the first under its face and name, a
+ *  bubble of what was sent from here not yet its message among them (pending); an agent's words
+ *  under its head, each with its work's line; Iridium's lines. Each message by its number
+ *  (data-seq, where a quote goes: jump), folding by hand or of itself (old; fold: words between
+ *  agents). wrote: the messages this page saw written, drawn so to their end and never folded of
+ *  themselves. hidden: those whose count of what was done before them is the line of the one
+ *  before (rows.ts doneBefore). */
+export function GroupView({ g, channel, agents, who, record, call, may, quote, quoted, bars, fold, old, jump, wrote, hidden, pending }: { fold?: (m: Msg) => boolean; old?: (m: Msg) => boolean; jump?: (n: number) => void; g: Group<Sent>; channel: string; agents: AgentRow[]; who: Who; record: (session: string) => void; call: (nick: string) => void; may: boolean; quote?: (m: Msg) => void; quoted: (n: number) => { who: string; text: string } | undefined; bars: (session: string) => ReactNode; wrote?: ReadonlySet<number>; hidden?: ReadonlySet<number>; pending?: (x: Sent, bare: boolean) => ReactNode }) {
   const list = useList();
   const a = g.author;
-  if (a.kind === "iridium")
+  const msgs = g.lines.flatMap((l) => (l.m ? [l.m] : []));
+  if (a?.kind === "iridium")
     return (
       <div className="flex flex-col">
-        {g.msgs.map((m) => (
+        {msgs.map((m) => (
           <EventLine key={m.n} m={m} channel={channel} />
         ))}
       </div>
     );
-  if (a.kind === "person") {
-    const m = g.msgs[0]!;
-    const by = who(a);
-    const w = msgWords(m);
-    const body = [...m.files.map((f) => <Attached key={f.ref} session={channel} f={f} />), ...(w.forwards.length ? [<Forwards key="forwards" fs={w.forwards} />] : [])];
-    const under = m.quote !== undefined ? <QuoteLine n={m.quote} q={quoted(m.quote)} channel={channel} jump={jump} /> : undefined;
+  if (!a || a.kind === "person")
     return (
-      <div data-seq={m.n}>
-        <Foldable scope={channel} id={`m${m.n}`} auto={old?.(m) ?? false} lines={linesOf(w.words)}>
-          {(wrap) => (
-            <Copyable copy={withForwards(w.words, w.forwards)} quote={quote && (() => quote(m))} act={{ channel, seq: m.n, may, side: by.mine ? "right" : "left" }}>
-              {by.who.kind === "letter" ? (
-                <Letter
-                  src={by.who}
-                  text={w.words}
-                  time={m.time}
-                  onJump={openChat}
-                  words={wrap(<NickWords text={w.words} />)}
-                  under={under}
-                  menu={by.who.channel ? (at, close) => <PersonMenu user={a.id} name={a.name} call={may ? call : undefined} at={at} close={close} /> : undefined}
-                  card={by.who.channel ? <PersonCard user={a.id} name={a.name} avatar={by.who.avatar} dm={false} call={may ? call : undefined} /> : undefined}
-                >
-                  {body}
-                </Letter>
-              ) : (
-                <YouBubble
-                  text={w.words}
-                  who={by.who}
-                  left={!by.mine}
-                  time={m.time}
-                  words={wrap(<NickWords text={w.words} />)}
-                  under={under}
-                  menu={by.mine ? undefined : (at, close) => <PersonMenu user={a.id} name={a.name} call={may ? call : undefined} at={at} close={close} />}
-                  card={<PersonCard user={a.id} name={a.name} avatar={by.who.avatar} dm={!by.mine} call={may && !by.mine ? call : undefined} />}
-                >
-                  {body}
-                </YouBubble>
-              )}
-            </Copyable>
-          )}
-        </Foldable>
+      <div className="flex flex-col gap-1.5">
+        {g.lines.map((l, i) => (l.m && l.m.author.kind === "person" ? <PersonLine key={l.key} m={l.m} a={l.m.author} bare={i > 0} channel={channel} who={who} call={call} may={may} quote={quote} quoted={quoted} old={old} jump={jump} /> : l.sent ? <div key={l.key}>{pending?.(l.sent, i > 0)}</div> : null))}
       </div>
     );
-  }
-  if (a.kind === "script") return <ScriptGroup g={g} channel={channel} agents={agents} quote={quote} quoted={quoted} old={old} jump={jump} />;
+  if (a.kind === "script") return <ScriptGroup msgs={msgs} channel={channel} agents={agents} quote={quote} quoted={quoted} old={old} jump={jump} />;
   const now = agents.find((x) => x.session === a.session);
   // One no longer in the channel, or an outsider writing via ir: its harness as the list has it.
   const agent = now?.agent ?? list?.find((x) => x.id === a.session)?.agent;
@@ -775,25 +652,33 @@ export function GroupView({ g, channel, agents, who, record, call, may, quote, q
           <span className="shrink-0 text-xs font-medium text-ink-2">{now?.nick || a.nick}</span>
           <span className="min-w-0 truncate text-xs text-ink-4">{now?.name || a.name}</span>
           {now && bars(now.session)}
-          <When time={g.msgs[0]!.time} />
+          <When time={msgs[0]?.time} />
         </div>
-        {g.msgs.map((m) => {
+        {msgs.map((m) => {
           const w = msgWords(m);
+          const said = !!w.words.trim() || m.files.length > 0 || w.forwards.length > 0;
+          const seen = !!wrote?.has(m.n);
+          const session = m.src?.session ?? a.session;
+          const line = (props: { work?: Work; did?: Did; span?: { from: number; to: number } }) => <WorkLine channel={channel} n={m.n} session={session} may={may} esc={agents.length === 1} {...props} />;
           return (
             <div key={m.n} data-seq={m.n} className={cn(m.kind === "error" && "text-err")}>
-              {m.src ? <Work src={m.src} did={m.did} said={m.text} channel={channel} /> : m.did && <DidLine did={m.did} />}
-              <Foldable scope={channel} id={`m${m.n}`} auto={((fold?.(m) ?? false) && longWords(w.words)) || (old?.(m) ?? false)} lines={linesOf(w.words)}>
-                {(wrap) => (
-                  <Copyable copy={withForwards(w.words, w.forwards)} quote={quote && (() => quote(m))} act={m.kind === "error" || m.kind === "ask" ? undefined : { channel, seq: m.n, may }}>
-                    {wrap(
-                      <>
-                        <Assistant b={blockFor(m, agents)} session={m.input ? channel : a.session} />
-                        <Forwards fs={w.forwards} />
-                      </>,
-                    )}
-                  </Copyable>
-                )}
-              </Foldable>
+              {/* What an older message says was done before it, where the one before has no line of its own for it. */}
+              {m.did && !m.work && !hidden?.has(m.n) && line({ did: m.did, ...(m.src?.from !== undefined && m.src.to ? { span: { from: m.src.from, to: m.src.to } } : {}) })}
+              {said && (
+                <Foldable scope={channel} id={`m${m.n}`} auto={!seen && (((fold?.(m) ?? false) && longWords(w.words)) || (old?.(m) ?? false))} lines={linesOf(w.words)}>
+                  {(wrap) => (
+                    <Copyable copy={withForwards(w.words, w.forwards)} quote={quote && (() => quote(m))} act={m.kind === "error" || m.kind === "ask" ? undefined : { channel, seq: m.n, may }}>
+                      {wrap(
+                        <>
+                          <Assistant b={blockFor(m, agents)} session={m.input ? channel : a.session} draft={seen ? { live: !!m.writing } : undefined} />
+                          <Forwards fs={w.forwards} />
+                        </>,
+                      )}
+                    </Copyable>
+                  )}
+                </Foldable>
+              )}
+              {m.work && line({ work: m.work })}
               {m.quote !== undefined && <QuoteLine n={m.quote} q={quoted(m.quote)} channel={channel} jump={jump} />}
             </div>
           );
@@ -803,18 +688,66 @@ export function GroupView({ g, channel, agents, who, record, call, may, quote, q
   );
 }
 
+/** A person's message: a bubble, or a letter (another session's ir, a plugin, a peer); bare: under
+ *  the head of the one before it from the same sender. */
+function PersonLine({ m, a, bare, channel, who, call, may, quote, quoted, old, jump }: { m: Msg; a: Extract<Msg["author"], { kind: "person" }>; bare: boolean; channel: string; who: Who; call: (nick: string) => void; may: boolean; quote?: (m: Msg) => void; quoted: (n: number) => { who: string; text: string } | undefined; old?: (m: Msg) => boolean; jump?: (n: number) => void }) {
+  const by = who(a);
+  const w = msgWords(m);
+  const body = [...m.files.map((f) => <Attached key={f.ref} session={channel} f={f} />), ...(w.forwards.length ? [<Forwards key="forwards" fs={w.forwards} />] : [])];
+  const under = m.quote !== undefined ? <QuoteLine n={m.quote} q={quoted(m.quote)} channel={channel} jump={jump} /> : undefined;
+  return (
+    <div data-seq={m.n}>
+      <Foldable scope={channel} id={`m${m.n}`} auto={old?.(m) ?? false} lines={linesOf(w.words)}>
+        {(wrap) => (
+          <Copyable copy={withForwards(w.words, w.forwards)} quote={quote && (() => quote(m))} act={{ channel, seq: m.n, may, side: by.mine ? "right" : "left" }}>
+            {by.who.kind === "letter" ? (
+              <Letter
+                src={by.who}
+                text={w.words}
+                time={m.time}
+                onJump={openChat}
+                bare={bare}
+                words={wrap(<NickWords text={w.words} />)}
+                under={under}
+                menu={by.who.channel ? (at, close) => <PersonMenu user={a.id} name={a.name} call={may ? call : undefined} at={at} close={close} /> : undefined}
+                card={by.who.channel ? <PersonCard user={a.id} name={a.name} avatar={by.who.avatar} dm={false} call={may ? call : undefined} /> : undefined}
+              >
+                {body}
+              </Letter>
+            ) : (
+              <YouBubble
+                text={w.words}
+                who={by.who}
+                left={!by.mine}
+                time={m.time}
+                bare={bare}
+                words={wrap(<NickWords text={w.words} />)}
+                under={under}
+                menu={by.mine ? undefined : (at, close) => <PersonMenu user={a.id} name={a.name} call={may ? call : undefined} at={at} close={close} />}
+                card={<PersonCard user={a.id} name={a.name} avatar={by.who.avatar} dm={!by.mine} call={may && !by.mine ? call : undefined} />}
+              >
+                {body}
+              </YouBubble>
+            )}
+          </Copyable>
+        )}
+      </Foldable>
+    </div>
+  );
+}
+
 /** A command's messages (docs/channels.md "命令"): said as Iridium, its face and name over what
  *  it printed, as an agent's words are drawn (kumo, 2026-11-24: no face or name of its own). */
-function ScriptGroup({ g, channel, agents, quote, quoted, old, jump }: { g: Group; channel: string; agents: AgentRow[]; quote?: (m: Msg) => void; quoted: (n: number) => { who: string; text: string } | undefined; old?: (m: Msg) => boolean; jump?: (n: number) => void }) {
+function ScriptGroup({ msgs, channel, agents, quote, quoted, old, jump }: { msgs: Msg[]; channel: string; agents: AgentRow[]; quote?: (m: Msg) => void; quoted: (n: number) => { who: string; text: string } | undefined; old?: (m: Msg) => boolean; jump?: (n: number) => void }) {
   return (
     <MsgRow className="flex min-w-0 items-start gap-2.5">
       <ServerFace size={28} />
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
         <div className="flex h-4 min-w-0 items-center gap-1.5">
           <span className="min-w-0 truncate text-xs font-medium text-ink-2">Iridium</span>
-          <When time={g.msgs[0]!.time} />
+          <When time={msgs[0]?.time} />
         </div>
-        {g.msgs.map((m) => {
+        {msgs.map((m) => {
           const w = msgWords(m);
           return (
             <div key={m.n} data-seq={m.n}>
@@ -876,68 +809,5 @@ function EventLine({ m, channel }: { m: Msg; channel: string }) {
     <Line>
       {parts.map((p, i) => (typeof p === "string" ? p : "nick" in p ? <NickLink key={i} nick={p.nick} /> : "recv" in p ? whole(p.recv) : "on" in p ? onWhole(p.on) : p.people.map((x) => personName(x, apps, d?.logins ?? [])).join(t("channel.event.sep"))))}
     </Line>
-  );
-}
-
-/** What the agent did before the words under it (the user, 2026-11-13: all of it, not a count):
- *  its thinking and tool calls from its own record, folded as its own chat folds them. The
- *  count's line until they come, or when the record cannot be read. did: none for a stretch
- *  with no tool call (thinking alone), which has no count to show meanwhile. */
-function Work({ src, did, said, channel }: { src: Src; did?: Did; said?: string; channel: string }) {
-  const row = useList()?.find((x) => x.id === src.session);
-  // Done away from the channel's folder: in the box that says where (away.tsx), one line until
-  // pressed; the words under it are the channel's and stay outside.
-  const away = useAway(channel, src.session);
-  const q = useQuery({
-    queryKey: workKey(src),
-    queryFn: async () => {
-      const page = src.from !== undefined ? await api.messages(src.session, { after: Math.max(0, src.from - 1) }) : await api.messages(src.session, { before: lineOf(src.block!) + 1 });
-      return workOf(page.blocks, src, said, saidBefore(channelLog(channel).log.msgs, src));
-    },
-    // What its record kept here already has (it was just drawn at work from it): no asking, no
-    // line of counts in between while the answer comes over a slow link.
-    initialData: () => {
-      const log = peekChat(src.session)?.log;
-      if (!log?.loaded || src.from === undefined || src.to === undefined || log.start > src.from || log.end < src.to) return undefined;
-      // With the words of the message before, as the answer asked for is read (above): without
-      // them the stretch began with those words again, a second time under themselves, and stayed
-      // so (kumo, 2026-11-24: each thing an agent said on its way through a long turn drawn twice).
-      const have = workOf<Block>(log.blocks, src, said, saidBefore(channelLog(channel).log.msgs, src));
-      return have.length ? have : undefined;
-    },
-    staleTime: Infinity,
-    // A weak link: tried again, not left at the counts for good.
-    retry: 3,
-    retryDelay: (n) => Math.min(8000, 600 * 2 ** n),
-  });
-  const work = q.data;
-  if (!work?.length) return did ? <DidLine did={did} /> : null;
-  // A stretch that is over: a call of it with no result never got one, and is a step, not a call
-  // still running (kumo, 2026-11-24: 底下这行理论上不该存在的吧, a bash line for 149m41s under its
-  // words).
-  const shown = folded(work, false);
-  const rows = shown.map((b) => <Said key={b.kind === "fold" ? (foldKey(b.steps) ?? b.at) : b.at} b={b} session={src.session} cwd={row?.cwd ?? ""} source={() => ({ kind: "you" }) as ReturnType<Parameters<typeof Said>[0]["source"]>} onJump={openChat} />);
-  return (
-    <div className="mb-1.5 flex min-w-0 flex-col gap-3">
-      <StepsHead.Provider value={away ? <Where place={away} /> : null}>{rows}</StepsHead.Provider>
-    </div>
-  );
-}
-
-/** What the agent did before the words under it, in one quiet line. */
-function DidLine({ did }: { did: Did }) {
-  useLang();
-  const parts: string[] = [];
-  if (did.bash) parts.push(`bash ${did.bash}${did.cmds ? `（${did.cmds}）` : ""}${did.failed ? t("channel.did.failed", { n: did.failed }) : ""}`);
-  if (did.files) parts.push(`${t("channel.did.files", { n: did.files })} +${did.add} −${did.del}`);
-  if (did.read) parts.push(t("channel.did.read", { n: did.read }));
-  if (did.web) parts.push(t("channel.did.web", { n: did.web }));
-  if (did.agents) parts.push(t("channel.did.agents", { n: did.agents }));
-  if (did.other) parts.push(t("channel.did.other", { n: did.other }));
-  if (!parts.length) return null;
-  return (
-    <div className="mb-1 truncate text-xs text-ink-3 tabular-nums">
-      {parts.join(" · ")}
-    </div>
   );
 }
