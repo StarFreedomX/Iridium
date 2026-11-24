@@ -210,7 +210,9 @@ export function WorkLine({ channel, n, session, work, did, span, may, esc }: { c
     setCard((c) => c && { ...c, open: false });
     const stays = open && !!to && !sameOnly(to, only);
     if (!open) read();
-    setOnly(to);
+    // Put away, it keeps what it showed: its rows go as they were, not all of them put in first
+    // and then shut (kumo, 2026-11-25: 收起时把所有的排了一遍再收起).
+    if (!open || stays) setOnly(to);
     if (!stays) setOpen(channel, n, !open);
   };
   return (
@@ -387,6 +389,15 @@ function StepList({ reveal, session, steps, only, rows, open, card, setCard, shu
         <div className="min-h-0 min-w-0 overflow-hidden">
           {ever && (
             <div style={rows ? ({ "--rows": Math.max(rows, list.length) } as CSSProperties) : undefined} className={cn("ml-[3px] flex min-w-0 flex-col overflow-hidden pl-3 shadow-[inset_1px_0_0_var(--edge)]", !!rows && "min-h-[calc(var(--rows)*28px)] pointer-coarse:min-h-[calc(var(--rows)*36px)]")}>
+              {/* Its record not read yet: as many quiet rows as it has steps, where they come (kumo,
+                  2026-11-25: an empty box with its line read as broken). */}
+              {!steps &&
+                Array.from({ length: rows ?? 0 }, (_, i) => (
+                  <span key={i} aria-hidden className={cn(ROW, "w-full shrink-0 hover:text-ink-3")}>
+                    <span className="size-3.5 shrink-0 rounded-sm bg-fill-2" />
+                    <span className="h-2 rounded-full bg-fill-2" style={{ width: `${28 + ((i * 37) % 40)}%` }} />
+                  </span>
+                ))}
               {list.map((s) =>
                 row(
                   s.at,
