@@ -350,7 +350,8 @@ const ndjson = "application/x-ndjson"
 // then is what ir does past an answer, as --wait says (-1: nothing; else the exit code): a
 // session started with a message (channel.create) is waited on until the agent took it,
 // with --wait until its turn ends, the reply printed; what waits for a person (202 {need}: an
-// agent's invite, a secret to type in) is waited on with --wait until a person decided.
+// agent's invite, a secret to type in; an ask for manual approval) is waited on with --wait until
+// a person decided.
 func (e *env) then(c *apiCall, raw []byte) int {
 	switch {
 	case c.path == "/v1/channel.create" && !c.json:
@@ -392,6 +393,12 @@ func (e *env) then(c *apiCall, raw []byte) int {
 			return -1
 		}
 		return e.follow(st.Run)
+	case c.method == "POST" && c.wait && c.status == http.StatusOK && manualPath.MatchString(c.path):
+		var st api.ManualState
+		if json.Unmarshal(raw, &st) != nil || st.RequestID == "" {
+			return -1
+		}
+		return e.waitManual(c.path, st)
 	case c.status == http.StatusAccepted && c.wait:
 		var p api.Pending
 		if json.Unmarshal(raw, &p) != nil || p.Need.ID == "" {
@@ -542,6 +549,29 @@ func (e *env) afterSend(id string, sent api.SendReply, wait bool, before api.Mes
 		return e.waitTurn(id, sent.Input)
 	}
 	return e.waitTaken(id, sent.Input)
+}
+
+// manualPath is internal/sessions/{id}/manual: --wait waits for a person's answer.
+var manualPath = regexp.MustCompile(`^/v1/internal/sessions/[^/?]+/manual$`)
+
+// waitManual waits for the answer to ask st for manual approval (at path), then says it in a
+// line: approved, exit 0; refused or unanswered, 1.
+func (e *env) waitManual(path string, st api.ManualState) int {
+	for st.State == "pending" {
+		if err := e.do("GET", path+"?wait=60", nil, &st); err != nil {
+			return e.fail(err)
+		}
+	}
+	switch st.State {
+	case "approved":
+		fmt.Fprintf(e.out, "approved: manual approval till this turn ends or %d minutes pass; run the step again, it is asked\n", st.Minutes)
+		return exitDone
+	case "refused":
+		fmt.Fprintln(e.out, "refused: the mode stays")
+	default:
+		fmt.Fprintln(e.out, "no answer in time: refused, the mode stays")
+	}
+	return exitError
 }
 
 // sessionPath is GET internal/sessions/{id}: --wait waits for its turn to end.

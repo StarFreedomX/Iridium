@@ -64,7 +64,6 @@ func (e *env) waitTurn(id, input string) int {
 			p.clear()
 			return e.fail(err)
 		}
-		st.Status = turnStatus(&st)
 		switch {
 		case st.Status == api.StatusWaiting:
 			p.clear()
@@ -194,7 +193,7 @@ var replyLag = 5 * time.Second
 
 func (e *env) printAsks(asks []api.Ask) {
 	for _, a := range asks {
-		what := map[string]string{"permission": "审批", "question": "提问", "plan": "确认计划"}[a.Kind]
+		what := map[string]string{"permission": "审批", "question": "提问", "plan": "确认计划", "manual": "手动审批"}[a.Kind]
 		if what == "" {
 			what = a.Kind
 		}
@@ -214,15 +213,6 @@ func clip(text string, n int) string {
 		return string(r[:n]) + "…"
 	}
 	return text
-}
-
-// turnStatus is a session's status as a turn has it: waiting only on a step auto mode denied (its
-// card above the page's composer, no ask open), the turn is over: idle.
-func turnStatus(st *api.SessionState) api.Status {
-	if st.Status == api.StatusWaiting && len(st.Asks) == 0 && len(st.Denials) > 0 {
-		return api.StatusIdle
-	}
-	return st.Status
 }
 
 // waitMirrored waits for a turn DSH Desktop runs (a message given to its agent): no turn of

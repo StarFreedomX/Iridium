@@ -218,11 +218,6 @@ export interface LastSaid {
 export interface SessionState extends Session {
   asks: Ask[];
   tasks: Task[];
-  /**
-   * Denials: steps Claude's auto mode classifier turned down since the daemon started, waiting
-   * for you to switch to manual for them or let them be (docs/api.md "临时切换至 manual"); the oldest first.
-   */
-  denials: Denial[];
   model?: string;
   mode?: string; // the approval (permission) mode
   /**
@@ -314,7 +309,7 @@ export interface Command {
  */
 export interface Ask {
   requestId: string;
-  kind: string; // question | plan | permission
+  kind: string; // question | plan | permission | manual (ManualAsk)
   tool: string;
   input: unknown;
   toolUseId?: string;
@@ -328,17 +323,6 @@ export interface Ask {
    * Card: the ask as the confirmation panel and plugins show it.
    */
   card?: Card;
-}
-/**
- * Denial is a step Claude's auto mode classifier turned down: the call (ToolUseID), its tool and
- * input, the classifier's reason, when (ms).
- */
-export interface Denial {
-  toolUseId: string;
-  tool: string;
-  input: unknown;
-  reason?: string;
-  at: number /* int64 */;
 }
 /**
  * Task is a background task of the agent's. While one runs the session is not reaped.
@@ -641,16 +625,24 @@ export interface SendReply {
   desktop?: boolean;
 }
 /**
- * Release puts the process in manual mode for call ToolUseID, which Claude's auto mode classifier
- * denied, till the step is run again or the turn ends; nothing is said to Claude (docs/api.md
- * "临时切换至 manual").
+ * ManualAsk is Claude asking a person to switch it to manual approval for a while (POST
+ * internal/sessions/self/manual; docs/api.md "临时切换至 manual"): why, in a line; Minutes: how long
+ * it waits for the answer and, approved, how long manual mode lasts at most (1 to 30, 10 if none).
  */
-export interface Release {
-  toolUseId: string;
-  /**
-   * Dismiss: let it be, not run: only its card goes.
-   */
-  dismiss?: boolean;
+export interface ManualAsk {
+  reason: string;
+  minutes?: number /* int */;
+}
+/**
+ * ManualState is how a ManualAsk stands: pending (Until: when the wait ends, ms); approved (manual
+ * mode till the turn ends, or Until); refused; expired (no answer in time, or the turn ended
+ * first). The ask is an Ask of kind "manual", RequestID its id.
+ */
+export interface ManualState {
+  requestId: string;
+  state: string;
+  minutes: number /* int */;
+  until?: number /* int64 */;
 }
 /**
  * Answer answers an ask. permission: Allow (and Message if not); question: Answers, by question

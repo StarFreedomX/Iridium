@@ -5,11 +5,11 @@
 // Markdown, approve or keep planning. A question: its options as keys, or your own words. Every
 // answer goes to the ask's card (POST /v1/internal/button), as an app's does.
 import { Menu } from "@base-ui/react/menu";
-import { ArrowUp, Check, ChevronDown, ClipboardList, FilePen, Globe, LoaderCircle, MessageCircleQuestionMark, PenLine, ShieldAlert, ShieldQuestion, SquareTerminal } from "lucide-react";
+import { ArrowUp, Check, ChevronDown, ClipboardList, FilePen, Globe, Hand, LoaderCircle, MessageCircleQuestionMark, PenLine, ShieldQuestion, SquareTerminal } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { api } from "../api/client";
-import type { Ask, CardAnswer, Need, Denial } from "../api/types.gen";
-import { CardDetails, CardFrame, CardHead, Facts, MainKey, SecondKey } from "../card";
+import type { Ask, CardAnswer, Need } from "../api/types.gen";
+import { CardDetails, CardFrame, CardHead, SecondKey } from "../card";
 import { ConfirmCard } from "../confirms";
 import { SecretHere } from "../secret";
 import { useSecret } from "../secrets";
@@ -60,94 +60,6 @@ export function Asks({ session, asks, cwd, confirms = [] }: { session: string; a
   );
 }
 
-/** The steps Claude's auto mode turned down (session/release.go), at the conversation's end once the
- *  turn is over: one line as a compaction's, "auto 拦了 2 步", folded, for Claude may have gone
- *  another way; open, a card each. stuck: the turn stopped on one, the session waits for you: open
- *  (the user, 2026-11-08). They go with your next message. */
-export function Denials({ session, denials, cwd, stuck }: { session: string; denials: Denial[]; cwd: string; stuck: boolean }) {
-  const [open, setOpen] = useState(stuck);
-  const [was, setWas] = useState(stuck);
-  if (stuck !== was) {
-    setWas(stuck);
-    if (stuck) setOpen(true);
-  }
-  return (
-    <div className="-mt-3">
-      <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="g-fade flex h-7 w-full cursor-pointer items-center gap-3 text-xs text-ink-3 hover:text-ink-2 pointer-coarse:h-9">
-        <span aria-hidden className="h-px flex-1 bg-edge" />
-        <span className={cn("flex items-center gap-1", stuck && "text-need")}>
-          {t("denied.count", { n: denials.length })}
-          <ChevronDown size={12} className={cn("text-ink-4 transition-transform", open && "rotate-180")} />
-        </span>
-        <span aria-hidden className="h-px flex-1 bg-edge" />
-      </button>
-      {open && (
-        <div className="mt-1 flex flex-col gap-2">
-          {denials.map((d) => (
-            <DenialCard key={d.toolUseId} d={d} session={session} cwd={cwd} />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/** A step auto mode turned down: switch to manual for it — nothing said to Claude; run again, it
- *  is asked, and the mode is back after it or at the turn's end — or let it be (the user,
- *  2026-11-08). */
-function DenialCard({ d, session, cwd }: { d: Denial; session: string; cwd: string }) {
-  const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState<"release" | "dismiss" | null>(null);
-  const [leaving, setLeaving] = useState(false);
-  const input = JSON.stringify(d.input ?? {});
-  const { arg } = argOf({ name: d.tool, input }, cwd);
-  const run = async (dismiss: boolean) => {
-    setBusy(dismiss ? "dismiss" : "release");
-    try {
-      await api.release(session, d.toolUseId, dismiss);
-      setLeaving(true);
-      if (!dismiss) toast(t("denied.released"), { description: t("denied.releasedHint") });
-    } catch (e) {
-      setBusy(null);
-      toast(t("err.action"), { error: true, description: errText(e) });
-    }
-  };
-  return (
-    <CardFrame leaving={leaving} label={t("denied.title")}>
-      <CardHead
-        icon={<ShieldAlert size={16} className="text-need" />}
-        title={t("denied.title")}
-        tag={d.reason}
-        summary={arg || d.tool}
-        mono
-        open={open}
-        setOpen={setOpen}
-        keys={
-          <>
-            <SecondKey disabled={!!busy} onClick={() => void run(true)}>
-              {t("denied.dismiss")}
-            </SecondKey>
-            <MainKey busy={busy === "release"} disabled={!!busy} onClick={() => void run(false)}>
-              {t("denied.release")}
-            </MainKey>
-          </>
-        }
-      />
-      {open && (
-        <CardDetails>
-          <Facts
-            rows={[
-              [t("ask.cwd"), <span className="font-mono text-xs">{tilde(cwd)}</span>],
-              ...(d.reason ? [[t("denied.reason"), d.reason] as [string, ReactNode]] : []),
-              [t("ask.input"), <span className="font-mono text-xs whitespace-pre-wrap">{JSON.stringify(d.input ?? {}, null, 2)}</span>],
-            ]}
-          />
-        </CardDetails>
-      )}
-    </CardFrame>
-  );
-}
-
 const ICON: Record<string, ReactNode> = {
   command: <SquareTerminal size={16} />,
   edit: <FilePen size={16} />,
@@ -156,27 +68,32 @@ const ICON: Record<string, ReactNode> = {
 
 function titleOf(a: Ask): string {
   if (a.kind === "plan") return t("ask.plan");
+  if (a.kind === "manual") return t("ask.manual");
   if (a.kind === "question") return t("ask.question");
   const k = kindOf(a.tool);
   return k === "command" ? t("ask.runCommand") : k === "edit" ? t("ask.edit") : k === "web" ? t("ask.web") : k === "read" || k === "search" ? t("ask.read") : t("ask.useTool");
 }
 
-/** An approval or a plan: allow (with "always" for approvals) or deny, a reason in the details. */
+/** An approval or a plan: allow (with "always" for approvals) or deny, a reason in the details. A
+ *  manual ask (session/manual.go): Claude, a step denied by auto mode, asks to be switched to
+ *  manual approval for a while; its reason the summary, agree or refuse. */
 function Decide({ a, cwd, busy, send }: { a: Ask; cwd: string; busy: boolean; send: (r: Reply) => void }) {
   const [open, setOpen] = useState(false);
   const [why, setWhy] = useState("");
   const input = JSON.stringify(a.input ?? {});
   const plan = a.kind === "plan" ? String(inputOf(input).plan ?? "") : "";
-  const { arg } = plan ? { arg: plan.split("\n").find((l) => l.trim())?.replace(/^#+\s*/, "") ?? "" } : argOf({ name: a.tool, input }, cwd);
-  const icon = a.kind === "plan" ? <ClipboardList size={16} /> : (ICON[kindOf(a.tool)] ?? <ShieldQuestion size={16} />);
-  const details = a.kind === "plan" ? null : JSON.stringify(a.input ?? {}, null, 2);
+  const manual = a.kind === "manual";
+  const minutes = manual ? Number(inputOf(input).minutes ?? 0) : 0;
+  const { arg } = plan ? { arg: plan.split("\n").find((l) => l.trim())?.replace(/^#+\s*/, "") ?? "" } : manual ? { arg: a.description ?? "" } : argOf({ name: a.tool, input }, cwd);
+  const icon = a.kind === "plan" ? <ClipboardList size={16} /> : manual ? <Hand size={16} /> : (ICON[kindOf(a.tool)] ?? <ShieldQuestion size={16} />);
+  const details = a.kind === "plan" || manual ? null : JSON.stringify(a.input ?? {}, null, 2);
   const isPlan = a.kind === "plan";
   return (
     <>
       <CardHead
         icon={icon}
         title={titleOf(a)}
-        tag={a.kind === "permission" ? a.tool : undefined}
+        tag={a.kind === "permission" ? a.tool : manual && minutes ? t("ask.manualMinutes", { n: minutes }) : undefined}
         summary={arg || a.description || a.tool}
         mono={a.kind === "permission"}
         open={open}
@@ -184,7 +101,7 @@ function Decide({ a, cwd, busy, send }: { a: Ask; cwd: string; busy: boolean; se
         keys={
           <>
             <SecondKey disabled={busy} onClick={() => send({ option: isPlan ? "reject" : "deny", message: why.trim() || undefined })}>
-              {isPlan ? t("ask.keepPlanning") : t("ask.deny")}
+              {isPlan ? t("ask.keepPlanning") : manual ? t("ask.refuse") : t("ask.deny")}
             </SecondKey>
             <div className="flex">
               <button
@@ -194,7 +111,7 @@ function Decide({ a, cwd, busy, send }: { a: Ask; cwd: string; busy: boolean; se
                 className={cn("g-press flex h-8 items-center gap-1.5 bg-ink pr-2.5 pl-3 text-sm font-medium text-on-ink disabled:opacity-60 pointer-coarse:h-10", a.kind === "permission" ? "rounded-l-md" : "rounded-md pr-3")}
               >
                 {busy && <LoaderCircle size={13} className="animate-spin" />}
-                {isPlan ? t("ask.approve") : t("ask.allow")}
+                {isPlan ? t("ask.approve") : manual ? t("ask.agree") : t("ask.allow")}
               </button>
               {a.kind === "permission" && (
                 <Menu.Root>
@@ -237,11 +154,15 @@ function Decide({ a, cwd, busy, send }: { a: Ask; cwd: string; busy: boolean; se
                   <dd className="m-0 text-ink-2">{a.description}</dd>
                 </>
               )}
-              <dt className="text-ink-3">{t("ask.input")}</dt>
-              <dd className="m-0 font-mono text-xs leading-5 break-all whitespace-pre-wrap text-ink-2">{details}</dd>
+              {details && (
+                <>
+                  <dt className="text-ink-3">{t("ask.input")}</dt>
+                  <dd className="m-0 font-mono text-xs leading-5 break-all whitespace-pre-wrap text-ink-2">{details}</dd>
+                </>
+              )}
             </dl>
           )}
-          <input value={why} onChange={(e) => setWhy(e.target.value)} placeholder={t("ask.reason")} aria-label={t("ask.reason")} disabled={busy} className="no-ring h-8 rounded-md bg-fill px-2.5 text-sm placeholder:text-ink-3" />
+          {!manual && <input value={why} onChange={(e) => setWhy(e.target.value)} placeholder={t("ask.reason")} aria-label={t("ask.reason")} disabled={busy} className="no-ring h-8 rounded-md bg-fill px-2.5 text-sm placeholder:text-ink-3" />}
         </CardDetails>
       )}
     </>

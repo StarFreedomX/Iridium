@@ -20,6 +20,9 @@ type Where struct {
 	Lang string
 	// Self: what the agent is told of itself (self.go); nil: nothing.
 	Self *Self
+	// Auto: its agent has Claude's auto mode, whose classifier may deny a step: it is told how to
+	// ask a person for manual approval with ir (idHostManual), where it has ir.
+	Auto bool
 	// Folder: the folder it runs in, as written there; "": not said. OS: that computer's system
 	// ("linux", "darwin", "windows"). Computer: its name, at another machine (Remote).
 	Folder, OS, Computer string
@@ -45,7 +48,7 @@ func wherePieces(w Where) []piece {
 var langs = map[string]string{"zh": idLangZh, "en": idLangEn}
 
 // systemPieces is the system prompt of a session at w. Here: ir's agent commands, how to ask
-// for a secret, hand over a file, name and title. At another machine: with ir the commands it
+// for a secret, hand over a file, name and title; Claude's, how to ask for manual approval. At another machine: with ir the commands it
 // has there, without none; where it runs (wherePieces); no file links (its files are that machine's, which ir attach there
 // does not reach). Then the user's language, if known.
 func systemPieces(w Where) []piece {
@@ -57,6 +60,9 @@ func systemPieces(w Where) []piece {
 		ps = append(ps, text(idRemoteIntro), help("remote"), help("layers"))
 	default:
 		ps = append(ps, text(idRemoteIntroBare))
+	}
+	if w.Auto && (!w.Remote || w.IR) {
+		ps = append(ps, text(idHostManual))
 	}
 	ps = append(ps, wherePieces(w)...)
 	ps = append(ps, text(idNames))

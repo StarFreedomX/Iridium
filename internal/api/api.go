@@ -169,11 +169,8 @@ type SessionState struct {
 	Session `tstype:",extends"`
 	Asks    []Ask  `json:"asks"`
 	Tasks   []Task `json:"tasks"`
-	// Denials: steps Claude's auto mode classifier turned down since the daemon started, waiting
-	// for you to switch to manual for them or let them be (docs/api.md "临时切换至 manual"); the oldest first.
-	Denials []Denial `json:"denials"`
-	Model   string   `json:"model,omitempty"`
-	Mode    string   `json:"mode,omitempty"` // the approval (permission) mode
+	Model   string `json:"model,omitempty"`
+	Mode    string `json:"mode,omitempty"` // the approval (permission) mode
 	// End: how far the transcript has been read; GET messages?after=<your end> for new blocks.
 	End int64 `json:"end"`
 	// Proc: the agent process's number, up by one at each start; drafts of another are stale.
@@ -232,7 +229,7 @@ type Command struct {
 // Ask is a question, a plan to confirm or a tool to approve, open until answered or withdrawn.
 type Ask struct {
 	RequestID   string `json:"requestId"`
-	Kind        string `json:"kind"` // question | plan | permission
+	Kind        string `json:"kind"` // question | plan | permission | manual (ManualAsk)
 	Tool        string `json:"tool"`
 	Input       any    `json:"input" tstype:"unknown"`
 	ToolUseID   string `json:"toolUseId,omitempty"`
@@ -242,16 +239,6 @@ type Ask struct {
 	Pattern string `json:"pattern,omitempty"`
 	// Card: the ask as the confirmation panel and plugins show it.
 	Card *Card `json:"card,omitempty"`
-}
-
-// Denial is a step Claude's auto mode classifier turned down: the call (ToolUseID), its tool and
-// input, the classifier's reason, when (ms).
-type Denial struct {
-	ToolUseID string `json:"toolUseId"`
-	Tool      string `json:"tool"`
-	Input     any    `json:"input" tstype:"unknown"`
-	Reason    string `json:"reason,omitempty"`
-	At        int64  `json:"at"`
 }
 
 // Task is a background task of the agent's. While one runs the session is not reaped.
@@ -511,13 +498,22 @@ type SendReply struct {
 	Desktop bool `json:"desktop,omitempty"`
 }
 
-// Release puts the process in manual mode for call ToolUseID, which Claude's auto mode classifier
-// denied, till the step is run again or the turn ends; nothing is said to Claude (docs/api.md
-// "临时切换至 manual").
-type Release struct {
-	ToolUseID string `json:"toolUseId"`
-	// Dismiss: let it be, not run: only its card goes.
-	Dismiss bool `json:"dismiss,omitempty"`
+// ManualAsk is Claude asking a person to switch it to manual approval for a while (POST
+// internal/sessions/self/manual; docs/api.md "临时切换至 manual"): why, in a line; Minutes: how long
+// it waits for the answer and, approved, how long manual mode lasts at most (1 to 30, 10 if none).
+type ManualAsk struct {
+	Reason  string `json:"reason"`
+	Minutes int    `json:"minutes,omitempty"`
+}
+
+// ManualState is how a ManualAsk stands: pending (Until: when the wait ends, ms); approved (manual
+// mode till the turn ends, or Until); refused; expired (no answer in time, or the turn ended
+// first). The ask is an Ask of kind "manual", RequestID its id.
+type ManualState struct {
+	RequestID string `json:"requestId"`
+	State     string `json:"state"`
+	Minutes   int    `json:"minutes"`
+	Until     int64  `json:"until,omitempty"`
 }
 
 // Answer answers an ask. permission: Allow (and Message if not); question: Answers, by question

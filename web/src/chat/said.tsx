@@ -627,7 +627,7 @@ export function Said({ b, session, cwd, source, onJump, card, menu, left }: { b:
         </Line>
       );
     case "fold":
-      // A step auto mode denied waits above the composer, not here (chat/asks.tsx DenialCard).
+      // A step auto mode denied is a failed step among the others (red), nothing more.
       return <Fold steps={b.steps} session={session} cwd={cwd} />;
     case "running":
       return <Running tool={b.tool} cwd={cwd} />;

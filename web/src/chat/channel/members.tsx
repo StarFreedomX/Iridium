@@ -40,7 +40,7 @@ const POPUP = "g-unfold glass thick float rounded-lg text-ink outline-none";
 const BUSY = new Set(["running", "compacting", "starting", "waiting"]);
 
 /** A member's state before the stream brings it, from its row. */
-const ghostOf = (row: Session): LiveSession => ({ ...row, asks: [], tasks: [], denials: [], queue: [], end: 0, proc: -1 });
+const ghostOf = (row: Session): LiveSession => ({ ...row, asks: [], tasks: [], queue: [], end: 0, proc: -1 });
 
 /** Something that floats at a member's face: the app's one popover (ui.tsx PopSurface) unfolding
  *  out of it, put away by a press elsewhere or Esc. */

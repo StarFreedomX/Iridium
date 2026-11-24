@@ -83,11 +83,7 @@ func (m *Manager) SendAs(ctx context.Context, id, want, text, from string, steer
 			return want, state != "sent", nil
 		}
 	}
-	h.shownLater()       // a message for it: out of the archive
-	if h.dropDenials() { // you went on: what auto mode denied before is let be
-		h.publish()
-		m.publishList()
-	}
+	h.shownLater() // a message for it: out of the archive
 	terminal, tag, login, device := m.source(from)
 	in := store.Input{ID: cmp.Or(want, newUUID()), Session: h.id, Terminal: terminal, Login: login, Tag: tag, Device: device, Text: text, State: "sent"}
 	// Steering joins a running turn; while it waits for the quota there is none to join, so it waits too.

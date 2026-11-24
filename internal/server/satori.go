@@ -361,8 +361,8 @@ func (b satoriBackend) Send(ctx context.Context, c satori.Caller, id, text strin
 
 func (b satoriBackend) Answer(ctx context.Context, c satori.Caller, a api.CardAnswer) error {
 	rest, _ := strings.CutPrefix(a.Card, "ask:")
-	id, _, _ := strings.Cut(rest, ":")
-	if err := b.s.mayAnswer(callerAs(c), id); err != nil {
+	id, request, _ := strings.Cut(rest, ":")
+	if err := b.s.mayAnswerAsk(callerAs(c), id, request); err != nil {
 		return err
 	}
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)

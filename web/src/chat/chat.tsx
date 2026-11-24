@@ -49,8 +49,8 @@ const ChannelMenu = lazyAhead(() => import("./channel/top").then((m) => m.defaul
 const TopRight = lazy(() => import("./channel/top").then((m) => ({ default: m.TopRight })));
 
 const BUSY = new Set(["running", "compacting", "starting", "waiting"]);
-const turning = (s: { status: string; asks: unknown[]; denials?: unknown[] }) => BUSY.has(s.status) && !(s.status === "waiting" && !s.asks.length && !!s.denials?.length);
-const ghostOf = (row: Session): LiveSession => ({ ...row, asks: [], tasks: [], denials: [], queue: [], end: 0, proc: -1 });
+const turning = (s: { status: string }) => BUSY.has(s.status);
+const ghostOf = (row: Session): LiveSession => ({ ...row, asks: [], tasks: [], queue: [], end: 0, proc: -1 });
 const renamesDraft = (d: Drafted) => !!d.tool && renameOnly({ name: d.tool.name, input: d.text });
 
 /** sheet: on a phone, the sidebar's sheet is out this tall (sheet.tsx): the bottom stack sinks out

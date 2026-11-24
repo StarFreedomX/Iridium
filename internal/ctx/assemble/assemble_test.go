@@ -67,6 +67,23 @@ func TestSystemGolden(t *testing.T) {
 	golden(t, "system.none", in, err)
 }
 
+// Claude (auto mode) is told how to ask for manual approval where it has ir; no other agent is.
+func TestSystemManual(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		w    Where
+		told bool
+	}{{Where{Auto: true}, true}, {Where{Auto: true, Remote: true, IR: true}, true}, {Where{Auto: true, Remote: true}, false}, {Where{}, false}} {
+		in, err := System(c.w)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := strings.Contains(in.String(), "internal/sessions/self/manual"); got != c.told {
+			t.Errorf("%+v: told %v", c.w, got)
+		}
+	}
+}
+
 func TestMessageGolden(t *testing.T) {
 	t.Parallel()
 	in, err := Message("kumo's phone", "t1", "hello\nthere", "in-1")

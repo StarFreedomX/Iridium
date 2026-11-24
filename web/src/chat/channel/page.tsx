@@ -23,7 +23,7 @@ import { also, carries, events, opened, type SatoriEvent } from "../../stream";
 import { errText } from "../../toast";
 import { agentName, cn, lampOf, PopSurface, ServerFace } from "../../ui";
 import { useSecret } from "../../secrets";
-import { Asks, Denials } from "../asks";
+import { Asks } from "../asks";
 import { placeDropped } from "../at";
 import { Composer, type ComposerHandle } from "../composer";
 import { Copyable } from "../copyable";
@@ -58,11 +58,11 @@ import { useRecalled } from "../reactions";
 // flashed up as if to speak and went; kumo, 2026-11-16).
 const WORKING = new Set(["running", "compacting"]);
 const BUSY = new Set(["running", "compacting", "starting", "waiting"]);
-const turning = (s?: { status: string; asks: unknown[]; denials?: unknown[] }) => !!s && BUSY.has(s.status) && !(s.status === "waiting" && !s.asks.length && !!s.denials?.length);
+const turning = (s?: { status: string }) => !!s && BUSY.has(s.status);
 
 let lastStackH = 120;
 
-const ghostOf = (row: Session): LiveSession => ({ ...row, asks: [], tasks: [], denials: [], queue: [], end: 0, proc: -1 });
+const ghostOf = (row: Session): LiveSession => ({ ...row, asks: [], tasks: [], queue: [], end: 0, proc: -1 });
 
 /** The states of these sessions, as carried; drawn again as any of them changes. */
 export function useStates(ids: string[]): (LiveSession | undefined)[] {
@@ -432,7 +432,6 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
                 <Compaction since={compactSince.current} />
               </div>
             )}
-            {!hold && soloState?.denials?.length ? <Denials session={soloState.id} denials={soloState.denials} cwd={soloState.cwd} stuck={soloState.status === "waiting" && !soloState.asks.length} /> : null}
           </div>
         </Stick>
         {bar(s)}

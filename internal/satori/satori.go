@@ -183,6 +183,7 @@ type Service struct {
 	onTurnEnd func(session, reply string, waiting []string)
 	onTaken   func(session, input string)
 	onBegan   func(session string)
+	onAsk     func(ch string, seq int64, session string, a api.Ask)
 	// onLive is told each message of an agent's own channel as it is told live (OnLive).
 	onLive func(m channel.Message, passing bool)
 	// onLiveGone is told a message told so that is taken away again (one made as a turn began,
@@ -217,6 +218,10 @@ func (s *Service) OnTaken(f func(session, input string)) { s.onTaken = f }
 
 // OnTurnStart has f told each turn of a session that begins, in order with what its agent says.
 func (s *Service) OnTurnStart(f func(session string)) { s.onBegan = f }
+
+// OnAsk has f told each ask of a session's agent as its message is made in a channel it is told
+// in (its own, or one it is in beside): the channel, the message's number. f must not wait.
+func (s *Service) OnAsk(f func(ch string, seq int64, session string, a api.Ask)) { s.onAsk = f }
 
 // OnTurnEnd has f told each turn of a session that ends, after its reply was said: the
 // session, the reply's words ("" if it said none), and the inputs that still wait in its queue

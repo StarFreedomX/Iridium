@@ -516,7 +516,7 @@ describe("composer", () => {
     expect(matching(cs, "压缩").map((c) => c.name)).toEqual(["compact"]);
     expect(matching(cs, "ntex").map((c) => c.name)).toEqual(["context"]);
     // Every agent has the common ones (the user, 2026-11-06: Codex had none); described here.
-    const pi = { ...S("a", "/w"), agent: "pi" as const, asks: [], tasks: [], denials: [], queue: [], end: 0, proc: 0 };
+    const pi = { ...S("a", "/w"), agent: "pi" as const, asks: [], tasks: [], queue: [], end: 0, proc: 0 };
     expect(commandsOf(pi).map((c) => c.name)).toEqual(["clear", "compact", "context", "model", "mode"]);
     const codex = commandsOf({ ...pi, agent: "codex", commands: [{ name: "clear" }, { name: "compact" }, { name: "effort" }, { name: "review", description: "own" }] });
     expect(codex.map((c) => [c.name, !!c.description])).toEqual([["clear", true], ["compact", true], ["effort", true], ["review", true]]);

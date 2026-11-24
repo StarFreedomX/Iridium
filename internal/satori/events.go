@@ -267,6 +267,9 @@ func (s *Service) handle(n session.Notice, at time.Time) {
 				lm.Data = d
 				s.emitTo(toLive, false, s.channelSession(ch), "", Event{Type: "message-created", Message: &lm, User: lm.User}, nil, "ask", n.From)
 			}
+			if noted && s.onAsk != nil {
+				s.onAsk(ch, l.Seq, n.Session, *n.Ask)
+			}
 		}
 	case session.NoticeAskDone:
 		card := cardID(n.Session, n.RequestID)

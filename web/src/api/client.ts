@@ -23,7 +23,6 @@ import type {
   NewInvite,
   NewSession,
   NewUpload,
-  Release,
   PushEvents,
   PushRule,
   PushState,
@@ -388,8 +387,6 @@ export const api = {
   answer: (_id: string, a: CardAnswer) => sat<object>("internal/button", { id: a.card, option: a.option, choices: a.choices, words: a.words, message: a.message }),
   /** A button attached to a session's page pressed (its id "att:<session>:<from>:<id>"). */
   button: (id: string) => sat<object>("internal/button", { id }),
-  /** A step Claude's auto mode denied, run again (session/release.go). */
-  release: (id: string, toolUseId: string, dismiss?: boolean) => write<{ ok: boolean }>("POST", `/v1/internal/sessions/${enc(id)}/release`, { toolUseId, dismiss } satisfies Release),
   /** Satori's meta (advanced/meta.md): the page asks it only for its status, a 401 taking it to the login. */
   meta: () => request("/v1/meta", { method: "POST" }),
   agents: () => get<AgentInfo[]>("/v1/internal/agents"),

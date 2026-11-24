@@ -220,7 +220,7 @@ func (m *Manager) foreignState(id string, over map[string]store.Overlay) (*api.S
 	s.Archived = !m.visibility().Shown(string(s.Agent), s.ID)
 	m.parentOf(&s)
 	s.Own = ownOf(s, o)
-	st := &api.SessionState{Session: s, Asks: []api.Ask{}, Tasks: []api.Task{}, Denials: []api.Denial{}}
+	st := &api.SessionState{Session: s, Asks: []api.Ask{}, Tasks: []api.Task{}}
 	if f != nil {
 		st.End, _ = f.Size()
 	}

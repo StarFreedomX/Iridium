@@ -265,7 +265,8 @@ func (m *Manager) SetUltracode(ctx context.Context, id string, on bool) error {
 var ErrBadRequest = harness.ErrBadRequest
 
 // Answer answers an open ask. Always (allowing a tool): its pattern is allowed from now on in this
-// session, and other open asks it matches are allowed too.
+// session, and other open asks it matches are allowed too. One for manual mode is Iridium's own
+// (manual.go), not the agent's.
 func (m *Manager) Answer(ctx context.Context, id string, a api.Answer) error {
 	h, err := m.get(id)
 	if err != nil {
@@ -273,6 +274,12 @@ func (m *Manager) Answer(ctx context.Context, id string, a api.Answer) error {
 	}
 	if !h.isLive() {
 		return ErrNotLive
+	}
+	if m.AskKind(id, a.RequestID) == AskManual {
+		if a.Always {
+			return fmt.Errorf("%w: approve or refuse", ErrBadRequest)
+		}
+		return h.answerManual(ctx, a.RequestID, a.Allow)
 	}
 	if a.Always {
 		h.mu.Lock()

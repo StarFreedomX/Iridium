@@ -158,6 +158,7 @@ func New(cfg config.Config, m *session.Manager, h *hub.Hub, logf func(string, ..
 	s.sat = satori.New(satoriBackend{s}, logf)
 	s.sat.Channels(s.ch)
 	s.sat.OnSaid(s.routeSaid)
+	s.sat.OnAsk(s.askCalls) // manual.go
 	s.sat.OnLive(s.liveSaid)
 	s.sat.OnLiveGone(s.liveGone)
 	// A turn's start and end in order with what its agent wrote (answers), so that its words
@@ -236,7 +237,8 @@ func (s *Server) Handler(local bool) http.Handler {
 	mux.HandleFunc("GET /v1/internal/sessions/{id}/image", s.image)
 	mux.HandleFunc("POST /v1/internal/sessions/{id}/interrupt", s.use(s.interrupt))
 	mux.HandleFunc("POST /v1/internal/sessions/{id}/stop", s.use(s.stop))
-	mux.HandleFunc("POST /v1/internal/sessions/{id}/release", s.use(s.release))
+	mux.HandleFunc("POST /v1/internal/sessions/{id}/manual", s.use(s.askManual)) // manual.go
+	mux.HandleFunc("GET /v1/internal/sessions/{id}/manual", s.use(s.manualState))
 	// The session's agent's own commands (an app sets its menu from them).
 	mux.HandleFunc("GET /v1/internal/sessions/{id}/commands", func(w http.ResponseWriter, r *http.Request) {
 		st, err := s.m.State(r.PathValue("id"))
@@ -610,27 +612,6 @@ func (s *Server) interrupt(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) stop(w http.ResponseWriter, r *http.Request) {
 	s.done(w, s.m.Stop(r.Context(), r.PathValue("id")))
-}
-
-// release allows a step auto mode denied (session/release.go). Only a person may: an agent's ir
-// releasing its own denied steps would undo what the classifier is for.
-func (s *Server) release(w http.ResponseWriter, r *http.Request) {
-	c := callerOf(r)
-	if c.agent || (c.socket && c.session != "") {
-		forbid(w, errors.New("only a person may release a step auto mode denied"))
-		return
-	}
-	var req api.Release
-	if !readJSON(w, r, &req) {
-		return
-	}
-	if req.ToolUseID == "" {
-		fail(w, http.StatusBadRequest, "name the call: toolUseId")
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), time.Minute)
-	defer cancel()
-	s.done(w, s.m.Release(ctx, r.PathValue("id"), req.ToolUseID, req.Dismiss))
 }
 
 var stateKey = regexp.MustCompile(`^(list|quota|guilds|needs|pairing|update|terminals|machines|voice|channels|avatars|faces|ats|memory|roles|(session|context|reads|viewers):[0-9a-zA-Z_-]{1,128})$`)
