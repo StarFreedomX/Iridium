@@ -1015,6 +1015,15 @@ function CpArg({ from, to }: { from: CpSide; to: CpSide }) {
 /** The card: no head and no Input/Output labels (kumo, 2026-11-24: its line is right above it,
  *  the blocks themselves are enough). Shell calls show their command directly without a "command"
  *  field label. All of it shown, however long: the card scrolls (kumo, 2026-11-25). */
+/** A part of a step's card as a terminal writes it (kumo, 2026-11-25): the command after a "$",
+ *  what came back under it after a "⎿", lighter; one font, no rule between. */
+const Lead = ({ mark, dim, children }: { mark: string; dim?: boolean; children: ReactNode }) => (
+  <div className={cn("flex min-w-0 items-start", dim && "[&_pre]:text-ink-3")}>
+    <span aria-hidden className="shrink-0 py-1 font-mono text-xs leading-[18px] text-ink-4 select-none">{mark}</span>
+    <div className="min-w-0 flex-1">{children}</div>
+  </div>
+);
+
 export function StepCard({ s, session }: { s: Step; session: string }) {
   const rawCmd = (() => {
     if (s.kind !== "tool" || !isShell(s.name)) return undefined;
@@ -1024,22 +1033,22 @@ export function StepCard({ s, session }: { s: Step; session: string }) {
   })();
   const hasOut = s.kind === "tool" && s.result && (s.result.text.trim() !== "" || !!s.result.length);
   return (
-    <div className="grid min-h-0 gap-2.5 overflow-y-auto overscroll-contain px-3 py-3">
+    <div className="grid min-h-0 gap-1 overflow-y-auto overscroll-contain px-3 py-3">
       {s.kind === "thinking" ? (
         <Clipped text={s.text ?? ""} length={s.length} at={s.at} session={session} prose asked />
       ) : (
         <>
           {rawCmd !== undefined ? (
-            <Clipped text={s.input ?? ""} length={s.length} at={s.at} session={session} shell asked />
+            <Lead mark="$">
+              <Clipped text={s.input ?? ""} length={s.length} at={s.at} session={session} shell asked />
+            </Lead>
           ) : (
             <Clipped text={s.input ?? ""} length={s.length} at={s.at} session={session} fields asked />
           )}
           {hasOut && s.result ? (
-            s.name === "Agent" || s.name === "Task" ? (
-              <SubResult r={s.result} session={session} fold={false} />
-            ) : (
-              <Clipped text={s.result!.text} length={s.result!.length} at={s.result!.at} session={session} error={s.result!.error} asked />
-            )
+            <Lead mark="⎿" dim>
+              {s.name === "Agent" || s.name === "Task" ? <SubResult r={s.result} session={session} fold={false} /> : <Clipped text={s.result!.text} length={s.result!.length} at={s.result!.at} session={session} error={s.result!.error} asked />}
+            </Lead>
           ) : !s.result ? (
             <span className="text-xs text-ink-3">{t("msg.noResult")}</span>
           ) : null}
