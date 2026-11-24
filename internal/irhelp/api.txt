@@ -55,7 +55,7 @@ reaction.create {channel_id, message_id, emoji} -> {}  put an emoji (one Unicode
 reaction.delete {channel_id, message_id, emoji, user_id?} -> {}  take an emoji off a message: yours, or user_id's
 reaction.list {channel_id, message_id, emoji} -> List<User>  who put that emoji on the message; message.list and message.get give each message's in _data.reactions  view=id,name
 reaction.clear {channel_id, message_id, emoji?} -> {}  take every reaction (of that emoji) off a message
-message.create {channel_id, content?, _data.text?, _data.paths?, _data.attachments?} -> Message[]  send; joins a running turn (only a command, or words while the quota is out, wait: _data.queued)  view=id,_data.queued
+message.create {channel_id, content?, _data.text?, _data.paths?, _data.attachments?} -> Message[]  send; joins a running turn (only a command waits: _data.queued)  view=id,_data.queued
   _data.text: plain words (the server escapes them); content: Satori elements as they are. The session reads [ir:<your session>] before it.
   _data.paths: files here to attach (relative: from your folder; socket only); _data.attachments: refs upload.create gave.
   Returns once the agent took it; --wait: holds your turn till that turn ended, then prints its reply (exit 2: it waits for a person). For a session apart from your channel. Not for an agent in your channel (one you invited or started there): its words are said in the channel and its answer to you calls you, so waiting only holds your turn and gets you words everyone has already seen. In a channel of several, message.create is said there and never waits.
@@ -193,7 +193,7 @@ GET internal/exec - -> ws  an executor's connection; its app TOKEN only
 
 # settings (admin)
 GET internal/settings - -> Settings  idle reaping, resumes, default modes, push, language; host or web
-PUT internal/settings {idleReap?, crashResume?, quotaResume?, quotaHidden?, modes?, push?, lang?, autoUpdate?} -> Settings  person only
+PUT internal/settings {idleReap?, quotaHidden?, modes?, push?, lang?, autoUpdate?} -> Settings  person only
 GET internal/public - -> {origin?, passkeys}  public address; host or web
 PUT internal/public {origin} -> {origin?, passkeys}  set the public origin ("" off); the host's own ir, person only
 GET internal/update - -> UpdateState  versions and update progress  view=current,latest,available,ready,phase,error

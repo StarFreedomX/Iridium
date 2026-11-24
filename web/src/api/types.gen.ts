@@ -585,8 +585,7 @@ export interface NewSession {
 }
 /**
  * Send gives the session a message: a new turn when idle; while a turn runs it joins that turn
- * (kumo, 2026-11-19: no choice of waiting for its end). Only a command, or words while the quota
- * is out, wait.
+ * (kumo, 2026-11-19: no choice of waiting for its end). Only a command waits.
  */
 export interface Send {
   text: string;

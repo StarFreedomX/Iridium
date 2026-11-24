@@ -350,7 +350,7 @@ export const api = {
     const ch = await sat<{ id: string }>("channel.create", { ...(workspace ? { guild_id: String(workspace) } : {}), ...(caller ? { data: { parent_id: caller } } : {}), _data: start });
     return { id: ch.id };
   },
-  /** A message: it joins a running turn (queued in the reply: a command, or the quota is out).
+  /** A message: it joins a running turn (queued in the reply: a command).
    *  attachments: upload refs. input: its id, chosen here (a UUID): the transcript's block has it
    *  as it comes, before the answer; lost on the way, the send goes again under it, never twice. */
   send: async (id: string, text: string, attachments?: string[], input?: string, quote?: number): Promise<SendReply> => {
