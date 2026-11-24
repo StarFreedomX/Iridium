@@ -39,7 +39,6 @@ import { Markdown, Streamed } from "./markdown";
 import { partialInput } from "./partial";
 import { machineNamed, MentionCard, NamedCards, Worded } from "./mention";
 import { draftWords, fromSatori, type Mention, sessionOf, type Source, withoutFiles, withoutNameLines } from "./refs";
-import { byHand } from "./stick";
 import { MachineFace } from "../machines";
 import { useList } from "../store";
 import type { Agent } from "../api/types.gen";
@@ -781,7 +780,7 @@ export const lasted = (ms: number) => (ms < 950 ? `${(ms / 1000).toFixed(1)}s` :
 export const tookOf = (s: Step) => (s.kind === "tool" && s.time && s.result?.time ? s.result.time - s.time : undefined);
 
 /** In-place expandable step list with capped inner scroll and edge fades, and one shared StepCard
- *  popover. Pressed, its height is a person's doing, said to the chat (stick.tsx byHand). */
+ *  popover. */
 function StepsFold({ steps, session, cwd }: { steps: Step[]; session: string; cwd: string }) {
   const [open, setOpen] = useState(false);
   const ever = useEver(open);
@@ -813,8 +812,6 @@ function StepsFold({ steps, session, cwd }: { steps: Step[]; session: string; cw
   }, [open, steps.length]);
 
   const toggleOpen = () => {
-    const el = revealRef.current;
-    if (el) byHand(el);
     if (open) setSel(null);
     setOpen(!open);
   };
@@ -899,21 +896,7 @@ function StepsFold({ steps, session, cwd }: { steps: Step[]; session: string; cw
   );
 }
 
-/** A record's text folds past 40 lines, to some 36 of its own (18px each, said in the words' 23px
- *  lines): most of what a step gave back is read without a press (kumo, 2026-11-24). */
-const RECORD_AT = 40;
-const RECORD_SHOW = 28;
 
-/** Text in a step card, folded past its first lines; opened, its whole is brought if the page has
- *  only its start (more: it has, however few its lines). */
-function Folded({ text, more, children }: { text: string; more?: boolean; children: (asked: boolean) => ReactNode }) {
-  const [opened, setOpened] = useState(false);
-  return (
-    <LongWords fold quiet at={RECORD_AT} shows={RECORD_SHOW} lines={Math.max(linesOf(text), more ? RECORD_AT + 1 : 0)} onOpen={() => setOpened(true)}>
-      {children(opened)}
-    </LongWords>
-  );
-}
 
 /** A step's line; pressed, what it was given and what came back open in a card at the press, like a
  *  context menu, instead of under the line (the user, 2026-11-08): the conversation stays put.
@@ -1031,7 +1014,7 @@ function CpArg({ from, to }: { from: CpSide; to: CpSide }) {
 
 /** The card: no head and no Input/Output labels (kumo, 2026-11-24: its line is right above it,
  *  the blocks themselves are enough). Shell calls show their command directly without a "command"
- *  field label. Long text folds past RECORD_AT lines so huge outputs never stall rendering. */
+ *  field label. All of it shown, however long: the card scrolls (kumo, 2026-11-25). */
 export function StepCard({ s, session }: { s: Step; session: string }) {
   const rawCmd = (() => {
     if (s.kind !== "tool" || !isShell(s.name)) return undefined;
@@ -1043,27 +1026,19 @@ export function StepCard({ s, session }: { s: Step; session: string }) {
   return (
     <div className="grid min-h-0 gap-2.5 overflow-y-auto overscroll-contain px-3 py-3">
       {s.kind === "thinking" ? (
-        <Folded text={s.text ?? ""} more={!!s.length}>
-          {(asked) => <Clipped text={s.text ?? ""} length={s.length} at={s.at} session={session} prose asked={asked} />}
-        </Folded>
+        <Clipped text={s.text ?? ""} length={s.length} at={s.at} session={session} prose asked />
       ) : (
         <>
           {rawCmd !== undefined ? (
-            <Folded text={rawCmd} more={!!s.length}>
-              {(asked) => <Clipped text={s.input ?? ""} length={s.length} at={s.at} session={session} shell asked={asked} />}
-            </Folded>
+            <Clipped text={s.input ?? ""} length={s.length} at={s.at} session={session} shell asked />
           ) : (
-            <Folded text={pretty(s.input ?? "")} more={!!s.length}>
-              {(asked) => <Clipped text={s.input ?? ""} length={s.length} at={s.at} session={session} fields asked={asked} />}
-            </Folded>
+            <Clipped text={s.input ?? ""} length={s.length} at={s.at} session={session} fields asked />
           )}
           {hasOut && s.result ? (
             s.name === "Agent" || s.name === "Task" ? (
-              <SubResult r={s.result} session={session} fold />
+              <SubResult r={s.result} session={session} fold={false} />
             ) : (
-              <Folded text={s.result.text} more={!!s.result.length}>
-                {(asked) => <Clipped text={s.result!.text} length={s.result!.length} at={s.result!.at} session={session} error={s.result!.error} asked={asked} />}
-              </Folded>
+              <Clipped text={s.result!.text} length={s.result!.length} at={s.result!.at} session={session} error={s.result!.error} asked />
             )
           ) : !s.result ? (
             <span className="text-xs text-ink-3">{t("msg.noResult")}</span>

@@ -6,7 +6,7 @@
 // one a row, read from the agent's own record over the lines the work spans; a step pressed, its
 // card (input, output, diff) from that row. Which lines are open is kept in this browser.
 import { Popover } from "@base-ui/react/popover";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Plug } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode, type RefObject } from "react";
 import { api } from "../api/client";
 import type { Block } from "../api/types.gen";
@@ -20,7 +20,6 @@ import { diffSum, foldLine, folded, kindOf, runCmds, type Step } from "./fold";
 import { StopKey } from "./live";
 import { Pictures } from "./pictures";
 import { DiffStat, KindIcon, lasted, ROW, StepCard, StepLine, tookOf } from "./said";
-import { byHand } from "./stick";
 
 
 // --- the steps, read from the agent's record ---
@@ -205,8 +204,6 @@ export function WorkLine({ channel, n, session, work, did, span, may, esc }: { c
    *  while open: narrowed to that one instead, still open). */
   const toggle = (to: Only | null = null) => {
     if (!opens) return;
-    // A person's doing: the conversation follows its height quickly (stick.tsx).
-    if (reveal.current) byHand(reveal.current);
     setCard((c) => c && { ...c, open: false });
     const stays = open && !!to && !sameOnly(to, only);
     if (!open) read();
@@ -234,8 +231,10 @@ export function WorkLine({ channel, n, session, work, did, span, may, esc }: { c
           {work ? (
             running ? (
               <>
-                <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-run" />
-                <span key={`s${steps}${reached ? "r" : ""}`} className="g-fade shrink-0 tabular-nums">
+                {/* No lamp of its own (its face has one): before its first step an icon as a
+                    step's, a plug being reached, the thinking chip once it thinks (kumo, 2026-11-25). */}
+                <span key={`s${steps}${reached ? "r" : ""}`} className="g-fade flex shrink-0 items-center gap-1.5 tabular-nums">
+                  {!steps && (reached ? <KindIcon kind="thinking" /> : <Plug size={14} aria-hidden className="shrink-0 text-ink-3" />)}
                   {steps ? t("work.step", { n: steps }) : reached ? t("work.thinking") : t("work.reaching")}
                 </span>
                 {work.tool && (

@@ -202,7 +202,14 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
     if (el) {
       const x = log.sent.find((y) => y.key === fly.current);
       fly.current = null;
-      toEnd(scroller.current);
+      // Put at the top, what answers it written under it (stick.tsx toEnd): its bubble, then the
+      // row it became.
+      toEnd(scroller.current, () => {
+        const b = x && bubbles.current.get(x.key);
+        if (b) return b;
+        const n = x && log.became(x);
+        return n !== undefined && n !== null ? (scroller.current?.querySelector(`[data-seq="${n}"]`) ?? null) : null;
+      });
       const t = pushIn(el);
       if (x) flew.current.set(x, t);
     }

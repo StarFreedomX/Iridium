@@ -23,7 +23,7 @@ const using = (re: RegExp) =>
 test("an animation made by script only where it is listed", () => {
   expect(using(/\.animate\(/)).toEqual([
     "chat/channel/jump.ts", // the message a quote went to, lit for a moment (colour only)
-    "chat/longwords.tsx", // long words opened or folded: their own height, a person's doing for the chat (byHand)
+    "chat/longwords.tsx", // long words opened or folded: their own height
     "motion.ts", // a row's keys sliding sideways (useGlide), a message sent rising in (pushIn, fadeIn)
     "moves.ts", // rows that change places
     "usage.tsx", // the usage panel's numbers
@@ -52,6 +52,6 @@ test("a row's room opened or shut by CSS only where it is listed", () => {
     "chat/forwardcard.tsx",
     "chat/react.tsx",
     "chat/said.tsx",
-    "chat/work.tsx", // an agent's work line, pressed: its steps open under it (byHand said first)
+    "chat/work.tsx", // an agent's work line, pressed: its steps open under it
   ]);
 });

@@ -9,7 +9,6 @@ import { flushSync } from "react-dom";
 import { t, useLang } from "../i18n";
 import { motion, reduced } from "../motion";
 import { moveLog } from "../motionlog";
-import { byHand } from "./stick";
 import { cn } from "../ui";
 import { FOLD_AT, FOLD_SHOW } from "./channel/folds";
 import { FoldMenu, useFold, type Fold } from "./foldstate";
@@ -49,7 +48,7 @@ export function LongWords({ fold, lines, children, ctl, onOpen, prev, quiet, at 
     if (!p.h || !p.el) return;
     const h = p.h;
     p.h = 0;
-    if (!reduced()) (glide(p.el, h), byHand(p.el));
+    if (!reduced()) glide(p.el, h);
   });
   if (!ctl && (!fold || !long)) return <>{children}</>;
   const folds = !open || pressed;
@@ -64,8 +63,6 @@ export function LongWords({ fold, lines, children, ctl, onOpen, prev, quiet, at 
     };
     const el = box.current;
     if (!el || reduced()) return set();
-    // Its height is its own to draw, a person's doing: the chat follows it quickly (stick.tsx).
-    byHand(el);
     const from = el.offsetHeight;
     flushSync(set);
     glide(el, from);

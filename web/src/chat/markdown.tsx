@@ -17,6 +17,7 @@ import { NamedLink } from "./mention";
 import { nickOfURL } from "./channel/lib";
 import { NickLink } from "./channel/nick";
 import { draftWords, fromSatori, refOf } from "./refs";
+import { useTyped } from "./typed";
 
 function CodeBlock({ className, children }: ComponentProps<"code"> & ExtraProps) {
   const [copied, setCopied] = useState(false);
@@ -137,10 +138,12 @@ export const Markdown = memo(function Markdown({ text, className, session, files
  *  draft is (Streamdown's own way with what grows), and still so once it is whole, so that the
  *  pieces drawn stay as they are when the draft becomes its block. live: words still come. */
 export function Streamed({ text, live, className, session, files }: { text: string; live: boolean; className?: string; session: string; files?: FileRef[] }) {
+  // Typed out as it comes (typed.ts).
+  const shown = useTyped(text, live);
   return (
     <LinkFiles session={session} files={files ?? []}>
-      <Streamdown {...MARKDOWN} isAnimating={live} className={cn("prose-ir min-w-0 text-md", className)}>
-        {text}
+      <Streamdown {...MARKDOWN} isAnimating={live || shown !== text} className={cn("prose-ir min-w-0 text-md", className)}>
+        {shown}
       </Streamdown>
     </LinkFiles>
   );
