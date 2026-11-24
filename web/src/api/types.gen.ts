@@ -2292,14 +2292,12 @@ export interface PushMessage {
  * (Iridium itself, one of every channel's members) runs when one of its triggers (On) fires, in
  * the channel's folder at the host. What it prints is said in the channel under its name; with
  * ir it may do anything else (IRIDIUM_SCRIPT names it, its words are said as its own).
- * Name: one in the channel, as a nick is written; Avatar (an emoji, or a colour
- * "#rrggbb"): its card. Enabled: off, it keeps its place and does not run. Made, Changed: who
+ * Name: one in the channel, as a nick is written; Enabled: off, it keeps its place and does not run. Made, Changed: who
  * made it and who changed it last; Last: its latest run.
  */
 export interface Script {
   channel: string;
   name: string;
-  avatar?: string;
   run: string;
   on: Trigger[];
   enabled: boolean;
@@ -2354,7 +2352,6 @@ export interface ScriptBy {
  */
 export interface NewScript {
   name: string;
-  avatar?: string;
   run: string;
   on: Trigger[];
   enabled?: boolean;
@@ -2364,7 +2361,6 @@ export interface NewScript {
  */
 export interface ScriptPatch {
   name?: string;
-  avatar?: string;
   run?: string;
   on?: Trigger[];
   enabled?: boolean;
