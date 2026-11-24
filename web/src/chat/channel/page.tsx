@@ -242,6 +242,7 @@ export function ChannelPage({ id, sheet = 0, bar, record, subTurn }: { id: strin
   };
   // Failed, shown so even if it was taken for come.
   const sentDone = (x: Sent) => {
+    x.at = Date.now();
     if (x.failed !== undefined && !entry.sent.includes(x)) entry.sent.push(x);
     changed();
   };
@@ -360,7 +361,8 @@ export function ChannelPage({ id, sheet = 0, bar, record, subTurn }: { id: strin
   const olds = useMemo(() => (readTo === undefined ? undefined : oldRead(log.msgs, readTo)), [log.msgs, readTo]);
   const old = (m: Msg) => foldsOnce(id, `m${m.n}`, olds?.has(m.n));
   const working = agents.filter((a) => WORKING.has(a.status));
-  const secretHere = useSecret()?.at === id || (!!solo && useSecret()?.at === solo.session);
+  const secretAt = useSecret()?.at;
+  const secretHere = secretAt === id || (!!solo && secretAt === solo.session);
   const asking = agents.some((a) => !!stateAt(a.session)?.asks.length) || agents.some((a) => confirms.some((c) => c.session === a.session && c.kind !== "ask")) || secretHere;
   const compacting = soloState?.status === "compacting";
   const compactSince = useRef(0);

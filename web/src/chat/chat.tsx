@@ -134,6 +134,8 @@ function TranscriptView({ id, sheet = 0, onSheet, onMe, onBack }: { id: string; 
     wasBusy.current = busy;
   }, [busy]);
 
+  const shown = useMemo(() => folded(log.blocks, busy), [log.blocks, busy]);
+
   if (!s) {
     const gone = lost && list !== undefined && !row;
     return (
@@ -145,7 +147,6 @@ function TranscriptView({ id, sheet = 0, onSheet, onMe, onBack }: { id: string; 
   }
 
   const cwd = s.cwd ?? row?.cwd ?? "";
-  const shown = useMemo(() => folded(log.blocks, busy), [log.blocks, busy]);
   const running = shown.flatMap((b) => (b.kind === "running" ? [b.tool] : []));
   const rows = shown.filter((b) => b.kind !== "running");
   const textDrafts = log.drafts.filter((d) => !d.tool && d.text.trim());
