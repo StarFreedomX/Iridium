@@ -717,7 +717,7 @@ export const KindIcon = ({ kind, cmd, shell, failed, size = 14, className }: { k
   return <Icon size={size} className={cn("shrink-0", failed ? "text-err" : tint ? "k-tint" : "text-ink-3", className)} style={tint ? ({ "--k-h": hue } as CSSProperties) : undefined} aria-hidden />;
 };
 /** An edit's lines added and taken, green and red; a side at 0 left out. */
-const DiffStat = ({ d }: { d: Diff }) => (
+export const DiffStat = ({ d }: { d: Diff }) => (
   <span className="shrink-0 font-mono text-xs tabular-nums">
     {d.added > 0 && <span className="text-plus">+{d.added}</span>}
     {d.added > 0 && d.taken > 0 && " "}

@@ -15,11 +15,11 @@ import { t, useLang } from "../i18n";
 import { cn, keep, kept, PopSurface, useEver } from "../ui";
 import { useAway, Where } from "./away";
 import type { Did, Work } from "./channel/lib";
-import { isShell } from "./cmd";
-import { folded, kindOf, type Step } from "./fold";
+import { cmdOfCall, isShell, type Cmd } from "./cmd";
+import { diffSum, foldLine, folded, kindOf, runCmds, type Step } from "./fold";
 import { StopKey } from "./live";
 import { Pictures } from "./pictures";
-import { KindIcon, lasted, ROW, StepCard, StepLine, tookOf } from "./said";
+import { DiffStat, KindIcon, lasted, ROW, StepCard, StepLine, tookOf } from "./said";
 import { byHand } from "./stick";
 
 
@@ -81,6 +81,25 @@ export function readSteps(session: string, from: number, to?: number, want?: num
 export function stepsOf(blocks: Block[], running: boolean): Step[] {
   return folded(blocks, running).flatMap((b) => (b.kind === "fold" ? b.steps.filter((s) => s.kind === "tool") : b.kind === "running" ? [b.tool as Step] : []));
 }
+
+/** The steps of a span read so far with its thinking, as far as its limit-th call (all, with none). */
+export function allStepsOf(blocks: Block[], running: boolean, limit?: number): Step[] {
+  const all = folded(blocks, running).flatMap((b) => (b.kind === "fold" ? b.steps : b.kind === "running" ? [b.tool as Step] : []));
+  if (limit === undefined) return all;
+  let calls = 0;
+  const out: Step[] = [];
+  for (const s of all) {
+    if (s.kind === "tool" && ++calls > limit) break;
+    out.push(s);
+  }
+  return out;
+}
+
+/** What a line's steps are narrowed to: the calls by one name ("": thinking), of one sort of
+ *  shell command where its icons are apart, the failed ones apart too. */
+export type Only = { name: string; cmd?: Cmd; failed?: boolean; sorted?: boolean };
+const sameOnly = (a: Only | null, b: Only | null) => !!a && !!b && a.name === b.name && a.cmd === b.cmd && a.failed === b.failed && a.sorted === b.sorted;
+const isOnly = (s: Step, o: Only | null) => !o || (o.name === "" ? s.kind === "thinking" : s.kind === "tool" && s.name === o.name && (!o.sorted || (cmdOfCall(s) === o.cmd && !!s.result?.error === !!o.failed)));
 
 const useSpan = (session: string, from: number | undefined): Block[] | undefined => useSyncExternalStore(spanSub, () => (from === undefined ? undefined : spans.get(spanKey(session, from))?.blocks));
 
@@ -155,28 +174,37 @@ export function WorkLine({ channel, n, session, work, did, span, may, esc }: { c
   const open = useOpen(channel, n) && opens;
   const blocks = useSpan(session, from);
   const [card, setCard] = useState<Card | null>(null);
+  const [only, setOnly] = useState<Only | null>(null);
   const reveal = useRef<HTMLDivElement>(null);
   // All its steps, a row each (kumo, 2026-11-24: 直接全展开): as many rows as the work says it
   // has, so that it is whole as it opens, before they are read.
   const rows = work ? Math.max(steps, 1) : undefined;
   const read = () => from !== undefined && void (work ? readSteps(session, from, undefined, steps) : readSteps(session, from, to)).catch(() => {});
-  // Read as it is open, and again as its steps go on.
-  useEffect(() => void (open && read()), [open, steps, running, to]);
+  // Read as it is drawn (its line says what was done by its sorts, as its record has it), and
+  // again as its steps go on while it is open.
+  useEffect(() => void ((open || !running) && read()), [open, steps, running, to]);
+  const limit = work ? Math.max(steps, 1) : undefined;
+  const all = useMemo(() => (blocks ? allStepsOf(blocks, running, limit) : undefined), [blocks, running, limit]);
+  const runs = useMemo(() => (all && !running ? foldLine(all) : []), [all, running]);
+  const diff = useMemo(() => diffSum(runs), [runs]);
   const parts = did && !work ? didParts(did) : [];
   if (!work && !parts.length) return null;
-  const toggle = () => {
+  /** Opened or put away; to: narrowed to that sort (pressed again while it is: put away; another
+   *  while open: narrowed to that one instead, still open). */
+  const toggle = (to: Only | null = null) => {
     if (!opens) return;
     // A person's doing: the conversation follows its height quickly (stick.tsx).
     if (reveal.current) byHand(reveal.current);
-    if (open) setCard((c) => c && { ...c, open: false });
-    else {
-      read();
-    }
-    setOpen(channel, n, !open);
+    setCard((c) => c && { ...c, open: false });
+    const stays = open && !!to && !sameOnly(to, only);
+    if (!open) read();
+    setOnly(to);
+    if (!stays) setOpen(channel, n, !open);
   };
   return (
     <div className="min-w-0">
-      <div className="flex h-7 min-w-0 items-center gap-1 pointer-coarse:h-9">
+      <div className="flex h-7 min-w-0 items-center gap-1.5 text-sm text-ink-3 pointer-coarse:h-9">
+        {/* The key that opens all of it, before the rest; where it worked, pressed, the same. */}
         <button
           type="button"
           aria-expanded={opens ? open : undefined}
@@ -184,9 +212,10 @@ export function WorkLine({ channel, n, session, work, did, span, may, esc }: { c
           onPointerEnter={read}
           onPointerDown={read}
           onFocus={read}
-          onClick={toggle}
-          className={cn("flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-sm text-left text-sm text-ink-3 outline-none", opens && "cursor-pointer hover:text-ink-2 focus-visible:text-ink-2", open && "text-ink-2")}
+          onClick={() => toggle()}
+          className={cn("flex h-full min-w-0 items-center gap-1.5 rounded-sm text-left outline-none", running || !runs.length ? "flex-1" : "shrink-0", opens && "cursor-pointer hover:text-ink-2 focus-visible:text-ink-2", open && !only && "text-ink-2")}
         >
+          {opens && <ChevronRight size={13} aria-hidden className={cn("shrink-0 text-ink-4 transition-transform duration-(--dur-2)", open && "rotate-90")} />}
           {away && <Where place={away} short />}
           {work ? (
             running ? (
@@ -208,34 +237,71 @@ export function WorkLine({ channel, n, session, work, did, span, may, esc }: { c
                 )}
               </>
             ) : (
-              <span key="done" className="g-fade flex min-w-0 items-center gap-2 tabular-nums">
-                <span className="shrink-0">{steps === 1 ? t("work.step1") : t("work.steps", { n: steps })}</span>
-                {!!work.agents && <span className="shrink-0">{t("work.agents", { n: work.agents })}</span>}
-                {!!work.ms && <span className="min-w-0 truncate">{tookWords(work.ms)}</span>}
-              </span>
+              !runs.length && (
+                <span key="done" className="flex min-w-0 items-center gap-2 tabular-nums">
+                  <span className="shrink-0">{steps === 1 ? t("work.step1") : t("work.steps", { n: steps })}</span>
+                </span>
+              )
             )
           ) : (
-            <span className="flex min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap tabular-nums">
-              {parts.map((p, i) => (
-                <span key={i} className={cn(i === parts.length - 1 ? "min-w-0 truncate" : "shrink-0")}>
-                  {p}
-                </span>
-              ))}
-            </span>
+            !runs.length && (
+              <span className="flex min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap tabular-nums">
+                {parts.map((p, i) => (
+                  <span key={i} className={cn(i === parts.length - 1 ? "min-w-0 truncate" : "shrink-0")}>
+                    {p}
+                  </span>
+                ))}
+              </span>
+            )
           )}
-          {opens && <ChevronRight size={13} aria-hidden className={cn("shrink-0 text-ink-4 transition-transform duration-(--dur-2)", open && "rotate-90")} />}
         </button>
+        {/* What was done, by its sorts, as before (kumo, 2026-11-24): each pressed opens its own
+            steps alone. */}
+        {!running && runs.length > 0 && all && (
+          <span className="g-fade flex min-w-0 flex-1 items-center gap-3 overflow-hidden whitespace-nowrap">
+            {runs.map((r) => {
+              const groups = r.name ? runCmds(all, r.name) : [{ cmd: undefined, n: r.n, failed: false }];
+              const apart = groups.length > 1 || isShell(r.name);
+              const key = (o: Only) => cn("flex h-7 shrink-0 cursor-pointer items-center gap-0.5 rounded-sm outline-none hover:text-ink-2 focus-visible:text-ink-2 pointer-coarse:h-9", open && sameOnly(o, only) && "text-ink");
+              if (apart)
+                return (
+                  <span key={r.name} className="flex shrink-0 items-center gap-1.5">
+                    {groups.map((g, j) => {
+                      const o: Only = { name: r.name, sorted: true, ...(g.cmd ? { cmd: g.cmd } : {}), ...(g.failed ? { failed: true } : {}) };
+                      return (
+                        <button key={j} type="button" onClick={() => toggle(o)} aria-pressed={open && sameOnly(o, only)} className={key(o)}>
+                          <KindIcon kind={kindOf(r.name)} cmd={g.cmd} shell={isShell(r.name)} failed={g.failed} />
+                          {g.n > 1 && <span className={cn("text-xs tabular-nums", g.failed && "text-err")}>×{g.n}</span>}
+                        </button>
+                      );
+                    })}
+                  </span>
+                );
+              const o: Only = { name: r.name };
+              return (
+                <button key={r.name} type="button" onClick={() => toggle(o)} aria-pressed={open && sameOnly(o, only)} className={cn(key(o), "gap-1.5")}>
+                  <KindIcon kind={r.name ? kindOf(r.name) : "thinking"} cmd={groups[0]?.cmd} failed={groups[0]?.failed} />
+                  <span className="text-ink-2">{r.name || t("msg.thinking")}</span>
+                  {r.n > 1 && <span className="text-xs tabular-nums">×{r.n}</span>}
+                </button>
+              );
+            })}
+            {diff && <DiffStat d={diff} />}
+          </span>
+        )}
+        {!running && !!work?.agents && <span className="shrink-0 text-xs tabular-nums">{t("work.agents", { n: work.agents })}</span>}
+        {!running && !!work?.ms && <span className="ml-auto shrink-0 pl-2 text-xs text-ink-4 tabular-nums">{tookWords(work.ms)}</span>}
         {running && may && <StopKey session={session} esc={esc} />}
       </div>
-      {opens && <StepList reveal={reveal} session={session} blocks={blocks} running={running} rows={rows} open={open} card={card} setCard={setCard} limit={work ? Math.max(steps, 1) : undefined} shut={toggle} />}
+      {opens && <StepList reveal={reveal} session={session} steps={all} only={only} rows={only || !rows ? undefined : rows} open={open} card={card} setCard={setCard} shut={() => toggle()} />}
     </div>
   );
 }
 
 /** The steps under a line, opened in place: a row each, all of them, none scrolled in the list
  *  itself. A row pressed: its card out of the row; pressed again, or a press elsewhere, puts it away. */
-function StepList({ reveal, session, blocks, running, rows, open, card, setCard, limit, shut }: { reveal: RefObject<HTMLDivElement | null>; session: string; blocks?: Block[]; running: boolean; rows?: number; open: boolean; limit?: number; shut: () => void; card: Card | null; setCard: (c: Card | null) => void }) {
-  const list = useMemo(() => (blocks ? stepsOf(blocks, running).slice(0, limit) : []), [blocks, running, limit]);
+function StepList({ reveal, session, steps, only, rows, open, card, setCard, shut }: { reveal: RefObject<HTMLDivElement | null>; session: string; steps?: Step[]; only: Only | null; rows?: number; open: boolean; card: Card | null; setCard: (c: Card | null) => void; shut: () => void }) {
+  const list = useMemo(() => (steps ?? []).filter((s) => isOnly(s, only)), [steps, only]);
   // Made as it is first opened.
   const ever = useEver(open);
   const wasOn = useRef("");
