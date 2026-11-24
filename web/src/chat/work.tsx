@@ -199,7 +199,8 @@ export function WorkLine({ channel, n, session, work, did, span, may, esc }: { c
   const runs = useMemo(() => (all ? foldLine(all) : []), [all]);
   const diff = useMemo(() => diffSum(runs), [runs]);
   // One step done: the step itself on the line, pressed its card; nothing to fold (kumo, 2026-11-25).
-  const one = !running && all?.length === 1 ? all[0] : undefined;
+  // Running too: its first step is taken for its only one till a second comes, then its sorts' icons (kumo, 2026-11-25).
+  const one = all?.length === 1 && (!work || steps <= 1) ? all[0] : undefined;
   // Its card open as it is pressed again: that press puts it away (the press outside did), not open it again.
   const shutting = useRef(false);
   const parts = did && !work ? didParts(did) : [];
