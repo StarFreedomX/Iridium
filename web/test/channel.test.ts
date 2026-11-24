@@ -246,7 +246,7 @@ describe("the list", () => {
   });
 });
 
-import { didOf } from "../src/chat/channel/lib";
+import { didOf, saidBefore, type Msg } from "../src/chat/channel/lib";
 
 describe("didOf", () => {
   test("reads what the agent did from the element after the words", () => {
@@ -440,4 +440,15 @@ describe("workOf the words before", () => {
   test("are, when not told (what the fix passes now)", () => {
     expect(workOf(bs, { session: "s", from: 110, to: 140 }, "second words").map((b) => b.at)).toEqual(["120.0", "130.0"]);
   });
+});
+
+test("saidBefore: words said before the record had a line begin where the next ones do", () => {
+  const a = { name: "far", agent: "claude" } as unknown as Msg["author"];
+  const msgs: Msg[] = [
+    { n: 3, text: "Looking first.", files: [], author: a, src: { session: "s", from: 0 } },
+    { n: 4, text: "Found.", files: [], author: a, src: { session: "s", from: 0, to: 3865 } },
+  ];
+  expect(saidBefore(msgs, msgs[1]!.src!)).toBe("Looking first.");
+  expect(saidBefore(msgs, msgs[0]!.src!)).toBeUndefined();
+  expect(saidBefore([{ ...msgs[0]!, src: { session: "s", from: 10, to: 20 } }, { ...msgs[1]!, src: { session: "s", from: 20, to: 30 } }], { session: "s", from: 20, to: 30 })).toBe("Looking first.");
 });

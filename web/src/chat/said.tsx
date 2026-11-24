@@ -13,7 +13,7 @@ import { Archive, ArchiveRestore, ArrowUpRight, BookOpen, Bot, BotMessageSquare,
 import { Copyable } from "./copyable";
 import { Dispatch, Sent as SentTo, TaskBack } from "./dispatched";
 import { handBack, toldOf } from "./dispatch";
-import { Children, createContext, forwardRef, memo, useContext, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { Children, createContext, forwardRef, memo, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { givenTurn, linkNicks, type GivenTurn } from "./channel/lib";
 import { reactionLine } from "./react";
 import { Nicks, NickWords } from "./channel/nick";
@@ -25,7 +25,7 @@ import type { Block, Device, FileRef, Result } from "../api/types.gen";
 import type { Sent } from "../chats";
 import { errText, toast } from "../toast";
 import { t } from "../i18n";
-import { agentName, Avatar, Badge, cn, IconKey, IrMark, Logo, own, PopSurface, tilde, Tip, titleOf, useEver, useLongPress, useMenuAt, usePointAnchor } from "../ui";
+import { agentName, Avatar, Badge, cn, IconKey, IrMark, Logo, own, PopSurface, tilde, Tip, titleOf, useEver, useLongPress, useMenuAt } from "../ui";
 import { useHome, useMachines } from "../data";
 import { LocalMark } from "../me";
 import { go } from "../route";
@@ -902,7 +902,7 @@ function StepCall({ s, session, cwd, bare }: { s: Step; session: string; cwd: st
   // Where it was pressed stays as the card goes: put away, it folds back into that point, not
   // first thrown to the window's corner by an anchor gone (the user, 2026-11-08).
   const [open, setOpen] = useState(false);
-  const [at, setAt] = useState<{ x: number; y: number } | null>(null);
+  const [at, setAt] = useState<{ x: number; y: number; h: number } | null>(null);
   const row = useRef<HTMLButtonElement>(null);
   const toggle = (o: boolean, d: { event?: Event }) => {
     setOpen(o);
@@ -910,16 +910,19 @@ function StepCall({ s, session, cwd, bare }: { s: Step; session: string; cwd: st
     const r = row.current?.getBoundingClientRect();
     const e = d.event as MouseEvent | undefined;
     const pointed = e && "clientX" in e && e.detail > 0;
-    setAt({ x: pointed ? e.clientX : (r?.left ?? 0) + 22, y: r?.bottom ?? (pointed ? e.clientY : 0) });
+    setAt({ x: pointed ? e.clientX : (r?.left ?? 0) + 22, y: r?.top ?? (pointed ? e.clientY : 0), h: r?.height ?? 0 });
   };
-  const anchor = usePointAnchor(at);
+  // Its line's height at the press: the card is under the line or over it, never on it, so the
+  // line can be pressed again to put the card away (kumo, 2026-11-24: over the line when there
+  // was no room under, the pointer was left on the card).
+  const anchor = useMemo(() => (at ? { getBoundingClientRect: () => DOMRect.fromRect({ x: at.x, y: at.y, width: 0, height: at.h }) } : null), [at]);
   return (
     <Popover.Root open={open} onOpenChange={toggle}>
       <Popover.Trigger ref={row} className={cn(ROW, "w-full shrink-0 text-left outline-none focus-visible:text-ink-2", open && "text-ink-2")}>
         <StepLine s={s} cwd={cwd} bare={bare} />
       </Popover.Trigger>
       <Popover.Portal>
-        <Popover.Positioner anchor={anchor} side="bottom" align="start" sideOffset={4} collisionPadding={8} className="z-50">
+        <Popover.Positioner anchor={anchor} side="bottom" align="start" sideOffset={4} collisionPadding={8} collisionAvoidance={{ side: "flip", align: "shift", fallbackAxisSide: "none" }} className="z-50">
           <Popover.Popup initialFocus={(type) => type === "keyboard"} className="g-unfold glass thick float flex max-h-[min(72dvh,620px,var(--available-height))] w-[min(620px,calc(100vw-16px))] flex-col overflow-hidden rounded-xl text-ink outline-none">
             <StepCard s={s} session={session} />
           </Popover.Popup>

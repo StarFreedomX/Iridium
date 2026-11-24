@@ -63,7 +63,10 @@ export function workOf<B extends { at: string; kind: string; text?: string }>(bl
  *  this one begins (workOf's prev). */
 export function saidBefore(msgs: Msg[], src: Src): string | undefined {
   if (src.from === undefined) return undefined;
-  return msgs.findLast((m) => m.src?.session === src.session && m.src.to === src.from)?.text;
+  // One said before the agent's record had a line (the first words of a session just made: no
+  // end to its stretch) begins where this one does: its words are before this one's all the same,
+  // and were drawn again under themselves.
+  return msgs.findLast((m) => m.src?.session === src.session && (m.src.to === src.from || (m.src.to === undefined && src.to !== undefined && m.src.from === src.from)))?.text;
 }
 
 /** Whether a block's at ("<line>.<n>") comes after another's. */
