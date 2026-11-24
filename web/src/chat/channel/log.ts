@@ -261,7 +261,8 @@ export class ChannelLog {
    *  whether a person is the one looking. */
   groups(mine: (a: Person) => boolean): Group<Sent>[] {
     if (this.drawn?.v === this.version && this.drawn.mine === mine) return this.drawn.groups;
-    const groups = grouped(ordered(this.msgs, this.placed, this.sent), mine);
+    // An ask is the card over the composer while open; answered, its message is no one's words (kumo, 2026-11-25): no row.
+    const groups = grouped(ordered(this.msgs.filter((m) => m.kind !== "ask"), this.placed, this.sent), mine);
     this.drawn = { v: this.version, mine, groups };
     return groups;
   }
