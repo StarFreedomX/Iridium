@@ -810,3 +810,13 @@ func (s *Store) Keep(key, value string) error {
 	_, err := s.db.Exec(`INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value`, key, value)
 	return err
 }
+
+// SettleLiveMessages unmarks every message marked as being written or as carrying work that
+// runs (channel.Data): after a restart nothing is.
+func (s *Store) SettleLiveMessages() error {
+	if _, err := s.db.Exec(`UPDATE channel_messages SET data = json_remove(data, '$.writing') WHERE data LIKE '%"writing":true%'`); err != nil {
+		return err
+	}
+	_, err := s.db.Exec(`UPDATE channel_messages SET data = json_remove(data, '$.work.running') WHERE data LIKE '%"running":true%'`)
+	return err
+}

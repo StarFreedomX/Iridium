@@ -191,6 +191,7 @@ type Service struct {
 	started map[string]time.Time        // session: when its turn began
 	picks   map[string]map[int][]string // an ask's card: the options pressed so far, by group
 	words   map[string]map[int]string   // an ask's card: own words so far, by group
+	live    map[string]*saying          // session: what its agent is at in its turn (live.go); the worker's
 }
 
 // OnSaid has f told each thing an agent says in a channel, after the event of it is kept; f
@@ -224,7 +225,12 @@ func (s *Service) Note(ch, text, origin string, ev *channel.Event) int64 {
 const NoteUser = "iridium"
 
 // Channels gives the service the channels' log: what message.list reads and the events are of.
-func (s *Service) Channels(l *channel.Service) { s.log = l }
+func (s *Service) Channels(l *channel.Service) {
+	s.log = l
+	l.SettleLive()
+	// Found in its agent's record after it was said live: its block, for those who have it.
+	l.OnChanged(func(m channel.Message) { s.tellLive("message-updated", m, false, "") })
+}
 
 // New starts the service; feed it the sessions' notices with Notice, Close it at the end.
 func New(b Backend, logf func(string, ...any)) *Service {
@@ -232,7 +238,7 @@ func New(b Backend, logf func(string, ...any)) *Service {
 		logf = log.Printf
 	}
 	s := &Service{b: b, logf: logf, out: newOutbox(logf), qwake: make(chan struct{}, 1), stop: make(chan struct{}), done: make(chan struct{}),
-		held: map[string]channel.Message{}, heard: map[string]int64{}, origin: map[string]string{}, started: map[string]time.Time{}, picks: map[string]map[int][]string{}, words: map[string]map[int]string{}}
+		held: map[string]channel.Message{}, heard: map[string]int64{}, origin: map[string]string{}, started: map[string]time.Time{}, picks: map[string]map[int][]string{}, words: map[string]map[int]string{}, live: map[string]*saying{}}
 	go s.work()
 	return s
 }

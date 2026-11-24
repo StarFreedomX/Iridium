@@ -49,6 +49,10 @@ type Identify struct {
 	SN    int64  `json:"sn,omitempty"`
 	// Watch: Iridium's own: the states to carry from the start (as WATCH).
 	Watch []string `json:"_watch,omitempty"`
+	// Live: Iridium's own: the connection takes an agent's message as it is written
+	// (message-created as it begins, message-updated as it grows and as its work goes on:
+	// docs/next/ui.md) in place of message-created once it is whole.
+	Live bool `json:"_live,omitempty"`
 }
 
 // Watch is WATCH's body.

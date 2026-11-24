@@ -739,6 +739,7 @@ func (h *Hosted) onEvent(e agent.Event) {
 		h.mu.Unlock()
 		if !replay {
 			h.m.o.Hub.Draft(h.id, proc, n, e.Text)
+			h.m.notify(Notice{Session: h.id, Kind: NoticeWriting, Text: e.Text})
 		}
 		return
 	case agent.Record:

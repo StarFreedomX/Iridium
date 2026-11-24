@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -35,6 +36,9 @@ const (
 	KindAsk   = "ask"   // an agent asks: a question, an approval, a plan
 	KindError = "error" // an agent's process ended badly
 	KindNote  = "note"  // Iridium's own line: who joined, a message not passed on
+	// KindWork: an agent at work that has said nothing yet in its turn: no words, its Data.Work
+	// alone (docs/next/ui.md). Agents are not given it; a page draws it as a line.
+	KindWork = "work"
 )
 
 // PersonRow is what a person member's row keeps where an agent's keeps its subscriptions.
@@ -230,6 +234,25 @@ type Data struct {
 	// Held: said in a session's own channel without waking its agent (none of its subscriptions
 	// was for it): given to it before what next wakes it there.
 	Held bool `json:"held,omitempty"`
+	// Writing: the agent is writing it now: its text is what there is so far (docs/next/ui.md).
+	Writing bool `json:"writing,omitempty"`
+	// Work: what the agent did after saying it (or, of a KindWork, before it said anything),
+	// counted live.
+	Work *Work `json:"work,omitempty"`
+}
+
+// Work is what an agent does after a message of its turn, as the message carries it: Steps
+// calls so far, Tool the last one's name, Running while its turn goes on and it has not spoken
+// again; At when the first began (ms), Ms how long they took once done. From, To: the lines of
+// the agent's own record (Data.Session's) they span, To 0 while running.
+type Work struct {
+	Steps   int    `json:"steps,omitempty"`
+	Tool    string `json:"tool,omitempty"`
+	Running bool   `json:"running,omitempty"`
+	At      int64  `json:"at,omitempty"`
+	Ms      int64  `json:"ms,omitempty"`
+	From    int64  `json:"from,omitempty"`
+	To      int64  `json:"to,omitempty"`
 }
 
 // Event is something that happened to a channel, kept as a line of it. Type: "join" (an agent
@@ -273,7 +296,7 @@ func read(m store.ChannelMessage) Message {
 }
 
 func (d Data) encode() string {
-	if d.Session == "" && d.Block == "" && d.From == nil && d.To == 0 && len(d.Files) == 0 && !d.Final && !d.Sent && d.Quote == 0 && d.Card == "" && d.Activity == nil && d.Event == nil && d.Script == "" && !d.Held {
+	if d.Session == "" && d.Block == "" && d.From == nil && d.To == 0 && len(d.Files) == 0 && !d.Final && !d.Sent && d.Quote == 0 && d.Card == "" && d.Activity == nil && d.Event == nil && d.Script == "" && !d.Held && !d.Writing && d.Work == nil {
 		return ""
 	}
 	b, _ := json.Marshal(d)
@@ -309,6 +332,14 @@ type Service struct {
 
 	mu    sync.Mutex
 	locks map[string]*sync.Mutex // a session's record is read in by one at a time
+	// listen: a session whose agent's turns are heard live (Listen): what its agent says from
+	// then on is a message as it is heard (Begin), never made from the record, which only says
+	// where each is. since: when its turn began (ms). await: those messages, in order, not yet
+	// found in the record. waited: the block of the record that waits for one, and since when.
+	listen map[string]bool
+	since  map[string]int64
+	await  map[string][]int64
+	waited map[string]waitedBlock
 
 	jmu sync.Mutex // one agent joins at a time (Join)
 
@@ -316,7 +347,22 @@ type Service struct {
 	imu   sync.Mutex
 	index *index
 
-	added atomic.Pointer[func(Message)] // OnAdded
+	added   atomic.Pointer[func(Message)] // OnAdded
+	changes atomic.Pointer[func(Message)] // OnChanged
+}
+
+// OnChanged has f told a message found in its agent's record after it was said live (its
+// block known now), apart from what found it.
+func (s *Service) OnChanged(f func(Message)) { s.changes.Store(&f) }
+
+func (s *Service) changedMessage(ch string, seq int64) {
+	// Told apart from here: this is under the session's lock, and who is told may read the
+	// channel.
+	if f := s.changes.Load(); f != nil {
+		if m, ok := s.Get(ch, seq); ok {
+			go (*f)(m)
+		}
+	}
 }
 
 // OnAdded has f told each message as it is added to a channel (not one said a second time).
@@ -395,7 +441,7 @@ func New(st *store.Store, ss Sessions, logf func(string, ...any)) *Service {
 	if logf == nil {
 		logf = func(string, ...any) {}
 	}
-	return &Service{st: st, ss: ss, logf: logf, locks: map[string]*sync.Mutex{}}
+	return &Service{st: st, ss: ss, logf: logf, locks: map[string]*sync.Mutex{}, listen: map[string]bool{}, since: map[string]int64{}, await: map[string][]int64{}, waited: map[string]waitedBlock{}}
 }
 
 func (s *Service) lock(session string) func() {
@@ -569,6 +615,22 @@ func (s *Service) Sync(session string) ([]Message, error) {
 					done := did
 					act, did = &done, activity.Activity{}
 				}
+				if strings.TrimSpace(b.Text) != "" && s.Listening(session) {
+					// Heard live: the message is there already, or about to be. The next of them
+					// in order is this block's; none yet (a record that has the words before
+					// they are heard), it waits here, unless it has waited too long to be one.
+					seq, ok := s.awaited(session)
+					if !ok && s.waits(session, b.At) {
+						if act != nil {
+							did = *act
+						}
+						return added, s.st.SetChannelSync(session, lineOf(b.At), pendingOf(did))
+					}
+					if ok {
+						err = s.anchor(ch, seq, session, b, act)
+						break
+					}
+				}
 				m, isNew, err = s.syncSaid(ch, session, author, b, act)
 			case api.BlockKindUser:
 				m, isNew, err = s.syncUser(ch, session, b, alone, !had)
@@ -588,12 +650,7 @@ func (s *Service) Sync(session string) ([]Message, error) {
 		}
 		off = p.End
 	}
-	pending = ""
-	if !did.Empty() {
-		if b, err := json.Marshal(did); err == nil {
-			pending = string(b)
-		}
-	}
+	pending = pendingOf(did)
 	return added, s.st.SetChannelSync(session, off, pending)
 }
 
@@ -643,8 +700,11 @@ func (s *Service) syncSaid(ch, session, author string, b api.Block, did *activit
 	for _, l := range loose {
 		if l.Kind == KindSaid && Same(l.Text, text) {
 			old := read(l)
-			d.Final = old.D.Final
+			d.Final, d.Work = old.D.Final, old.D.Work
 			if ok, err := s.st.AnchorMessage(ch, l.Seq, ref, d.encode()); err != nil || ok {
+				if ok {
+					s.changedMessage(ch, l.Seq)
+				}
 				return Message{}, false, err
 			}
 		}
@@ -860,4 +920,197 @@ func Same(a, b string) bool {
 		return string(r)
 	}
 	return a != "" && b != "" && norm(a) == norm(b)
+}
+
+// Listen: session's agent begins a turn that is heard live, at since (ms). From its first such
+// turn on, what it says is a message as it is heard (Begin), and its record only says where
+// each is. What the record has by now is read in first, as ever.
+func (s *Service) Listen(session string, since int64) {
+	if !s.Listening(session) {
+		s.Touch(session)
+	}
+	s.mu.Lock()
+	s.listen[session] = true
+	s.since[session] = since
+	s.mu.Unlock()
+}
+
+// Listening: session's agent's turns are heard live (Listen).
+func (s *Service) Listening(session string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.listen[session]
+}
+
+// waitedBlock is a block of a record that waits for the message heard live it is, and since when.
+type waitedBlock struct {
+	at    string
+	since time.Time
+}
+
+// waits: block at of session's record, of words not heard yet, may wait for them longer.
+func (s *Service) waits(session, at string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	w := s.waited[session]
+	if w.at != at {
+		w = waitedBlock{at, time.Now()}
+		s.waited[session] = w
+	}
+	return time.Since(w.since) < unheardFor
+}
+
+// awaited takes the first message heard live of session's agent that its record has not been
+// found to have.
+func (s *Service) awaited(session string) (int64, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a := s.await[session]
+	if len(a) == 0 {
+		return 0, false
+	}
+	s.await[session] = a[1:]
+	return a[0], true
+}
+
+// unheardFor: how long what a record has of an agent heard live may be there without having
+// been heard, before it is taken from the record after all.
+const unheardFor = time.Minute
+
+// lineOf is the line of a record a block's place ("<line>.<n>") is in.
+func lineOf(at string) int64 {
+	line, _, _ := strings.Cut(at, ".")
+	n, _ := strconv.ParseInt(line, 10, 64)
+	return n
+}
+
+func pendingOf(did activity.Activity) string {
+	if did.Empty() {
+		return ""
+	}
+	b, err := json.Marshal(did)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+// anchor: message seq of ch, heard live, is block b of session's record.
+func (s *Service) anchor(ch string, seq int64, session string, b api.Block, did *activity.Activity) error {
+	cur, ok, err := s.st.ChannelMessage(ch, seq)
+	if err != nil || !ok || cur.Gone {
+		return err
+	}
+	m := read(cur)
+	if !m.D.Writing && !Same(m.Text, s.whole(session, b)) {
+		s.logf("channel %s: message %d, heard live, is not what its record has next (%s)", ch, seq, b.At)
+	}
+	m.D.Block, m.D.Files, m.D.Activity = b.At, b.Files, did
+	if ok, err := s.st.AnchorMessage(ch, seq, blockRef(session, b.At), m.D.encode()); err != nil || !ok {
+		return err
+	}
+	s.changedMessage(ch, seq)
+	return nil
+}
+
+// Begin: session's agent, heard live (Listen), says text in its own channel: a message of it
+// now; writing: it is still writing it, text what there is so far. after: the number of the last
+// message heard from it. Its record may have had these words, and whoever looked read them in,
+// before its turn was known to be heard (Listen comes a little late): then the first message of
+// this turn that is from the record and was not heard yet is the one (adopted, whole).
+func (s *Service) Begin(session, text string, writing bool, after int64) (m Message, adopted bool, err error) {
+	// What its record has before these words (what it was asked, typed in its terminal or as a
+	// new session's first message) comes before them.
+	s.Touch(session)
+	defer s.lock(session)()
+	author := store.AgentMember(session)
+	s.mu.Lock()
+	since := s.since[session]
+	s.mu.Unlock()
+	if since > 0 {
+		last, err := s.st.ChannelMessages(session, 0, -1, 12)
+		if err != nil {
+			return Message{}, false, err
+		}
+		begun := strings.TrimSpace(transcript.WithoutNameLines(text))
+		for _, l := range last {
+			if l.Seq > after && l.At >= since && l.Author == author && l.Kind == KindSaid && strings.HasPrefix(l.Ref, "b:") && !l.Gone &&
+				strings.HasPrefix(strings.TrimSpace(transcript.WithoutNameLines(l.Text)), begun) {
+				return read(l), true, nil
+			}
+		}
+	}
+	m, _, err = s.add(Message{ChannelMessage: store.ChannelMessage{Channel: session, Author: author, Kind: KindSaid, Text: text},
+		D: Data{Session: session, Writing: writing}})
+	if err == nil && m.Seq != 0 {
+		s.mu.Lock()
+		s.await[session] = append(s.await[session], m.Seq)
+		s.mu.Unlock()
+	}
+	return m, false, err
+}
+
+// Wrote: message seq of channel ch is written whole, text its words.
+func (s *Service) Wrote(ch string, seq int64, text string) (Message, bool) {
+	defer s.lock(ch)()
+	m, ok := s.Get(ch, seq)
+	if !ok {
+		return Message{}, false
+	}
+	if m.Text != text {
+		if err := s.st.EditChannelMessage(ch, seq, text); err != nil {
+			s.logf("channel %s: message %d: %v", ch, seq, err)
+		}
+		m.Text = text
+	}
+	if m.D.Writing {
+		m.D.Writing = false
+		if err := s.st.SetChannelMessageData(ch, seq, m.D.encode()); err != nil {
+			s.logf("channel %s: message %d: %v", ch, seq, err)
+		}
+	}
+	return m, true
+}
+
+// BeginWork: session's agent is at work in its turn and has said nothing in it: a message of
+// no words that carries the work.
+func (s *Service) BeginWork(session string, w Work) (Message, error) {
+	s.Touch(session)
+	m, _, err := s.add(Message{ChannelMessage: store.ChannelMessage{Channel: session, Author: store.AgentMember(session), Kind: KindWork,
+		Ref: fmt.Sprintf("w:%s:%d", session, time.Now().UnixNano())}, D: Data{Session: session, Work: &w}})
+	return m, err
+}
+
+// SetWork changes the work message seq of channel ch carries: f is given what it has (never
+// nil) and changes it.
+func (s *Service) SetWork(ch string, seq int64, f func(*Work)) (Message, bool) {
+	defer s.lock(ch)()
+	m, ok := s.Get(ch, seq)
+	if !ok {
+		return Message{}, false
+	}
+	if m.D.Work == nil {
+		m.D.Work = &Work{}
+	}
+	f(m.D.Work)
+	if err := s.st.SetChannelMessageData(ch, seq, m.D.encode()); err != nil {
+		s.logf("channel %s: message %d: %v", ch, seq, err)
+	}
+	return m, true
+}
+
+// SettleLive: nothing is being written and no work runs: what a stop of Iridium left marked so
+// is as it was left. Once, as it starts.
+func (s *Service) SettleLive() {
+	if err := s.st.SettleLiveMessages(); err != nil {
+		s.logf("channel: settling what was live: %v", err)
+	}
+}
+
+// first reads session's record in where it never was: what it has is from before anyone
+// listened.
+func (s *Service) first(session string) {
+	if _, _, had, err := s.st.ChannelSync(session); err == nil && !had {
+		s.Touch(session)
+	}
 }

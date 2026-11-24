@@ -2427,6 +2427,11 @@ func (s *Server) unread(ch string, me channel.Member, before int64, by map[strin
 	}
 	did, work, upTo = map[int64]activity.Activity{}, map[string]*activity.Activity{}, me.Seen
 	for _, m := range rows {
+		// One an agent is writing now is not said yet: it, and what came after it, is given
+		// once it is whole (docs/next/ui.md).
+		if m.D.Writing && m.Author != me.Member {
+			break
+		}
 		upTo = max(upTo, m.Seq)
 		if m.Author == me.Member || (m.Kind != channel.KindUser && m.Kind != channel.KindSaid) {
 			continue

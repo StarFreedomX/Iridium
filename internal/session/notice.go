@@ -24,6 +24,9 @@ const (
 	// NoticeModel: the model the session runs as became known or changed (its agent said it, or
 	// one was picked): what follows its model (its face) is looked at again.
 	NoticeModel NoticeKind = "model"
+	// NoticeWriting: the agent is writing a message, Text what came of it now (a piece; the
+	// whole follows as NoticeMessage). Many a second: who watches must take it lightly.
+	NoticeWriting NoticeKind = "writing"
 )
 
 // Notice is one thing that happened in a session, live (never from a replay).

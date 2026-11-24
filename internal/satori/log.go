@@ -156,7 +156,7 @@ func (s *Service) logMessage(c Caller, m channel.Message, ch *Channel, guild *Gu
 		User: s.authorOf(m, seen), CreatedAt: m.At, UpdatedAt: m.Edited, Data: logData(m)}
 	out.Content += fileElements(c.App, c.Login, fileOwner(m), s.logFiles(m))
 	// The files' paths only for the pages (ir_web, the host): an app gets the counts.
-	out.Content += activityElement(s.placed(m), c.Only)
+	out.Content += activityElement(s.placed(m), c.Only) + workElement(m.D.Work)
 	return out
 }
 
@@ -247,10 +247,12 @@ type LogData struct {
 	Script string `json:"script,omitempty"`
 	// Reactions: the emoji put on it, each with who put it on (docs/channels.md "表情").
 	Reactions []ReactionSum `json:"reactions,omitempty"`
+	// Writing: the agent is writing it now (channel.Data.Writing).
+	Writing bool `json:"writing,omitempty"`
 }
 
 func logData(m channel.Message) LogData {
-	d := LogData{Kind: m.Kind, Session: m.D.Session, Block: m.D.Block, From: m.D.From, To: m.D.To, Card: m.D.Card, Event: m.D.Event, Quote: m.D.Quote, Device: m.D.Device, Script: m.D.Script}
+	d := LogData{Writing: m.D.Writing, Kind: m.Kind, Session: m.D.Session, Block: m.D.Block, From: m.D.From, To: m.D.To, Card: m.D.Card, Event: m.D.Event, Quote: m.D.Quote, Device: m.D.Device, Script: m.D.Script}
 	switch m.Kind {
 	case channel.KindUser:
 		if !strings.HasPrefix(m.Ref, "b:") {
@@ -340,7 +342,29 @@ func (s *Service) flush(session, kind, origin string, denied int) {
 	} else if cur, ok := s.log.Get(held.Channel, held.Seq); ok {
 		held = cur // found in the record meanwhile: its files
 	}
-	s.tell(held, kind, origin, denied)
+	s.tellSaid(held, kind, origin, denied)
+}
+
+// tellSaid is tell for what an agent said in its turn: whole, to the connections that take
+// messages whole; to those that take them live (they have it since it began) as it is now.
+func (s *Service) tellSaid(m channel.Message, kind, origin string, denied int) {
+	st, err := s.b.Session(m.Channel)
+	if err != nil {
+		return
+	}
+	msg := Message{ID: strconv.FormatInt(m.Seq, 10), Content: s.logContent(m), User: s.authorOf(m, nil), CreatedAt: m.At, Data: logData(m)}
+	if denied > 0 {
+		msg.Content = Escape(s.b.Mask(strings.TrimSpace(m.Text + fmt.Sprintf("\n\n（auto 拦了 %d 步）", denied))))
+	}
+	live := msg
+	msg.Content += activityElement(m.D.Activity, false)
+	s.emitTo(toWhole, false, st.Session, fileOwner(m), Event{Type: "message-created", Message: &msg, User: msg.User}, s.logFiles(m), kind, origin)
+	live.Content += activityElement(m.D.Activity, false) + workElement(m.D.Work)
+	live.UpdatedAt = time.Now().UnixMilli()
+	s.emitTo(toLive, false, st.Session, fileOwner(m), Event{Type: "message-updated", Message: &live, User: live.User}, s.logFiles(m), kind, origin)
+	if s.onSaid != nil && m.Kind == channel.KindSaid && !m.D.Sent {
+		s.onSaid(m)
+	}
 }
 
 // noteIn writes a line that is not words into channel ch (session's own, or one its agent is
