@@ -200,6 +200,8 @@ export function WorkLine({ channel, n, session, work, did, span, may, esc }: { c
   const diff = useMemo(() => diffSum(runs), [runs]);
   // One step done: the step itself on the line, pressed its card; nothing to fold (kumo, 2026-11-25).
   const one = !running && all?.length === 1 ? all[0] : undefined;
+  // Its card open as it is pressed again: that press puts it away (the press outside did), not open it again.
+  const shutting = useRef(false);
   const parts = did && !work ? didParts(did) : [];
   // An older message's span read and nothing in it: no line.
   if (!work && !parts.length && !runs.length) return null;
@@ -225,9 +227,9 @@ export function WorkLine({ channel, n, session, work, did, span, may, esc }: { c
           aria-expanded={opens ? open : undefined}
           disabled={!opens}
           onPointerEnter={read}
-          onPointerDown={read}
           onFocus={read}
-          onClick={(e) => (one ? setCard((c) => (c?.open ? { ...c, open: false } : { key: one.at, at: one.at, group: [one.at], el: e.currentTarget, open: true })) : toggle())}
+          onPointerDown={() => (read(), void (shutting.current = !!one && !!card?.open))}
+          onClick={(e) => (shutting.current ? void (shutting.current = false) : one ? setCard((c) => (c?.open ? { ...c, open: false } : { key: one.at, at: one.at, group: [one.at], el: e.currentTarget, open: true })) : toggle())}
           className={cn("flex h-full min-w-0 items-center gap-1.5 rounded-sm text-left outline-none", !runs.length || one ? "flex-1" : "shrink-0", opens && "cursor-pointer hover:text-ink-2 focus-visible:text-ink-2", open && !only && "text-ink-2")}
         >
           {opens && !one && <ChevronRight size={13} aria-hidden className={cn("shrink-0 text-ink-4 transition-transform duration-(--dur-2)", open && "rotate-90")} />}

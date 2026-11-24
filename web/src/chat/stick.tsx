@@ -202,7 +202,9 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
       // Something in it draws its own change of height (a list of steps opening, words folding,
       // the room under it for the composer): the end stays where it is each frame, so what is under
       // the change does not move and what is over it does, both ways alike (kumo, 2026-11-24).
-      if (s.following) pane && !hands() ? pin(el, "pane") : sizing(el) && !hands() ? pin(el, "own") : run();
+      // Not held off by a person's scrolling: a trackpad's glide still sends wheels after it, and
+      // the end went down and came back (kumo, 2026-11-25: 贴底时直接往上).
+      if (s.following) pane ? pin(el, "pane") : sizing(el) ? pin(el, "own") : run();
       mark(el);
     });
     ro.observe(el);
