@@ -1,46 +1,48 @@
-// A channel of no agent of its own (docs/channels.md), as a chat; a session's page, one agent or
-// several, is chat.tsx's (kumo, 2026-11-15), drawn with the parts exported here. Its members are a key at
-// the bar's right (top.tsx), not a row under the title. The conversation is the channel's log,
-// only what was said: your words a bubble on the right, anyone else's on the left under their
-// face; an agent's as Markdown under its face, nick and what it runs as, its usage (the
-// context's ring, the quota's bars) after that, over them its thinking and tool calls from its
-// own record; Iridium's lines small and centred. The newest at the bottom, paged back as you
-// scroll up. Under it: each agent's asks, under its nick; a composer whose @ names a
-// member (agents, people, apps).
+// A channel as a chat (docs/channels.md): every chat in Iridium — 0, 1, or several agents — is
+// drawn by this one page. Its members are a key at the bar's right (top.tsx). The conversation is
+// the channel's log: your words a bubble on the right, anyone else's on the left under their face;
+// an agent's as Markdown under its face, nick and what it runs as, its usage (context ring, quota
+// bars) after that, over them its steps from its own record; Iridium's lines small and centred.
+// When the channel has a single agent, /commands, /model, /mode, /clear, Shift+Tab and Esc work
+// directly on that agent.
 import { flushSync } from "react-dom";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
 import { Popover } from "@base-ui/react/popover";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../../api/client";
 import type { Block, ChannelReads, Reader, SessionState as LiveSession, Session } from "../../api/types.gen";
-import { peekChat, stateAhead, type Sent } from "../../chats";
+import { firstScreen, fresh, freshState, isWhole, peekChat, stateAhead, type Sent } from "../../chats";
 import { LOCAL_ME, useApps, useMe, useWhoList, useWorkspaces } from "../../data";
 import { t, useLang } from "../../i18n";
 import { pushIn, pushing } from "../../motion";
-import { openChat } from "../../route";
+import { openChat, openUsage } from "../../route";
 import { PULL } from "../../sheet";
 import { getCarried, onCarried, setCarried, useCarried, useConfirms, useList, useSession } from "../../store";
 import { also, carries, events, opened, type SatoriEvent } from "../../stream";
 import { errText } from "../../toast";
 import { Arrive, agentName, cn, lampOf, Logo, PopSurface, ServerFace } from "../../ui";
 import { Leaving } from "../../moves";
-import { Asks } from "../asks";
+import { working as subWorking } from "../../tree";
+import { useSecret } from "../../secrets";
+import { Asks, Denials } from "../asks";
 import { placeDropped } from "../at";
 import { Composer, type ComposerHandle } from "../composer";
 import { Copyable } from "../copyable";
-import { ContextRing, modelView, QuotaBars } from "../meters";
+import { Crash } from "../crash";
+import { ContextRing, ModeKey, ModelKey, modelView, QuotaBars, useMode } from "../meters";
 import { fromSatori, PLACE_DRAG, SESSION_DRAG, sourceOf, withDevice, yours } from "../refs";
-import { Assistant, Attached, Line, MsgRow, Pending, Said, StepsHead, When, YouBubble } from "../said";
+import { Assistant, Attached, Compaction, Line, MsgRow, Pending, Said, StepsHead, When, YouBubble } from "../said";
+import { ShellRuns } from "../shell";
 import { folded } from "../fold";
 import { Stick, toEnd } from "../stick";
 import { askQueue, groupMessages, quoteAt, readMarks, stillWaiting, watchExtra, type AgentRow, type Did, type Group, type Msg, type Src, lineOf, workOf, saidBefore, workKey, eventParts, personName, type EventWords } from "./lib";
 import { channelLog } from "./log";
+import { lendActs } from "./menu";
 import { onOf } from "./scripts";
 import { useRecvLabel } from "./recv";
-import { betweenAgents, linesOf } from "./merge";
+import { betweenAgents, linesOf, longWords, oldRead } from "./folds";
 import { Foldable } from "../longwords";
 import { foldsOnce, useReadTo } from "../foldstate";
-import { longWords, oldRead } from "./folds";
 import { around, goTo, seqEl } from "./jump";
 import { Forwards, quoteText } from "../forwardcard";
 import { msgWords, withForwards } from "../forward";
@@ -57,6 +59,8 @@ import { useRecalled } from "../reactions";
 // At work: in a turn. Not "starting" (its harness coming up, no turn yet: an invited agent's face
 // flashed up as if to speak and went; kumo, 2026-11-16).
 const WORKING = new Set(["running", "compacting"]);
+const BUSY = new Set(["running", "compacting", "starting", "waiting"]);
+const turning = (s?: { status: string; asks: unknown[]; denials?: unknown[] }) => !!s && BUSY.has(s.status) && !(s.status === "waiting" && !s.asks.length && !!s.denials?.length);
 
 let lastStackH = 120;
 
@@ -70,15 +74,32 @@ export function useStates(ids: string[]): (LiveSession | undefined)[] {
   return ids.map((id) => getCarried<LiveSession>(`session:${id}`));
 }
 
-/** bar: the chat's top bar (chat.tsx Bar). record: an agent's own record asked for (the
- *  channel's own session's: shown in its place). */
-export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?: number; bar: (s: Session | undefined) => ReactNode; record: (session: string) => void }) {
+/** bar: the chat's top bar (chat.tsx Bar). record: opens a session's read-only TranscriptView.
+ *  subTurn: draws a subagent at work under the conversation. */
+export function ChannelPage({ id, sheet = 0, bar, record, subTurn }: { id: string; sheet?: number; bar: (s: Session | undefined) => ReactNode; record: (session: string) => void; subTurn?: (s: Session) => ReactNode }) {
   useLang();
+  const [whole, setWhole] = useState(() => isWhole(id));
+  useState(() => void (isWhole(id) || firstScreen(id)));
+  useEffect(() => {
+    if (whole) return;
+    let live = true;
+    void (isWhole(id) ? Promise.resolve() : firstScreen(id)).then(() => live && setWhole(true));
+    return () => void (live = false);
+  }, [id]);
+  const hold = !whole;
   const list = useList();
   const row = list?.find((x) => x.id === id);
   const real = useSession(id);
   const ghost = useMemo(() => row && ghostOf(row), [row]);
   const s = real ?? ghost;
+  const [lost, setLost] = useState(false);
+  useEffect(() => {
+    if (!real) void stateAhead(id).then((there) => !there && setLost(true));
+  }, [id]);
+  const had = useRef(false);
+  if (real) had.current = true;
+  else if (had.current && !lost) setLost(true);
+  if (real && lost) setLost(false);
   const [entry] = useState(() => channelLog(id));
   const log = entry.log;
   const [, redraw] = useState(0);
@@ -89,23 +110,52 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
   const workspaces = useWorkspaces().data;
   const confirms = useConfirms();
 
-  // Its agents: who they are from the list (at once), what each runs as and receives from the
-  // members, their lamps from their sessions' states.
-  const sessions = (row?.agents ?? []).map((a) => a.session);
+  // Its agents: from members once loaded, else from the list row (including a legacy 1-agent
+  // session whose row.agents is empty).
+  const members = useMembers(id);
+  const seedAgents = useMemo(() => {
+    const fromMembers = (members?.members ?? []).flatMap((m) => (m.session ? [{ session: m.session, agent: m.agent, nick: m.nick }] : []));
+    if (fromMembers.length) return fromMembers;
+    if (row?.agents?.length) return row.agents;
+    if (row && !row.bare && row.agent) return [{ session: row.id, agent: row.agent, nick: "" }];
+    return [];
+  }, [members, row]);
+  const sessions = seedAgents.map((a) => a.session);
   const states = useStates(sessions);
   const sig = states.map((st) => `${st?.model ?? ""}:${st?.effort ?? ""}:${st?.effortNow ?? ""}`).join(" ");
-  const members = useMembers(id, sig);
+  useMembers(id, sig);
   // Not of its people: read, not spoken in (docs/channels.md).
   const may = mayAct(members);
-  const agents: AgentRow[] = (row?.agents ?? []).map((a, i) => {
+  const agents: AgentRow[] = seedAgents.map((a, i) => {
     const m = members?.members.find((x) => x.session === a.session);
-    const of = states[i] ?? list?.find((x) => x.id === a.session);
+    const of = states[i] ?? (a.session === id ? s : undefined) ?? list?.find((x) => x.id === a.session);
     const agent = of?.agent ?? m?.agent ?? a.agent ?? "claude";
     return { session: a.session, member: `agent:${a.session}`, agent, nick: m?.nick ?? a.nick ?? "", name: m?.name ?? agentName(agent), status: of ? lampOf(of) : (m?.status ?? "idle"), on: onOf(m?.on) };
   });
+  // When the channel has exactly one agent, keyboard shortcuts and /commands target it directly.
+  const solo = agents.length === 1 ? agents[0] : undefined;
+  const soloState = solo ? (states[0] ?? (solo.session === id ? s : undefined)) : undefined;
 
-  // The stream carries the other agents' states too, as far as it has room; the rest are asked
-  // for as the list says they changed.
+  // Its legacy session cleared itself (Claude's own /clear): go on in the replacement session.
+  const seenNext = useRef<{ id: string; next?: string } | null>(null);
+  useEffect(() => {
+    if (!s || s.bare) return;
+    const was = seenNext.current;
+    seenNext.current = { id, next: s.next };
+    if (was?.id === id && s.next && s.next !== was.next) openChat(s.next);
+  }, [id, !!s, s?.bare, s?.next]);
+
+  // Subagents at work for any agent in this channel.
+  const sessionSet = useMemo(() => new Set(sessions), [sessions.join(" ")]);
+  const subs = (list ?? []).filter((x) => x.subagent && !!x.parent && sessionSet.has(x.parent) && subWorking(x, list?.find((y) => y.id === x.parent), Date.now()));
+  const subKey = subs.map((x) => x.id).join(" ");
+  useEffect(() => {
+    also(subKey ? subKey.split(" ").map((x) => `session:${x}`) : [], "subs");
+    return () => also([], "subs");
+  }, [subKey]);
+
+  // The stream carries the agents' states too, as far as it has room; the rest are asked for as
+  // the list says they changed.
   const key = sessions.join(" ");
   useEffect(() => {
     also(watchExtra(id, sessions));
@@ -116,9 +166,12 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
     const r = list?.find((y) => y.id === x);
     return `${r?.status}:${r?.updatedAt}`;
   });
+  const opening = useRef(true);
   useEffect(() => {
+    const now = opening.current;
+    opening.current = false;
     sessions.forEach((x) => {
-      if (carries(`session:${x}`)) return;
+      if (x === id || carries(`session:${x}`) || (now && freshState(x))) return;
       void api.session(x, { priority: "low" } as RequestInit).then(
         (st) => setCarried(`session:${x}`, st),
         () => {},
@@ -131,7 +184,7 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
   useEffect(() => {
     let live = true;
     const more = () => void log.newer().then(() => live && changed(), () => {});
-    more();
+    if (!fresh(log.came)) more();
     const hear = (e: SatoriEvent) => {
       if ((e.type !== "message-created" && e.type !== "message-deleted") || e.channel?.id !== id || !e.message) return;
       log.heard({ ...e.message, _data: { ...e._data, ...e.message._data } }, e.type === "message-deleted");
@@ -146,8 +199,11 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
     };
   }, [id]);
   const turns = states.map((st) => `${st?.status}:${st?.end}`).join(" ");
+  const turnsOpen = useRef(true);
   useEffect(() => {
-    if (log.loaded) void log.newer().then(changed, () => {});
+    const now = turnsOpen.current;
+    turnsOpen.current = false;
+    if (log.loaded && !(now && fresh(log.came))) void log.newer().then(changed, () => {});
   }, [turns]);
 
   // What was sent from here, till the log has it.
@@ -184,7 +240,7 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
     fly.current = x.key;
     changed();
   };
-  // Failed, shown so even if it was taken for come (chat.tsx sentDone).
+  // Failed, shown so even if it was taken for come.
   const sentDone = (x: Sent) => {
     if (x.failed !== undefined && !entry.sent.includes(x)) entry.sent.push(x);
     changed();
@@ -210,8 +266,7 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
     const measure = () => setStackH((lastStackH = el.offsetHeight));
     measure();
     // Drawn at once, in the frame the stack changed in: drawn whenever React next got to it, the
-    // conversation's padding was a frame behind the stack (the composer a line taller over the
-    // last message; emptied, the conversation a frame lower and back).
+    // conversation's padding was a frame behind the stack.
     const ro = new ResizeObserver(() => flushSync(measure));
     ro.observe(el);
     return () => ro.disconnect();
@@ -219,14 +274,18 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
 
   const composer = useRef<ComposerHandle>(null);
   const call = (nick: string) => composer.current?.insert(`@${nick}`);
+  // Lend @ and record actions to the top bar's Members menu (top.tsx).
+  useEffect(() => lendActs(id, { call: may ? call : undefined, record }), [id, may, record]);
   // Its members as words name them and as @ lists them (agents, people and apps: peers).
   const { named: nicks, others: peopleRows } = useNamed({ channel: id, agents, members, may, call, record });
+
+  const [modelOpen, setModelOpen] = useState(false);
+  const [modeOpen, setModeOpen] = useState(false);
 
   const files = (e: DragEvent) => e.dataTransfer.types.includes("Files") && (e.preventDefault(), true);
   const session = (e: DragEvent) => e.dataTransfer.types.includes(SESSION_DRAG) && (e.preventDefault(), (e.dataTransfer.dropEffect = "copy"), true);
   const place = (e: DragEvent) => e.dataTransfer.types.includes(PLACE_DRAG) && (e.preventDefault(), (e.dataTransfer.dropEffect = "copy"), true);
   const drop = (e: DragEvent) => {
-    // Files dropped go to the composer, a channel with no agent too.
     if (files(e)) return composer.current?.attach([...e.dataTransfer.files]);
     if (place(e)) {
       const p = placeDropped(e.dataTransfer.getData(PLACE_DRAG));
@@ -241,14 +300,17 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
   // (the user, 2026-11-13); another login, an app, a Bot on the left, under its own face.
   const who = personWho(self, terminals, list ?? [], workspaces ?? []);
   const groups = useMemo(() => groupMessages(log.msgs), [log.msgs]);
-  // Words between agents fold when long (merge.ts betweenAgents).
+  // Words between agents fold when long (folds.ts betweenAgents).
   const nickSet = new Set(agents.map((a) => a.nick.toLowerCase()).filter(Boolean));
   const fold = (m: Msg) => betweenAgents(m, log.msgs, nickSet);
-  // Each agent's usage after its model's name, a strip of its own as small as a phone's (the
-  // user, 2026-11-13): its context's ring, its quota's bars; each pressed, its popover.
+  // Each agent's usage after its model's name, a strip of its own as small as a phone's.
+  const stateAt = (session: string) => {
+    const i = sessions.indexOf(session);
+    return (i >= 0 ? states[i] : undefined) ?? (session === id ? s : undefined);
+  };
   const bars = (session: string) => {
-    const i = agents.findIndex((a) => a.session === session);
-    return agents[i] ? <AgentBars a={agents[i]} st={states[i]} /> : null;
+    const a = agents.find((x) => x.session === session);
+    return a ? <AgentBars a={a} st={stateAt(session)} /> : null;
   };
   // The message being answered (<quote>), over the composer till it is sent; its author named
   // at the composer's start, as QQ does (kumo, 2026-11-21): the @, not the quote, calls.
@@ -272,6 +334,7 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
   // and as it is seen again.
   const reads = useCarried<ChannelReads>(`reads:${id}`);
   useEffect(() => {
+    if (getCarried(`reads:${id}`) && fresh(log.came)) return;
     void api.reads(id).then(
       (r) => getCarried(`reads:${id}`) || setCarried(`reads:${id}`, r),
       () => {},
@@ -297,25 +360,38 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
   const olds = useMemo(() => (readTo === undefined ? undefined : oldRead(log.msgs, readTo)), [log.msgs, readTo]);
   const old = (m: Msg) => foldsOnce(id, `m${m.n}`, olds?.has(m.n));
   const working = agents.filter((a) => WORKING.has(a.status));
-  const asking = agents.some((_, i) => states[i]?.asks.length);
-  const stateAt = (session: string) => states[sessions.indexOf(session)];
-  const grew = `${log.end} ${sent.length} ${working.map((a) => `${a.session}:${stateAt(a.session)?.end ?? 0}`).join(" ")}`;
+  const secretHere = useSecret()?.at === id || (!!solo && useSecret()?.at === solo.session);
+  const asking = agents.some((a) => !!stateAt(a.session)?.asks.length) || agents.some((a) => confirms.some((c) => c.session === a.session && c.kind !== "ask")) || secretHere;
+  const compacting = soloState?.status === "compacting";
+  const compactSince = useRef(0);
+  if (!compacting) compactSince.current = 0;
+  else if (soloState?.compactingSince) compactSince.current = soloState.compactingSince;
+  else if (!compactSince.current) compactSince.current = Date.now();
+  const grew = `${log.end} ${sent.length} ${working.map((a) => `${a.session}:${stateAt(a.session)?.end ?? 0}`).join(" ")} ${subs.map((x) => `${x.id}:${x.updatedAt}`).join(",")}`;
   const padTop = 64; // the bar's 48px, a gap
 
-  if (!s) return <div className="relative h-full">{bar(row)}</div>;
+  if (!s) {
+    const gone = lost && list !== undefined && !row;
+    return (
+      <div className="relative h-full">
+        {bar(row)}
+        {gone && <p className="g-fade m-0 pt-24 text-center text-sm text-ink-3">{t("chat.gone")}</p>}
+      </div>
+    );
+  }
   return (
     <Nicks.Provider value={nicks}>
       <div className="relative h-full" onDragOver={(e) => files(e) || session(e) || place(e)} onDrop={drop}>
-        <Stick scroller={scroller} tail={grew} older={() => log.older()} draw={changed} place={entry.place} bottom={stackH} quiet={asking} style={{ paddingTop: padTop, paddingBottom: stackH + 20 }}>
+        <Stick key={hold ? "hold" : "whole"} scroller={scroller} tail={grew} older={() => log.older()} busy={working.length > 0 || subs.length > 0} draw={changed} place={entry.place} bottom={stackH} quiet={asking} style={{ paddingTop: padTop, paddingBottom: stackH + 20 }}>
           <div data-column className="mx-auto flex max-w-(--chat-w) flex-col gap-5 px-4 [--depart-gap:1.25rem] sm:px-6">
-            {groups.map((g) => (
+            {!hold && groups.map((g) => (
               <div key={g.key} className="relative flex min-w-0 flex-col">
                 <GroupView g={g} channel={id} agents={agents} who={who} record={record} call={call} may={may} quote={may ? quoting : undefined} quoted={quoted} bars={bars} fold={fold} old={old} jump={jump} />
                 {/* In the gap under it, over nothing: coming late, it moves nothing (docs/前端设计规范.md). */}
                 {SHOW_READS && marks.has(g.key) && <ReadMarks readers={marks.get(g.key)!} agents={agents} />}
               </div>
             ))}
-            {sent.map((x) => (
+            {!hold && sent.map((x) => (
               <Pending
                 key={x.key}
                 s={x}
@@ -326,12 +402,16 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
                 drop={() => ((entry.sent = entry.sent.filter((y) => y !== x)), changed())}
               />
             ))}
+            {!hold && log.loaded && compacting && (
+              <div className="-mt-1">
+                <Compaction since={compactSince.current} />
+              </div>
+            )}
             {/* Each called agent at work: its face and name at once, as its words will be, the dots
-                under them (kumo, 2026-11-15: not a line of its own without the face), what it has
-                done so far as on its own page (kumo, 2026-11-18); under its own last words, no
-                face again. */}
-            {log.loaded && (
-              <div className="-mt-2 flex min-h-7 flex-col gap-5 pointer-coarse:min-h-9">
+                under them, and live streaming drafts + tool calls; collapsed cleanly when idle so
+                there is no dead empty gap under the last message. */}
+            {!hold && log.loaded && !compacting && (
+              <div className="-mt-2 flex flex-col gap-5 empty:hidden">
                 <Leaving
                   items={working}
                   keyOf={(a) => a.session}
@@ -340,34 +420,93 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
                     const alone = !sent.length && last?.kind === "agent" && last.session === a.session;
                     return (
                       <Arrive on={!alone} off={leaving} as="g-fade">
-                        <OtherTurn spoken={new Set(log.msgs.slice(-12).flatMap((m) => (m.author.kind === "agent" && m.author.session === a.session && m.text.trim() ? [m.text.trim()] : [])))} a={a} channel={id} st={stateAt(a.session)} said={log.msgs.findLast((m) => m.author.kind === "agent" && m.author.session === a.session && !!m.src)?.src} alone={alone} bars={bars(a.session)} call={may ? call : undefined} record={record} may={may} />
+                        <OtherTurn spoken={new Set(log.msgs.slice(-12).flatMap((m) => (m.author.kind === "agent" && m.author.session === a.session && m.text.trim() ? [m.text.trim()] : [])))} a={a} channel={id} st={stateAt(a.session)} said={log.msgs.findLast((m) => m.author.kind === "agent" && m.author.session === a.session && !!m.src)?.src} alone={alone} bars={bars(a.session)} call={may ? call : undefined} record={record} may={may} esc={agents.length === 1} />
                       </Arrive>
                     );
                   }}
                 />
               </div>
             )}
+            {!hold && subTurn && subs.map((x) => (
+              <div key={x.id} className="g-arrive">
+                <div>{subTurn(x)}</div>
+              </div>
+            ))}
+            {!hold && soloState?.denials?.length ? <Denials session={soloState.id} denials={soloState.denials} cwd={soloState.cwd} stuck={soloState.status === "waiting" && !soloState.asks.length} /> : null}
+            {!hold && soloState?.status === "error" && soloState.error && <Crash error={soloState.error} />}
           </div>
         </Stick>
         {bar(s)}
-        <div ref={stack} {...{ [PULL]: "" }} data-covered={sheet > 0 || undefined} data-sunk={(sheet > 0 && stackH > sheet - 16) || undefined} inert={sheet > 0} className="g-turn-stay g-sink vt-stack absolute inset-x-0 bottom-0 z-10 px-2.5 pb-[max(10px,calc(env(safe-area-inset-bottom)+6px))] sm:px-5">
-          <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-[calc(64px+max(10px,calc(env(safe-area-inset-bottom)+6px)))] bg-[linear-gradient(to_bottom,transparent,var(--paper)_14px)]" />
+        <div ref={stack} {...{ [PULL]: "" }} data-asking={asking || undefined} data-covered={sheet > 0 || undefined} data-sunk={(sheet > 0 && stackH > sheet - 16) || undefined} inert={sheet > 0} className="g-turn-stay g-sink vt-stack absolute inset-x-0 bottom-0 z-10 px-2.5 pb-[max(14px,calc(env(safe-area-inset-bottom)+6px))] sm:px-5">
+          <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-[calc(44px+max(14px,calc(env(safe-area-inset-bottom)+6px)))] bg-[linear-gradient(to_bottom,transparent,var(--paper)_14px)]" />
           <div className="relative mx-auto max-w-(--chat-w)">
+            <ShellRuns s={s} />
             {agents.map((a) => {
               const needs = confirms.filter((c) => c.session === a.session && c.kind !== "ask");
               return needs.length ? (
                 <Of key={a.session} a={a} off={!may}>
-                  <Asks session={a.session} asks={[]} cwd={s.cwd} confirms={needs} />
+                  <Asks session={a.session} asks={[]} cwd={stateAt(a.session)?.cwd ?? s.cwd} confirms={needs} />
                 </Of>
               ) : null;
             })}
-            <AskQueue agents={agents} states={states} cwd={s.cwd} off={!may} />
-            {!may ? <NotJoined /> : null}
-            {may && <Composer ref={composer} s={s} turn={false} nicks={agents} people={peopleRows} quote={quote ? { n: quote.n, who: nameOf(quote), text: quoteText(quote) } : undefined} unquote={() => setQuote(null)} onSent={onSent} onSentDone={sentDone} cycleMode={() => {}} openModel={() => {}} openMode={() => {}} openUsage={() => {}} openContext={() => false} cleared={openChat} />}
+            <AskQueue agents={agents} states={agents.map((a) => stateAt(a.session))} cwd={s.cwd} off={!may} />
+            {!may ? (
+              <NotJoined />
+            ) : (
+              <ChannelComposer
+                composer={composer}
+                s={s}
+                solo={soloState}
+                agents={agents}
+                people={peopleRows}
+                quote={quote ? { n: quote.n, who: nameOf(quote), text: quoteText(quote) } : undefined}
+                unquote={() => setQuote(null)}
+                onSent={onSent}
+                onSentDone={sentDone}
+                modelOpen={modelOpen}
+                setModelOpen={setModelOpen}
+                modeOpen={modeOpen}
+                setModeOpen={setModeOpen}
+              />
+            )}
           </div>
         </div>
       </div>
     </Nicks.Provider>
+  );
+}
+
+/** The channel's composer, wired to the sole agent's /mode, /model, /usage, Shift+Tab and Esc when
+ *  the channel has exactly one agent. */
+function ChannelComposer({ composer, s, solo, agents, people, quote, unquote, onSent, onSentDone, modelOpen, setModelOpen, modeOpen, setModeOpen }: { composer: React.RefObject<ComposerHandle | null>; s: LiveSession; solo?: LiveSession; agents: AgentRow[]; people: AgentRow[]; quote?: { n: number; who: string; text: string }; unquote: () => void; onSent: (x: Sent) => void; onSentDone: (x: Sent) => void; modelOpen: boolean; setModelOpen: (o: boolean) => void; modeOpen: boolean; setModeOpen: (o: boolean) => void }) {
+  const mode = useMode(solo ?? s);
+  return (
+    <Composer
+      ref={composer}
+      s={s}
+      solo={solo}
+      turn={!!solo && turning(solo) && solo.status !== "starting"}
+      nicks={agents}
+      people={people}
+      quote={quote}
+      unquote={unquote}
+      onSent={onSent}
+      onSentDone={onSentDone}
+      cycleMode={solo ? mode.cycle : () => {}}
+      openModel={() => solo && setModelOpen(true)}
+      openMode={() => solo && setModeOpen(true)}
+      openUsage={() => openUsage(undefined, (solo ?? s).machine)}
+      openContext={() => false}
+      cleared={openChat}
+      tools={
+        solo ? (
+          <span aria-hidden className="invisible flex w-0 overflow-hidden">
+            <ModeKey mode={mode} open={modeOpen} onOpenChange={setModeOpen} />
+            <ModelKey s={solo} open={modelOpen} onOpenChange={setModelOpen} />
+          </span>
+        ) : undefined
+      }
+    />
   );
 }
 

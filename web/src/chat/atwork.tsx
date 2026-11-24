@@ -8,14 +8,19 @@ import type { Block } from "../api/types.gen";
 import { chatOf, fresh, type Draft as Drafted } from "../chats";
 import { t, useLang } from "../i18n";
 import { openChat } from "../route";
-import { carries, opened } from "../stream";
+import { carries, drafts, opened } from "../stream";
 import { cn } from "../ui";
 import { liveOf, type AgentRow, type Src } from "./channel/lib";
 import { AgentFace } from "./channel/members";
 import { useAway, Where } from "./away";
+import { renameOnly } from "./cmd";
 import { folded, type Tool } from "./fold";
 import { StopKey, ToolDraft, Waiting } from "./live";
+import { Draft } from "./markdown";
 import { Running, Said, StepsHead, When, useWhenRow } from "./said";
+
+/** A call being written that only names the session (ir rename): left out, as its block is. */
+const renamesDraft = (d: Drafted) => !!d.tool && renameOnly({ name: d.tool.name, input: d.text });
 
 /** The turn's row at the end of the conversation: the call being written, else the one running
  *  (the newest, how many more beside it), else the dots once it has gone quiet; one line high, even
@@ -79,7 +84,7 @@ const noSource = () => ({ kind: "you" }) as ReturnType<Parameters<typeof Said>[0
 /** past: a part of its turn done before it was given something more (lib.ts liveParts), drawn
  *  as it was, at rest: no row of what runs, nothing asked for. grown: told as its record brings
  *  something it was given (the page then cuts its turn there). */
-export function OtherTurn({ a, channel, st, said, spoken, alone, bars, call, record, may, past, grown }: { past?: Block[]; grown?: () => void; spoken?: ReadonlySet<string>; a: AgentRow; channel: string; st?: LiveSession; said?: Src; alone: boolean; bars: ReactNode; call?: (nick: string) => void; record: (session: string) => void; may: boolean }) {
+export function OtherTurn({ a, channel, st, said, spoken, alone, bars, call, record, may, past, grown, esc }: { past?: Block[]; grown?: () => void; spoken?: ReadonlySet<string>; a: AgentRow; channel: string; st?: LiveSession; said?: Src; alone: boolean; bars: ReactNode; call?: (nick: string) => void; record: (session: string) => void; may: boolean; esc?: boolean }) {
   useLang();
   const [chat] = useState(() => chatOf(a.session));
   const log = chat.log;
@@ -90,12 +95,17 @@ export function OtherTurn({ a, channel, st, said, spoken, alone, bars, call, rec
     const more = () => void log.newer().then(() => live && changed(), () => {});
     if (past) return;
     if (!log.loaded || !fresh(log.came)) more();
-    opened.add(more);
+    const hear = (d: { session: string }) => d.session === a.session && (log.wrote(d as never), changed());
+    const back = () => (log.dropDrafts(), more());
+    drafts.add(hear);
+    opened.add(back);
     return () => {
       live = false;
-      opened.delete(more);
+      drafts.delete(hear);
+      opened.delete(back);
     };
   }, [a.session, !past]);
+  useEffect(() => void (st && !past && (log.procIs(st.proc), changed())), [st?.proc, !past]);
   // Its record grew: what came since.
   const carried = carries(`session:${a.session}`);
   const end = st?.end ?? 0;
@@ -103,6 +113,7 @@ export function OtherTurn({ a, channel, st, said, spoken, alone, bars, call, rec
   // its steps stood still till its record next grew.
   useEffect(() => {
     if (past || !log.loaded || (carried && end <= log.end)) return;
+    if (st?.tail && log.fromTail(st.tail)) return void changed();
     let live = true;
     let tries = 0;
     let again = 0;
@@ -132,11 +143,13 @@ export function OtherTurn({ a, channel, st, said, spoken, alone, bars, call, rec
   const shown = folded(past ?? liveOf(log.blocks, said, spoken ? (x) => spoken.has(x) : undefined), !past);
   const running = shown.flatMap((b) => (b.kind === "running" ? [b.tool] : []));
   const rows = shown.filter((b) => b.kind !== "running" && b.kind !== "user");
+  const textDrafts = past ? [] : log.drafts.filter((d) => !d.tool && d.text.trim() && !(spoken && spoken.has(d.text.trim())));
+  const toolDrafts = past ? [] : log.drafts.filter((d) => d.tool && !renamesDraft(d));
   const cwd = st?.cwd ?? "";
   const node = (b: (typeof rows)[number]) => <Said key={b.at} b={b} session={a.session} cwd={cwd} source={noSource} onJump={openChat} />;
-  const stop = may && !past ? <StopKey session={a.session} /> : null;
+  const stop = may && !past ? <StopKey session={a.session} esc={esc} /> : null;
   const time = rows.map((b) => (b.kind === "fold" ? b.steps[0]?.time : "time" in b ? b.time : undefined)).find(Boolean);
-  const activity = (under: boolean) => past ? null : <Activity calls={[]} running={running} cwd={cwd} quiet grew={`${a.session} ${log.end} ${running.length}`} under={under} stop={stop} />;
+  const activity = (under: boolean) => past ? null : <Activity calls={toolDrafts} running={running} cwd={cwd} quiet={!textDrafts.some((d) => !d.whole)} grew={`${a.session} ${log.end} ${running.length} ${log.drafts.length} ${log.drafts.at(-1)?.text.length ?? 0}`} under={under} stop={stop} />;
   const headOf = () => (
     <>
       <span className="shrink-0 text-xs font-medium text-ink-2">{a.nick}</span>
@@ -150,11 +163,16 @@ export function OtherTurn({ a, channel, st, said, spoken, alone, bars, call, rec
   // words between, as they will be once said to the channel; the row of what runs now at the end.
   return (
     <div role="group" aria-label={label} className="flex min-w-0 flex-col gap-5">
-      {rows.length || alone ? (
+      {rows.length || textDrafts.length || alone ? (
         <>
-          {rows.length > 0 && (
+          {(rows.length > 0 || textDrafts.length > 0) && (
             <TurnFrame bare={alone} face={<AgentFace channel={channel} a={a} call={call} record={record} may={may} />} head={headOf()}>
               <StepsHead.Provider value={away ? <Where place={away} /> : null}>{rows.map(node)}</StepsHead.Provider>
+              {textDrafts.map((d) => (
+                <div key={`${d.proc}.${d.n}`} className="g-fade min-w-0 pr-6">
+                  <Draft text={d.text} live={!d.whole} />
+                </div>
+              ))}
             </TurnFrame>
           )}
           {activity(false)}
