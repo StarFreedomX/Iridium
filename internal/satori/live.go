@@ -77,6 +77,7 @@ func workElement(w *channel.Work) string {
 			kv = append(kv, k, strconv.FormatInt(n, 10))
 		}
 	}
+	num("agents", int64(w.Agents))
 	num("at", w.At)
 	num("ms", w.Ms)
 	kv = append(kv, "from", strconv.FormatInt(w.From, 10))
@@ -346,7 +347,7 @@ func (s *Service) step(id, tool, origin string) {
 		st.carrier, st.from = 0, s.endOf(id)
 	}
 	if st.carrier == 0 {
-		m, err := s.log.BeginWork(id, channel.Work{Steps: 1, Tool: tool, Running: true, At: now, From: st.from})
+		m, err := s.log.BeginWork(id, channel.Work{Steps: 1, Tool: tool, Running: true, At: now, From: st.from, Agents: sendsAgent(tool)})
 		if err != nil || m.Seq == 0 {
 			s.logf("satori: channel of %s: %v", id, err)
 			return
@@ -360,6 +361,7 @@ func (s *Service) step(id, tool, origin string) {
 			w.At, w.From = now, st.from
 		}
 		w.Steps++
+		w.Agents += sendsAgent(tool)
 		w.Tool, w.Running, w.Ms, w.To = tool, true, 0, 0
 	})
 	if ok {
@@ -393,4 +395,12 @@ func (s *Service) heardOf(id string) int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.heard[id]
+}
+
+// sendsAgent is 1 where a call of tool sends a subagent off (Claude's Agent, Task before it).
+func sendsAgent(tool string) int {
+	if tool == "Agent" || tool == "Task" {
+		return 1
+	}
+	return 0
 }

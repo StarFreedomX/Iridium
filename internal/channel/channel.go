@@ -253,6 +253,8 @@ type Work struct {
 	Ms      int64  `json:"ms,omitempty"`
 	From    int64  `json:"from,omitempty"`
 	To      int64  `json:"to,omitempty"`
+	// Agents: how many of the steps sent a subagent off (the harness's own: Claude's Agent tool).
+	Agents int `json:"agents,omitempty"`
 }
 
 // Event is something that happened to a channel, kept as a line of it. Type: "join" (an agent
