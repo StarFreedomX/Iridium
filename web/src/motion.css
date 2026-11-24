@@ -216,11 +216,22 @@
 .g-reveal > * {
   min-height: 0;
   --reveal-cut: 18px;
-  mask-image: linear-gradient(to bottom, #000 calc(100% - var(--reveal-cut)), transparent);
   transition: --reveal-cut var(--move) var(--ease-out);
+}
+/* The mask only while shut or opening: one left on what is open has every open list a layer of
+   its own, painted again for each change in it (WebKit). */
+.g-reveal:not([data-open]) > * {
+  mask-image: linear-gradient(to bottom, #000 calc(100% - var(--reveal-cut)), transparent);
 }
 .g-reveal[data-open] > * {
   --reveal-cut: 0px;
+  animation: g-reveal-cut var(--move) linear;
+}
+@keyframes g-reveal-cut {
+  from,
+  to {
+    mask-image: linear-gradient(to bottom, #000 calc(100% - var(--reveal-cut)), transparent);
+  }
 }
 /* The room under a conversation for what stands under it (the composer): to its new size the
    same way taller and shorter (chat/stick.tsx keeps the end in place each frame). */
@@ -230,6 +241,7 @@
 .g-reveal.g-snap,
 .g-reveal.g-snap > * {
   transition: none;
+  animation: none;
 }
 
 /* --- fade --- */

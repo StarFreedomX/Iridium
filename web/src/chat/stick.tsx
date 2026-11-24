@@ -178,7 +178,10 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
       else el.scrollTop = place.top!;
     } else if (was === tail) return;
     else if (!s.following) atFoot(el) ? follow() : setFresh(true);
-    void back().catch(() => {});
+    // The page before is asked for near the top: opened, or read up there. Not at each draw while
+    // it follows its end, where asking reads the layout the draw has just changed, once more a
+    // frame (a stream drawn many times a second; scrolled up, the scroll asks).
+    if (!s.following || !was) void back().catch(() => {});
   });
 
   useLayoutEffect(() => {
@@ -247,7 +250,8 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     if (s.following && s.drag && el.scrollTop < s.ours - 1) leave();
     else if (!s.following && atFoot(el)) follow();
     mark(el);
-    void back().catch(() => {});
+    // Following, it is at its end (gone up, it lets go first): nothing read for the page before.
+    if (!s.following) void back().catch(() => {});
   };
 
   return (

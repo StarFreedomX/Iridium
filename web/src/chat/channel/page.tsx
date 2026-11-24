@@ -8,7 +8,7 @@
 // When the channel has a single agent, /commands, /model, /mode, /clear, Shift+Tab and Esc work
 // directly on that agent.
 import { flushSync } from "react-dom";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
 import { Popover } from "@base-ui/react/popover";
 import { api } from "../../api/client";
 import type { Ask, Block, ChannelReads, Reader, SessionState as LiveSession, Session } from "../../api/types.gen";
@@ -377,6 +377,33 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
   const last = log.msgs.at(-1);
   const grew = `${log.end} ${sent.length} ${last?.text.length ?? 0}`;
   const padTop = 64; // the bar's 48px, a gap
+  // What the rows call, the latest of it behind functions that stay the same, and the agents and
+  // their strips as what they say: a group is drawn again for its own change alone, not for each
+  // piece of another's draft (GroupView; a long channel streamed at a few frames a second).
+  const latest = useRef({ who, call, quoting, quoted, bars, fold, old, jump, pending });
+  latest.current = { who, call, quoting, quoted, bars, fold, old, jump, pending };
+  const fx = useMemo(() => {
+    const l = () => latest.current;
+    return {
+      who: ((a) => l().who(a)) as Who,
+      call: (nick: string) => l().call(nick),
+      quoting: (m: Msg) => l().quoting(m),
+      quoted: (n: number) => l().quoted(n),
+      bars: (session: string) => l().bars(session),
+      fold: (m: Msg) => l().fold(m),
+      old: (m: Msg) => l().old(m),
+      jump: (n: number) => l().jump(n),
+      pending: (x: Sent, bare: boolean) => l().pending(x, bare),
+    };
+  }, []);
+  const agentsSig = JSON.stringify(agents);
+  const rowAgents = useMemo(() => agents, [agentsSig]);
+  const barsSig = JSON.stringify(
+    agents.map((a) => {
+      const st = stateAt(a.session);
+      return st && [st.context, st.tokens, st.machine, st.live, st.model, st.pick, st.effort];
+    }),
+  );
 
   if (!s) {
     const gone = lost && list !== undefined && !row;
@@ -395,7 +422,7 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
             {!hold &&
               groups.map((g) => (
                 <div key={g.key} className="relative flex min-w-0 flex-col">
-                  <GroupView g={g} channel={id} agents={agents} who={who} record={record} call={call} may={may} quote={may ? quoting : undefined} quoted={quoted} bars={bars} fold={fold} old={old} jump={jump} wrote={log.wrote} born={log.born} hidden={hidden} pending={pending} />
+                  <GroupView g={g} channel={id} agents={rowAgents} who={fx.who} record={record} call={fx.call} may={may} quote={may ? fx.quoting : undefined} quoted={fx.quoted} bars={fx.bars} barsSig={barsSig} fold={fx.fold} old={fx.old} olds={olds} jump={fx.jump} wrote={log.wrote} born={log.born} hidden={hidden} pending={fx.pending} />
                   {/* In the gap under it, over nothing: coming late, it moves nothing (docs/前端设计规范.md). */}
                   {SHOW_READS && marks.has(g.key) && <ReadMarks readers={marks.get(g.key)!} agents={agents} />}
                 </div>
@@ -616,7 +643,30 @@ function blockFor(m: Msg, agents: AgentRow[]): Block {
  *  agents). wrote: the messages this page saw written, drawn so to their end and never folded of
  *  themselves. hidden: those whose count of what was done before them is the line of the one
  *  before (rows.ts doneBefore). */
-export function GroupView({ g, channel, agents, who, record, call, may, quote, quoted, bars, fold, old, jump, wrote, born, hidden, pending }: { born?: Set<number>; fold?: (m: Msg) => boolean; old?: (m: Msg) => boolean; jump?: (n: number) => void; g: Group<Sent>; channel: string; agents: AgentRow[]; who: Who; record: (session: string) => void; call: (nick: string) => void; may: boolean; quote?: (m: Msg) => void; quoted: (n: number) => { who: string; text: string } | undefined; bars: (session: string) => ReactNode; wrote?: ReadonlySet<number>; hidden?: ReadonlySet<number>; pending?: (x: Sent, bare: boolean) => ReactNode }) {
+type GroupProps = { born?: Set<number>; fold?: (m: Msg) => boolean; old?: (m: Msg) => boolean; olds?: ReadonlySet<number>; jump?: (n: number) => void; g: Group<Sent>; channel: string; agents: AgentRow[]; who: Who; record: (session: string) => void; call: (nick: string) => void; may: boolean; quote?: (m: Msg) => void; quoted: (n: number) => { who: string; text: string } | undefined; bars: (session: string) => ReactNode; barsSig?: string; wrote?: ReadonlySet<number>; hidden?: ReadonlySet<number>; pending?: (x: Sent, bare: boolean) => ReactNode };
+
+/** Whether a group draws the same: its rows the same messages (the log keeps a message not changed
+ *  the same object), the sets it reads saying the same of its messages, the rest the same values.
+ *  One with a bubble is drawn again each time: a bubble is changed where it is (failed, sent again). */
+function sameGroup(a: GroupProps, b: GroupProps): boolean {
+  if (b.g.lines.some((l) => l.sent)) return false;
+  for (const k of Object.keys(b) as (keyof GroupProps)[]) {
+    if (k === "g" || k === "hidden" || k === "olds" || a[k] === b[k]) continue;
+    return false;
+  }
+  if (a.g !== b.g) {
+    if (a.g.key !== b.g.key || a.g.author !== b.g.author || a.g.lines.length !== b.g.lines.length) return false;
+    for (let i = 0; i < b.g.lines.length; i++) {
+      const x = a.g.lines[i]!, y = b.g.lines[i]!;
+      if (x.key !== y.key || x.m !== y.m || x.sent !== y.sent) return false;
+    }
+  }
+  if (!a.olds !== !b.olds) return false;
+  for (const l of b.g.lines) if (l.m && (a.hidden?.has(l.m.n) !== b.hidden?.has(l.m.n) || a.olds?.has(l.m.n) !== b.olds?.has(l.m.n))) return false;
+  return true;
+}
+
+export const GroupView = memo(function GroupView({ g, channel, agents, who, record, call, may, quote, quoted, bars, fold, old, jump, wrote, born, hidden, pending }: GroupProps) {
   const list = useList();
   const a = g.author;
   const msgs = g.lines.flatMap((l) => (l.m ? [l.m] : []));
@@ -693,7 +743,7 @@ export function GroupView({ g, channel, agents, who, record, call, may, quote, q
       </div>
     </MsgRow>
   );
-}
+}, sameGroup);
 
 /** A person's message: a bubble, or a letter (another session's ir, a plugin, a peer); bare: under
  *  the head of the one before it from the same sender. */

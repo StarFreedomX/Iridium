@@ -206,11 +206,17 @@ function Meter({ parts, label }: { parts: Part[]; label: (n: number) => string }
   );
 }
 
+/** The formats, made once each: a toLocaleString with options makes one anew each call, and the
+ *  bars are drawn under every agent's head. */
+const formats = new Map<string, Intl.DateTimeFormat>();
 function resetIn(at: number | undefined, lang: string): string {
   if (!at) return "";
   const d = new Date(at);
   const today = new Date().toDateString() === d.toDateString();
-  return d.toLocaleString(lang === "zh" ? "zh-CN" : "en", today ? { hour: "2-digit", minute: "2-digit" } : { weekday: "short", hour: "2-digit", minute: "2-digit" });
+  const key = `${lang}${today}`;
+  let f = formats.get(key);
+  if (!f) formats.set(key, (f = new Intl.DateTimeFormat(lang === "zh" ? "zh-CN" : "en", today ? { hour: "2-digit", minute: "2-digit" } : { weekday: "short", hour: "2-digit", minute: "2-digit" })));
+  return f.format(d);
 }
 
 const STALE = 15 * 60_000;

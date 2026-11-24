@@ -10,7 +10,10 @@ import { getCarried } from "./store";
 import type { Turn } from "./route";
 import { moveLog } from "./motionlog";
 
-export const reduced = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+/** Reduced motion asked for, kept as it changes: asked each frame of a move, a query each time
+ *  cost more than the move. */
+const reduce = typeof window !== "undefined" ? matchMedia("(prefers-reduced-motion: reduce)") : undefined;
+export const reduced = () => !!reduce?.matches;
 
 /** The tokens as read, kept: each read of the root's style is a style pass of the whole page,
  *  forced in the middle of whatever is moving (a page turned in the phone's sheet stuttered). Read
