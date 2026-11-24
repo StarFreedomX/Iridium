@@ -399,6 +399,26 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     clearTimeout(quietTimer.current);
   };
 
+  /** The key to go down, pressed: at the newest at once, as a chat app goes (kumo, 2026-11-24: the
+   *  browser's smooth scroll over a long way was slow, and slower as it went): put a little
+   *  short of the end, the last of the way in one move's time. */
+  const NEAR = 96;
+  const goDown = () => {
+    const el = list.current;
+    if (!el) return;
+    hold();
+    setRoom(0);
+    const end = bottomOf(el);
+    if (reduced() || document.hidden) return void pin(el);
+    const from = Math.max(el.scrollTop, end - NEAR);
+    put(el, from);
+    at.current = { y: end - from, v: 0 };
+    quick.current = true;
+    moveLog("follow.up", "key", { dy: -Math.round(end - from), note: "quick" });
+    if (at.current.y > 0.5) run();
+    else pin(el);
+  };
+
   const back = async () => {
     const el = list.current;
     if (!el || paging.current) return;
@@ -579,7 +599,7 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
       {fresh && !quiet && (
         <button
           type="button"
-          onClick={() => list.current!.scrollTo({ top: bottomOf(list.current!), behavior: "smooth" })}
+          onClick={goDown}
           className="g-pop g-press glass thick float absolute left-1/2 z-10 flex h-8 -translate-x-1/2 items-center gap-1.5 rounded-full px-3 text-xs font-medium text-ink"
           style={{ bottom: bottom + 10 }}
         >
