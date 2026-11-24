@@ -12,16 +12,3 @@ func SystemPrompt(lang string) string {
 	}
 	return in.String()
 }
-
-var (
-	RecoveryPrompt = own(assemble.Recovery)
-	QuotaPrompt    = own(assemble.QuotaBack)
-)
-
-func own(f func() (assemble.Injection, error)) string {
-	in, err := f()
-	if err != nil {
-		panic(err)
-	}
-	return in.String()
-}

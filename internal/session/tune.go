@@ -13,9 +13,7 @@ import (
 // Tunables are the config's fields the settings page changes while the daemon runs (PUT
 // /v1/internal/settings): read through Manager.tuned, never Options.Config, so a change takes at once.
 type Tunables struct {
-	IdleReap    time.Duration // 0: never
-	CrashResume bool
-	QuotaResume bool
+	IdleReap time.Duration // 0: never
 	// Modes: the approval mode a new session of each agent starts in; none: the agent's own.
 	Modes map[string]string
 	// Lang: the user's language ("zh", "en"; "" not known), told agents from their next start.
@@ -24,10 +22,10 @@ type Tunables struct {
 
 // TunablesOf are cfg's.
 func TunablesOf(cfg config.Config) Tunables {
-	return Tunables{IdleReap: cfg.IdleReap.D(), CrashResume: cfg.CrashResume, QuotaResume: cfg.QuotaResume, Modes: maps.Clone(cfg.Modes), Lang: cfg.Lang}
+	return Tunables{IdleReap: cfg.IdleReap.D(), Modes: maps.Clone(cfg.Modes), Lang: cfg.Lang}
 }
 
-// Tune puts t in place of the live values: idle reaping, crash and quota resume from the next
+// Tune puts t in place of the live values: idle reaping from the next
 // time they are looked at, the default modes from the next start; a language, the channels at
 // once (harness.Retuner: a holder's features' texts).
 func (m *Manager) Tune(t Tunables) {

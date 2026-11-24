@@ -78,14 +78,6 @@ func TestMessageGolden(t *testing.T) {
 	if len(in.Parts()) != 1 || in.Parts()[0].Source != SourceInput {
 		t.Errorf("a slash command with words of Iridium's: %+v", in.Parts())
 	}
-	for name, own := range map[string]func() (Injection, error){"message.recovery": Recovery, "message.quota": QuotaBack} {
-		words, err := own()
-		if err != nil {
-			t.Fatal(err)
-		}
-		in, err := Own("Iridium", words)
-		golden(t, name, in, err)
-	}
 }
 
 func TestOtherTexts(t *testing.T) {
@@ -99,8 +91,6 @@ func TestOtherTexts(t *testing.T) {
 		{"attachment", func() (Injection, error) { return Attachment("/w/a b.png") }, "[附件] `/w/a b.png`", KindMessage},
 		{"denied", func() (Injection, error) { return Denied("", "r1") }, "The user said no.", KindToolResult},
 		{"denied with words", func() (Injection, error) { return Denied("not {{that}}", "r1") }, "not {{that}}", KindToolResult},
-		{"recovery", Recovery, "The last turn was interrupted. Check where things stand, then carry on.", KindMessage},
-		{"quota", QuotaBack, "Continue.", KindMessage},
 	} {
 		in, err := c.in()
 		if err != nil || in.String() != c.want || in.Kind() != c.kind {

@@ -37,7 +37,7 @@ func (s *Server) settings() api.Settings {
 	if modes == nil {
 		modes = map[string]string{}
 	}
-	return api.Settings{IdleReap: shortDuration(t.IdleReap), CrashResume: t.CrashResume, QuotaResume: t.QuotaResume, QuotaHidden: hidden, Modes: modes, Push: push, Lang: t.Lang, AutoUpdate: !manual}
+	return api.Settings{IdleReap: shortDuration(t.IdleReap), QuotaHidden: hidden, Modes: modes, Push: push, Lang: t.Lang, AutoUpdate: !manual}
 }
 
 func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
@@ -72,12 +72,6 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	err := s.SaveConfig(func(c *config.Config) {
 		if p.IdleReap != nil {
 			c.IdleReap = config.Duration(reap)
-		}
-		if p.CrashResume != nil {
-			c.CrashResume = *p.CrashResume
-		}
-		if p.QuotaResume != nil {
-			c.QuotaResume = *p.QuotaResume
 		}
 		if p.QuotaHidden != nil {
 			c.QuotaHidden = cleanKeys(*p.QuotaHidden)

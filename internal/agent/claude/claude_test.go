@@ -521,8 +521,8 @@ func TestSpawn(t *testing.T) {
 	if !reflect.DeepEqual(spec.Env, wantEnv) {
 		t.Errorf("env %v", spec.Env)
 	}
-	spec, _ = d.Spawn(agent.SpawnOptions{Session: "s1", Resume: true, Env: env, Program: "claude", SystemPromptFile: "/p.md", CrashResume: true})
-	if spec.Argv[len(spec.Argv)-1] != "--resume=s1" || agent.GetEnv(spec.Env, "CLAUDE_CODE_RESUME_INTERRUPTED_TURN") != "1" {
+	spec, _ = d.Spawn(agent.SpawnOptions{Session: "s1", Resume: true, Env: env, Program: "claude", SystemPromptFile: "/p.md"})
+	if spec.Argv[len(spec.Argv)-1] != "--resume=s1" || agent.GetEnv(spec.Env, "CLAUDE_CODE_RESUME_INTERRUPTED_TURN") != "" {
 		t.Errorf("resume: %v", spec.Argv)
 	}
 	if _, err := d.Spawn(agent.SpawnOptions{Session: "s1", Env: append(env, "CLAUDE_CODE_SIMPLE=1"), Program: "claude"}); err != nil {

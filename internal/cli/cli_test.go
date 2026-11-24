@@ -117,7 +117,6 @@ func rig(t *testing.T) (config.Config, string) {
 	bin := filepath.Join(root, "bin")
 	os.MkdirAll(bin, 0o700)
 	cfg := config.Default()
-	cfg.CrashResume = false // the crash below must stay one
 	cfg.Listen = "127.0.0.1:0"
 	cfg.StateDir = filepath.Join(root, "state")
 	cfg.Socket = filepath.Join(root, "run", "ir.sock")

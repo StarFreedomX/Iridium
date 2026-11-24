@@ -267,10 +267,6 @@ export interface SessionState extends Session {
    */
   tokens?: InputTokens;
   /**
-   * QuotaUntil: the agent's quota ran out; Iridium goes on at this time (ms).
-   */
-  quotaUntil?: number /* int64 */;
-  /**
    * Tail: the newest blocks, when they are few and small; else the page fetches after its end.
    */
   tail?: BlockTail;
@@ -2483,11 +2479,6 @@ export interface Settings {
    */
   idleReap: string;
   /**
-   * CrashResume and QuotaResume: go on with a turn after the agent crashed, or its quota came back.
-   */
-  crashResume: boolean;
-  quotaResume: boolean;
-  /**
    * QuotaHidden: the quota bars not shown, each "<agent>:<account>:<group>:<model>".
    */
   quotaHidden: string[];
@@ -2516,8 +2507,6 @@ export interface Settings {
  */
 export interface SettingsPatch {
   idleReap?: string;
-  crashResume?: boolean;
-  quotaResume?: boolean;
   quotaHidden?: string[];
   modes?: { [key: string]: string};
   push?: boolean;

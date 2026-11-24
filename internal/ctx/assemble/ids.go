@@ -14,8 +14,6 @@ const (
 	idRemoteIntroBare  = "remote.intro-bare"  // one without ir
 	idMessageTag       = "message.tag"        // before a message: who it is from, {{tag}}
 	idMessageAttach    = "message.attachment" // a file that came with a message: {{path}}
-	idRecoverCrash     = "recover.crash"      // Iridium's own line after a crash mid-turn
-	idRecoverQuota     = "recover.quota"      // and when the quota is back with nothing waiting
 	idAskDenied        = "ask.denied"         // a no without words
 	idWhereHost        = "where.host"         // where it runs: the host, {{os}}, {{folder}}
 	idWhereRemote      = "where.remote"       // at {{computer}}: how paths are written from there

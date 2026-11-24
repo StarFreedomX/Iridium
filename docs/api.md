@@ -24,7 +24,7 @@ Iridium 自己的接口都在 `/v1/internal/` 下：Satori 规范的 internal �
 | `POST /v1/internal/sessions/{id}/stop` | → `{ok}` | 停掉 agent 进程（关 stdin，写完记录自己退出）。会话还在，下一条消息再拉起。队列暂停 |
 | `POST /v1/internal/sessions/{id}/release` | `Release{toolUseId, dismiss?}` → `{ok}` | Claude auto 模式拦下一步后，临时切换至 manual（见“临时切换至 manual”）；`dismiss` 只拿掉它的卡。Claude 会话要有 Claude，agent 调用一律 403 |
 | `GET /v1/internal/agents` | → `AgentInfo[]` | 能开的 agent：审批模式（`modes`、`defaultMode`、`modeSwitch`：now / next turn / restart）、有没有上下文分项、有没有额度窗口、能不能开 ultracode（`ultracode`）、程序装没装（`missing`：PATH 上找不到；这时 `channel.create` 立刻 400，不等 agent 自更新那 30 秒，网页把它画淡，点了只提示未安装） |
-| `GET /v1/internal/settings` | → `Settings` | 设置的配置项：空闲回收、崩溃续跑、额度续跑（这三项设置页不放，只改配置文件或经接口）、隐藏的额度条、各 agent 新会话的审批模式、推送总开关。管理权 |
+| `GET /v1/internal/settings` | → `Settings` | 设置的配置项：空闲回收（设置页不放，只改配置文件或经接口）、隐藏的额度条、各 agent 新会话的审批模式、推送总开关。管理权 |
 | `PUT /v1/internal/settings` | `SettingsPatch` → `Settings` | 只改给了的项，写进配置文件，马上生效。面板权 |
 
 ## 消息页
@@ -228,21 +228,18 @@ agent 用 `ir sh <机器>[:目录] [--cwd 目录] [--timeout 2m] -- 命令`（`P
 
 ## 设置
 
-`GET /v1/internal/settings` 给 `Settings`：`idleReap`（`"1h"`、`"15m"`，`"0"` 是不回收）、`crashResume`、`quotaResume`、`quotaHidden`（隐藏的额度条，`<agent>:<账号>:<窗口>:<模型>`）、`modes`（agent → 新会话的审批模式，没列的用 agent 自己的）、`push`（推送总开关，和 `PUT /v1/internal/push` 是同一个）、`lang`（用户的语言 `zh`/`en`，网页设置里选的；`""` 是还没告诉过，网页发现是空的就报自己的；托管 agent 下次启动时写进系统提示）、`autoUpdate`（自动更新，默认开，见“更新”）。
+`GET /v1/internal/settings` 给 `Settings`：`idleReap`（`"1h"`、`"15m"`，`"0"` 是不回收）、`quotaHidden`（隐藏的额度条，`<agent>:<账号>:<窗口>:<模型>`）、`modes`（agent → 新会话的审批模式，没列的用 agent 自己的）、`push`（推送总开关，和 `PUT /v1/internal/push` 是同一个）、`lang`（用户的语言 `zh`/`en`，网页设置里选的；`""` 是还没告诉过，网页发现是空的就报自己的；托管 agent 下次启动时写进系统提示）、`autoUpdate`（自动更新，默认开，见“更新”）。
 
 - `PUT /v1/internal/settings` 带 `SettingsPatch`，只改给了的项；`modes` 里给 `""` 是去掉那个 agent 的。时长不对、agent 没有这个模式回 400。
-- 先读配置文件，只改这几项再写回（文件里别的照旧），同时改内存：空闲回收、续跑开关下次判断时就用新的，审批模式从下一次拉起起。
+- 先读配置文件，只改这几项再写回（文件里别的照旧），同时改内存：空闲回收下次判断时就用新的，审批模式从下一次拉起起。
 - 会话自己的设置（库里的）照样盖过这里的。
 
-## 续跑
+## 崩溃和额度用完
 
-配置 `crashResume`、`quotaResume`，默认都开。
+不自动续跑（kumo，2026-11-24：撤掉续跑和等额度的计时器）。
 
-- 崩溃续跑（Rhodium §4.8、product §4.5）：Iridium 没要求的退出（非 0、信号、托管进程没了）算崩溃。只有 agent 已经有了这个回合（收下过它的输入，或自己开始的）才续跑，否则等你的下一条消息。
-  - 用 `--resume` 拉起，Claude 另设 `CLAUDE_CODE_RESUME_INTERRUPTED_TURN=1`，它自己重跑被打断的回合。握手应答时还没有回合开始，就发恢复提示（Iridium 行）：`The last turn was interrupted. Check where things stand, then carry on.`
-  - 同一会话 10 分钟内第 3 次崩溃就不再续跑（熔断），状态停在 `error`。
-  - 挂着的提问作废；队列暂停。
-- 额度续跑（product §4.6）：agent 报额度用完（Claude `rate_limit_event` rejected），`SessionState.quotaUntil` 记恢复时间（错开 0–60 秒）。期间发的话排队（回合在跑时发的不排，直接插进去）。到点：有排队的就发排队的，没有就发 Iridium 行 `Continue.`。期间 `interrupt` 或 `stop`：到点不发“继续”。agent 期间自己开了回合，等待结束。等额度只在内存里，重启就没了。
+- 崩溃：Iridium 没要求的退出（非 0、信号、托管进程没了），状态停在 `error`，挂着的提问作废，队列暂停；下一条消息再拉起。
+- 额度用完：agent 自己报的那句就是回合的结尾。之后的消息照常直接发给它，不等恢复时间。
 
 ## 卡片（`Card`）
 

@@ -72,9 +72,6 @@ type Options struct {
 	// QuotaEvery: how often running agents' quota windows are read, on their own, not with a turn
 	// (the user, 2026-11-06); 0 is a minute.
 	QuotaEvery time.Duration
-	// QuotaStagger: sessions going on after the quota came back wait up to this much more, so
-	// they do not all go at once; 0 is a minute, below 0 none.
-	QuotaStagger time.Duration
 }
 
 var (
@@ -138,9 +135,6 @@ func New(o Options) (*Manager, error) {
 	}
 	if o.QuotaEvery == 0 {
 		o.QuotaEvery = time.Minute
-	}
-	if o.QuotaStagger == 0 {
-		o.QuotaStagger = time.Minute
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	m := &Manager{o: o, ctx: ctx, cancel: cancel, hosted: map[string]*Hosted{}, quota: map[string]api.AgentQuota{}}
@@ -456,13 +450,8 @@ func (m *Manager) Interrupt(ctx context.Context, id string) error {
 		return err
 	}
 	h.mu.Lock()
-	live, quota := h.live, h.quotaUntil != 0
-	h.quotaStop = h.quotaStop || quota // no "继续" when the quota is back; what waits still goes
+	live := h.live
 	h.mu.Unlock()
-	if quota && (!live || h.drv.State() == agent.Idle) {
-		h.publish()
-		return nil
-	}
 	if !live {
 		return ErrNotLive
 	}
@@ -510,9 +499,6 @@ func (m *Manager) Stop(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	h.mu.Lock()
-	h.quotaStop = h.quotaStop || h.quotaUntil != 0
-	h.mu.Unlock()
 	h.pause()
 	return h.stop(ctx)
 }

@@ -28,9 +28,6 @@ type Config struct {
 	IdleReap Duration `json:"idleReap"`
 	// StopGrace is how long a stop waits after closing the agent's stdin, before signals.
 	StopGrace Duration `json:"stopGrace"`
-	// CrashResume and QuotaResume run a turn again after the agent crashed or its quota came back.
-	CrashResume bool `json:"crashResume"`
-	QuotaResume bool `json:"quotaResume"`
 	// Modes are the approval mode a new session of each agent starts in; none: the agent's own.
 	Modes map[string]string `json:"modes,omitempty"`
 	// Push is Web Push's total switch, off by default.
@@ -89,9 +86,10 @@ type Update struct {
 // update.manual (2026-11-08: release builds always download ahead, builds from source never);
 // pairClosed (0.2: pairing opens for a while, docs/next/decisions.md) and chatDir (0.2: the
 // plugins' chat layer is gone); enterInTurn (2026-11-19: words sent while a turn runs always
-// join it). One is dropped before decoding only once Config has no field by
-// its name, so it is listed ahead of its removal; any other unknown field is still an error.
-var legacy = []string{"pairClosed", "chatDir", "update.manual", "enterInTurn"}
+// join it); crashResume and quotaResume (2026-11-24: nothing is continued by itself). One is
+// dropped before decoding only once Config has no field by its name, so it is listed ahead of its
+// removal; any other unknown field is still an error.
+var legacy = []string{"pairClosed", "chatDir", "update.manual", "enterInTurn", "crashResume", "quotaResume"}
 
 // Source is where to look for new versions, "" for nowhere.
 func (u Update) Source(fallback string) string {
@@ -106,12 +104,10 @@ func (u Update) Source(fallback string) string {
 
 func Default() Config {
 	return Config{
-		Listen:      "127.0.0.1:7810",
-		IdleReap:    Duration(time.Hour),
-		StopGrace:   Duration(5 * time.Second),
-		CrashResume: true,
-		QuotaResume: true,
-		Programs:    map[string]string{"claude": "claude", "codex": "codex", "pi": "pi", "dsh": "dsh", "agy": "agy"},
+		Listen:    "127.0.0.1:7810",
+		IdleReap:  Duration(time.Hour),
+		StopGrace: Duration(5 * time.Second),
+		Programs:  map[string]string{"claude": "claude", "codex": "codex", "pi": "pi", "dsh": "dsh", "agy": "agy"},
 		// Every agent approves by itself unless a session picks a mode that asks (2026-11-05).
 		Modes:   map[string]string{"claude": "auto", "codex": "auto", "pi": "auto"},
 		Uploads: Uploads{Keep: Duration(30 * 24 * time.Hour), MaxFile: 2 << 30},

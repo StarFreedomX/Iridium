@@ -417,78 +417,19 @@ func TestRenamesOnly(t *testing.T) {
 	}
 }
 
-// A crash mid-turn: Claude is started again with CLAUDE_CODE_RESUME_INTERRUPTED_TURN and runs the
-// turn again itself; no recovery prompt.
-func TestCrashResumed(t *testing.T) {
+// A crash mid-turn is not continued: the session stays with its error until the next message.
+func TestCrashNotContinued(t *testing.T) {
 	t.Parallel()
 	r := newRig(t, nil)
 	id, _ := r.m.Create(bg, api.NewSession{Cwd: r.cwd, Text: "please crash"}, "网页")
-	s := r.waitState(id, "the turn run again", func(s *api.SessionState) bool { return said(s, "ok: continued") && s.Status == api.StatusIdle })
-	if s.Proc != 2 || s.Error != "" {
-		t.Errorf("state: %+v", s)
+	s := r.waitState(id, "the crash", func(s *api.SessionState) bool { return !s.Live && s.Status == api.StatusError })
+	time.Sleep(300 * time.Millisecond)
+	if s, _ = r.m.State(id); s.Proc != 1 || s.Live {
+		t.Errorf("went on after the crash: %+v", s)
 	}
 	spec, _ := os.ReadFile(filepath.Join(r.cfg.StatePath(), "hold", id, hold.FileSpec))
-	if !strings.Contains(string(spec), "CLAUDE_CODE_RESUME_INTERRUPTED_TURN=1") {
+	if strings.Contains(string(spec), "CLAUDE_CODE_RESUME_INTERRUPTED_TURN") {
 		t.Errorf("spec: %s", spec)
-	}
-	if strings.Contains(r.inLog(id), RecoveryPrompt) {
-		t.Error("a recovery prompt went to an agent that ran the turn again itself")
-	}
-}
-
-// An agent that does not run the turn again gets Iridium's recovery prompt, shown as Iridium's
-// own line.
-func TestCrashRecoveryPrompt(t *testing.T) {
-	t.Parallel()
-	r := newRig(t, nil)
-	id, _ := r.m.Create(bg, api.NewSession{Cwd: r.cwd, Text: "please crash!"}, "网页")
-	r.waitState(id, "the recovery", func(s *api.SessionState) bool { return said(s, "ok: "+RecoveryPrompt) })
-	b := r.messages(id)
-	var line *api.Block
-	for i := range b {
-		if b[i].Kind == api.BlockKindSystem && b[i].Event == api.SystemEventIridium {
-			line = &b[i]
-		}
-	}
-	if line == nil || line.Text != RecoveryPrompt {
-		t.Fatalf("blocks: %+v", b)
-	}
-	if !strings.Contains(r.inLog(id), `"[Iridium] `+RecoveryPrompt+`"`) {
-		t.Errorf("in.log: %s", r.inLog(id))
-	}
-}
-
-// Three crashes in ten minutes and it is not continued again.
-func TestCrashBreaker(t *testing.T) {
-	t.Parallel()
-	r := newRig(t, nil)
-	id, _ := r.m.Create(bg, api.NewSession{Cwd: r.cwd, Text: "please crashloop"}, "网页")
-	s := r.waitState(id, "the breaker", func(s *api.SessionState) bool { return s.Proc == 3 && !s.Live && s.Status == api.StatusError })
-	time.Sleep(300 * time.Millisecond)
-	if s, _ = r.m.State(id); s.Proc != 3 {
-		t.Errorf("went on past the breaker: %+v", s)
-	}
-}
-
-// Refused for the quota: Iridium waits for it to come back, then says "继续"; in a second session
-// a message meanwhile waits, and goes instead of "继续".
-func TestQuotaResume(t *testing.T) {
-	t.Parallel()
-	r := newRig(t, func(_ *config.Config, o *Options) { o.QuotaStagger = -1 })
-	id, _ := r.m.Create(bg, api.NewSession{Cwd: r.cwd, Text: "QUOTA"}, "网页")
-	queued, _ := r.m.Create(bg, api.NewSession{Cwd: r.cwd, Text: "QUOTA"}, "网页")
-	s := r.waitState(id, "the wait", func(s *api.SessionState) bool { return s.QuotaUntil != 0 })
-	if s.QuotaUntil < time.Now().UnixMilli() {
-		t.Errorf("until %d", s.QuotaUntil)
-	}
-	r.waitState(queued, "the wait", func(s *api.SessionState) bool { return s.QuotaUntil != 0 })
-	if _, queued, _ := r.m.SendWith(bg, queued, "later", "网页", false); !queued {
-		t.Error("not queued while out of quota")
-	}
-	r.waitState(id, "going on", func(s *api.SessionState) bool { return said(s, "ok: "+QuotaPrompt) && s.QuotaUntil == 0 })
-	r.waitState(queued, "the queue sent", func(s *api.SessionState) bool { return said(s, "ok: later") })
-	if strings.Contains(r.inLog(queued), QuotaPrompt) {
-		t.Error("继续 went though a message waited")
 	}
 }
 
