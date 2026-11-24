@@ -8,7 +8,7 @@
 import { LongWords } from "./longwords";
 import { FORWARD_CARD, ForwardHead, ForwardRow, Forwards } from "./forwardcard";
 import { msgWords, splitForwards, withForwards } from "./forward";
-import { FOLD_AT, linesOf } from "./channel/merge";
+import { FOLD_AT, linesOf } from "./channel/folds";
 import { Archive, ArchiveRestore, ArrowUpRight, BookOpen, Bot, BotMessageSquare, ChartColumn, ChevronRight, CircleStop, CircleX, Clock, CloudDownload, CloudUpload, Cpu, Earth, FileCode, FileDiff, FilePen, Files as FilesIcon, FileText, FlaskConical, FolderGit2, FolderOpen, Folders, FoldVertical, GitBranch, GitCommitHorizontal, GitPullRequest, Globe, Hammer, History, Hourglass, KeyRound, Laptop, Link2, List, ListChecks, LoaderCircle, LockKeyhole, MessageCircleQuestionMark, MessageSquarePlus, Monitor, MonitorSmartphone, MousePointerClick, Network, Package, PencilLine, Plug, RotateCcw, RotateCw, Search, Send, ServerCog, SlidersHorizontal, Smartphone, SquareTerminal, Terminal, Trash2, type LucideIcon, UserRound, Workflow as WorkflowIcon, Wrench, X } from "lucide-react";
 import { Copyable } from "./copyable";
 import { Dispatch, Sent as SentTo, TaskBack } from "./dispatched";
@@ -130,20 +130,25 @@ function Face({ who }: { who: You | From }) {
     );
   }
   const badge = who.workflow ? <Badge icon={WorkflowIcon} size={BADGE} label={t("msg.workflow")} /> : <Badge icon={Bot} size={BADGE} label={t("msg.agent")} />;
-  if (who.agent)
+  if (who.agent) {
+    const faceId = who.face ?? who.session;
     return (
-      <span className="grid shrink-0 place-items-center" style={{ width: FACE, height: FACE }} aria-label={t(who.workflow ? "msg.workflow" : "msg.agent")}>
-        {who.session ? <ChannelFace id={who.session} agent={who.agent} size={FACE} logo={24} /> : <Logo agent={who.agent} size={24} />}
+      <span className="grid shrink-0 place-items-center rounded-full bg-fill" style={{ width: FACE, height: FACE }} aria-label={t(who.workflow ? "msg.workflow" : "msg.agent")}>
+        {faceId ? <ChannelFace id={faceId} agent={who.agent} size={FACE} logo={16} /> : <Logo agent={who.agent} size={16} />}
       </span>
     );
-  if (!who.channel)
-    // A session not in the list: a terminal-like mark and the bot.
-    return (
+  }
+  if (!who.channel) {
+    // A session not in the list: try its custom face if its id is known, else a terminal-like mark and the bot.
+    const fallback = (
       <span className="relative grid shrink-0 place-items-center rounded-full bg-fill-2 text-ink-2" style={{ width: FACE, height: FACE }}>
         <SquareTerminal size={14} strokeWidth={2} aria-hidden />
         {badge}
       </span>
     );
+    const faceId = who.face ?? who.session;
+    return faceId ? <ChannelFace id={faceId} agent={"claude" as Agent} size={FACE} none={fallback} /> : fallback;
+  }
   return <Avatar src={who.avatar} name={who.name} size={FACE} type={who.type} badgeSize={BADGE} />;
 }
 
@@ -334,15 +339,15 @@ export function Pending({ s, who, retry, drop, takeBack, bubbleRef, words, taken
 
 /** A letter: from another session's ir, a plugin or a peer. Not your words: on the left with the
  *  agents, in a grey bubble as a person's are (kumo, 2026-11-16: it was on the right). */
-function Letter({ src, text, time, onJump, children }: { src: From; text: string; time?: number; onJump: (id: string) => void; children?: ReactNode }) {
+export function Letter({ src, text, time, onJump, words, under, card, menu, children }: { src: From; text: string; time?: number; onJump: (id: string) => void; words?: ReactNode; under?: ReactNode; card?: ReactNode; menu?: FaceMenu; children?: ReactNode }) {
   // Its files as in your bubble (ir send -a); what it names, where it names it.
   const files = Children.count(children) > 0;
   return (
-    <Sender who={src} time={time} left jump={src.session ? () => onJump(src.session!) : undefined}>
+    <Sender who={src} time={time} left jump={!card && src.session ? () => onJump(src.session!) : undefined} card={card} menu={menu} under={under}>
       {(text || !files) && (
         <div className="max-w-[min(560px,100%)] min-w-0 rounded-xl rounded-tl-sm bg-fill px-3.5 py-2">
           <p className="m-0 text-md whitespace-pre-wrap [overflow-wrap:anywhere]">
-            <Worded text={text} />
+            {words ?? <Worded text={text} />}
           </p>
         </div>
       )}
