@@ -29,7 +29,6 @@ import { useMembers } from "./gate";
 import { memberError } from "./key";
 import { givenKind, givenParts, givenText, ownAgent, type AgentRow, type GivenKind } from "./lib";
 import { memberMenu, type MenuKey } from "./menu";
-import { OnSection } from "./oncard";
 import { CARD_POP, ProfileCard, useCard, type CardKey } from "./profilecard";
 
 const ITEM = "flex h-8 cursor-default items-center gap-2.5 rounded-md px-2.5 text-base outline-none select-none data-highlighted:bg-fill data-popup-open:bg-fill pointer-coarse:h-11";
@@ -145,7 +144,6 @@ function CardOf({ channel, a, call, record, may, talk, done, edit }: Parameters<
       intro={card?.intro ?? row?.intro}
       background={card?.background ?? row?.background}
       keys={keys}
-      after={<OnSection channel={channel} session={a.session} may={may} />}
     />
   );
 }

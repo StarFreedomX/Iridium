@@ -1,5 +1,5 @@
-// 订阅事件 in an agent's card (docs/channels.md "订阅事件"; kumo, 2026-11-24: in the card, a
-// sentence each, not a menu of them nor an editor of kinds): what wakes it beside @. Each one a
+// 订阅事件 in 编辑资料 of an agent (docs/channels.md "订阅事件"; kumo, 2026-11-24: there, a
+// sentence each, not in its card or menu, nor an editor of kinds): what wakes it beside @. Each one a
 // sentence, × takes it away; ＋ adds one of four, filling in one thing: who speaks, a word, a
 // time, an event. Saved as each is added or taken away; a ring they make is told.
 import { Menu } from "@base-ui/react/menu";
@@ -21,9 +21,8 @@ const ITEM = "flex h-8 cursor-default items-center gap-2.5 rounded-md px-2.5 tex
 const ROW = "flex min-h-7 items-center gap-1 text-sm leading-5";
 const INPUT = "no-ring h-7 min-w-0 flex-1 rounded-md bg-fill px-2 text-sm placeholder:text-ink-3";
 
-/** The section, under the card's keys. may: the one looking is of the channel's people (else it
- *  only reads them). */
-export function OnSection({ channel, session, may }: { channel: string; session: string; may: boolean }) {
+/** The section, in 编辑资料 (only one of the channel's people gets there). */
+export function OnSection({ channel, session }: { channel: string; session: string }) {
   const qc = useQueryClient();
   const member = `agent:${session}`;
   const on = useMembers(channel)?.members.find((m) => m.member === member)?.on ?? [];
@@ -43,24 +42,22 @@ export function OnSection({ channel, session, may }: { channel: string; session:
   };
   const add = (tr: Trigger) => (setTyping(null), save([...on, tr]));
   return (
-    <div className="mt-3 flex flex-col">
-      <div className="flex h-7 items-center text-xs font-medium text-ink-3">
+    <section className="mt-4 flex flex-col">
+      <h2 className="m-0 mb-1 flex h-7 items-center text-xs font-medium text-ink-3">
         <span className="flex-1">{t("on.title")}</span>
-        {may && <AddMenu channel={channel} session={session} add={add} type={setTyping} />}
-      </div>
+        <AddMenu channel={channel} session={session} add={add} type={setTyping} />
+      </h2>
       <div className={cn(ROW, "text-ink-3")}>{t("on.at")}</div>
       {on.map((tr, i) => (
         <div key={i} className={cn(ROW, "group")}>
           <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">{triggerLine(tr, name, w)}</span>
-          {may && (
-            <IconKey label={t("on.remove")} onClick={() => save(on.filter((_, j) => j !== i))} className="size-6 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:size-8 pointer-coarse:opacity-100">
-              <X size={13} />
-            </IconKey>
-          )}
+          <IconKey label={t("on.remove")} onClick={() => save(on.filter((_, j) => j !== i))} className="size-6 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:size-8 pointer-coarse:opacity-100">
+            <X size={13} />
+          </IconKey>
         </div>
       ))}
       {typing && <Typed kind={typing} add={add} cancel={() => setTyping(null)} />}
-    </div>
+    </section>
   );
 }
 

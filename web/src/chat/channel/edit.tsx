@@ -21,6 +21,7 @@ import { useCarried, useList } from "../../store";
 import { errText, toast } from "../../toast";
 import { agentName, cn, FaceChangeOver, IconKey, Tip } from "../../ui";
 import type { Editing } from "./editing";
+import { OnSection } from "./onedit";
 import { Face } from "./face";
 import { memberError } from "./key";
 import { validNick } from "./lib";
@@ -180,6 +181,7 @@ export function EditBody({ editing, back, done }: { editing: Editing; back?: () 
           />
           <FacePick label={t("profile.background")} preview={<BannerThumb src={p.background} />} set={(v) => save({ background: v })} upload={(f) => setBanner(URL.createObjectURL(f))} />
           {session && <RoleRow session={session} role={p.role} name={name || agentName(kind)} again={() => void qc.invalidateQueries({ queryKey: key })} channel={channel} />}
+          {session && <OnSection channel={channel} session={session} />}
           {session && <Memories session={session} done={done} />}
         </>
       )}
