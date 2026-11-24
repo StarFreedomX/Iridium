@@ -630,6 +630,7 @@ func (s *Server) membersOf(c caller, ch string) (api.ChannelMembers, error) {
 				am.Agent, am.Status, am.Cwd, am.Machine = st.Agent, st.Status, st.Cwd, st.Machine
 				s.keepChoices(st)
 				am.Name = s.sessionName(st)
+				am.Model, am.Effort = satori.ModelID(*st), cmp.Or(st.Effort, st.EffortNow)
 			}
 			p := s.agentProfile(m.Session)
 			am.Avatar, am.Background, am.Role = p.Avatar, p.Background, p.Role
@@ -2331,7 +2332,7 @@ func (s *Server) deliverAs(ctx context.Context, ch, to string, seq int64, said, 
 	for _, a := range list {
 		ca := assemble.ChannelAgent{Nick: a.Nick}
 		if st, err := s.m.State(a.Session); err == nil {
-			ca.Name = s.sessionName(st)
+			ca.Agent, ca.Model, ca.Effort = string(st.Agent), satori.ModelID(*st), cmp.Or(st.Effort, st.EffortNow)
 			if at := (place.Place{App: st.Machine, Path: st.Cwd}); homeOK && st.Cwd != "" && !samePlace(at, home) {
 				ca.At = s.placeWords(at)
 				if a.Session == to {

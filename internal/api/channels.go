@@ -4,7 +4,9 @@ import "encoding/json"
 
 // ChannelMember is a member of a channel (docs/channels.md). Member: "agent:<session>", an
 // app's login "<app>/<login>", or all of an app's "<app>/*". An agent's: Session, the session
-// it is; Agent, its harness; Name, what it runs as now ("Claude Opus 5.5 High"); Nick, what it is
+// it is; Agent, its harness; Name, what it runs as now ("Claude Opus 5.5 High"), for people; Model,
+// the model's own id (claude-opus-5-5, mistral/deepseek-v4-1-flash-1017), Effort, its thinking
+// level, for agents; Nick, what it is
 // called by, in every channel (@nick); Status, its lamp; Cwd, Machine, where it runs. On: an
 // agent's subscriptions (Trigger), what wakes it beside what names it. What an agent writes in a turn
 // a channel called is said in that channel. Seen: the number of the last message the agent was
@@ -14,6 +16,8 @@ type ChannelMember struct {
 	Session string    `json:"session,omitempty"`
 	Agent   Agent     `json:"agent,omitempty"`
 	Name    string    `json:"name,omitempty"`
+	Model   string    `json:"model,omitempty"`
+	Effort  string    `json:"effort,omitempty"`
 	Nick    string    `json:"nick,omitempty"`
 	On      []Trigger `json:"on,omitempty"`
 	Seen    int64     `json:"seen,omitempty"`

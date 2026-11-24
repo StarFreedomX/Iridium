@@ -56,6 +56,22 @@ func SessionName(st api.SessionState) string {
 	return AgentName(harness, st)
 }
 
+// ModelID is the model session st runs by its own id, as its harness names it (Claude's resolved
+// id, pi's and dsh's provider/model, Codex's and agy's own); "" not known, or the harness's
+// default. For agents, never a name made for people (kumo, 2026-11-24).
+func ModelID(st api.SessionState) string {
+	id := st.Model
+	for _, m := range st.Models {
+		if m.Value == st.Model && m.Resolved != "" {
+			id = m.Resolved
+		}
+	}
+	if strings.HasPrefix(strings.ToLower(id), "default") {
+		return ""
+	}
+	return id
+}
+
 // AgentName is the name an agent goes by: its harness, the model it runs and the effort, as far
 // as they are known ("Claude Opus 5.5 High"); harness "": the model and the effort.
 func AgentName(harness string, st api.SessionState) string {

@@ -14,7 +14,7 @@ func TestChannelTurn(t *testing.T) {
 	p.Turns = []strategy.Turn{{From: 5, To: 8, Who: "kumo", Head: "fix the build", Answered: []string{"claude"}}}
 	p.Full = []strategy.Full{{Msg: strategy.Msg{Seq: 9, Who: "claude", Text: "done", At: 3600_000}}, {Msg: strategy.Msg{Seq: 10, Who: "kumo", Text: "long", At: 3660_000}, Left: 7}}
 	did := activity.Activity{Bash: 7, Failed: 1, Cmds: map[string]int{"go": 4, "git": 3}, Read: 2, Search: 1, Files: []activity.File{{Path: "/w/a.go", Add: 120, Del: 14}, {Path: "/w/b.go", Add: 3}}}
-	in, err := ChannelTurn(Channel{You: "codex", Agents: []ChannelAgent{{Nick: "claude", Name: "Claude Opus"}, {Nick: "codex"}}, Plan: p, Pull: true,
+	in, err := ChannelTurn(Channel{You: "codex", Agents: []ChannelAgent{{Nick: "claude", Agent: "claude", Model: "claude-opus-5-5", Effort: "high"}, {Nick: "codex"}}, Plan: p, Pull: true,
 		Did: map[int64]activity.Activity{9: did}, Work: []Work{{"claude", did}, {"pi", activity.Activity{}}}}, 11, "@codex look", "in1")
 	if err != nil {
 		t.Fatal(err)
@@ -22,7 +22,7 @@ func TestChannelTurn(t *testing.T) {
 	want := `#11: @codex look
 
 <channel-context>
-You are codex in a channel shared with people and other agents. Its agents: claude (Claude Opus), codex. Only what you say reaches the channel: your thinking and tool calls stay yours, and you do not see theirs. To call another agent, write @ and its name in what you say; without that no agent is called. Between agents, @ another only when you need its answer; when the exchange has said what it needs to, reply without @ and it ends there (agents passing it on without a person stop after a few turns anyway). After you @ an agent, end your turn: its answer comes in the channel, and one that answers you calls you. Do not restate what the channel already shows, nor ids, folders or states. To name one without calling it, write its name without @. Called with nothing to say (thanks, an acknowledgement): end your turn with ir api POST internal/sessions/self/interrupt; nothing is said for you.
+You are codex in a channel shared with people and other agents. Its agents: claude (agent claude, model claude-opus-5-5, effort high), codex. Only what you say reaches the channel: your thinking and tool calls stay yours, and you do not see theirs. To call another agent, write @ and its name in what you say; without that no agent is called. Between agents, @ another only when you need its answer; when the exchange has said what it needs to, reply without @ and it ends there (agents passing it on without a person stop after a few turns anyway). After you @ an agent, end your turn: its answer comes in the channel, and one that answers you calls you. Do not restate what the channel already shows, nor ids, folders or states. To name one without calling it, write its name without @. Called with nothing to say (thanks, an acknowledgement): end your turn with ir api POST internal/sessions/self/interrupt; nothing is said for you.
 #1–#4: 4 earlier messages, not shown.
 Listed by turn (who asked, their first words, who answered):
 #5–#8 kumo: fix the build (answered by claude)
