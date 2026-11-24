@@ -346,7 +346,6 @@ export const zh = {
   "channel.event.scriptRenamed": "{by} 把命令「{old}」改名为「{script}」",
   "on.title": "唤醒",
   "on.more": "{label} 等",
-  "on.group": "订阅事件",
   "on.to": "{line} → {who}",
   "on.at": "被 @ 时",
   "on.said": "{from}说话时",

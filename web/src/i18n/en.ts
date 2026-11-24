@@ -346,7 +346,6 @@ export const en: Dict = {
   "channel.event.scriptRenamed": "{by} renamed the command “{old}” to “{script}”",
   "on.title": "Wakes on",
   "on.more": "{label} and more",
-  "on.group": "Subscriptions",
   "on.to": "{line} → {who}",
   "on.at": "When mentioned",
   "on.said": "When {from} speaks",

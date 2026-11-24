@@ -182,47 +182,34 @@ function MemberList({ id, ask, script }: { id: string; ask: (a: Ask) => void; sc
           <Lamp status="running" />
         </Menu.Item>
       ))}
-      {/* 订阅事件 (docs/channels.md "唤醒"): the channel's rules, a sentence each, whom it wakes or
-          what it runs after it; an agent's opens its 编辑资料, a command's its card. */}
-      <Rules id={id} agents={agents} scripts={scripts} script={script} />
+      {/* The channel's commands (docs/channels.md "命令"), if it has any: a row each, pressed its
+          card. What wakes an agent is not listed here (kumo, 2026-11-24): it is the agent's own,
+          in its 唤醒 and its 编辑资料. */}
+      <Commands id={id} scripts={scripts} script={script} />
       {/* No 人 / 所有人 here (kumo, 2026-11-16): who the people are is 邀请's to show and set. */}
       {may && <Invite id={id} />}
     </>
   );
 }
 
-/** 订阅事件: each agent's on, an entry a row ("成员加入时 → @xiaoke 欢迎新人"), and each command
- *  ("每天 09:00 → 日报"). None is made here (kumo, 2026-11-24): an agent's in its 编辑资料, a
- *  command by a Bot or ir. */
-function Rules({ id, agents, scripts, script }: { id: string; agents: ChannelMembers["members"]; scripts: Script[]; script: (p: ScriptPage) => void }) {
+/** The commands: a row each, its sentence ("每天 09:00 → 日报") and its state. */
+function Commands({ id, scripts, script }: { id: string; scripts: Script[]; script: (p: ScriptPage) => void }) {
   const name = useRecvName(id);
   const w = triggerWords();
-  const rows: { key: string; face: ReactNode; line: string; state?: string; off?: boolean; open: () => void }[] = [];
-  for (const m of agents) {
-    const agent = m.agent ?? "claude";
-    for (const [j, tr] of onOf(m.on).entries())
-      rows.push({
-        key: `${m.member}#${j}`,
-        face: <Face id={m.session!} agent={agent} size={16} />,
-        line: t("on.to", { line: ruleLine(tr, name, w), who: [`@${m.nick || agentName(agent)}`, tr.text?.trim()].filter(Boolean).join(" ") }),
-        open: () => requestAnimationFrame(() => openEdit({ channel: id, agent: m.session! })),
-      });
-  }
-  for (const x of scripts) {
-    const state = scriptState(x);
-    rows.push({ key: `script:${x.name}`, face: <ScriptFace size={16} />, line: t("on.to", { line: x.on.map((tr) => ruleLine(tr, name, w)).join(t("on.or")), who: x.name }), state, off: x.enabled, open: () => script({ k: "card", name: x.name }) });
-  }
-  if (!rows.length) return null;
+  if (!scripts.length) return null;
   return (
     <>
-      <div className={HEAD}>{t("on.group")}</div>
-      {rows.map((r) => (
-        <Menu.Item key={r.key} onClick={r.open} className={ITEM}>
-          <span className="grid size-4 shrink-0 place-items-center">{r.face}</span>
-          <span className="min-w-0 flex-1 truncate">{r.line}</span>
-          {r.state && <span className={cn("shrink-0 text-xs", r.off ? "text-err" : "text-ink-3")}>{r.state}</span>}
-        </Menu.Item>
-      ))}
+      <div className={HEAD}>{t("script.group")}</div>
+      {scripts.map((x) => {
+        const state = scriptState(x);
+        return (
+          <Menu.Item key={x.name} onClick={() => script({ k: "card", name: x.name })} className={ITEM}>
+            <ScriptFace size={16} />
+            <span className="min-w-0 flex-1 truncate">{t("on.to", { line: x.on.map((tr) => ruleLine(tr, name, w)).join(t("on.or")), who: x.name })}</span>
+            {state && <span className={cn("shrink-0 text-xs", x.enabled ? "text-err" : "text-ink-3")}>{state}</span>}
+          </Menu.Item>
+        );
+      })}
     </>
   );
 }
