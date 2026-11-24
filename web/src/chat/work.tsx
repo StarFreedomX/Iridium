@@ -41,11 +41,17 @@ const spanKey = (session: string, from: number) => `${session} ${from}`;
 
 /** Reads session's record from line from on, as far as to (none: as far as it goes now; read on
  *  each time it is asked again). Each line once; one at a time. */
-export function readSteps(session: string, from: number, to?: number): Promise<void> {
+export function readSteps(session: string, from: number, to?: number, want?: number): Promise<void> {
   const k = spanKey(session, from);
   let sp = spans.get(k);
   if (!sp) spans.set(k, (sp = { blocks: [], next: from, whole: false, again: false }));
   const it = sp;
+  // want: as many calls as the work says it has, from its first line on: where the work ends is
+  // not asked of the record's length (it may not have been all written when that was read).
+  if (want !== undefined) {
+    if (stepsOf(it.blocks, false).length >= want) return Promise.resolve();
+    to = undefined;
+  }
   if (to !== undefined && it.to === undefined) {
     it.to = to;
     it.blocks = it.blocks.filter((b) => lineOf(b) < to);
@@ -67,7 +73,7 @@ export function readSteps(session: string, from: number, to?: number): Promise<v
         it.next = Math.max(at, p.end);
         if (it.to !== undefined && it.next >= it.to) it.whole = true;
         told();
-        if (it.whole || p.end <= at) break;
+        if (it.whole || p.end <= at || (want !== undefined && stepsOf(it.blocks, false).length >= want)) break;
       }
     } while (it.again && !it.whole);
   })().finally(() => (it.coming = undefined));
@@ -156,7 +162,7 @@ export function WorkLine({ channel, n, session, work, did, span, may, esc }: { c
   // as it has (said by the work, or read already).
   const rowsNow = () => (running ? ROWS : Math.max(1, Math.min(ROWS, steps || (blocks ? stepsOf(blocks, false).length : ROWS))));
   const [rows, setRows] = useState(rowsNow);
-  const read = () => from !== undefined && void readSteps(session, from, running ? undefined : to).catch(() => {});
+  const read = () => from !== undefined && void (work ? readSteps(session, from, undefined, steps) : readSteps(session, from, to)).catch(() => {});
   // Read as it is open, and again as its steps go on.
   useEffect(() => void (open && read()), [open, steps, running, to]);
   const parts = did && !work ? didParts(did) : [];
@@ -220,7 +226,7 @@ export function WorkLine({ channel, n, session, work, did, span, may, esc }: { c
         </button>
         {running && may && <StopKey session={session} esc={esc} />}
       </div>
-      {opens && <StepList reveal={reveal} session={session} blocks={blocks} running={running} rows={rows} open={open} card={card} setCard={setCard} />}
+      {opens && <StepList reveal={reveal} session={session} blocks={blocks} running={running} rows={rows} open={open} card={card} setCard={setCard} limit={work ? Math.max(steps, 1) : undefined} />}
     </div>
   );
 }
@@ -229,8 +235,8 @@ export function WorkLine({ channel, n, session, work, did, span, may, esc }: { c
  *  the list itself. Its height (rows) is set as it opens and kept while it is: ROWS while the work
  *  goes on (new steps come in the list, which keeps its newest in view, and does not grow), as
  *  many as there are once it is done. A row pressed: its card, out of the row. */
-function StepList({ reveal, session, blocks, running, rows, open, card, setCard }: { reveal: RefObject<HTMLDivElement | null>; session: string; blocks?: Block[]; running: boolean; rows: number; open: boolean; card: Card | null; setCard: (c: Card | null) => void }) {
-  const list = useMemo(() => (blocks ? stepsOf(blocks, running) : []), [blocks, running]);
+function StepList({ reveal, session, blocks, running, rows, open, card, setCard, limit }: { reveal: RefObject<HTMLDivElement | null>; session: string; blocks?: Block[]; running: boolean; rows: number; open: boolean; limit?: number; card: Card | null; setCard: (c: Card | null) => void }) {
+  const list = useMemo(() => (blocks ? stepsOf(blocks, running).slice(0, limit) : []), [blocks, running, limit]);
   // Made as it is first opened.
   const ever = useEver(open);
   const box = useRef<HTMLDivElement>(null);
