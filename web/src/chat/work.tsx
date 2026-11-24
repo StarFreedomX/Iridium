@@ -386,7 +386,7 @@ function StepList({ reveal, session, steps, only, rows, open, card, setCard, shu
                 ),
               )}
               {/* Put away from its end too, where a long one leaves its line far above (kumo, 2026-11-24). */}
-              <button type="button" onClick={shut} className={cn(ROW, "w-fit shrink-0 gap-1 text-xs text-ink-4 outline-none hover:text-ink-2 focus-visible:text-ink-2")}>
+              <button type="button" onClick={shut} className={cn(ROW, "w-full shrink-0 cursor-pointer gap-1 text-left text-xs text-ink-4 outline-none hover:text-ink-2 focus-visible:text-ink-2")}>
                 <ChevronRight size={12} className="-rotate-90" />
                 {t("nav.less")}
               </button>
