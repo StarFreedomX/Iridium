@@ -594,6 +594,7 @@ function picturesAhead(id: string, it: Chat) {
       if (!picturesAsked.has(url)) urls.push(url);
     }
   for (const url of urls) {
+    if (picturesAsked.size >= 500) picturesAsked.clear();
     picturesAsked.add(url);
     const img = new Image();
     (img as HTMLImageElement & { fetchPriority?: string }).fetchPriority = "low";
