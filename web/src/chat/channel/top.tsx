@@ -27,7 +27,6 @@ import { prefetchChoices } from "./pick";
 import { memberError } from "./key";
 import type { AgentRow } from "./lib";
 import { MemberAsks, MemberItems, type Ask } from "./members";
-import { useRecvLabel } from "./recv";
 import { ScriptFace, ScriptPop, scriptState, useScripts, type ScriptPage } from "./script";
 import { onOf } from "./scripts";
 import { actsOf } from "./menu";
@@ -148,11 +147,10 @@ export function TopRight({ id }: { id: string }) {
 }
 
 /** The members: each agent a submenu, the menu its face has (members.tsx MemberItems; what it
- *  asks with, ask, drawn by the bar), what it receives at its row's end; the scripts of its IR,
+ *  asks with, ask, drawn by the bar); the commands of its IR,
  *  each pressed its card (script), and 新建脚本; then 邀请. */
 function MemberList({ id, ask, script }: { id: string; ask: (a: Ask) => void; script: (p: ScriptPage) => void }) {
   const list = useList();
-  const { short } = useRecvLabel(id);
   const scripts = useScripts(id) ?? [];
   const members = useMembers(id);
   const may = mayAct(members);
@@ -169,7 +167,7 @@ function MemberList({ id, ask, script }: { id: string; ask: (a: Ask) => void; sc
         const agent = m.agent ?? row?.agent ?? "claude";
         const a: AgentRow = { session: m.session!, member: m.member, agent, nick: m.nick ?? "", name: m.name ?? agentName(agent), status: m.status ?? row?.status ?? "idle", on: onOf(m.on) };
         return (
-          <Sub key={m.member} icon={<Face id={m.session!} agent={agent} size={16} />} lead={<ContextMark session={m.session!} />} label={m.nick || agentName(agent)} now={short(a.on)} i={0}>
+          <Sub key={m.member} icon={<Face id={m.session!} agent={agent} size={16} />} lead={<ContextMark session={m.session!} />} label={m.nick || agentName(agent)} i={0}>
             <MemberItems channel={id} a={a} may={may} call={lent.call} record={lent.record} ask={(kind) => ask({ kind, a })} />
           </Sub>
         );

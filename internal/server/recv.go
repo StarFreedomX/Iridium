@@ -42,37 +42,45 @@ func cmpOr(a, b string) string {
 	return b
 }
 
-// onWords says subscriptions as a line of the channel says them: "仅 @" for none.
+// onWords says subscriptions as a line of the channel says them, a sentence each, as the page
+// does (web/src/chat/channel/scripts.ts triggerLine): 被 @ 时；全体成员说话时；成员加入时 → 欢迎新人.
 func (s *Server) onWords(on []api.Trigger) string {
-	if len(on) == 0 {
-		return "仅 @"
-	}
-	var out []string
+	events := map[string]string{"join": "成员加入", "leave": "成员移出", "rename": "改名", "on": "订阅事件变更", "error": "出错", "ask": "提问"}
+	out := []string{"被 @ 时"}
 	for _, t := range on {
 		var w string
 		switch {
 		case t.Command != "":
-			w = "/" + t.Command
+			w = "发送 /" + t.Command + " 时"
 		case t.Cron != "":
 			w = "定时 " + t.Cron
 		case len(t.Event) > 0:
-			w = "事件 " + strings.Join(t.Event, "、")
+			var evs []string
+			for _, e := range t.Event {
+				evs = append(evs, cmpOr(events[channel.EventKind(e)], e))
+			}
+			w = strings.Join(evs, "或") + "时"
 		case t.Message != nil:
-			w = "消息"
-			if len(t.Message.From) > 0 {
-				var from []string
-				for _, e := range t.Message.From {
-					from = append(from, s.senderWords(e, true))
-				}
-				w = strings.Join(from, "、") + " 的消息"
+			var from []string
+			for _, e := range t.Message.From {
+				from = append(from, s.senderWords(e, true))
 			}
-			if len(t.Message.Words) > 0 {
-				w += "（含「" + strings.Join(t.Message.Words, "」或「") + "」）"
+			who := strings.Join(from, "、")
+			switch {
+			case len(t.Message.Words) > 0:
+				w = who + "说到「" + strings.Join(t.Message.Words, "」或「") + "」时"
+			case who != "":
+				w = who + "说话时"
+			default:
+				w = "有消息时"
 			}
+		}
+		if t.Text != "" {
+			w += " → " + t.Text
 		}
 		out = append(out, w)
 	}
-	return "@、" + strings.Join(out, "；")
+	return strings.Join(out, "；")
 }
 
 // triggerWords says subscriptions as the agents are told them: "" for none.

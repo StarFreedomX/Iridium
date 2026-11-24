@@ -1,18 +1,18 @@
 // A channel's agents as faces (docs/channels.md): beside what each said, its harness's logo on a
 // disc, its lamp on the corner. A press opens its card (as QQ's: talk to it in its own channel,
 // call it here); the right button, or a finger held down, its menu: call, compact, clear, model (the
-// composer's model menu, its effort track in it), approval mode, stop, what it receives, 编辑资料, its own session, 注入记录 (what the
+// composer's model menu, its effort track in it), approval mode, stop, 编辑资料, its own session, 注入记录 (what the
 // channel gave it), out. The same menu is its row's among the members (top.tsx): one
 // implementation (MemberItems; its list, menu.ts). Its context and usage are not here: they
 // have their keys after its model's name (docs/前端设计规范.md "一样东西一个地方").
 import { Menu } from "@base-ui/react/menu";
 import { Popover } from "@base-ui/react/popover";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AtSign, MessageCircle, Box, Check, ChevronRight, CircleStop, Eraser, FoldVertical, Mail, PencilLine, Inbox, ScrollText, ShieldCheck, SlidersHorizontal, UserMinus } from "lucide-react";
+import { AtSign, MessageCircle, Box, Check, ChevronRight, CircleStop, Eraser, FoldVertical, PencilLine, Inbox, ScrollText, ShieldCheck, UserMinus } from "lucide-react";
 import { useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 import { api } from "../../api/client";
 import { stopTurn } from "../live";
-import type { ChannelMembers, SessionState as LiveSession, Session, Trigger } from "../../api/types.gen";
+import type { ChannelMembers, SessionState as LiveSession, Session } from "../../api/types.gen";
 import { CardHead, MainKey, SecondKey } from "../../card";
 import { t, useLang } from "../../i18n";
 import { ModeMark, modeName } from "../../modes";
@@ -29,9 +29,7 @@ import { useMembers } from "./gate";
 import { memberError } from "./key";
 import { givenKind, givenParts, givenText, ownAgent, type AgentRow, type GivenKind } from "./lib";
 import { memberMenu, type MenuKey } from "./menu";
-import { triggerWords, useRecvLabel, useRecvName, useRecvOptions } from "./recv";
-import { OnEditor } from "./script";
-import { fromOf, toggle, triggerLine, withFrom } from "./scripts";
+import { OnSection } from "./oncard";
 import { CARD_POP, ProfileCard, useCard, type CardKey } from "./profilecard";
 
 const ITEM = "flex h-8 cursor-default items-center gap-2.5 rounded-md px-2.5 text-base outline-none select-none data-highlighted:bg-fill data-popup-open:bg-fill pointer-coarse:h-11";
@@ -147,6 +145,7 @@ function CardOf({ channel, a, call, record, may, talk, done, edit }: Parameters<
       intro={card?.intro ?? row?.intro}
       background={card?.background ?? row?.background}
       keys={keys}
+      after={<OnSection channel={channel} session={a.session} may={may} />}
     />
   );
 }
@@ -186,58 +185,9 @@ function Pick({ icon, label, now, value, options, set, i }: { icon: ReactNode; l
   );
 }
 
-/** 订阅事件 (docs/channels.md "订阅事件"): what wakes it beside @. What names it always does (its
- *  row checked, not to be pressed); then whose words do (its plain message subscription): every
- *  member, the channel's people, its other agents, each pressed in or out, the menu left open;
- *  its other subscriptions, a line each; 编辑, all of them (edit). */
-function OnPick({ channel, a, set, edit, i }: { channel: string; a: AgentRow; set: (on: Trigger[]) => void; edit: () => void; i: number }) {
-  const options = useRecvOptions(channel, a.session);
-  const { short } = useRecvLabel(channel);
-  const name = useRecvName(channel);
-  const from = fromOf(a.on);
-  const others = a.on.filter((x) => !(x.message && !x.message.words?.length && !x.text));
-  const row = (key: string, on: boolean, face: ReactNode, label: string, run?: () => void, j = 0) => (
-    <Menu.Item key={key} closeOnClick={false} disabled={!run} onClick={run} style={{ "--i": j } as CSSProperties} className={cn(ITEM, "data-disabled:text-ink-2")}>
-      <span className="grid size-3.5 shrink-0 place-items-center text-ink">{on && <Check size={14} />}</span>
-      {face}
-      <span className="min-w-0 flex-1 truncate">{label}</span>
-    </Menu.Item>
-  );
-  const n = options.length + 1;
-  return (
-    <Menu.SubmenuRoot>
-      <Menu.SubmenuTrigger style={{ "--i": i } as CSSProperties} className={ITEM}>
-        <span className="text-ink-2">
-          <Mail size={15} />
-        </span>
-        <span className="flex-1">{t("channel.recv")}</span>
-        <span className="max-w-36 truncate text-xs text-ink-3">{short(a.on)}</span>
-        <ChevronRight size={14} className="text-ink-4" />
-      </Menu.SubmenuTrigger>
-      <Menu.Portal>
-        <Menu.Positioner className="z-50" sideOffset={4} collisionPadding={8}>
-          <Menu.Popup className={cn(POPUP, "no-bar max-h-[min(480px,var(--available-height))] min-w-52 max-w-[calc(100vw-16px)] overflow-y-auto p-1.5")}>
-            <div className="g-stagger flex flex-col">
-              {row("@", true, <AtSign size={15} className="shrink-0 text-ink-2" />, t("channel.recvMention"))}
-              {options.map((o, j) => row(o.entry, from.includes(o.entry), o.face, o.label, () => set(withFrom(a.on, toggle(from, o.entry))), j + 1))}
-              {others.map((x, j) => row(`on${j}`, true, <span className="size-4 shrink-0" />, triggerLine(x, name, triggerWords()), undefined, n + j))}
-              <Menu.Item onClick={() => requestAnimationFrame(edit)} style={{ "--i": n + others.length } as CSSProperties} className={ITEM}>
-                <span className="grid size-3.5 shrink-0 place-items-center text-ink-2">
-                  <SlidersHorizontal size={14} />
-                </span>
-                <span className="min-w-0 flex-1 truncate">{t("channel.onEdit")}</span>
-              </Menu.Item>
-            </div>
-          </Menu.Popup>
-        </Menu.Positioner>
-      </Menu.Portal>
-    </Menu.SubmenuRoot>
-  );
-}
-
 /** What a member's menu asks with a card or a popover at its anchor: 移出 (asked first),
- *  注入记录, 编辑资料, 订阅事件 whole. */
-export type AskKind = "remove" | "given" | "edit" | "on";
+ *  注入记录, 编辑资料. */
+export type AskKind = "remove" | "given" | "edit";
 export type Ask = { kind: AskKind; a: AgentRow };
 
 /** The cards and the popover a member's menu opens, at anchor (the face; the members' key for
@@ -260,9 +210,7 @@ export function MemberAsks({ channel, anchor, asked, done }: { channel: string; 
       <At anchor={anchor} open={open("edit")} onOpenChange={set} className={CARD_POP}>
         <EditBody editing={{ channel, agent: x.a.session }} done={done} />
       </At>
-      <At anchor={anchor} open={open("on")} onOpenChange={set} className={CARD_POP}>
-        <OnEditor key={x.a.member + JSON.stringify(x.a.on)} channel={channel} member={x.a.member} on={x.a.on} done={done} />
-      </At>
+
     </>
   );
 }
@@ -301,21 +249,10 @@ export function MemberItems({ channel, a, may, call, record, ask }: { channel: s
 
 function Items({ channel, a, s, may, call, record, ask }: Parameters<typeof MemberItems>[0] & { s: LiveSession }) {
   useLang();
-  const qc = useQueryClient();
   const mode = useMode(s);
   const m = useModelMenu(s);
   const mine = ownAgent(channel, a);
   const act = (f: () => Promise<unknown>, err: string) => () => void f().catch((e) => toast(err, { error: true, description: errText(e) }));
-  // Its subscriptions, whole, as each sender is pressed: shown at once, then as the server has
-  // them; a ring they make told.
-  const setOn = (on: Trigger[]) => {
-    const was = qc.getQueryData<ChannelMembers>(["members", channel]);
-    if (was) qc.setQueryData<ChannelMembers>(["members", channel], { ...was, members: was.members.map((m) => (m.member === a.member ? { ...m, on } : m)) });
-    void api.patchMember(channel, a.member, { on }).then(
-      (ms) => (qc.setQueryData<ChannelMembers>(["members", channel], ms), ms.warn?.length && toast(t("script.loop"), { description: ms.warn.join("\n") })),
-      (e) => (was && qc.setQueryData<ChannelMembers>(["members", channel], was), toast(t("err.action"), { error: true, description: memberError(e) })),
-    );
-  };
   // Each after a frame: the menu shuts first, and what opens is not shut with it.
   const later = (f: () => void) => () => requestAnimationFrame(f);
   // 清空 asked in its own place: pressed, it turns red and asks again, the menu left open; pressed
@@ -370,7 +307,6 @@ function Items({ channel, a, s, may, call, record, ask }: Parameters<typeof Memb
       />
     ),
     stop: (i) => item(i, <CircleStop size={15} />, t("channel.stop"), () => void stopTurn(a.session)),
-    recv: (i) => <OnPick key="recv" channel={channel} a={a} set={setOn} edit={() => ask("on")} i={i} />,
     edit: (i) => item(i, <PencilLine size={15} />, t("profile.edit"), later(() => ask("edit"))),
     session: (i) => item(i, <ScrollText size={15} />, t("channel.session"), () => view?.()),
     given: (i) => item(i, <Inbox size={15} />, t("channel.given"), later(() => ask("given"))),

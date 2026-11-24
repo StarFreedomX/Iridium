@@ -9,7 +9,7 @@ import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-quer
 import { ChevronLeft, ChevronRight, CircleOff, CirclePlay, LoaderCircle, PencilLine, Play, Plus, SquareTerminal, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { api, ApiError } from "../../api/client";
-import type { Agent, ChannelMembers, NewScript, Script, ScriptBy, ScriptRun, Trigger } from "../../api/types.gen";
+import type { Agent, NewScript, Script, ScriptBy, ScriptRun } from "../../api/types.gen";
 import { FacePick } from "../../facepick";
 import { isColour } from "../../facevalue";
 import { t, useLang } from "../../i18n";
@@ -23,7 +23,6 @@ import { Face, MemberFace } from "./face";
 import { mayAct, useMembers } from "./gate";
 import { validNick } from "./lib";
 import { CARD_POP, ProfileCard, type CardKey } from "./profilecard";
-import { memberError } from "./key";
 import { cronWords, triggerWords, useRecvName, useRecvOptions } from "./recv";
 import { blankTrigger, cronReading, draftOf, EVENTS, scriptRefusal, toggle, triggerLine, triggerOf, type TriggerDraft, type TriggerKind } from "./scripts";
 
@@ -417,7 +416,7 @@ function Editor({ channel, name, draft, dir, back, saved }: { channel: string; n
 }
 
 /** One trigger: its kind, and that kind's fields. */
-function TriggerEdit({ channel, d, set, remove, text, skip }: { channel: string; d: TriggerDraft; set: (p: Partial<TriggerDraft>) => void; remove?: () => void; text?: boolean; skip?: string }) {
+function TriggerEdit({ channel, d, set, remove }: { channel: string; d: TriggerDraft; set: (p: Partial<TriggerDraft>) => void; remove?: () => void }) {
   const kinds: TriggerKind[] = ["message", "command", "cron", "event"];
   const reading = d.kind === "cron" ? cronReading(d.cron, cronWords()) : undefined;
   return (
@@ -433,7 +432,7 @@ function TriggerEdit({ channel, d, set, remove, text, skip }: { channel: string;
       </div>
       {d.kind === "message" && (
         <>
-          <Senders channel={channel} from={d.from} set={(from) => set({ from })} skip={skip} />
+          <Senders channel={channel} from={d.from} set={(from) => set({ from })} />
           <label className={LABEL}>
             {t("script.words")}
             <input value={d.words} placeholder={t("script.wordsHint")} onChange={(e) => set({ words: e.target.value })} className={cn(INPUT, "h-8 bg-paper pointer-coarse:h-10")} />
@@ -464,25 +463,19 @@ function TriggerEdit({ channel, d, set, remove, text, skip }: { channel: string;
           <div className="flex flex-wrap gap-1.5">
             {EVENTS.map((e) => (
               <Chip key={e} on={d.event.includes(e)} onClick={() => set({ event: toggle(d.event, e) })}>
-                {t(`script.ev.${e}`)}
+                {t(`on.ev.${e}`)}
               </Chip>
             ))}
           </div>
         </div>
-      )}
-      {text && (
-        <label className={LABEL}>
-          {t("script.onText")}
-          <input value={d.text} placeholder={t("script.onTextHint")} onChange={(e) => set({ text: e.target.value })} className={cn(INPUT, "h-8 bg-paper pointer-coarse:h-10")} />
-        </label>
       )}
     </div>
   );
 }
 
 /** Whose messages a message trigger takes: the entries a receive set may have; none, anyone. */
-function Senders({ channel, from, set, skip }: { channel: string; from: string[]; set: (f: string[]) => void; skip?: string }) {
-  const options = useRecvOptions(channel, skip);
+function Senders({ channel, from, set }: { channel: string; from: string[]; set: (f: string[]) => void }) {
+  const options = useRecvOptions(channel);
   return (
     <div className={LABEL}>
       <span className="flex items-baseline gap-2">
@@ -498,58 +491,5 @@ function Senders({ channel, from, set, skip }: { channel: string; from: string[]
         ))}
       </div>
     </div>
-  );
-}
-
-/** 订阅事件 of an agent of channel (docs/channels.md "订阅事件"): each what wakes it beside @, with
- *  the words it is given then; saved together, a ring they make told. */
-export function OnEditor({ channel, member, on: was, done }: { channel: string; member: string; on: Trigger[]; done: () => void }) {
-  useLang();
-  const qc = useQueryClient();
-  const [on, setOn] = useState<TriggerDraft[]>(() => was.map(draftOf));
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const session = member.startsWith("agent:") ? member.slice(6) : undefined;
-  const save = async () => {
-    if (busy) return;
-    setBusy(true);
-    setError("");
-    try {
-      const ms = await api.patchMember(channel, member, { on: on.map(triggerOf) });
-      qc.setQueryData<ChannelMembers>(["members", channel], ms);
-      if (ms.warn?.length) toast(t("script.loop"), { description: ms.warn.join("\n") });
-      done();
-    } catch (e) {
-      setError(e instanceof ApiError && e.status === 422 ? why(e) : memberError(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-  const setAt = (i: number, d: Partial<TriggerDraft>) => (setOn(on.map((x, j) => (j === i ? { ...x, ...d } : x))), setError(""));
-  return (
-    <Frame title={t("channel.onEdit")}>
-      <div className="flex h-8 items-center gap-2 text-sm">
-        <span className="flex-1 text-ink-3">{t("channel.onAt")}</span>
-        <IconKey label={t("script.addTrigger")} onClick={() => setOn([...on, blankTrigger()])} className="size-7">
-          <Plus size={15} />
-        </IconKey>
-      </div>
-      <ul className="m-0 flex list-none flex-col gap-2 p-0 pt-1">
-        {on.map((d, i) => (
-          <li key={i} className="g-fade rounded-md bg-fill p-2">
-            <TriggerEdit channel={channel} d={d} set={(p) => setAt(i, p)} remove={() => setOn(on.filter((_, j) => j !== i))} text skip={session} />
-          </li>
-        ))}
-      </ul>
-      <Slide open={!!error}>
-        <p className="m-0 pt-2 text-xs text-err">{error}</p>
-      </Slide>
-      <div className="mt-3 flex justify-end">
-        <button type="button" disabled={busy} onClick={() => void save()} className="g-press flex h-8 items-center gap-1.5 rounded-md bg-ink px-3 text-sm font-medium text-on-ink disabled:opacity-40 pointer-coarse:h-10">
-          {busy && <LoaderCircle size={13} className="animate-spin" />}
-          {t("script.save")}
-        </button>
-      </div>
-    </Frame>
   );
 }

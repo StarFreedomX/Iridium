@@ -1,12 +1,12 @@
 // A channel's subscriptions and commands, what the page reads and writes of them (src/chat/channel/scripts.ts).
 import { describe, expect, test } from "vitest";
-import { asName, blankTrigger, cronReading, draftOf, fromOf, onLabel, onOf, recvLabel, recvOf, recvWhole, scriptOfUser, scriptRefusal, splitWords, toggle, triggerLine, triggerOf, withFrom, type CronWords, type TriggerWords } from "../src/chat/channel/scripts";
+import { asName, blankTrigger, cronReading, dailyCron, draftOf, onOf, recvLabel, recvOf, recvWhole, scriptOfUser, scriptRefusal, splitWords, toggle, triggerLine, triggerOf, type CronWords, type TriggerWords } from "../src/chat/channel/scripts";
 
 const names: Record<string, string> = { "ir_web/a": "kumo", "bot/*": "QQ", "agent:s2": "@codex", "agent:s3": "@pi" };
 const nameOf = (e: string) => names[e] ?? e;
 const rw = { at: "仅被 @ 时", all: "全体成员", sep: "、", n: "{n} 项" };
 const cw: CronWords = { minute: "每分钟", everyMin: "每 {n} 分钟", hourly: "每小时第 {m} 分", everyHour: "每 {n} 小时", daily: "每天 {t}", weekdays: "工作日 {t}", weekly: "每{d} {t}", monthly: "每月 {n} 日 {t}", days: ["周日", "周一", "周二", "周三", "周四", "周五", "周六"], sep: "、" };
-const tw: TriggerWords = { message: "消息：{from}", messageHas: "消息：{from} 含{words}", quote: "“{w}”", or: "或", anyone: "全部", command: "指令：/{name}", cron: "定时：{when}", event: "事件：{events}", events: { join: "加入", leave: "移出", on: "订阅事件变更" }, sep: "、", textSep: "，附：", recv: { all: "全体成员" }, when: cw };
+const tw: TriggerWords = { said: "{from}说话时", saidWords: "{from}说到{words}时", words: "说到{words}时", any: "有消息时", quote: "「{w}」", or: "或", command: "发送 /{name} 时", cron: "{when}", event: "{events}时", events: { join: "成员加入", leave: "成员移出", on: "订阅事件变更" }, then: "{line} → {text}", sep: "、", recv: { all: "全体成员" }, when: cw };
 
 describe("receive sets", () => {
   test("read: a list as it is, the old words as sets", () => {
@@ -33,6 +33,10 @@ describe("receive sets", () => {
 });
 
 describe("a cron line read", () => {
+  test("a time of day as a line each day", () => {
+    expect(dailyCron("09:05")).toBe("5 9 * * *");
+    expect(dailyCron("24:00")).toBeUndefined();
+  });
   test("the simple ones", () => {
     expect(cronReading("* * * * *", cw)).toBe("每分钟");
     expect(cronReading("*/15 * * * *", cw)).toBe("每 15 分钟");
@@ -54,15 +58,17 @@ describe("a cron line read", () => {
 });
 
 describe("a trigger in words", () => {
-  test("each kind in a line", () => {
-    expect(triggerLine({ message: { from: ["*"], words: ["大肥鱼"] } }, nameOf, tw)).toBe("消息：全体成员 含“大肥鱼”");
-    expect(triggerLine({ message: { from: ["ir_web/a", "agent:s2"], words: ["a", "b"] } }, nameOf, tw)).toBe("消息：kumo、@codex 含“a”或“b”");
-    expect(triggerLine({ message: {} }, nameOf, tw)).toBe("消息：全部");
-    expect(triggerLine({ command: "echo" }, nameOf, tw)).toBe("指令：/echo");
-    expect(triggerLine({ cron: "0 9 * * *" }, nameOf, tw)).toBe("定时：每天 09:00");
-    expect(triggerLine({ cron: "0 9-17 * * *" }, nameOf, tw)).toBe("定时：0 9-17 * * *");
-    expect(triggerLine({ event: ["join", "leave"] }, nameOf, tw)).toBe("事件：加入、移出");
-    expect(triggerLine({ event: ["people", "join", "recv"], text: "欢迎" }, nameOf, tw)).toBe("事件：加入、订阅事件变更，附：欢迎");
+  test("each kind in a sentence", () => {
+    expect(triggerLine({ message: { from: ["*"] } }, nameOf, tw)).toBe("全体成员说话时");
+    expect(triggerLine({ message: { from: ["*"], words: ["小克"] } }, nameOf, tw)).toBe("全体成员说到「小克」时");
+    expect(triggerLine({ message: { words: ["a", "b"] } }, nameOf, tw)).toBe("说到「a」或「b」时");
+    expect(triggerLine({ message: { from: ["ir_web/a", "agent:s2"] } }, nameOf, tw)).toBe("kumo、@codex说话时");
+    expect(triggerLine({ message: {} }, nameOf, tw)).toBe("有消息时");
+    expect(triggerLine({ command: "echo" }, nameOf, tw)).toBe("发送 /echo 时");
+    expect(triggerLine({ cron: "0 9 * * *" }, nameOf, tw)).toBe("每天 09:00");
+    expect(triggerLine({ cron: "0 9-17 * * *" }, nameOf, tw)).toBe("0 9-17 * * *");
+    expect(triggerLine({ event: ["join", "leave"] }, nameOf, tw)).toBe("成员加入或成员移出时");
+    expect(triggerLine({ event: ["people", "join", "recv"], text: "欢迎新人" }, nameOf, tw)).toBe("成员加入或订阅事件变更时 → 欢迎新人");
   });
   test("as the editor holds it, and back: the kind's fields alone", () => {
     const d = draftOf({ message: { from: ["*"], words: ["a", "b"] } });
@@ -103,18 +109,5 @@ describe("an agent's subscriptions", () => {
   test("read: a list as it is, none as none", () => {
     expect(onOf([{ message: { from: ["*"] } }])).toEqual([{ message: { from: ["*"] } }]);
     expect(onOf(undefined)).toEqual([]);
-  });
-  test("its senders: of its plain message subscription, set in place, put in, taken out", () => {
-    const on = [{ event: ["join"] }, { message: { from: ["*"] } }];
-    expect(fromOf(on)).toEqual(["*"]);
-    expect(withFrom(on, ["*", "agent:s2"])).toEqual([{ event: ["join"] }, { message: { from: ["*", "agent:s2"] } }]);
-    expect(withFrom(on, [])).toEqual([{ event: ["join"] }]);
-    expect(withFrom([], ["agent:s2"])).toEqual([{ message: { from: ["agent:s2"] } }]);
-    expect(fromOf([{ message: { from: ["*"], words: ["a"] } }])).toEqual([]);
-  });
-  test("in a few words: @ only, its senders alone, else how many", () => {
-    expect(onLabel([], nameOf, rw)).toBe("仅被 @ 时");
-    expect(onLabel([{ message: { from: ["*"] } }], nameOf, rw)).toBe("全体成员");
-    expect(onLabel([{ message: { from: ["*"] } }, { cron: "0 9 * * *" }], nameOf, rw)).toBe("2 项");
   });
 });

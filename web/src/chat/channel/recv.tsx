@@ -11,7 +11,7 @@ import { Face, MemberFace } from "./face";
 import { useMembers } from "./gate";
 import { personName } from "./lib";
 import { usePeople } from "./person";
-import { EVENTS, onLabel, recvWhole, triggerLine, type CronWords, type RecvWords, type TriggerWords } from "./scripts";
+import { EVENTS, recvWhole, triggerLine, type CronWords, type RecvWords, type TriggerWords } from "./scripts";
 
 export type RecvOption = { entry: string; label: string; face: ReactNode };
 
@@ -61,29 +61,30 @@ export function useRecvName(channel: string): (entry: string) => string {
   };
 }
 
-/** An agent's subscriptions in a few words (beside 订阅事件), or whole (an event's line); an older
- *  line's receive set whole. */
-export function useRecvLabel(channel: string): { short: (on: Trigger[]) => string; whole: (r: string[]) => string; onWhole: (on: Trigger[]) => string } {
+/** A receive set whole (an older event's line); an agent's subscriptions whole, a sentence each
+ *  (a line of the channel: who changed them, to what). */
+export function useRecvLabel(channel: string): { whole: (r: string[]) => string; onWhole: (on: Trigger[]) => string } {
   const name = useRecvName(channel);
   const w = recvWords();
   const tw = triggerWords();
-  return { short: (on) => onLabel(on, name, w), whole: (r) => recvWhole(r, name, w), onWhole: (on) => (on.length ? [w.at, ...on.map((x) => triggerLine(x, name, tw))].join(tw.sep) : w.at) };
+  return { whole: (r) => recvWhole(r, name, w), onWhole: (on) => [t("on.at"), ...on.map((x) => triggerLine(x, name, tw))].join(t("on.sep")) };
 }
 
-/** The words a trigger is said in, in the page's language. */
+/** The words a subscription is said in, in the page's language. */
 export function triggerWords(): TriggerWords {
   return {
-    message: t("script.line.message"),
-    messageHas: t("script.line.messageHas"),
-    quote: t("script.line.quote"),
-    or: t("script.line.or"),
-    anyone: t("script.line.anyone"),
-    command: t("script.line.command"),
-    cron: t("script.line.cron"),
-    event: t("script.line.event"),
-    events: Object.fromEntries(EVENTS.map((e) => [e, t(`script.ev.${e}`)])),
+    said: t("on.said"),
+    saidWords: t("on.saidWords"),
+    words: t("on.words"),
+    any: t("on.any"),
+    quote: t("on.quote"),
+    or: t("on.or"),
+    command: t("on.command"),
+    cron: t("on.cron"),
+    event: t("on.event"),
+    events: Object.fromEntries(EVENTS.map((e) => [e, t(`on.ev.${e}`)])),
+    then: t("on.then"),
     sep: t("channel.what.sep"),
-    textSep: t("script.line.textSep"),
     recv: { all: t("channel.recvEveryone") },
     when: cronWords(),
   };

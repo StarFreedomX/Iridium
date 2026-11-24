@@ -18,22 +18,6 @@ export function recvOf(r: unknown): string[] {
 /** An agent's subscriptions as the server may say them: none, none (only @). */
 export const onOf = (on: unknown): Trigger[] => (Array.isArray(on) ? on.filter((x): x is Trigger => !!x && typeof x === "object") : []);
 
-/** A plain message subscription: of senders, of no words in particular. */
-const plain = (tr: Trigger) => !!tr.message && !tr.message.words?.length && !tr.text;
-
-/** The senders whose words wake an agent, as its plain message subscription names them (the
- *  members menu's quick list); none: there is none. */
-export const fromOf = (on: Trigger[]): string[] => on.find(plain)?.message?.from ?? [];
-
-/** on with its plain message subscription's senders now from: put in where there was none, taken
- *  out where from is empty. */
-export function withFrom(on: Trigger[], from: string[]): Trigger[] {
-  const i = on.findIndex(plain);
-  const tr: Trigger = { message: { from } };
-  if (i < 0) return from.length ? [...on, tr] : on;
-  return from.length ? on.map((x, j) => (j === i ? tr : x)) : on.filter((_, j) => j !== i);
-}
-
 /** A receive set with entry put in, or taken out. */
 export const toggle = (set: string[], entry: string): string[] => (set.includes(entry) ? set.filter((x) => x !== entry) : [...set, entry]);
 
@@ -51,13 +35,6 @@ export function recvLabel(recv: string[], nameOf: (entry: string) => string, w: 
   const names = recvNames(recv, nameOf, w);
   const joined = names.join(w.sep);
   return names.length <= 2 && [...joined].length <= max ? joined : w.n.replace("{n}", String(names.length));
-}
-
-/** An agent's subscriptions in a few words, beside 订阅事件: none, at (@ only); its plain senders
- *  alone, their names; else how many. */
-export function onLabel(on: Trigger[], nameOf: (entry: string) => string, w: RecvWords, max = 12): string {
-  if (on.length === 1 && plain(on[0]!)) return recvLabel(fromOf(on), nameOf, w, max);
-  return on.length ? w.n.replace("{n}", String(on.length)) : w.at;
 }
 
 /** A sender list whole (an older event's line): none, at; else every name. */
@@ -97,26 +74,31 @@ export function cronReading(cron: string, w: CronWords): string | undefined {
   return undefined;
 }
 
-/** The words a trigger is said in: message ({from}), messageHas ({from} {words}), each word in
- *  quote ({w}) and or between them; anyone, a message with no from; command ({name}), cron
- *  ({when}), event ({events}); events by type; sep between names. */
-export type TriggerWords = { message: string; messageHas: string; quote: string; or: string; anyone: string; command: string; cron: string; event: string; events: Record<string, string>; sep: string; textSep: string; recv: Pick<RecvWords, "all">; when: CronWords };
+/** The words a subscription is said in, each a sentence ending in 时 (or a time): said ({from}
+ *  speaks), saidWords ({from} {words}), words (no one in particular: {words}), any (a message
+ *  of anyone), each word in quote ({w}) and or between them; command ({name}), cron ({when}),
+ *  event ({events}, by their names, or between them); then ({text}) what the agent is told. */
+export type TriggerWords = { said: string; saidWords: string; words: string; any: string; quote: string; or: string; command: string; cron: string; event: string; events: Record<string, string>; then: string; sep: string; recv: Pick<RecvWords, "all">; when: CronWords };
 
-/** A trigger in one line: 消息：全体成员 含“大肥鱼”, 指令：/echo, 定时：每天 09:00, 事件：加入、移出. */
+const fill = (tpl: string, v: Record<string, string>) => Object.entries(v).reduce((s, [k, x]) => s.replace(`{${k}}`, x), tpl);
+
+/** A subscription in one sentence: 全体成员说话时, 说到「小克」时, 每天 09:00, 成员加入时 → 欢迎新人. */
 export function triggerLine(tr: Trigger, nameOf: (entry: string) => string, w: TriggerWords): string {
-  return [triggerHead(tr, nameOf, w), tr.text?.trim()].filter(Boolean).join(w.textSep);
+  const head = triggerHead(tr, nameOf, w);
+  const text = tr.text?.trim();
+  return text ? fill(w.then, { line: head, text }) : head;
 }
 
 function triggerHead(tr: Trigger, nameOf: (entry: string) => string, w: TriggerWords): string {
   if (tr.message) {
-    const from = tr.message.from?.length ? recvNames(tr.message.from, nameOf, w.recv).join(w.sep) : w.anyone;
-    const words = (tr.message.words ?? []).filter(Boolean);
-    if (!words.length) return w.message.replace("{from}", from);
-    return w.messageHas.replace("{from}", from).replace("{words}", words.map((x) => w.quote.replace("{w}", x)).join(w.or));
+    const from = tr.message.from?.length ? recvNames(tr.message.from, nameOf, w.recv).join(w.sep) : "";
+    const words = (tr.message.words ?? []).filter(Boolean).map((x) => fill(w.quote, { w: x })).join(w.or);
+    if (words) return from ? fill(w.saidWords, { from, words }) : fill(w.words, { words });
+    return from ? fill(w.said, { from }) : w.any;
   }
-  if (tr.command) return w.command.replace("{name}", tr.command);
-  if (tr.cron) return w.cron.replace("{when}", cronReading(tr.cron, w.when) ?? tr.cron);
-  if (tr.event) return w.event.replace("{events}", [...new Set(tr.event.map(eventKind))].map((e) => w.events[e] ?? e).join(w.sep));
+  if (tr.command) return fill(w.command, { name: tr.command });
+  if (tr.cron) return fill(w.cron, { when: cronReading(tr.cron, w.when) ?? tr.cron });
+  if (tr.event) return fill(w.event, { events: [...new Set(tr.event.map(eventKind))].map((e) => w.events[e] ?? e).join(w.or) });
   return "";
 }
 
@@ -125,6 +107,13 @@ export const EVENTS = ["join", "leave", "rename", "on", "error", "ask"] as const
 
 /** An event as the subscriptions name it: those from before them as theirs now. */
 export const eventKind = (e: string) => (e === "recv" || e === "script" ? "on" : e === "people" ? "join" : e);
+
+/** A time of day ("09:30") as a cron line, each day; none for one that is not a time. */
+export function dailyCron(time: string): string | undefined {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(time.trim());
+  if (!m || +m[1]! > 23 || +m[2]! > 59) return undefined;
+  return `${+m[2]!} ${+m[1]!} * * *`;
+}
 
 /** Words typed as a list: split at commas (either width), 、 and spaces. */
 export const splitWords = (s: string) => s.split(/[,，、\s]+/).map((x) => x.trim()).filter(Boolean);
