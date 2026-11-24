@@ -282,3 +282,41 @@ export function foldSaid(runs: Run[]): string {
   if (bad) said.push(t("msg.failedN", { n: bad }));
   return t("msg.toolsSaid", { list: said.join(t("msg.sep")) });
 }
+
+/** A filter over a fold's steps: failed ones only, or one tool's name ("" for thinking). */
+export type StepFilter = { kind: "failed" } | { kind: "tool"; name: string } | null;
+
+/** The steps matching filter, each with its 0-based index in the whole fold (its number stays). */
+export function filterSteps(steps: Step[], filter: StepFilter): { step: Step; index: number }[] {
+  const out: { step: Step; index: number }[] = [];
+  for (let i = 0; i < steps.length; i++) {
+    const s = steps[i]!;
+    if (filter?.kind === "failed") {
+      if (s.kind !== "tool" || !s.result?.error) continue;
+    } else if (filter?.kind === "tool") {
+      const name = s.kind === "thinking" ? "" : (s.name ?? "?");
+      if (name !== filter.name) continue;
+    }
+    out.push({ step: s, index: i });
+  }
+  return out;
+}
+
+/** Total elapsed ms from the first timed step to the last timed result/step, if positive. */
+export function foldSpan(steps: Step[]): number | undefined {
+  const first = steps.find((s) => s.time)?.time;
+  const last = steps.findLast((s) => (s.kind === "tool" && s.result?.time) || s.time);
+  const end = last && ((last.kind === "tool" && last.result?.time) || last.time);
+  return first && end && end > first ? end - first : undefined;
+}
+
+/** Stable React key for a tool fold across draft → running → completed steps, so a live fold
+ *  stays one mounted instance as its first call finishes and later calls arrive. */
+export function foldKey(steps: Step[], running: Tool[] = [], calls: { tool?: { id: string } }[] = []): string | undefined {
+  const s0 = steps[0];
+  if (s0) return s0.kind === "tool" && s0.id ? `fold:${s0.id}` : s0.at;
+  const r0 = running[0];
+  if (r0) return r0.id ? `fold:${r0.id}` : r0.at;
+  const c0 = calls[0]?.tool?.id;
+  return c0 ? `fold:${c0}` : undefined;
+}

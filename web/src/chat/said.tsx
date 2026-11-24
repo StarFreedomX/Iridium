@@ -9,7 +9,7 @@ import { LongWords } from "./longwords";
 import { FORWARD_CARD, ForwardHead, ForwardRow, Forwards } from "./forwardcard";
 import { msgWords, splitForwards, withForwards } from "./forward";
 import { FOLD_AT, linesOf } from "./channel/merge";
-import { Archive, ArchiveRestore, ArrowUpRight, BookOpen, Bot, BotMessageSquare, ChartColumn, Check, ChevronRight, CircleStop, CircleX, Clock, CloudDownload, CloudUpload, Copy, Cpu, Earth, FileCode, FileDiff, FilePen, Files as FilesIcon, FileText, FlaskConical, FolderGit2, FolderOpen, Folders, FoldVertical, GitBranch, GitCommitHorizontal, GitPullRequest, Globe, Hammer, History, Hourglass, KeyRound, Laptop, Link2, List, ListChecks, LoaderCircle, LockKeyhole, MessageCircleQuestionMark, MessageSquarePlus, Monitor, MonitorSmartphone, MousePointerClick, Network, Package, PencilLine, Plug, RotateCcw, RotateCw, Search, Send, ServerCog, SlidersHorizontal, Smartphone, SquareTerminal, Terminal, Trash2, type LucideIcon, UserRound, Workflow as WorkflowIcon, Wrench, X } from "lucide-react";
+import { Archive, ArchiveRestore, ArrowUpRight, BookOpen, Bot, BotMessageSquare, ChartColumn, Check, ChevronDown, ChevronRight, ChevronUp, CircleStop, CircleX, Clock, CloudDownload, CloudUpload, Copy, Cpu, Earth, FileCode, FileDiff, FilePen, Files as FilesIcon, FileText, FlaskConical, FolderGit2, FolderOpen, Folders, FoldVertical, GitBranch, GitCommitHorizontal, GitPullRequest, Globe, Hammer, History, Hourglass, KeyRound, Laptop, Link2, List, ListChecks, LoaderCircle, LockKeyhole, MessageCircleQuestionMark, MessageSquarePlus, Monitor, MonitorSmartphone, MousePointerClick, Network, Package, PencilLine, Plug, RotateCcw, RotateCw, Search, Send, ServerCog, SlidersHorizontal, Smartphone, SquareTerminal, Terminal, Trash2, type LucideIcon, UserRound, Workflow as WorkflowIcon, Wrench, X } from "lucide-react";
 import { Copyable } from "./copyable";
 import { Dispatch, Sent as SentTo, TaskBack } from "./dispatched";
 import { handBack, toldOf } from "./dispatch";
@@ -28,16 +28,19 @@ import { t } from "../i18n";
 import { agentName, Avatar, Badge, cn, IconKey, IrMark, Logo, own, PopSurface, tilde, Tip, titleOf, useEver, useLongPress, useMenuAt } from "../ui";
 import { useHome, useMachines } from "../data";
 import { LocalMark } from "../me";
+import { motion, reduced } from "../motion";
 import { go } from "../route";
 import { Files, isLink, Picture, previews, SentFile, shownAs } from "./files";
 import { Pictures } from "./pictures";
 import { cmdOfCall, cpOfCall, isShell, newOfCall, type Cmd, type CpSide } from "./cmd";
-import { argOf, inputOf, diffSum, foldLine, foldSaid, kindOf, kindOfStep, runCmds, type Diff, type Kind, type Shown, type Step, type Tool } from "./fold";
+import { argOf, diffSum, filterSteps, foldLine, foldSaid, foldSpan, kindOf, runCmds, type Diff, type Kind, type Shown, type Step, type StepFilter, type Tool } from "./fold";
 import { Code } from "./hl";
+import { ToolDraft, Waiting } from "./live";
 import { Markdown, Streamed } from "./markdown";
 import { partialInput } from "./partial";
 import { machineNamed, MentionCard, NamedCards, Worded } from "./mention";
 import { draftWords, fromSatori, type Mention, sessionOf, type Source, withoutFiles, withoutNameLines } from "./refs";
+import { layoutMoves } from "./stick";
 import { MachineFace } from "../machines";
 import { useList } from "../store";
 import type { Agent } from "../api/types.gen";
@@ -550,7 +553,7 @@ export function Relayed({ given, relay, name, time, onJump, children }: { given:
 
 /** card: what a person's face opens (their card, chat.tsx), for one not the one looking. left:
  *  another person's words, on the left: only the one looking is on the right (kumo, 2026-11-16). */
-export function Said({ b, session, cwd, source, onJump, card, menu, left, draft }: { b: Shown; draft?: AsDraft; session: string; cwd: string; source: (b: { from?: string; fromTerminal?: string; fromDevice?: Device }) => Source; onJump: (id: string) => void; card?: (b: Block) => ReactNode; menu?: (b: Block) => FaceMenu | undefined; left?: (b: Block) => boolean }) {
+export function Said({ b, session, cwd, source, onJump, card, menu, left, draft, live }: { b: Shown; draft?: AsDraft; live?: LiveFold; session: string; cwd: string; source: (b: { from?: string; fromTerminal?: string; fromDevice?: Device }) => Source; onJump: (id: string) => void; card?: (b: Block) => ReactNode; menu?: (b: Block) => FaceMenu | undefined; left?: (b: Block) => boolean }) {
   // In the record of the channel's own session, a block is a message of the channel too: reacted
   // to and taken back as one (react.tsx). Not in another's record shown here (an agent's work).
   const named = useContext(Nicks);
@@ -617,7 +620,7 @@ export function Said({ b, session, cwd, source, onJump, card, menu, left, draft 
       );
     case "fold":
       // A step auto mode denied waits above the composer, not here (chat/asks.tsx DenialCard).
-      return <Fold steps={b.steps} session={session} cwd={cwd} />;
+      return <Fold steps={b.steps} session={session} cwd={cwd} live={live} />;
     case "running":
       return <Running tool={b.tool} cwd={cwd} />;
   }
@@ -745,64 +748,255 @@ function StepLine({ s, cwd, bare }: { s: Step; cwd?: string; bare?: boolean }) {
 
 const ROW = "flex h-7 min-w-0 cursor-default list-none items-center gap-2 rounded-sm text-sm text-ink-3 hover:text-ink-2 [&::-webkit-details-marker]:hidden pointer-coarse:h-9";
 
-/** The steps between two things said: one of them is its own line; more fold into one, each name
- *  once with its kind's icon (a shell's, one per call when they do different things) and ×n, then
- *  the lines their edits changed, which opens to a line each.
- *  Each, pressed, shows what it was given and what came back in a card (StepView). */
+/** A call currently being drafted or executed inside the trailing live tool group. */
+export type LiveCall =
+  | { kind: "draft"; id: string; name: string; text: string; whole?: boolean }
+  | { kind: "running"; tool: Tool };
+
+/** Live turn state attached to the trailing tool fold (merges the bottom Activity row into it). */
+export type LiveFold = { active: LiveCall[]; stop?: ReactNode; quiet?: boolean; grew?: string };
+
 /** What is said before a steps' line's marks (where the work was done, away.tsx): its row's. */
 export const StepsHead = createContext<ReactNode>(null);
 
-function Fold({ steps, session, cwd }: { steps: Step[]; session: string; cwd: string }) {
-  const one = steps.length === 1 ? steps[0]! : undefined;
+/** The steps between two things said: one resting step is its own line; more fold into one
+ *  summary line that expands in place into a height-capped inner-scroll list (each step one line,
+ *  clicking any step opens its detail card). While the turn is live at this fold, it stays open
+ *  up to ~5 rows with the active drafting/running call as its last row, then glides shut once the
+ *  agent moves on to text or the turn ends (unless the user interacted with it). */
+export function Fold({ steps, session, cwd, live }: { steps: Step[]; session: string; cwd: string; live?: LiveFold }) {
   const head = useContext(StepsHead);
+  const active = live?.active ?? NO_LIVE;
+  const total = steps.length + active.length;
+  // Once a fold has shown a multi-step list (or a StepsHead), stay on StepsFold so collapsing
+  // back from live never swaps component trees.
+  const everMulti = useRef(false);
+  if (total >= 2 || !!head) everMulti.current = true;
+  const one = steps.length === 1 ? steps[0]! : undefined;
   // A call to a subagent: the agent's words to it, not a step's line (dispatched.tsx).
-  if (one?.kind === "tool" && toldOf(one)) return <Dispatch call={one as Tool} session={session} />;
-  if (one && !head) return <StepView s={one} session={session} cwd={cwd} />;
+  if (!live && !everMulti.current && one?.kind === "tool" && toldOf(one)) return <Dispatch call={one as Tool} session={session} />;
+  if (!live && !everMulti.current && one && !head) return <StepView s={one} session={session} cwd={cwd} />;
+  // First live call before any completed steps: one crisp line with the stop key, no empty header.
+  if (live && !everMulti.current && steps.length === 0 && active.length === 1) {
+    const a = active[0]!;
+    return (
+      <div className="flex h-7 min-w-0 items-center gap-2 pointer-coarse:h-9">
+        <div key={a.kind === "draft" ? a.id : (a.tool.id ?? a.tool.at)} className="g-fade min-w-0 flex-1">
+          {a.kind === "draft" ? <ToolDraft name={a.name} input={a.text} whole={a.whole} plain /> : <Running tool={a.tool} cwd={cwd} />}
+        </div>
+        {live.stop}
+      </div>
+    );
+  }
+  // Single completed step while still live (waiting for next call or text): keep its 1-line row
+  // so finishing after 1 step never flashes a multi-step header.
+  if (live && !everMulti.current && one && active.length === 0) {
+    return (
+      <div className="min-w-0">
+        <div className="flex min-w-0 items-center gap-2">
+          <div className="min-w-0 flex-1">
+            {one.kind === "tool" && toldOf(one) ? <Dispatch call={one as Tool} session={session} /> : <StepView s={one} session={session} cwd={cwd} />}
+          </div>
+          {live.stop}
+        </div>
+        {live.quiet && <Waiting on quiet={live.grew ?? ""} />}
+      </div>
+    );
+  }
   const opened = steps.flatMap((s) => (s.kind === "tool" && newOfCall(s)) || []);
   return (
     <div className="min-w-0">
-      <StepsKey steps={steps} session={session} cwd={cwd} />
+      <StepsFold steps={steps} session={session} cwd={cwd} live={live} />
       {/* The sessions its ir new steps opened, under its line. */}
       {opened.length > 0 && <Opened opened={opened} />}
     </div>
   );
 }
+const NO_LIVE: LiveCall[] = [];
 
-/** Steps as one line, as high whatever they are (kumo, 2026-11-24: nothing in the conversation
- *  opens in place; its height changes only as a message comes or is taken back): each kind's
- *  mark and how many. Pressed, they are listed in a popover as tall as they are, to a most it
- *  scrolls inside past (kumo, 2026-11-24: one step is not given a whole pane); a step pressed there opens its card out of the press, a second popover over the first (kumo,
- *  2026-11-24). The line pressed again shuts it. */
-function StepsKey({ steps, session, cwd }: { steps: Step[]; session: string; cwd: string }) {
+/** How long, short: 0.2s, 41s, 3m05s. */
+const lasted = (ms: number) => (ms < 950 ? `${(ms / 1000).toFixed(1)}s` : ms < 60_000 ? `${Math.round(ms / 1000)}s` : `${Math.floor(ms / 60_000)}m${String(Math.round((ms % 60_000) / 1000)).padStart(2, "0")}s`);
+
+/** In-place expandable step list with capped inner scroll, smooth non-scroll → scroll edge fades,
+ *  optional single-line filter strip for large folds, and one shared StepCard popover with ↑/↓
+ *  step navigation. Registers layoutMoves on the .g-reveal wrapper synchronously before toggling
+ *  open/close so stick.tsx follows every frame with zero room spacer or reversal. */
+function StepsFold({ steps, session, cwd, live }: { steps: Step[]; session: string; cwd: string; live?: LiveFold }) {
   const head = useContext(StepsHead);
-  const [open, setOpen] = useState(false);
-  const ever = useEver(open);
-  const row = useRef<HTMLButtonElement>(null);
-  const list = useRef<HTMLDivElement>(null);
-  const runs = foldLine(steps);
-  const diff = diffSum(runs);
-  // More steps as it is open (a turn at work): kept at the newest unless scrolled up from it.
-  const atEnd = useRef(true);
-  // Whether it was open as the line was pressed: the press itself shuts it first (a press outside
-  // it, the focus gone from it), and the click after would open it again.
-  const was = useRef(false);
-  // Where it opens: its line's height, the conversation's width (kumo, 2026-11-24).
-  const [box, setBox] = useState<DOMRect | null>(null);
-  useLayoutEffect(() => {
-    const end = () => {
-      const el = list.current;
-      if (el && atEnd.current) el.scrollTop = el.scrollHeight;
-    };
-    end();
-    // As it opens its most is not known till it is placed (--available-height): once more then.
-    const f = requestAnimationFrame(end);
+  const isLive = !!live;
+  const active = live?.active ?? NO_LIVE;
+  const [open, setOpen] = useState(isLive);
+  // Suppress the initial 0fr→1fr transition when mounting already live-open.
+  const [snap, setSnap] = useState(isLive);
+  useEffect(() => {
+    if (!snap) return;
+    const f = requestAnimationFrame(() => setSnap(false));
     return () => cancelAnimationFrame(f);
-  }, [steps.length, open]);
+  }, [snap]);
+  const ever = useEver(open);
+  const pinned = useRef(false);
+  // Keep a steady ~5-row cap throughout live work (even if pinned mid-scroll); expand to the full
+  // half-screen cap when mounted resting or explicitly opened by the user.
+  const [fullCap, setFullCap] = useState(!isLive);
+  const wasLive = useRef(isLive);
+  const revealRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const atEnd = useRef(true);
+  // Track programmatic scrollTop writes so resize frames during 0fr→1fr never drop atEnd.
+  const ownScroll = useRef(-1);
+  const [edges, setEdges] = useState({ top: false, bottom: false });
+  const [filter, setFilter] = useState<StepFilter>(null);
+  // Selected step in the shared StepCard popover (by its Step.at key), plus its row anchor rect.
+  const [sel, setSel] = useState<{ at: string; rect: DOMRect } | null>(null);
+  const everCard = useEver(sel !== null);
+  const rowRefs = useRef(new Map<string, HTMLButtonElement>());
+  const wasSelAt = useRef<string | null>(null);
+
+  const runs = useMemo(() => foldLine(steps), [steps]);
+  const diff = useMemo(() => diffSum(runs), [runs]);
+  const span = useMemo(() => foldSpan(steps), [steps]);
+  const fails = useMemo(() => steps.reduce((n, s) => n + (failed(s) ? 1 : 0), 0), [steps]);
+  const visible = useMemo(() => filterSteps(steps, filter), [steps, filter]);
+  const selectable = useMemo(() => visible.filter(({ step }) => !(step.kind === "tool" && (toldOf(step) || step.result?.images?.length))), [visible]);
+  const total = steps.length + active.length;
+
+  const registerMove = () => {
+    const el = revealRef.current;
+    if (el && !reduced() && !document.hidden) layoutMoves(el, motion.move() + motion.fade() + 80);
+  };
+
+  // Auto-collapse when live ends (unless the user interacted with it), and auto-open if resumed.
+  useLayoutEffect(() => {
+    if (wasLive.current && !isLive) {
+      wasLive.current = false;
+      if (!pinned.current && open) {
+        registerMove();
+        setOpen(false);
+        setSel(null);
+      }
+    } else if (!wasLive.current && isLive) {
+      wasLive.current = true;
+      if (!pinned.current && !open) {
+        atEnd.current = true;
+        registerMove();
+        setOpen(true);
+      }
+    }
+  }, [isLive]);
+
+  const syncEdges = (el: HTMLDivElement) => {
+    const over = el.scrollHeight - el.clientHeight > 2;
+    const top = over && el.scrollTop > 2;
+    const bottom = over && el.scrollHeight - el.clientHeight - el.scrollTop > 2;
+    setEdges((prev) => (prev.top === top && prev.bottom === bottom ? prev : { top, bottom }));
+  };
+
+  // Keep newest step in view as the reveal opens or live steps arrive, and update scroll edge fades.
+  useLayoutEffect(() => {
+    if (!open) return;
+    const el = listRef.current;
+    if (!el) return;
+    const pinBottom = () => {
+      if (atEnd.current) {
+        el.scrollTop = el.scrollHeight;
+        ownScroll.current = el.scrollTop;
+      }
+      syncEdges(el);
+    };
+    pinBottom();
+    const ro = new ResizeObserver(pinBottom);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [open, visible.length, active.length, isLive]);
+
+  const onListScroll = () => {
+    const el = listRef.current;
+    if (!el) return;
+    const top = el.scrollTop;
+    if (Math.abs(top - ownScroll.current) <= 1) {
+      syncEdges(el);
+      return;
+    }
+    ownScroll.current = -1;
+    const gap = el.scrollHeight - el.clientHeight - top;
+    atEnd.current = gap < 20;
+    if (!atEnd.current && isLive) pinned.current = true;
+    syncEdges(el);
+  };
+
+  const toggleOpen = () => {
+    pinned.current = true;
+    registerMove();
+    if (!open) {
+      atEnd.current = true;
+      setFilter(null);
+      setFullCap(true);
+      setOpen(true);
+    } else {
+      setSel(null);
+      setOpen(false);
+    }
+  };
+
+  const toggleFilter = (next: StepFilter) => {
+    pinned.current = true;
+    setSel(null);
+    atEnd.current = false;
+    setFilter((cur) => {
+      const same = cur && next && cur.kind === next.kind && (cur.kind !== "tool" || (next.kind === "tool" && cur.name === next.name));
+      return same ? null : next;
+    });
+    const el = listRef.current;
+    if (el) {
+      el.scrollTop = 0;
+      ownScroll.current = 0;
+    }
+  };
+
+  // Show filter bar when open and large enough to benefit (or has failures among several steps).
+  const showFilter = (!isLive || pinned.current) && (steps.length > 6 || (fails > 0 && steps.length > 2));
+  const selPos = sel ? selectable.findIndex((x) => x.step.at === sel.at) : -1;
+  const selItem = selPos >= 0 ? selectable[selPos] : undefined;
+
+  const moveSel = (delta: number) => {
+    if (selPos < 0) return;
+    const target = selectable[selPos + delta];
+    if (!target) return;
+    const btn = rowRefs.current.get(target.step.at);
+    const listEl = listRef.current;
+    if (btn && listEl) {
+      // Scroll only the inner list to keep the newly selected row comfortably visible.
+      const top = btn.offsetTop;
+      const bottom = top + btn.offsetHeight;
+      if (top < listEl.scrollTop + 20) {
+        listEl.scrollTop = Math.max(0, top - 20);
+        ownScroll.current = listEl.scrollTop;
+      } else if (bottom > listEl.scrollTop + listEl.clientHeight - 20) {
+        listEl.scrollTop = bottom - listEl.clientHeight + 20;
+        ownScroll.current = listEl.scrollTop;
+      }
+      syncEdges(listEl);
+    }
+    const rect = btn?.getBoundingClientRect() ?? sel!.rect;
+    setSel({ at: target.step.at, rect });
+  };
+
+  const anchor = useMemo(() => (sel ? { getBoundingClientRect: () => sel.rect } : null), [sel]);
+  const liveCap = !fullCap;
+
   return (
-    <>
-      <button ref={row} type="button" aria-haspopup="dialog" aria-expanded={open} aria-label={foldSaid(runs)} onPointerDown={() => (was.current = open)} onClick={(e) => ((atEnd.current = true), setBox(across(e.currentTarget)), setOpen(e.detail > 0 ? !was.current : !open))} className={cn(ROW, "-my-0.5 w-full text-left outline-none focus-visible:text-ink-2", open && "text-ink-2")}>
-        {head}
-        <span className="min-w-0 truncate">
+    <div className="min-w-0">
+      <div className="flex min-w-0 items-center gap-1">
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-label={foldSaid(runs)}
+          onClick={toggleOpen}
+          className={cn(ROW, "-my-0.5 min-w-0 flex-1 text-left outline-none focus-visible:text-ink-2", open && "text-ink-2")}
+        >
+          {head}
+          {isLive && <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-run" />}
+          <span className="min-w-0 truncate">
             {runs.map((r, i) => (
               <span key={i} className={cn(i > 0 && "ml-3")}>
                 {(r.name ? runCmds(steps, r.name) : [{ cmd: undefined, n: 1, failed: false }]).map((g, j, gs) => (
@@ -818,110 +1012,139 @@ function StepsKey({ steps, session, cwd }: { steps: Step[]; session: string; cwd
                 {!isShell(r.name) && r.n > 1 && runCmds(steps, r.name).length < 2 && <span className="tabular-nums"> ×{r.n}</span>}
               </span>
             ))}
-        </span>
-        {diff && <DiffStat d={diff} />}
-      </button>
-      {ever && (
-        <Popover.Root open={open} onOpenChange={setOpen}>
-          <PopSurface anchor={box ? { getBoundingClientRect: () => box } : row.current} still align="start" sideOffset={4} className="w-[min(720px,calc(100vw-16px))] overflow-hidden" style={box ? { width: box.width } : undefined}>
-           <Grown className="flex max-h-[min(70dvh,var(--available-height))] flex-col">
-            <RecordHead steps={steps} diff={diff} />
-            <div ref={list} onScroll={(e) => (atEnd.current = e.currentTarget.scrollHeight - e.currentTarget.clientHeight - e.currentTarget.scrollTop < 24)} className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-3 pb-2">
-              {steps.map((s, i) => (s.kind === "tool" && toldOf(s) ? <Dispatch key={s.at} call={s as Tool} session={session} /> : <Record key={s.at} n={i + 1} s={s} session={session} cwd={cwd} />))}
+            {runs.length === 0 && isLive && <span className="text-ink-2">{t("chat.working")}</span>}
+          </span>
+          {diff && <DiffStat d={diff} />}
+          {isLive ? (
+            <span className="ml-auto shrink-0 pl-2 text-xs text-ink-4 tabular-nums">{t("record.steps", { n: total })}</span>
+          ) : span !== undefined ? (
+            <span className="ml-auto shrink-0 pl-2 text-xs text-ink-4 tabular-nums">{lasted(span)}</span>
+          ) : null}
+          <ChevronRight size={13} className={cn("shrink-0 text-ink-4 transition-transform duration-(--dur-2)", open && "rotate-90")} />
+        </button>
+        {isLive && live.stop}
+      </div>
+      <div ref={revealRef} inert={!open || undefined} aria-hidden={!open || undefined} className={cn("g-reveal", snap && "g-snap")} data-open={open ? "" : undefined}>
+        <div className="min-h-0 min-w-0 overflow-hidden">
+          {ever && (
+            <div className="mt-0.5 ml-[7px] pl-3 shadow-[inset_1px_0_0_var(--edge)]">
+              {showFilter && (
+                <div className="no-bar mb-1 flex h-7 min-w-0 items-center gap-1 overflow-x-auto text-xs text-ink-3">
+                  <button
+                    type="button"
+                    onClick={() => toggleFilter(null)}
+                    className={cn("g-press flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 tabular-nums transition-colors duration-(--dur-1)", filter === null ? "bg-fill text-ink" : "hover:bg-fill/60 hover:text-ink-2")}
+                  >
+                    {t("record.all")}
+                    <span className="text-ink-4">{steps.length}</span>
+                  </button>
+                  {fails > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => toggleFilter({ kind: "failed" })}
+                      className={cn("g-press flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-err tabular-nums transition-colors duration-(--dur-1)", filter?.kind === "failed" ? "bg-fill" : "hover:bg-fill/60")}
+                    >
+                      <CircleX size={12} aria-hidden />
+                      {t("record.failed", { n: fails })}
+                    </button>
+                  )}
+                  {runs.length > 1 &&
+                    runs.map((r) => {
+                      const on = filter?.kind === "tool" && filter.name === r.name;
+                      return (
+                        <button
+                          key={r.name}
+                          type="button"
+                          onClick={() => toggleFilter({ kind: "tool", name: r.name })}
+                          className={cn("g-press flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 tabular-nums transition-colors duration-(--dur-1)", on ? "bg-fill text-ink" : "hover:bg-fill/60 hover:text-ink-2")}
+                        >
+                          <KindIcon kind={r.name ? kindOf(r.name) : "thinking"} shell={isShell(r.name)} size={12} />
+                          {!isShell(r.name) && <span>{r.name || t("msg.thinking")}</span>}
+                          <span className="text-ink-4">{r.n}</span>
+                        </button>
+                      );
+                    })}
+                </div>
+              )}
+              <div className="relative min-w-0">
+                <div aria-hidden className={cn("pointer-events-none absolute inset-x-0 top-0 z-10 h-5 bg-[linear-gradient(to_bottom,var(--paper),transparent)] transition-opacity duration-(--dur-1)", edges.top ? "opacity-100" : "opacity-0")} />
+                <div
+                  ref={listRef}
+                  data-over={edges.top || edges.bottom ? "" : undefined}
+                  onScroll={onListScroll}
+                  className={cn("steps-scroll flex min-w-0 flex-col overflow-y-auto pr-1", liveCap ? "max-h-[156px] pointer-coarse:max-h-[196px]" : "max-h-[min(48dvh,380px)]")}
+                >
+                  {visible.map(({ step: s, index }) => {
+                    if (s.kind === "tool" && toldOf(s)) return <Dispatch key={s.at} call={s as Tool} session={session} />;
+                    if (s.kind === "tool" && s.result?.images?.length) return <StepView key={s.at} s={s} session={session} cwd={cwd} lifted num={index + 1} />;
+                    const took = s.kind === "tool" && s.time && s.result?.time ? s.result.time - s.time : undefined;
+                    const activeRow = sel?.at === s.at;
+                    return (
+                      <button
+                        key={s.at}
+                        ref={(el) => {
+                          if (el) rowRefs.current.set(s.at, el);
+                          else rowRefs.current.delete(s.at);
+                        }}
+                        type="button"
+                        aria-haspopup="dialog"
+                        aria-expanded={activeRow}
+                        onPointerDown={() => (wasSelAt.current = sel?.at ?? null)}
+                        onClick={(e) => {
+                          pinned.current = true;
+                          if (e.detail > 0 && wasSelAt.current === s.at) return setSel(null);
+                          setSel(activeRow ? null : { at: s.at, rect: e.currentTarget.getBoundingClientRect() });
+                        }}
+                        className={cn(ROW, "w-full shrink-0 px-1.5 text-left outline-none focus-visible:text-ink-2", activeRow && "bg-fill text-ink-2")}
+                      >
+                        <span className="w-6 shrink-0 text-right text-xs text-ink-4 tabular-nums">{index + 1}</span>
+                        <StepLine s={s} cwd={cwd} />
+                        {took !== undefined && <span className="ml-auto shrink-0 pl-2 text-xs text-ink-4 tabular-nums">{lasted(took)}</span>}
+                      </button>
+                    );
+                  })}
+                  {isLive &&
+                    active.map((a, i) => (
+                      <div key={a.kind === "draft" ? a.id : (a.tool.id ?? a.tool.at)} className="g-fade flex min-w-0 shrink-0 items-center gap-2 px-1.5">
+                        <span className="w-6 shrink-0 text-right text-xs text-ink-4 tabular-nums">{steps.length + i + 1}</span>
+                        <div className="min-w-0 flex-1">
+                          {a.kind === "draft" ? <ToolDraft name={a.name} input={a.text} whole={a.whole} plain /> : <Running tool={a.tool} cwd={cwd} />}
+                        </div>
+                      </div>
+                    ))}
+                  {isLive && active.length === 0 && live.quiet && (
+                    <div className="shrink-0 px-1.5">
+                      <Waiting on quiet={live.grew ?? ""} />
+                    </div>
+                  )}
+                </div>
+                <div aria-hidden className={cn("pointer-events-none absolute inset-x-0 bottom-0 z-10 h-5 bg-[linear-gradient(to_top,var(--paper),transparent)] transition-opacity duration-(--dur-1)", edges.bottom ? "opacity-100" : "opacity-0")} />
+              </div>
             </div>
-           </Grown>
-          </PopSurface>
+          )}
+        </div>
+      </div>
+      {everCard && (
+        <Popover.Root open={!!selItem} onOpenChange={(o) => !o && setSel(null)}>
+          <Popover.Portal>
+            <Popover.Positioner anchor={anchor} side="bottom" align="start" sideOffset={4} collisionPadding={8} collisionAvoidance={{ side: "flip", align: "shift", fallbackAxisSide: "none" }} className="z-50">
+              <Popover.Popup initialFocus={(type) => type === "keyboard"} className="g-unfold glass thick float flex max-h-[min(72dvh,620px,var(--available-height))] w-[min(620px,calc(100vw-16px))] flex-col overflow-hidden rounded-xl text-ink outline-none">
+                {selItem && (
+                  <StepCard
+                    key={selItem.step.at}
+                    s={selItem.step}
+                    session={session}
+                    cwd={cwd}
+                    nav={{ num: selItem.index + 1, total: steps.length, hasPrev: selPos > 0, hasNext: selPos < selectable.length - 1, onPrev: () => moveSel(-1), onNext: () => moveSel(1) }}
+                  />
+                )}
+              </Popover.Popup>
+            </Popover.Positioner>
+          </Popover.Portal>
         </Popover.Root>
       )}
-    </>
-  );
-}
-
-/** How long, short: 0.2s, 41s, 3m05s. */
-const lasted = (ms: number) => (ms < 950 ? `${(ms / 1000).toFixed(1)}s` : ms < 60_000 ? `${Math.round(ms / 1000)}s` : `${Math.floor(ms / 60_000)}m${String(Math.round((ms % 60_000) / 1000)).padStart(2, "0")}s`);
-
-/** Over a record's steps, staying as they scroll: where they were done (its row's, StepsHead), how
- *  many, how many failed, the lines their edits changed, how long they took from the first to the last (kumo, 2026-11-24:
- *  not the clock's times). */
-function RecordHead({ steps, diff }: { steps: Step[]; diff?: Diff }) {
-  const head = useContext(StepsHead);
-  const fails = steps.filter(failed).length;
-  const first = steps.find((s) => s.time)?.time;
-  const last = steps.findLast((s) => (s.kind === "tool" && s.result?.time) || s.time);
-  const end = last && ((last.kind === "tool" && last.result?.time) || last.time);
-  return (
-    <div className="flex h-9 shrink-0 items-center gap-2.5 px-3 text-xs text-ink-3">
-      {head}
-      <span className="shrink-0 tabular-nums">{t("record.steps", { n: steps.length })}</span>
-      {fails > 0 && <span className="shrink-0 text-err tabular-nums">{t("record.failed", { n: fails })}</span>}
-      {diff && <DiffStat d={diff} />}
-      {first && end && end > first ? <span className="ml-auto shrink-0 tabular-nums">{lasted(end - first)}</span> : null}
     </div>
   );
-}
-
-/** One step in its record, all of it at one level (kumo, 2026-11-24: nothing pressed to see what a
- *  step did): its line, how long it took, then what it was given and what came back, each folded
- *  past its first lines as long words between agents are (LongWords, its key 展开 alone), opened
- *  where it is: the popover scrolls, the conversation is not laid out by it. A shell's command is
- *  on its line unless long; what was read is not shown again, only that it was. */
-function Record({ n, s, session, cwd }: { n: number; s: Step; session: string; cwd: string }) {
-  const took = s.kind === "tool" && s.time && s.result?.time ? s.result.time - s.time : undefined;
-  const kind = kindOfStep(s);
-  const command = s.kind === "tool" && isShell(s.name) ? (argOf(s, cwd).arg ?? "") : undefined;
-  const given = s.kind === "tool" && (command !== undefined ? command.length > 72 || command.includes("\n") : kind !== "read");
-  // What the agent said its long command is for, on its line in the command's place.
-  const about = command !== undefined ? inputOf(s.input).description : undefined;
-  const said = typeof about === "string" && about.trim() ? about : undefined;
-  const back = s.kind === "tool" && s.result && (kind !== "read" || s.result.error || !!s.result.images?.length) && (s.result.text.trim() !== "" || !!s.result.images?.length);
-  return (
-    <section className="grid min-w-0 gap-1.5 py-2">
-      <div className="flex h-7 min-w-0 items-center gap-2 text-sm text-ink-3 pointer-coarse:h-9">
-        {/* Which it is of them, in order (kumo, 2026-11-24); no line between two: the room is enough. */}
-        <span className="shrink-0 text-xs text-ink-4 tabular-nums">{n}</span>
-        {s.kind === "thinking" ? (
-          <>
-            <StepIcon s={s} />
-            <span className="shrink-0 text-ink-2">{t("msg.thinking")}</span>
-          </>
-        ) : given && said ? (
-          <>
-            <StepIcon s={s} />
-            <span className="min-w-0 truncate text-ink-2">{said}</span>
-            {failed(s) && <CircleX size={13} className="shrink-0 text-err" aria-label={t("msg.failed")} />}
-          </>
-        ) : (
-          <StepLine s={s} cwd={cwd} />
-        )}
-        {took !== undefined && <span className="ml-auto shrink-0 pl-2 text-xs tabular-nums">{lasted(took)}</span>}
-      </div>
-      {s.kind === "thinking" ? (
-        <Folded text={s.text ?? ""}>{(asked) => <Clipped text={s.text ?? ""} length={s.length} at={s.at} session={session} prose asked={asked} />}</Folded>
-      ) : (
-        <>
-          {given && <Folded text={command ?? pretty(s.input ?? "")}>{(asked) => (command !== undefined ? <Pre text={command} lang="bash" /> : <Clipped text={s.input ?? ""} length={s.length} at={s.at} session={session} fields asked={asked} />)}</Folded>}
-          {back && s.result && (
-            <Folded text={s.result.text} more={!!s.result.length}>
-              {(asked) => <Clipped text={s.result!.text} length={s.result!.length} at={s.result!.at} session={session} error={s.result!.error} asked={asked} />}
-            </Folded>
-          )}
-          {!!s.result?.images?.length && <Pictures session={session} s={s} />}
-        </>
-      )}
-    </section>
-  );
-}
-
-/** A line's box widened to the conversation's column (its words' width, the column's own padding
- *  left out): the line's own where there is no column about it. */
-function across(line: Element): DOMRect {
-  const r = line.getBoundingClientRect();
-  const col = line.closest("[data-column]");
-  if (!col) return r;
-  const c = col.getBoundingClientRect();
-  const st = getComputedStyle(col);
-  const left = c.left + parseFloat(st.paddingLeft);
-  return DOMRect.fromRect({ x: left, y: r.top, width: c.right - parseFloat(st.paddingRight) - left, height: r.height });
 }
 
 /** A record's text folds past 40 lines, to some 36 of its own (18px each, said in the words' 23px
@@ -929,7 +1152,7 @@ function across(line: Element): DOMRect {
 const RECORD_AT = 40;
 const RECORD_SHOW = 28;
 
-/** Text in a record, folded past its first lines; opened, its whole is brought if the page has
+/** Text in a step card, folded past its first lines; opened, its whole is brought if the page has
  *  only its start (more: it has, however few its lines). */
 function Folded({ text, more, children }: { text: string; more?: boolean; children: (asked: boolean) => ReactNode }) {
   const [opened, setOpened] = useState(false);
@@ -940,40 +1163,12 @@ function Folded({ text, more, children }: { text: string; more?: boolean; childr
   );
 }
 
-/** A popover's inside, as tall as what is in it to its most (className's max-height, past which
- *  what is in it scrolls): its height goes to a new one on a curve, not at once, as what is in it
- *  changes (a step gone into, steps coming); nothing outside the popover is laid out by it (kumo,
- *  2026-11-24). The first height is taken as it is. */
-function Grown({ className, children }: { className: string; children: ReactNode }) {
-  const clip = useRef<HTMLDivElement>(null);
-  const body = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => {
-    const c = clip.current;
-    const b = body.current;
-    if (!c || !b) return;
-    c.style.height = `${b.offsetHeight}px`;
-    const ro = new ResizeObserver(() => {
-      c.classList.add("g-grow");
-      c.style.height = `${b.offsetHeight}px`;
-    });
-    ro.observe(b);
-    return () => ro.disconnect();
-  }, []);
-  return (
-    <div ref={clip} className="overflow-hidden">
-      <div ref={body} className={className}>
-        {children}
-      </div>
-    </div>
-  );
-}
-
 /** A step's line; pressed, what it was given and what came back open in a card at the press, like a
  *  context menu, instead of under the line (the user, 2026-11-08): the conversation stays put.
  *  One whose result gave the model pictures is otherwise (otae, 2026-11-10, again 2026-11-23):
  *  they are shut at first, and the whole line opens and shuts them, no card; its icon, hovered,
  *  turns to the chevron (the user, 2026-11-09: the tool's own icon otherwise). */
-function StepView({ s, session, cwd, lifted }: { s: Step; session: string; cwd: string; lifted?: boolean }) {
+function StepView({ s, session, cwd, lifted, num }: { s: Step; session: string; cwd: string; lifted?: boolean; num?: number }) {
   const images = s.kind === "tool" ? s.result?.images : undefined;
   const [shown, setShown] = useState(false);
   const opened = !lifted && s.kind === "tool" ? newOfCall(s) : undefined;
@@ -987,15 +1182,16 @@ function StepView({ s, session, cwd, lifted }: { s: Step; session: string; cwd: 
       <StepCall s={s} session={session} cwd={cwd} />
     );
   return (
-    <div className="min-w-0">
+    <div className="min-w-0 shrink-0">
       {/* Touch has no hover: the chevron shows always, the line where it was. */}
       <button
         type="button"
         aria-expanded={shown}
         aria-label={t(shown ? "msg.hidePictures" : "msg.showPictures")}
         onClick={() => setShown(!shown)}
-        className="group/step flex w-full min-w-0 items-center gap-2 text-left outline-none"
+        className={cn("group/step flex w-full min-w-0 items-center gap-2 text-left outline-none", num !== undefined && "px-1.5")}
       >
+        {num !== undefined && <span className="w-6 shrink-0 text-right text-xs text-ink-4 tabular-nums">{num}</span>}
         <span className="grid h-7 shrink-0 place-items-center rounded-sm group-hover/step:bg-fill group-focus-visible/step:bg-fill pointer-coarse:h-9 [&>*]:[grid-area:1/1] [&>*]:transition-[opacity,rotate] [&>*]:duration-(--dur-1)">
           <StepIcon s={s} className="group-hover/step:opacity-0 group-focus-visible/step:opacity-0 pointer-coarse:opacity-0" />
           <ChevronRight size={14} aria-hidden className={cn("text-ink-3 opacity-0 group-hover/step:opacity-100 group-focus-visible/step:opacity-100 pointer-coarse:opacity-100", shown && "rotate-90")} />
@@ -1081,25 +1277,55 @@ function CpArg({ from, to }: { from: CpSide; to: CpSide }) {
   );
 }
 
-/** The card: no head (its line is right above it, a press elsewhere puts it away; the user,
- *  2026-11-08), only its input field by field and its output, each with a key to copy it; a
- *  thought its words. */
-function StepCard({ s, session }: { s: Step; session: string }) {
+/** The card: no head on a standalone step (its line is right above it, a press elsewhere puts it
+ *  away; the user, 2026-11-08); inside a multi-step fold, a compact nav bar lets you step ↑/↓
+ *  through the fold without closing. Long input/output/thinking folds cleanly past RECORD_AT lines
+ *  so huge outputs never stall rendering. */
+type CardNav = { num: number; total: number; hasPrev: boolean; hasNext: boolean; onPrev: () => void; onNext: () => void };
+function StepCard({ s, session, cwd, nav }: { s: Step; session: string; cwd?: string; nav?: CardNav }) {
+  const took = s.kind === "tool" && s.time && s.result?.time ? s.result.time - s.time : undefined;
   return (
     <>
+      {nav && (
+        <div className="flex h-9 shrink-0 items-center gap-2 border-b border-edge px-3 text-xs text-ink-3">
+          <span className="shrink-0 text-ink-4 tabular-nums">
+            {nav.num}/{nav.total}
+          </span>
+          <StepLine s={s} cwd={cwd} />
+          {took !== undefined && <span className="ml-auto shrink-0 pl-1 text-ink-4 tabular-nums">{lasted(took)}</span>}
+          <span className={cn("flex shrink-0 items-center gap-0.5", took === undefined && "ml-auto")}>
+            <IconKey label={t("record.prev")} disabled={!nav.hasPrev} onClick={nav.onPrev} className="size-6 text-ink-3 disabled:opacity-35 pointer-coarse:size-8">
+              <ChevronUp size={14} />
+            </IconKey>
+            <IconKey label={t("record.next")} disabled={!nav.hasNext} onClick={nav.onNext} className="size-6 text-ink-3 disabled:opacity-35 pointer-coarse:size-8">
+              <ChevronDown size={14} />
+            </IconKey>
+          </span>
+        </div>
+      )}
       <div className="grid min-h-0 gap-4 overflow-y-auto overscroll-contain px-3 pt-3 pb-3.5">
         {s.kind === "thinking" ? (
-          <Clipped text={s.text ?? ""} length={s.length} at={s.at} session={session} prose />
+          <Folded text={s.text ?? ""} more={!!s.length}>
+            {(asked) => <Clipped text={s.text ?? ""} length={s.length} at={s.at} session={session} prose asked={asked} />}
+          </Folded>
         ) : (
           <>
             <Part label={t("msg.input")} copy={s.input}>
-              <Clipped text={s.input ?? ""} length={s.length} at={s.at} session={session} fields />
+              <Folded text={pretty(s.input ?? "")} more={!!s.length}>
+                {(asked) => <Clipped text={s.input ?? ""} length={s.length} at={s.at} session={session} fields asked={asked} />}
+              </Folded>
             </Part>
             <Part label={t("msg.output")} copy={s.result?.text} error={s.result?.error}>
               {/* A subagent's result is its words to the agent, not to you: folded when long
                   (kumo, 2026-11-15: 子代理交回的结果折起). */}
               {s.result ? (
-                <SubResult r={s.result} session={session} fold={s.name === "Agent" || s.name === "Task"} />
+                s.name === "Agent" || s.name === "Task" ? (
+                  <SubResult r={s.result} session={session} fold />
+                ) : (
+                  <Folded text={s.result.text} more={!!s.result.length}>
+                    {(asked) => <Clipped text={s.result!.text} length={s.result!.length} at={s.result!.at} session={session} error={s.result!.error} asked={asked} />}
+                  </Folded>
+                )
               ) : (
                 <span className="text-xs text-ink-3">{t("msg.noResult")}</span>
               )}

@@ -13,9 +13,10 @@ import { cn } from "../ui";
 import { liveOf, type AgentRow, type Src } from "./channel/lib";
 import { AgentFace } from "./channel/members";
 import { useAway, Where } from "./away";
-import { folded, type Tool } from "./fold";
+import { folded, foldKey, type Tool } from "./fold";
+import { toldOf } from "./dispatch";
 import { StopKey, ToolDraft, Waiting } from "./live";
-import { Running, Said, StepsHead, When, useWhenRow } from "./said";
+import { Fold, Running, Said, StepsHead, When, useWhenRow, type LiveCall, type LiveFold } from "./said";
 
 /** The turn's row at the end of the conversation: the call being written, else the one running
  *  (the newest, how many more beside it), else the dots once it has gone quiet; one line high, even
@@ -133,10 +134,21 @@ export function OtherTurn({ a, channel, st, said, spoken, alone, bars, call, rec
   const running = shown.flatMap((b) => (b.kind === "running" ? [b.tool] : []));
   const rows = shown.filter((b) => b.kind !== "running" && b.kind !== "user");
   const cwd = st?.cwd ?? "";
-  const node = (b: (typeof rows)[number]) => <Said key={b.at} b={b} session={a.session} cwd={cwd} source={noSource} onJump={openChat} />;
   const stop = may && !past ? <StopKey session={a.session} /> : null;
-  const time = rows.map((b) => (b.kind === "fold" ? b.steps[0]?.time : "time" in b ? b.time : undefined)).find(Boolean);
-  const activity = (under: boolean) => past ? null : <Activity calls={[]} running={running} cwd={cwd} quiet grew={`${a.session} ${log.end} ${running.length}`} under={under} stop={stop} />;
+  const active: LiveCall[] = running.map((tool) => ({ kind: "running", tool }));
+  const grew = `${a.session} ${log.end} ${running.length}`;
+  const lastRow = rows.at(-1);
+  const lastFoldable = lastRow?.kind === "fold" && !(lastRow.steps.length === 1 && lastRow.steps[0]?.kind === "tool" && toldOf(lastRow.steps[0]));
+  const liveFold: LiveFold | undefined = !past ? { active, stop, quiet: true, grew } : undefined;
+  const mergeLast = !past && lastFoldable;
+  const synthLive = !past && !lastFoldable && active.length > 0;
+  const mergedWork = mergeLast || synthLive;
+  const node = (b: (typeof rows)[number], i: number) => {
+    const key = b.kind === "fold" ? (foldKey(b.steps) ?? b.at) : b.at;
+    return <Said key={key} b={b} session={a.session} cwd={cwd} source={noSource} onJump={openChat} live={mergeLast && i === rows.length - 1 ? liveFold : undefined} />;
+  };
+  const time = rows.map((b) => (b.kind === "fold" ? b.steps[0]?.time : "time" in b ? b.time : undefined)).find(Boolean) ?? running[0]?.time;
+  const activity = (under: boolean) => (past || mergedWork ? null : <Activity calls={[]} running={running} cwd={cwd} quiet grew={grew} under={under} stop={stop} />);
   const headOf = () => (
     <>
       <span className="shrink-0 text-xs font-medium text-ink-2">{a.nick}</span>
@@ -147,14 +159,19 @@ export function OtherTurn({ a, channel, st, said, spoken, alone, bars, call, rec
   );
   const label = `${a.nick} · ${t("chat.working")}`;
   // Its steps a line each lot, where they were done said at the line's head (away.tsx); its
-  // words between, as they will be once said to the channel; the row of what runs now at the end.
+  // words between, as they will be once said to the channel; active calls live inside the
+  // trailing tool fold instead of a separate row below.
+  const hasContent = rows.length > 0 || synthLive;
   return (
     <div role="group" aria-label={label} className="flex min-w-0 flex-col gap-5">
-      {rows.length || alone ? (
+      {hasContent || alone ? (
         <>
-          {rows.length > 0 && (
+          {hasContent && (
             <TurnFrame bare={alone} face={<AgentFace channel={channel} a={a} call={call} record={record} may={may} />} head={headOf()}>
-              <StepsHead.Provider value={away ? <Where place={away} /> : null}>{rows.map(node)}</StepsHead.Provider>
+              <StepsHead.Provider value={away ? <Where place={away} /> : null}>
+                {rows.map(node)}
+                {synthLive && <Fold key={foldKey([], running) ?? `${a.session}:live`} steps={[]} session={a.session} cwd={cwd} live={liveFold} />}
+              </StepsHead.Provider>
             </TurnFrame>
           )}
           {activity(false)}

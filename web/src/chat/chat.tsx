@@ -41,7 +41,7 @@ import { foldsOnce, useReadTo } from "./foldstate";
 import { longWords, oldRead } from "./channel/folds";
 import { goTo, seqEl } from "./channel/jump";
 import { quoteText } from "./forwardcard";
-import { dispatched, type Start } from "./dispatch";
+import { dispatched, toldOf, type Start } from "./dispatch";
 import { Dispatching, SubFaceKey, SubHead, useSub } from "./subwork";
 import { alignBack, loadParts, sideReady, useSide } from "./channel/side";
 import { recalls } from "./react";
@@ -69,7 +69,7 @@ import { useSecret } from "../secrets";
 import { Asks, Denials } from "./asks";
 import { renameOnly } from "./cmd";
 import { Composer, type ComposerHandle } from "./composer";
-import { folded } from "./fold";
+import { folded, foldKey } from "./fold";
 import { StopKey, ToolDraft } from "./live";
 import { ContextRing, ModeKey, ModelKey, modelView, QuotaBars, useMode } from "./meters";
 import { PublicLink, publicLinkQ } from "./publiclink";
@@ -79,7 +79,7 @@ import { attachedOf, placesIn, PLACE_DRAG, SESSION_DRAG, sourceOf, withDevice, y
 import { placeDropped, type NamedPlace } from "./at";
 import { PlaceIcon, placeOf } from "./mention";
 import { spotsOf, type Spot } from "./where";
-import { Compaction, Earlier, Pending, Relayed, Said, When, type AsDraft } from "./said";
+import { Compaction, Earlier, Fold, Pending, Relayed, Said, When, type AsDraft, type LiveCall, type LiveFold } from "./said";
 import { earlierOf, liveAt, rowPlace, slotAfter, tailOf, turnKey, turnsOf, type LiveAt, type Row } from "./turns";
 import { Stick, toEnd } from "./stick";
 import { Activity, OtherTurn, TurnFrame } from "./atwork";
@@ -592,7 +592,15 @@ function WholeChat({ id, sheet = 0, onSheet, onMe, hold }: { id: string; sheet?:
   const stepsAt = new Map<string, number>();
   // The own agent's words by row, for the fold of words between agents.
   const wordsOf = new Map<string, string>();
-  const rows: Row<ReactNode, Works>[] = (busy ? shown.filter((b) => b.kind !== "running") : shown).flatMap((b) => {
+  const runningTools = busy ? shown.flatMap((b) => (b.kind === "running" ? [b.tool] : [])) : [];
+  const toolDrafts = busy ? log.drafts.filter((d) => d.tool && !renamesDraft(d)) : [];
+  const runningIds = new Set(runningTools.map((t) => t.id).filter(Boolean));
+  const activeCalls: LiveCall[] = [
+    ...runningTools.map((tool) => ({ kind: "running" as const, tool })),
+    ...toolDrafts.filter((d) => d.tool && !runningIds.has(d.tool.id)).map((d) => ({ kind: "draft" as const, id: d.tool!.id, name: d.tool!.name, text: d.text, whole: d.whole })),
+  ];
+  const shownRows = busy ? shown.filter((b) => b.kind !== "running") : shown;
+  const rows: Row<ReactNode, Works>[] = shownRows.flatMap((b) => {
     // A call from another channel it is in (chat/channel/lib givenTurn): Iridium's message on
     // the left, what follows its work there (Relayed).
     // As the record says it, a Satori forward (satori.ts relays); else read from its words.
@@ -608,8 +616,8 @@ function WholeChat({ id, sheet = 0, onSheet, onMe, hold }: { id: string; sheet?:
     // What this page saw written keeps the draft's key and is drawn as the draft was (said.tsx
     // Assistant): the same thing as it becomes its block, nothing of it drawn anew.
     const wasDraft = b.kind === "assistant" ? log.draftOf(b.at) : undefined;
-    const key = wasDraft ?? b.at;
-    if (b.kind === "fold") stepsAt.set(b.at, b.steps.length);
+    const key = b.kind === "fold" ? (foldKey(b.steps) ?? b.at) : (wasDraft ?? b.at);
+    if (b.kind === "fold") stepsAt.set(key, b.steps.length);
     if (b.kind === "assistant") wordsOf.set(key, b.text ?? "");
     const given: GivenTurn | null = relay ? { seq: relay.seq, words: relay.msgs.at(-1)?.text ?? "", context: relay.context, ...(relay.channel !== id ? { channel: { id: relay.channel, name: relay.name } } : {}) } : b.kind === "user" ? givenTurn(b.text ?? "") : null;
     const time = b.kind === "user" ? b.time : undefined;
@@ -824,12 +832,49 @@ function WholeChat({ id, sheet = 0, onSheet, onMe, hold }: { id: string; sheet?:
   // before the turn began are what it answers: its face comes under them.
   const pendingBefore = pending.filter((x) => !x.mid);
   const pendingAfter = pending.filter((x) => x.mid);
+  // What changes as the conversation grows: it keeps to the bottom, the dots wait again.
+  const grew = `${log.blocks.at(-1)?.at} ${log.drafts.length} ${log.drafts.at(-1)?.text.length} ${log.drafts.at(-1)?.whole} ${log.sent.length} ${ready?.kept.log.end ?? 0} ${atWork.map((a) => `${a.session}:${stateOf(a.session)?.end ?? 0}`).join(",")} ${subs.map((x) => `${x.id}:${x.updatedAt}`).join(",")}`;
+  // The own agent's stop key, on its live fold or row at work; starting is no turn yet.
+  const stop = may && s.status !== "starting" && !s.subagent && !elsewhere ? <StopKey session={id} esc /> : null;
+  const textDrafting = log.drafts.some((d) => !d.tool);
+  const liveFold: LiveFold = { active: activeCalls, stop, quiet: s.status !== "waiting" && !textDrafting, grew };
+  // Merge active calls + stop key directly into the trailing tool fold of the running turn, so
+  // working steps expand in place and never hang a separate bottom Activity row under them.
+  let mergedWork = false;
+  const lastShownBlock = shownRows.at(-1);
+  const lastIsFold = lastShownBlock?.kind === "fold" && !(lastShownBlock.steps.length === 1 && lastShownBlock.steps[0]?.kind === "tool" && toldOf(lastShownBlock.steps[0]));
+  const liveCanMerge = log.loaded && busy && !waking && !compacting && !textDrafting;
+  const liveMerged = (() => {
+    if (!liveCanMerge) return merged;
+    if (pendingBefore.length > 0) return merged;
+    if (lastIsFold && lastShownBlock?.kind === "fold") {
+      const k = foldKey(lastShownBlock.steps) ?? lastShownBlock.at;
+      const idx = merged.findLastIndex((r) => r.key === k);
+      if (idx >= 0) {
+        mergedWork = true;
+        const copy = merged.slice();
+        copy[idx] = { ...copy[idx]!, node: <Said key={k} b={lastShownBlock} session={id} cwd={cwd} source={source} onJump={openChat} card={personCard} menu={personMenu} left={othersWords} live={liveFold} /> };
+        return copy;
+      }
+    }
+    if (activeCalls.length > 0) {
+      mergedWork = true;
+      const k = foldKey([], runningTools, toolDrafts) ?? "live:fold";
+      return [...merged, { key: k, agent: true, node: <Fold key={k} steps={[]} session={id} cwd={cwd} live={liveFold} /> }];
+    }
+    return merged;
+  })();
   // What the agent writes for words of yours its record has yet to bring is the turn they begin:
   // under them, in the row at work under its face, not in the turn before, above them, to be moved
   // down once they come (kumo, 2026-11-23: the answer came in over what was just sent).
   const drafting = new Set(log.drafts.map((d) => `${d.proc}.${d.n}`));
   const ahead: ReactNode[] = [];
-  const allTurns = turnsOf(pendingBefore.length && drafting.size ? merged.filter((r) => !(drafting.has(r.key) && ahead.push(r.node))) : merged);
+  const allTurns = turnsOf(pendingBefore.length && drafting.size ? liveMerged.filter((r) => !(drafting.has(r.key) && ahead.push(r.node))) : liveMerged);
+  if (liveCanMerge && pendingBefore.length > 0 && activeCalls.length > 0) {
+    mergedWork = true;
+    const k = foldKey([], runningTools, toolDrafts) ?? "live:fold";
+    ahead.push(<Fold key={k} steps={[]} session={id} cwd={cwd} live={liveFold} />);
+  }
   // A turn stopped: its line (回合已中断) is drawn where the row at work was, that row as high as
   // it was, not as a row more over it: there was room for it already, and nothing moves (kumo,
   // 2026-11-23: the conversation went up a little as each turn was stopped). Once something
@@ -981,11 +1026,7 @@ function WholeChat({ id, sheet = 0, onSheet, onMe, hold }: { id: string; sheet?:
     const ch = list?.find((x) => x.id === g.channel?.id);
     return ch ? titleOf(ch) : (g.channel?.name ?? "");
   };
-  // What changes as the conversation grows: it keeps to the bottom, the dots wait again.
-  const grew = `${log.blocks.at(-1)?.at} ${log.drafts.length} ${log.drafts.at(-1)?.text.length} ${log.drafts.at(-1)?.whole} ${log.sent.length} ${ready?.kept.log.end ?? 0} ${atWork.map((a) => `${a.session}:${stateOf(a.session)?.end ?? 0}`).join(",")} ${subs.map((x) => `${x.id}:${x.updatedAt}`).join(",")}`;
-  // The own agent's stop key, on its row at work; starting is no turn yet.
-  const stop = may && s.status !== "starting" && !s.subagent && !elsewhere ? <StopKey session={id} esc /> : null;
-  const activity = <Activity stop={stop} calls={log.drafts.filter((d) => d.tool && !renamesDraft(d))} running={shown.flatMap((b) => (b.kind === "running" ? [b.tool] : []))} cwd={cwd} quiet={s.status !== "waiting" && !log.drafts.some((d) => !d.whole && !d.tool)} grew={grew} under={headless} />;
+  const activity = mergedWork ? <div aria-hidden className="-mt-3 h-7 pointer-coarse:h-9" /> : <Activity stop={stop} calls={toolDrafts} running={runningTools} cwd={cwd} quiet={s.status !== "waiting" && !log.drafts.some((d) => !d.whole && !d.tool)} grew={grew} under={headless} />;
   // A turn's rows: those before its last words under one line once it has ended (Earlier), when
   // they are more than one line already (words, or several rows).
   // The turn at work as this page last saw it: once it ends, what it folds folds before you.

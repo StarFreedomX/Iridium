@@ -564,7 +564,7 @@ export function GroupView({ g, channel, agents, who, record, call, may, quote, q
                   <Copyable copy={withForwards(w.words, w.forwards)} quote={quote && (() => quote(m))} act={m.kind === "error" || m.kind === "ask" ? undefined : { channel, seq: m.n, may }}>
                     {wrap(
                       <>
-                        <Assistant b={blockFor(m, agents)} session={a.session} />
+                        <Assistant b={blockFor(m, agents)} session={m.input ? channel : a.session} />
                         <Forwards fs={w.forwards} />
                       </>,
                     )}
