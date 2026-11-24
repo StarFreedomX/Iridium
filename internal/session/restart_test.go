@@ -84,10 +84,10 @@ func TestContextAndQuotaAfterRestart(t *testing.T) {
 		})
 	}
 	waitFor(t, "the quota", func() bool {
-		q := r.m.quotaState()
+		q := r.m.Quota()
 		return len(q.Agents) == 1 && len(q.Agents[0].Windows) == 1 && q.Agents[0].Live
 	})
-	before := r.m.quotaState().Agents[0]
+	before := r.m.Quota().Agents[0]
 	ctxAt, _ := r.m.State(stopped)
 	if err := r.m.Stop(context.Background(), stopped); err != nil {
 		t.Fatal(err)
@@ -118,9 +118,9 @@ func TestContextAndQuotaAfterRestart(t *testing.T) {
 	if s, _ := r.m.State(stopped); s.Context.At != ctxAt.Context.At {
 		t.Errorf("the context's age is lost: %d, was %d", s.Context.At, ctxAt.Context.At)
 	}
-	var q api.Quota
-	if err := json.Unmarshal(r.hub.Get("quota"), &q); err != nil || len(q.Agents) != 1 {
-		t.Fatalf("quota after the restart: %s", r.hub.Get("quota"))
+	q := r.m.Quota()
+	if len(q.Agents) != 1 {
+		t.Fatalf("quota after the restart: %+v", q)
 	}
 	a := q.Agents[0]
 	if a.Live || a.At != before.At || a.Account != "user@example.com" || len(a.Windows) != 1 || a.Windows[0].Percent != 10 {
@@ -132,8 +132,7 @@ func TestContextAndQuotaAfterRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitFor(t, "the quota live", func() bool {
-		var q api.Quota
-		json.Unmarshal(r.hub.Get("quota"), &q)
+		q := r.m.Quota()
 		return len(q.Agents) == 1 && q.Agents[0].Live
 	})
 }
@@ -156,8 +155,7 @@ func TestContextTakenUpRunning(t *testing.T) {
 		t.Fatalf("context:<id>: %s", r.hub.Get("context:"+id))
 	}
 	waitFor(t, "the quota live", func() bool {
-		var q api.Quota
-		json.Unmarshal(r.hub.Get("quota"), &q)
+		q := r.m.Quota()
 		return len(q.Agents) == 1 && q.Agents[0].Live && len(q.Agents[0].Windows) == 1
 	})
 }

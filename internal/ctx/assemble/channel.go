@@ -19,7 +19,10 @@ import (
 // ChannelAgent is an agent of the channel: the nick it is called by, the name it goes by, its
 // what wakes it beside @ (Recv, its on in words; "": only @).
 // At: where it works, when not in the channel's folder (a place as written: mac:/Users/k/x).
-type ChannelAgent struct{ Nick, Name, Recv, At string }
+// ChannelAgent is an agent of the channel as the others are told it: Agent its kind (claude,
+// codex…), Model the model's own id as its harness names it, Effort its thinking level; never a
+// model's name made for people (kumo, 2026-11-24).
+type ChannelAgent struct{ Nick, Agent, Model, Effort, Recv, At string }
 
 // ChannelScript is a command the channel's IR runs: its name, what runs it in words.
 type ChannelScript struct{ Name, On string }
@@ -98,11 +101,14 @@ func staticPieces(c Channel) []piece {
 	var agents []string
 	for _, a := range c.Agents {
 		s := a.Nick // without @: the agent echoing the list calls nobody
-		var about []string
-		for _, v := range []string{a.Name} {
-			if v != "" {
-				about = append(about, v)
+		var about, runs []string
+		for _, v := range [][2]string{{"agent", a.Agent}, {"model", a.Model}, {"effort", a.Effort}} {
+			if v[1] != "" {
+				runs = append(runs, v[0]+" "+v[1])
 			}
+		}
+		if len(runs) > 0 {
+			about = append(about, strings.Join(runs, ", "))
 		}
 		if a.Recv != "" {
 			about = append(about, "wakes on @; "+a.Recv)

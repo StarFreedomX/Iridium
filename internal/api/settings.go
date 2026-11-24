@@ -5,9 +5,6 @@ package api
 type Settings struct {
 	// IdleReap: a hosted agent idle this long is stopped (its session stays), as "1h"; "0" never.
 	IdleReap string `json:"idleReap"`
-	// CrashResume and QuotaResume: go on with a turn after the agent crashed, or its quota came back.
-	CrashResume bool `json:"crashResume"`
-	QuotaResume bool `json:"quotaResume"`
 	// QuotaHidden: the quota bars not shown, each "<agent>:<account>:<group>:<model>".
 	QuotaHidden []string `json:"quotaHidden"`
 	// Modes: the approval mode a new session of each agent starts in; an agent left out starts in
@@ -26,8 +23,6 @@ type Settings struct {
 // SettingsPatch changes what it gives and nothing else. A mode "" goes back to the agent's own.
 type SettingsPatch struct {
 	IdleReap    *string           `json:"idleReap,omitempty"`
-	CrashResume *bool             `json:"crashResume,omitempty"`
-	QuotaResume *bool             `json:"quotaResume,omitempty"`
 	QuotaHidden *[]string         `json:"quotaHidden,omitempty"`
 	Modes       map[string]string `json:"modes,omitempty"`
 	Push        *bool             `json:"push,omitempty"`

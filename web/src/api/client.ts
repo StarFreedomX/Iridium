@@ -57,7 +57,7 @@ import type {
   GuildPatch,
 } from "./types.gen";
 import type { Device, Passkeys, PasskeyDevice, ShellOutput, ShellRun, ShellStarted } from "./types.gen";
-import type { SecretInfo, Secrets, SetSecret, Usage } from "./types.gen";
+import type { Quota, SecretInfo, Secrets, SetSecret, Usage } from "./types.gen";
 import type { AgentChoices, Block, ChannelMembers, ChannelReads, Injection, MemberPatch, NewMember } from "./types.gen";
 import type { MemberCard, Memory, Profile as Card, ProfilePatch, Self } from "./types.gen";
 import type { NewScript, Script, ScriptPatch, ScriptRun } from "./types.gen";
@@ -349,7 +349,7 @@ export const api = {
     const ch = await sat<{ id: string }>("channel.create", { ...(workspace ? { guild_id: String(workspace) } : {}), ...(caller ? { data: { parent_id: caller } } : {}), _data: start });
     return { id: ch.id };
   },
-  /** A message: it joins a running turn (queued in the reply: a command, or the quota is out).
+  /** A message: it joins a running turn (queued in the reply: a command).
    *  attachments: upload refs. input: its id, chosen here (a UUID): the transcript's block has it
    *  as it comes, before the answer; lost on the way, the send goes again under it, never twice. */
   send: async (id: string, text: string, attachments?: string[], input?: string, quote?: number): Promise<SendReply> => {
@@ -524,6 +524,8 @@ export const api = {
 
   /** GET /v1/internal/usage: the last days' tokens by day, app, agent and model; terminal: one app only; by hour: the last 24 hours'; by weekhour: by weekday and hour; machine: only the sessions at that computer (an executor's app ID). */
   usage: (days: number, terminal?: string, by?: "hour" | "weekhour", machine?: string) => get<Usage>(`/v1/internal/usage?days=${days}${terminal ? `&app=${enc(terminal)}` : ""}${by ? `&by=${by}` : ""}${machine ? `&machine=${enc(machine)}` : ""}`),
+  /** GET /v1/internal/quota: each agent's account as last read, its quota windows or its balance. */
+  quota: () => get<Quota>("/v1/internal/quota"),
   confirms: () => get<Needs>("/v1/internal/needs"),
   /** extra: a secret-set's value, a secret-use's "this session". */
   answerConfirm: (id: string, allow: boolean, extra?: Omit<NeedAnswer, "allow">) => write<NeedReply>("POST", `/v1/internal/needs/${enc(id)}`, { allow, ...extra } satisfies NeedAnswer),

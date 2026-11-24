@@ -205,29 +205,29 @@ func TestPushPanelsOnly(t *testing.T) {
 func TestQueueAndPushRoutes(t *testing.T) {
 	t.Parallel()
 	p := newPushRig(t)
-	created, _ := createAt(p.t, http.DefaultClient, p.base, api.NewSession{Agent: api.AgentClaude, Cwd: p.work, Text: "one QUOTA LONG"})
+	created, _ := createAt(p.t, http.DefaultClient, p.base, api.NewSession{Agent: api.AgentClaude, Cwd: p.work, Text: "one HOLD"})
 	id, sentInput := created, ""
 	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
 		var s api.SessionState
 		p.do("GET", "/v1/internal/sessions/"+id, nil, &s)
-		if s.QuotaUntil != 0 && s.Status != api.StatusRunning {
+		if s.Status == api.StatusRunning {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatal("not waiting for the quota")
+			t.Fatal("no turn")
 		}
 	}
-	// A message waiting in the queue (the quota is out; in a running turn it would join it):
-	// changed (message.update), not one that is not there (message.delete).
-	if _, sent := sendAt(p.t, http.DefaultClient, p.base, id, api.Send{Text: "two"}); !sent.Queued {
+	// A command waiting in the queue for the turn's end (words would join the turn): changed
+	// (message.update), not one that is not there (message.delete).
+	if _, sent := sendAt(p.t, http.DefaultClient, p.base, id, api.Send{Text: "/two"}); !sent.Queued {
 		t.Fatalf("not queued: %+v", sent)
 	} else {
 		var edited string
-		if code := satAt(p.t, http.DefaultClient, p.base, "message.update", map[string]any{"channel_id": id, "message_id": sent.Input, "content": "two!"}, &edited); code != 200 {
+		if code := satAt(p.t, http.DefaultClient, p.base, "message.update", map[string]any{"channel_id": id, "message_id": sent.Input, "content": "/two!"}, &edited); code != 200 {
 			t.Errorf("edit: %d %s", code, edited)
 		}
 		var s api.SessionState
-		if p.do("GET", "/v1/internal/sessions/"+id, nil, &s); len(s.Queue) != 1 || s.Queue[0].Text != "two!" {
+		if p.do("GET", "/v1/internal/sessions/"+id, nil, &s); len(s.Queue) != 1 || s.Queue[0].Text != "/two!" {
 			t.Errorf("edited: %+v", s.Queue)
 		}
 		if code := satAt(p.t, http.DefaultClient, p.base, "message.delete", map[string]any{"channel_id": id, "message_id": "nope"}, nil); code != 422 {

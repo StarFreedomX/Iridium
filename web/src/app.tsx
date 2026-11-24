@@ -25,6 +25,7 @@ import { motion, movesAhead, pageTurn, usePaced } from "./motion";
 import type { Place } from "./places";
 import { prefetch, settled } from "./prefetch";
 import { prefetchRoles } from "./roles";
+import { quotaQ } from "./quota";
 import { close, go, onTurn, openChat, over, quietDialog, route, setUsageMachine, usagePoint, useRoute, type Route } from "./route";
 import { Pager, TABS_H } from "./pager";
 import { atLeft, GRIP, Sheet } from "./sheet";
@@ -109,7 +110,7 @@ const loadPanels = () => {
 // whole as it opens, nothing pushed in after (docs/前端设计规范.md "后到的不撑开").
 // The settings' own page and what it draws too, not after every later file has come (a slow link
 // took seconds for those): the me key's dialog opens at its height, not the room's and then its own.
-void settled().then(() => (prefetchRoles(), movesAhead(), void queryClient.prefetchQuery(agentsQ), void SettingsPage.load().catch(() => {}), void queryClient.prefetchQuery({ ...selfQ, staleTime: 30_000 })));
+void settled().then(() => (prefetchRoles(), movesAhead(), void queryClient.prefetchQuery(agentsQ), void queryClient.prefetchQuery(quotaQ), void SettingsPage.load().catch(() => {}), void queryClient.prefetchQuery({ ...selfQ, staleTime: 30_000 })));
 // The device's own cache: its worker, its sweeps (device/boot.ts), after the first screen.
 void settled().then(() => import("./device/boot"));
 void prefetch().then((all) => {

@@ -27,18 +27,6 @@ func Message(tag, terminal, said, input string) (Injection, error) {
 	return build(KindMessage, messagePieces(tag, terminal, words(said, refs...), isCommand(said))...)
 }
 
-// Own is the line an agent gets for words of Iridium's own (Recovery, QuotaBack), from source
-// (api.SourceIridium), as Message has a person's.
-func Own(source string, own Injection) (Injection, error) {
-	return build(KindMessage, messagePieces("", source, of(own), isCommand(own.String()))...)
-}
-
-// Recovery is what Iridium tells an agent that cannot run an interrupted turn again by itself.
-func Recovery() (Injection, error) { return build(KindMessage, text(idRecoverCrash)) }
-
-// QuotaBack goes when the quota is back and nothing else waits.
-func QuotaBack() (Injection, error) { return build(KindMessage, text(idRecoverQuota)) }
-
 // Attachment is the line a message gets for a file that came with it: its path where the
 // agent runs, in inline code.
 func Attachment(path string) (Injection, error) {

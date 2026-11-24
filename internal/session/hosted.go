@@ -184,14 +184,8 @@ type Hosted struct {
 	turnAt        time.Time  // when the running or last turn began
 	turnDenied    int        // calls auto mode denied in this turn
 
-	hadTurn     bool        // the agent has the running turn: a crash now is continued
-	crashes     []time.Time // within the breaker's window
-	crashResume bool        // the next start asks the agent to run the interrupted turn again
-	resuming    bool        // this process was started so: no handshake yet
-	turnSeen    bool        // a turn began since this process started
-	quotaUntil  int64       // waiting for the quota until then (ms)
-	quotaStop   bool        // stopped meanwhile: no "继续" when it is back
-	quotaTimer  *time.Timer
+	hadTurn  bool // the agent has the running turn: its end is told when the process ends
+	turnSeen bool // a turn began since this process started
 
 	ctxSum   *api.ContextSummary
 	tokens   api.InputTokens // the input its recorded turns read (store.SessionInput)
@@ -339,8 +333,8 @@ func (h *Hosted) launch(ctx context.Context, proc int) error {
 	}
 	h.mu.Lock()
 	o := agent.SpawnOptions{Persona: where.Self != nil && where.Self.Persona != "", Session: h.id, Resume: resume, History: history, AgentSession: h.meta.agentID(), Cwd: h.meta.Cwd, Env: m.agentEnv(), Program: m.o.Config.Programs[string(h.meta.Agent)], SystemPromptFile: prompt,
-		Model: h.meta.Model, Mode: cmp.Or(h.meta.Mode, m.defaultMode(h.meta.Agent)), Effort: h.effort, Ultracode: h.ultracode, Preset: h.preset, CrashResume: h.crashResume && found != ""}
-	h.resuming, h.crashResume, h.turnSeen = o.CrashResume, false, false
+		Model: h.meta.Model, Mode: cmp.Or(h.meta.Mode, m.defaultMode(h.meta.Agent)), Effort: h.effort, Ultracode: h.ultracode, Preset: h.preset}
+	h.turnSeen = false
 	h.mu.Unlock()
 	if mc := h.machine(); mc != nil {
 		if err := h.remoteSpawn(mc, &o); err != nil {
@@ -472,8 +466,6 @@ func (h *Hosted) attached(ready chan struct{}) {
 	h.mu.Unlock()
 	if len(u.Windows) > 0 {
 		h.setQuota(u.Windows, nil)
-	} else {
-		h.m.publishQuota() // live now
 	}
 }
 
@@ -576,7 +568,7 @@ func (h *Hosted) ended(e *hold.Exit) {
 	_, err := os.Stat(filepath.Join(h.dir, fileStop))
 	h.mu.Lock()
 	asked := h.stopAsked || err == nil
-	h.live, h.starting, h.stopAsked, h.resuming = false, false, false, false
+	h.live, h.starting, h.stopAsked = false, false, false
 	h.turn, h.asks, h.tasks = agent.Idle, nil, nil
 	var withdrawn []Notice
 	h.manualTurnOverLocked(func(n Notice) { n.Session = h.id; withdrawn = append(withdrawn, n) })
@@ -587,10 +579,8 @@ func (h *Hosted) ended(e *hold.Exit) {
 	h.newSession, h.base = false, nil
 	hadTurn := h.hadTurn
 	h.hadTurn = false
-	resume := false
 	if e != nil && !asked && (e.From == "holder" || e.Signal != nil || (e.Code != nil && *e.Code != 0)) {
 		h.errText = describe(e) + errTail(h.dir)
-		resume = h.crashedLocked(hadTurn)
 	}
 	if h.failed != "" {
 		h.errText, h.failed = h.failed, ""
@@ -605,18 +595,14 @@ func (h *Hosted) ended(e *hold.Exit) {
 	h.readTranscript()
 	h.endedHidden()
 	h.publish()
-	h.m.publishQuota()
 	if errText != "" {
 		h.m.notify(Notice{Session: h.id, Kind: NoticeError, Text: errText})
 	}
-	if hadTurn && !resume {
+	if hadTurn {
 		h.mu.Lock()
 		waiting := h.waitingLocked()
 		h.mu.Unlock()
 		h.m.notify(Notice{Session: h.id, Kind: NoticeEnded, Waiting: waiting})
-	}
-	if resume {
-		go h.resume()
 	}
 }
 
@@ -816,9 +802,6 @@ func (h *Hosted) onEvent(e agent.Event) {
 			h.turnAt = time.Now()
 			h.turnDenied = 0
 		}
-		if !replay && h.quotaUntil != 0 {
-			h.quotaEndLocked() // it went on by itself, or the queue did
-		}
 		if !replay {
 			h.shownLater() // activity: out of the archive
 		}
@@ -869,7 +852,7 @@ func (h *Hosted) onEvent(e agent.Event) {
 			// A mode that switches only with a restart (pi): now, then what waited goes.
 			h.restartDue = false
 			later(h.restart)
-		} else if !replay && h.quotaUntil == 0 {
+		} else if !replay {
 			// What waited goes as the next turn; paused ones stay.
 			later(func() {
 				ctx, cancel := context.WithTimeout(h.m.ctx, time.Minute)
@@ -943,12 +926,7 @@ func (h *Hosted) onEvent(e agent.Event) {
 		list = true
 		// The model and the level in use, before a turn names them (Claude).
 		later(func() { h.readApplied(proc) })
-		if h.resuming && !replay {
-			seen := h.turnSeen
-			later(func() { h.helloAfterResume(seen) })
-		}
-		h.resuming = false
-		if h.turn == agent.Idle && h.quotaUntil == 0 {
+		if h.turn == agent.Idle {
 			// Taken up idle with messages waiting: they go now.
 			later(func() {
 				ctx, cancel := context.WithTimeout(h.m.ctx, time.Minute)
@@ -972,10 +950,6 @@ func (h *Hosted) onEvent(e agent.Event) {
 			later(h.refreshContext)
 			note(Notice{Kind: NoticeCompacted, Asked: h.compact})
 			h.compact = false
-		}
-	case agent.QuotaHit:
-		if e.Exhausted && !replay {
-			h.quotaOutLocked(e.ResetsAt)
 		}
 	case agent.ProtocolError:
 		h.logf("protocol: %s: %s", e.Reason, e.Detail)
@@ -1132,7 +1106,7 @@ func (h *Hosted) state(o store.Overlay, archived bool) api.SessionState {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	s := api.SessionState{Session: h.summaryLocked(o, archived), Asks: slices.Clone(h.asks), Tasks: slices.Clone(h.tasks), Model: h.model, Mode: h.mode, End: h.end, Proc: h.proc, Error: h.errText,
-		Effort: h.effort, Queue: slices.Clone(h.queue), Context: h.ctxSum, QuotaUntil: h.quotaUntil, Tail: h.tail}
+		Effort: h.effort, Queue: slices.Clone(h.queue), Context: h.ctxSum, Tail: h.tail}
 	if h.tokens != (api.InputTokens{}) {
 		t := h.tokens
 		s.Tokens = &t

@@ -109,10 +109,10 @@ func TestRestartOverHTTP(t *testing.T) {
 		t.Errorf("context after the restart: %+v, before %+v", s.Context, before.Context)
 	}
 
-	// The stream's first states: the context's parts and the quota, as last read.
+	// The stream's first state: the context's parts, as last read; the quota as asked for.
 	got := map[string]json.RawMessage{}
-	states := watchStates(t, d.base, nil, "context:"+id, "quota")
-	for deadline := time.After(5 * time.Second); len(got) < 2; {
+	states := watchStates(t, d.base, nil, "context:"+id)
+	for deadline := time.After(5 * time.Second); len(got) < 1; {
 		select {
 		case st := <-states:
 			var e struct {
@@ -128,12 +128,14 @@ func TestRestartOverHTTP(t *testing.T) {
 	var cx api.Context
 	var q api.Quota
 	json.Unmarshal(got["context:"+id], &cx)
-	json.Unmarshal(got["quota"], &q)
+	if code := call(t, c, "GET", d.base+"/v1/internal/quota", nil, &q); code != 200 {
+		t.Fatalf("quota: %d", code)
+	}
 	if cx.Used != 100 || len(cx.Categories) == 0 || cx.At != before.Context.At {
 		t.Errorf("context:<id> after the restart: %s", got["context:"+id])
 	}
 	if len(q.Agents) != 1 || len(q.Agents[0].Windows) != 1 || q.Agents[0].At == 0 {
-		t.Errorf("quota after the restart: %s", got["quota"])
+		t.Errorf("quota after the restart: %+v", q)
 	}
 
 	if code := answerAt(t, c, d.base, api.CardAnswer{Card: s.Asks[0].Card.ID, Option: "allow"}); code != 200 {

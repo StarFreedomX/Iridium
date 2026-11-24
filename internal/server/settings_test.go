@@ -38,28 +38,28 @@ func TestSettings(t *testing.T) {
 	})
 	var st api.Settings
 	l.want(200, "web", "GET", "/v1/internal/settings", nil, &st)
-	if st.IdleReap != "1h" || !st.CrashResume || !st.QuotaResume || st.Push || len(st.QuotaHidden) != 0 || st.Modes == nil || st.Lang != "" || !st.AutoUpdate {
+	if st.IdleReap != "1h" || st.Push || len(st.QuotaHidden) != 0 || st.Modes == nil || st.Lang != "" || !st.AutoUpdate {
 		t.Fatalf("defaults: %+v", st)
 	}
 
 	off, reap, hidden := false, "15m", []string{"claude:me@example.com:weekly:", "claude:me@example.com:weekly:"}
 	fr, zh := "fr", "zh"
 	l.want(400, "web", "PUT", "/v1/internal/settings", api.SettingsPatch{Lang: &fr}, nil)
-	l.want(200, "web", "PUT", "/v1/internal/settings", api.SettingsPatch{IdleReap: &reap, CrashResume: &off, QuotaHidden: &hidden, Modes: map[string]string{"claude": "plan", "codex": "untrusted"}, Lang: &zh, AutoUpdate: &off}, &st)
+	l.want(200, "web", "PUT", "/v1/internal/settings", api.SettingsPatch{IdleReap: &reap, QuotaHidden: &hidden, Modes: map[string]string{"claude": "plan", "codex": "untrusted"}, Lang: &zh, AutoUpdate: &off}, &st)
 	if st.AutoUpdate {
 		t.Fatalf("automatic updates still on: %+v", st)
 	}
-	if st.IdleReap != "15m" || st.CrashResume || !st.QuotaResume || len(st.QuotaHidden) != 1 || st.Modes["claude"] != "plan" || st.Modes["codex"] != "untrusted" || st.Lang != "zh" {
+	if st.IdleReap != "15m" || len(st.QuotaHidden) != 1 || st.Modes["claude"] != "plan" || st.Modes["codex"] != "untrusted" || st.Lang != "zh" {
 		t.Fatalf("after the change: %+v", st)
 	}
-	if tu := l.s.m.Tuned(); tu.IdleReap != 15*time.Minute || tu.CrashResume || !tu.QuotaResume || tu.Modes["claude"] != "plan" {
+	if tu := l.s.m.Tuned(); tu.IdleReap != 15*time.Minute || tu.Modes["claude"] != "plan" {
 		t.Fatalf("not in force: %+v", tu)
 	}
 	saved, err := config.Load(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if saved.IdleReap.D() != 15*time.Minute || saved.CrashResume || saved.Modes["codex"] != "untrusted" || len(saved.QuotaHidden) != 1 || !slices.Equal(saved.FolderRoots, []string{l.work}) || saved.Lang != "zh" || !saved.Update.Manual {
+	if saved.IdleReap.D() != 15*time.Minute || saved.Modes["codex"] != "untrusted" || len(saved.QuotaHidden) != 1 || !slices.Equal(saved.FolderRoots, []string{l.work}) || saved.Lang != "zh" || !saved.Update.Manual {
 		t.Fatalf("file: %+v", saved)
 	}
 
@@ -110,18 +110,18 @@ func TestSettings(t *testing.T) {
 	var tok api.Token
 	tok = l.newApp("bot", false)
 	l.want(403, tok.Token, "GET", "/v1/internal/settings", nil, nil)
-	l.want(403, tok.Token, "PUT", "/v1/internal/settings", api.SettingsPatch{CrashResume: &on}, nil)
+	l.want(403, tok.Token, "PUT", "/v1/internal/settings", api.SettingsPatch{AutoUpdate: &on}, nil)
 	l.want(200, "agent", "GET", "/v1/internal/settings", nil, nil)
-	l.want(403, "agent", "PUT", "/v1/internal/settings", api.SettingsPatch{CrashResume: &on}, nil)
+	l.want(403, "agent", "PUT", "/v1/internal/settings", api.SettingsPatch{AutoUpdate: &on}, nil)
 
 	// Changes at once from many pages, and the daemon reading them meanwhile: no race.
 	var wg sync.WaitGroup
+	reaps := []string{"1h", "15m"}
 	for i := range 8 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			v := i%2 == 0
-			l.do("web", "PUT", "/v1/internal/settings", api.SettingsPatch{QuotaResume: &v}, nil)
+			l.do("web", "PUT", "/v1/internal/settings", api.SettingsPatch{IdleReap: &reaps[i%2]}, nil)
 			_ = l.s.m.Tuned()
 		}()
 	}

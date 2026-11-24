@@ -262,10 +262,6 @@ export interface SessionState extends Session {
    */
   tokens?: InputTokens;
   /**
-   * QuotaUntil: the agent's quota ran out; Iridium goes on at this time (ms).
-   */
-  quotaUntil?: number /* int64 */;
-  /**
    * Tail: the newest blocks, when they are few and small; else the page fetches after its end.
    */
   tail?: BlockTail;
@@ -348,7 +344,8 @@ export interface ContextCategory {
   kind: string; // used | buffer | free | deferred
 }
 /**
- * Quota is the carried state "quota": the agents' quota windows, as last read.
+ * Quota is GET /v1/internal/quota: each agent's account as last read, its quota windows or its
+ * balance.
  */
 export interface Quota {
   agents: AgentQuota[];
@@ -573,8 +570,7 @@ export interface NewSession {
 }
 /**
  * Send gives the session a message: a new turn when idle; while a turn runs it joins that turn
- * (kumo, 2026-11-19: no choice of waiting for its end). Only a command, or words while the quota
- * is out, wait.
+ * (kumo, 2026-11-19: no choice of waiting for its end). Only a command waits.
  */
 export interface Send {
   text: string;
@@ -1295,7 +1291,9 @@ export interface PublicState {
 /**
  * ChannelMember is a member of a channel (docs/channels.md). Member: "agent:<session>", an
  * app's login "<app>/<login>", or all of an app's "<app>/*". An agent's: Session, the session
- * it is; Agent, its harness; Name, what it runs as now ("Claude Opus 5.5 High"); Nick, what it is
+ * it is; Agent, its harness; Name, what it runs as now ("Claude Opus 5.5 High"), for people; Model,
+ * the model's own id (claude-opus-5-5, mistral/deepseek-v4-1-flash-1017), Effort, its thinking
+ * level, for agents; Nick, what it is
  * called by, in every channel (@nick); Status, its lamp; Cwd, Machine, where it runs. On: an
  * agent's subscriptions (Trigger), what wakes it beside what names it. What an agent writes in a turn
  * a channel called is said in that channel. Seen: the number of the last message the agent was
@@ -1306,6 +1304,8 @@ export interface ChannelMember {
   session?: string;
   agent?: Agent;
   name?: string;
+  model?: string;
+  effort?: string;
   nick?: string;
   on?: Trigger[];
   seen?: number /* int64 */;
@@ -2475,11 +2475,6 @@ export interface Settings {
    */
   idleReap: string;
   /**
-   * CrashResume and QuotaResume: go on with a turn after the agent crashed, or its quota came back.
-   */
-  crashResume: boolean;
-  quotaResume: boolean;
-  /**
    * QuotaHidden: the quota bars not shown, each "<agent>:<account>:<group>:<model>".
    */
   quotaHidden: string[];
@@ -2508,8 +2503,6 @@ export interface Settings {
  */
 export interface SettingsPatch {
   idleReap?: string;
-  crashResume?: boolean;
-  quotaResume?: boolean;
   quotaHidden?: string[];
   modes?: { [key: string]: string};
   push?: boolean;

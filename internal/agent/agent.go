@@ -64,9 +64,6 @@ type SpawnOptions struct {
 	Effort           string // the thinking effort; empty: the agent's default
 	Ultracode        *bool  // Claude's ultracode; nil: never set, the user's own settings hold
 	Preset           string // the agent preset (dsh's tools and prompt); empty: the agent's default
-	// CrashResume: the last process died mid-turn; an agent that can run that turn again by itself
-	// is told to.
-	CrashResume bool
 	// Remote: the agent runs at an executor (docs/exec.md), not here: Cwd and Env are its, and
 	// nothing of the agent is looked up on this machine. nil: here.
 	Remote *Remote

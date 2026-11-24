@@ -41,7 +41,7 @@ func TestLoadSave(t *testing.T) {
 }
 
 // A file an older version wrote still loads: the fields 0.2 drops (pairClosed, chatDir) and those
-// gone already (update.manual, enterInTurn) are skipped, and the rest stays strict.
+// gone already (update.manual, enterInTurn, crashResume, quotaResume) are skipped, and the rest stays strict.
 func TestLoadLegacy(t *testing.T) {
 	c, err := Load(filepath.Join("testdata", "v0.1.41.json"))
 	if err != nil {

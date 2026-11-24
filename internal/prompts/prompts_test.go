@@ -38,7 +38,6 @@ func TestVerbatim(t *testing.T) {
 	for id, want := range map[string]string{
 		"message.tag":   "[{{tag}}] ",
 		"lang":          "The user's language, as set in the web settings: {{language}}.\n",
-		"recover.quota": "Continue.",
 	} {
 		if x, _ := Get(id); x.Body != want {
 			t.Errorf("%s: %q", id, x.Body)

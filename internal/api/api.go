@@ -196,8 +196,6 @@ type SessionState struct {
 	// Tokens: what its turns read so far, as recorded (GET /v1/internal/usage counts the same rows);
 	// absent before its first.
 	Tokens *InputTokens `json:"tokens,omitempty"`
-	// QuotaUntil: the agent's quota ran out; Iridium goes on at this time (ms).
-	QuotaUntil int64 `json:"quotaUntil,omitempty"`
 	// Tail: the newest blocks, when they are few and small; else the page fetches after its end.
 	Tail *BlockTail `json:"tail,omitempty"`
 	// Commands: the slash commands its agent offers, as its last handshake named them.
@@ -263,7 +261,8 @@ type ContextCategory struct {
 	Kind   string `json:"kind"` // used | buffer | free | deferred
 }
 
-// Quota is the carried state "quota": the agents' quota windows, as last read.
+// Quota is GET /v1/internal/quota: each agent's account as last read, its quota windows or its
+// balance.
 type Quota struct {
 	Agents []AgentQuota `json:"agents"`
 }
@@ -462,8 +461,7 @@ type NewSession struct {
 }
 
 // Send gives the session a message: a new turn when idle; while a turn runs it joins that turn
-// (kumo, 2026-11-19: no choice of waiting for its end). Only a command, or words while the quota
-// is out, wait.
+// (kumo, 2026-11-19: no choice of waiting for its end). Only a command waits.
 type Send struct {
 	Text string `json:"text"`
 	// Attachments are file refs of the session (uploads, attached paths): their paths are written

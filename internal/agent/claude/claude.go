@@ -140,10 +140,6 @@ func (d *Driver) Spawn(o agent.SpawnOptions) (hold.Spec, error) {
 	}
 	env = agent.SetEnv(env, "CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS", "1")
 	env = agent.SetEnv(env, "IRIDIUM_SESSION", o.Session)
-	if o.CrashResume {
-		// Claude runs the interrupted turn again by itself (Rhodium §4.8).
-		env = agent.SetEnv(env, "CLAUDE_CODE_RESUME_INTERRUPTED_TURN", "1")
-	}
 	return hold.Spec{Argv: argv, Env: env, Cwd: o.Cwd}, nil
 }
 

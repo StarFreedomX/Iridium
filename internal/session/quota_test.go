@@ -22,7 +22,7 @@ func TestQuotaByMachine(t *testing.T) {
 	here.setQuota([]api.QuotaWindow{{Group: "session", Percent: 10}}, nil)
 	there.setQuota([]api.QuotaWindow{{Group: "session", Percent: 90}}, nil)
 
-	if got := m.quotaState().Agents; len(got) != 2 {
+	if got := m.Quota().Agents; len(got) != 2 {
 		t.Fatalf("windows %+v, want one for each machine", got)
 	}
 	for id, want := range map[string]float64{"here": 10, "there": 90} {

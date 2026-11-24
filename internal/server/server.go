@@ -614,7 +614,7 @@ func (s *Server) stop(w http.ResponseWriter, r *http.Request) {
 	s.done(w, s.m.Stop(r.Context(), r.PathValue("id")))
 }
 
-var stateKey = regexp.MustCompile(`^(list|quota|guilds|needs|pairing|update|terminals|machines|voice|channels|avatars|faces|ats|memory|roles|(session|context|reads|viewers):[0-9a-zA-Z_-]{1,128})$`)
+var stateKey = regexp.MustCompile(`^(list|guilds|needs|pairing|update|terminals|machines|voice|channels|avatars|faces|ats|memory|roles|(session|context|reads|viewers):[0-9a-zA-Z_-]{1,128})$`)
 
 // stateKeys splits the states a WATCH asks for into those it carries and those it leaves
 // out (unknown, or not this caller's: needs and pairing are a person's on ir_web or at the
