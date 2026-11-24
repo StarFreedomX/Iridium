@@ -33,7 +33,7 @@ import { errText, toast } from "../toast";
 import { groupPath, working } from "../tree";
 import { Arrive, agentName, cn, IrMark, Lamp, lampOf, LogoLamp, PopSurface, sessionStatusText, tilde, Tip, titleOf, untitled } from "../ui";
 import { givenTurn, groupMessages, isMulti, liveParts, quoteAt, type AgentRow, type GivenTurn, type Msg } from "./channel/lib";
-import { recvOf } from "./channel/scripts";
+import { onOf } from "./channel/scripts";
 import { useScripts } from "./channel/script";
 import { betweenAgents, boxSlot, callerOf, foreignOf, givenHere, held, HOLD, linesOf, marksAt, named as namedIn, ownAnchors, slotsOf, type Anchor, type Cut, type RowAt } from "./channel/merge";
 import { Foldable } from "./longwords";
@@ -471,7 +471,7 @@ function WholeChat({ id, sheet = 0, onSheet, onMe, hold }: { id: string; sheet?:
   // The agent as its face shows it (the user, 2026-11-13: both sides have a face from the start,
   // not only once a second agent is in): its nick and what it runs as from the members.
   const mine = members?.members.find((m) => m.session === id);
-  const faceRow: AgentRow | undefined = s && { session: id, member: `agent:${id}`, agent: s.agent, nick: mine?.nick ?? "", name: mine?.name ?? agentName(s.agent), status: lampOf(s), recv: mine ? recvOf(mine.recv) : ["*"] };
+  const faceRow: AgentRow | undefined = s && { session: id, member: `agent:${id}`, agent: s.agent, nick: mine?.nick ?? "", name: mine?.name ?? agentName(s.agent), status: lampOf(s), on: onOf(mine?.on) };
   // 发消息 on its own agent's card: the composer here.
   const talk = () => composer.current?.focus();
   // Its members as words name them and as the composer's @ lists them (agents, people and apps
@@ -488,7 +488,7 @@ function WholeChat({ id, sheet = 0, onSheet, onMe, hold }: { id: string; sheet?:
             const m = members?.members.find((x) => x.session === a.session);
             const of = side.states[side.sessions.indexOf(a.session)] ?? list?.find((x) => x.id === a.session);
             const agent = of?.agent ?? m?.agent ?? a.agent ?? "claude";
-            return [{ session: a.session, member: `agent:${a.session}`, agent, nick: m?.nick ?? a.nick ?? "", name: m?.name ?? agentName(agent), status: of ? lampOf(of) : (m?.status ?? "idle"), recv: recvOf(m?.recv) }];
+            return [{ session: a.session, member: `agent:${a.session}`, agent, nick: m?.nick ?? a.nick ?? "", name: m?.name ?? agentName(agent), status: of ? lampOf(of) : (m?.status ?? "idle"), on: onOf(m?.on) }];
           }),
         ];
   const stateOf = (session: string): LiveSession | undefined => (session === id ? s : side.states[side.sessions.indexOf(session)]);

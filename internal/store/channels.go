@@ -49,18 +49,18 @@ const channelsSchema = `CREATE TABLE IF NOT EXISTS channel_members (
 	);`
 
 // ChannelMember is one member of a channel: a subscription. Member: "agent:<session>", an app's
-// login "<app>/<login>", all of an app's "<app>/*", or everyone "*". Recv: what wakes an agent
-// ("all": what people say; "at": only what names it), what a person is shown ("all", "mine").
+// login "<app>/<login>", all of an app's "<app>/*", or everyone "*". Triggers: an agent's
+// subscriptions, what wakes it beside what names it (api.Trigger, as JSON); a person's, "all".
 // Send: written as builds before 0.2.34 read it ("direct": the session's own channel; "ir"),
 // read by none now: an agent's words go where it was called, whichever channel that is. Seen:
 // the number of the last message it has been given (an agent) or has read (a person).
 type ChannelMember struct {
-	Channel string
-	Member  string
-	Recv    string
-	Send    string
-	Seen    int64
-	Joined  int64
+	Channel  string
+	Member   string
+	Triggers string
+	Send     string
+	Seen     int64
+	Joined   int64
 }
 
 // How an agent speaks in a channel.
@@ -367,7 +367,7 @@ func (s *Store) ForgetChannelMessage(channel string, seq int64) error {
 
 // ---- members ----
 
-const memberCols = `channel, member, recv, send, seen, joined_at`
+const memberCols = `channel, member, triggers, send, seen, joined_at`
 
 // ChannelMembers are channel's members as written down, in the order they joined; none for a
 // channel nobody has changed (its members are then the default: channel.Service.Members).
@@ -389,7 +389,7 @@ func (s *Store) members(q string, args ...any) ([]ChannelMember, error) {
 	var out []ChannelMember
 	for rows.Next() {
 		var m ChannelMember
-		if err := rows.Scan(&m.Channel, &m.Member, &m.Recv, &m.Send, &m.Seen, &m.Joined); err != nil {
+		if err := rows.Scan(&m.Channel, &m.Member, &m.Triggers, &m.Send, &m.Seen, &m.Joined); err != nil {
 			return nil, err
 		}
 		out = append(out, m)
@@ -402,9 +402,9 @@ func (s *Store) PutChannelMember(m ChannelMember) error {
 	if m.Joined == 0 {
 		m.Joined = now()
 	}
-	_, err := s.db.Exec(`INSERT INTO channel_members (channel, member, recv, send, seen, joined_at) VALUES (?, ?, ?, ?, ?, ?)
-		ON CONFLICT (channel, member) DO UPDATE SET recv = excluded.recv, send = excluded.send`,
-		m.Channel, m.Member, m.Recv, m.Send, m.Seen, m.Joined)
+	_, err := s.db.Exec(`INSERT INTO channel_members (channel, member, triggers, send, seen, joined_at) VALUES (?, ?, ?, ?, ?, ?)
+		ON CONFLICT (channel, member) DO UPDATE SET triggers = excluded.triggers, send = excluded.send`,
+		m.Channel, m.Member, m.Triggers, m.Send, m.Seen, m.Joined)
 	return err
 }
 

@@ -154,8 +154,8 @@ type Props = {
 /** The names that call more than one in a channel (internal/deliver AllMembers, AllAgents), as
  *  rows of the @ list. */
 const everyoneRows = (): AgentRow[] => [
-  { session: "", member: "*", agent: "" as Agent, nick: ALL_MEMBERS, name: t("channel.atMembers"), status: "idle", recv: [] },
-  { session: "", member: "agent:*", agent: "" as Agent, nick: ALL_AGENTS, name: t("channel.atAgents"), status: "idle", recv: [] },
+  { session: "", member: "*", agent: "" as Agent, nick: ALL_MEMBERS, name: t("channel.atMembers"), status: "idle", on: [] },
+  { session: "", member: "agent:*", agent: "" as Agent, nick: ALL_AGENTS, name: t("channel.atAgents"), status: "idle", on: [] },
 ];
 
 export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s, turn, onSent, onSentDone, cycleMode, openModel, openMode, openUsage, openContext, cleared, tools, nicks, quote, unquote, people }, ref) {
@@ -751,7 +751,7 @@ const isCommon = (c: Cmd) => !c.script && COMMON.includes(c.name as (typeof COMM
 /** A command of the palette: the agent's, or a script's (its face beside it). */
 type Cmd = Command & { script?: Script };
 /** The commands of a channel's scripts that are on, each its script's intro (or name) as what it does. */
-const scriptCommands = (scripts?: Script[]): Cmd[] => (scripts ?? []).filter((x) => x.enabled).flatMap((x) => x.on.flatMap((tr) => (tr.command ? [{ name: tr.command, description: x.intro || x.name, script: x }] : [])));
+const scriptCommands = (scripts?: Script[]): Cmd[] => (scripts ?? []).filter((x) => x.enabled).flatMap((x) => x.on.flatMap((tr) => (tr.command ? [{ name: tr.command, description: x.name, script: x }] : [])));
 const groupOf = (c: Cmd) => (c.script ? "script" : isCommon(c) ? "common" : "agent");
 
 /** The commands as the page's menus are (the model's, a right press's), not a bar as wide as the
@@ -780,7 +780,7 @@ function Palette({ list, at, agent, grouped, pick, point }: { list: Cmd[]; at: n
                 className={cn("flex h-8 w-full shrink-0 cursor-default items-center gap-2.5 rounded-md px-2.5 text-left text-base outline-none select-none pointer-coarse:h-11", i === at && "bg-fill")}
               >
                 {Icon && <Icon size={15} className="shrink-0 text-ink-2" aria-hidden />}
-                {c.script && <ScriptFace avatar={c.script.avatar} size={15} />}
+                {c.script && <ScriptFace size={15} />}
                 <span className="shrink-0">{c.name}</span>
                 {c.argumentHint && <span className="max-w-[30%] min-w-0 shrink truncate font-mono text-xs text-ink-3">{c.argumentHint}</span>}
                 <span className="min-w-0 flex-1 truncate text-right text-xs text-ink-3">{c.description}</span>

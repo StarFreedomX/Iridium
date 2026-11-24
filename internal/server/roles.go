@@ -204,13 +204,9 @@ func (s *Server) rolePost(w http.ResponseWriter, r *http.Request) {
 
 // keepCard makes session id's card the one kept under key (a role's): its persona, background
 // and the face it is drawn with, its own or, with none, its model's (kumo, 2026-11-17: a role
-// kept from a session that had its model's face had none). Not its intro: a role has none
-// (otae, 2026-11-23: who it is is its persona's; what it does here each session writes).
+// kept from a session that had its model's face had none).
 func (s *Server) keepCard(id, key string) error {
 	if err := s.st.CopyProfile(store.ChannelProfileKey(id), key); err != nil {
-		return err
-	}
-	if err := s.noIntro(key); err != nil {
 		return err
 	}
 	if _, _, ok := s.face(key, false, ""); ok {
@@ -229,16 +225,6 @@ func (s *Server) keepCard(id, key string) error {
 		return err
 	}
 	return s.st.PutAvatar(key, img, v)
-}
-
-// noIntro takes the intro off the profile under key, if it has one.
-func (s *Server) noIntro(key string) error {
-	p := s.st.Profile(key)
-	if p.Intro == "" {
-		return nil
-	}
-	p.Intro = ""
-	return s.st.SetProfile(key, p)
 }
 
 // strp is v as a patch's field: nil for none.
@@ -307,7 +293,6 @@ func (s *Server) rolePatch(w http.ResponseWriter, r *http.Request) {
 		role.Sort = *p.Sort
 	}
 	prof := s.st.Profile(key)
-	prof.Intro = "" // a role has none (keepCard)
 	if p.Persona != nil {
 		v, err := persona(*p.Persona)
 		if err != nil {
@@ -406,10 +391,6 @@ func (s *Server) carded(c caller, id string, req api.NewSession) error {
 			if err := s.st.CopyProfile(store.RoleProfileKey(role.ID), key); err != nil {
 				return err
 			}
-			// Kept from before roles had none: not handed on.
-			if err := s.noIntro(key); err != nil {
-				return err
-			}
 			if err := s.st.SetRoleOf(id, role.ID); err != nil {
 				return err
 			}
@@ -427,17 +408,10 @@ func (s *Server) carded(c caller, id string, req api.NewSession) error {
 			return err
 		}
 	}
-	if req.Intro == "" && req.Persona == "" && req.Avatar == "" && req.Background == "" {
+	if req.Persona == "" && req.Avatar == "" && req.Background == "" {
 		return nil
 	}
 	prof := s.st.Profile(key)
-	if req.Intro != "" {
-		v, err := intro(req.Intro)
-		if err != nil {
-			return err
-		}
-		prof.Intro = v
-	}
 	if req.Persona != "" {
 		v, err := persona(req.Persona)
 		if err != nil {
@@ -457,7 +431,7 @@ type cardCaller struct{}
 // selfText is what session id's agent is told of itself in its system prompt.
 func (s *Server) selfText(id string) *assemble.Self {
 	p := s.st.Profile(store.ChannelProfileKey(id))
-	out := &assemble.Self{Nick: s.ch.Nick(id), Intro: p.Intro, Persona: p.Persona, IR: true, Zone: time.Local}
+	out := &assemble.Self{Nick: s.ch.Nick(id), Persona: p.Persona, IR: true, Zone: time.Local}
 	const memories = 12
 	ms := s.memoriesOf(id, 0)
 	for i, m := range ms {

@@ -28,7 +28,7 @@ func TestReactionsAndRecall(t *testing.T) {
 	var ms api.ChannelMembers
 	l.want(200, "web", "POST", "/v1/internal/channels/"+ch+"/members", api.NewMember{Agent: api.AgentClaude, Nick: "guest"}, &ms)
 	guest := ms.Members[len(ms.Members)-1].Session
-	l.want(200, "web", "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+guest, map[string]any{"recv": []string{"agent:" + ch}}, nil)
+	l.want(200, "web", "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+guest, map[string]any{"on": onFrom("agent:" + ch)}, nil)
 	l.wantSat(200, "agent-in:"+ch, "reaction.create", map[string]any{"channel_id": ch, "message_id": "1", "emoji": "🎉"}, nil)
 	l.waitSaid("web", ch, "@guest ", "reacted 🎉 to: first]", "channel-context")
 

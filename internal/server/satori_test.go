@@ -157,7 +157,7 @@ func TestSatori(t *testing.T) {
 		t.Errorf("no API: %d %+v", code, e)
 	}
 
-	created := l.create(200, "socket", api.NewSession{Agent: "claude", Cwd: l.work, Members: &api.ChannelSetup{People: []string{"*"}}})
+	created := l.create(200, "socket", api.NewSession{Agent: "claude", Cwd: l.work, Members: &api.ChannelSetup{People: []string{"*"}, On: onFrom("*")}})
 	id := created
 	if code, e := l.satoriCall(app, "alice", "channel.get", map[string]string{"channel_id": "nope"}, nil); code != 422 || e.Code != "no_such_session" {
 		t.Errorf("no session: %d %+v", code, e)

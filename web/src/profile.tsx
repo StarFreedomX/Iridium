@@ -7,9 +7,9 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { EyeOff, Laptop, Monitor, PencilLine, Smartphone } from "lucide-react";
 import { useRef, useState, type ReactNode } from "react";
 import { ApiError, api } from "./api/client";
-import { IntroMax, type Device, type Me, type Profile as Card } from "./api/types.gen";
+import { type Device, type Me, type Profile as Card } from "./api/types.gen";
 import { LOCAL_ME, useMe } from "./data";
-import { asDataURL, BannerThumb, FacePick, Field } from "./facepick";
+import { asDataURL, BannerThumb, FacePick } from "./facepick";
 import { t } from "./i18n";
 import { LocalMark } from "./me";
 import { errText, toast } from "./toast";
@@ -123,12 +123,11 @@ export function Profile({ onPicture }: { onPicture: (url: string) => void }) {
   );
 }
 
-/** The rest of its card (docs/next/group.md "资料卡"): its intro, a signature others see on its
- *  card, and its background; its name and avatar are above (Profile). Saved as changed. */
+/** The rest of its card (docs/next/group.md "资料卡"): its background; its name and avatar are above (Profile). Saved as changed. */
 export function ProfileMore() {
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["self"], queryFn: () => api.self().then((s): Card => s), staleTime: 0, retry: false });
-  const save = async (p: { intro?: string; background?: string }) => {
+  const save = async (p: { background?: string }) => {
     qc.setQueryData<Card>(["self"], await api.patchSelf(p));
     void qc.invalidateQueries({ queryKey: ["card"] });
   };
@@ -138,7 +137,6 @@ export function ProfileMore() {
   const [banner, setBanner] = useState<string | null>(null);
   return (
     <>
-      <Field label={t("profile.intro")} value={p?.intro ?? ""} max={IntroMax} multi count save={(v) => save({ intro: v })} />
       {banner ? (
         <div className="g-fade">
           <Crop

@@ -11,7 +11,7 @@ import (
 // Profile keys: a session's agent and a channel share "c:<id>" (a session's channel has its id).
 func ChannelProfileKey(id string) string { return "c:" + id }
 
-// RoomProfileKey is the profile key of a session's own channel as a channel: its intro, face
+// RoomProfileKey is the profile key of a session's own channel as a channel: its face
 // and background, apart from its agent's (ChannelProfileKey; kumo, 2026-11-16).
 func RoomProfileKey(id string) string { return "g:" + id }
 
@@ -29,7 +29,6 @@ func BackgroundKey(key string) string { return "b:" + key }
 // Avatar, Background: an emoji or a colour ("#2f4f6f") in place of an image, "" for
 // the image, or none.
 type Profile struct {
-	Intro      string
 	Persona    string
 	Avatar     string
 	Background string
@@ -38,13 +37,13 @@ type Profile struct {
 // Profile is the profile kept under key; zero if none.
 func (s *Store) Profile(key string) Profile {
 	var p Profile
-	_ = s.db.QueryRow(`SELECT intro, persona, avatar, background FROM profiles WHERE key = ?`, key).Scan(&p.Intro, &p.Persona, &p.Avatar, &p.Background)
+	_ = s.db.QueryRow(`SELECT persona, avatar, background FROM profiles WHERE key = ?`, key).Scan(&p.Persona, &p.Avatar, &p.Background)
 	return p
 }
 
 // Profiles are the profiles whose keys begin with prefix, by key.
 func (s *Store) Profiles(prefix string) (map[string]Profile, error) {
-	rows, err := s.db.Query(`SELECT key, intro, persona, avatar, background FROM profiles WHERE substr(key, 1, ?) = ?`, len(prefix), prefix)
+	rows, err := s.db.Query(`SELECT key, persona, avatar, background FROM profiles WHERE substr(key, 1, ?) = ?`, len(prefix), prefix)
 	if err != nil {
 		return nil, err
 	}
@@ -53,7 +52,7 @@ func (s *Store) Profiles(prefix string) (map[string]Profile, error) {
 	for rows.Next() {
 		var k string
 		var p Profile
-		if err := rows.Scan(&k, &p.Intro, &p.Persona, &p.Avatar, &p.Background); err != nil {
+		if err := rows.Scan(&k, &p.Persona, &p.Avatar, &p.Background); err != nil {
 			return nil, err
 		}
 		out[k] = p
@@ -67,9 +66,9 @@ func (s *Store) SetProfile(key string, p Profile) error {
 		_, err := s.db.Exec(`DELETE FROM profiles WHERE key = ?`, key)
 		return err
 	}
-	_, err := s.db.Exec(`INSERT INTO profiles (key, intro, persona, avatar, background, at) VALUES (?, ?, ?, ?, ?, ?)
-		ON CONFLICT (key) DO UPDATE SET intro = excluded.intro, persona = excluded.persona, avatar = excluded.avatar, background = excluded.background, at = excluded.at`,
-		key, p.Intro, p.Persona, p.Avatar, p.Background, now())
+	_, err := s.db.Exec(`INSERT INTO profiles (key, persona, avatar, background, at) VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT (key) DO UPDATE SET persona = excluded.persona, avatar = excluded.avatar, background = excluded.background, at = excluded.at`,
+		key, p.Persona, p.Avatar, p.Background, now())
 	return err
 }
 
@@ -81,7 +80,7 @@ func (s *Store) CopyProfile(from, to string) error {
 			args []any
 		}{
 			{`DELETE FROM profiles WHERE key = ?`, []any{to}},
-			{`INSERT INTO profiles (key, intro, persona, avatar, background, at) SELECT ?, intro, persona, avatar, background, ? FROM profiles WHERE key = ?`, []any{to, now(), from}},
+			{`INSERT INTO profiles (key, persona, avatar, background, at) SELECT ?, persona, avatar, background, ? FROM profiles WHERE key = ?`, []any{to, now(), from}},
 			{`DELETE FROM avatars WHERE key IN (?, ?)`, []any{to, BackgroundKey(to)}},
 			{`INSERT INTO avatars (key, image, version, at) SELECT ?, image, version, ? FROM avatars WHERE key = ?`, []any{to, now(), from}},
 			{`INSERT INTO avatars (key, image, version, at) SELECT ?, image, version, ? FROM avatars WHERE key = ?`, []any{BackgroundKey(to), now(), BackgroundKey(from)}},

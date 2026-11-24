@@ -43,7 +43,7 @@ export function PersonCard({ user, name, avatar, app, call, dm: other = true }: 
   if (call) keys.push({ icon: <AtSign size={14} />, label: t("channel.call"), run: () => call(name) });
   if (card?.mine) keys.push({ icon: <PencilLine size={14} />, label: t("profile.edit"), run: () => setEdit(true) });
   if (edit) return <SelfEdit back={() => setEdit(false)} />;
-  return <ProfileCard face={<Avatar src={avatar ?? card?.avatar} name={name} size={56} host={isHost(user)} />} name={name} sub={app} intro={card?.intro} background={card?.background} keys={keys} />;
+  return <ProfileCard face={<Avatar src={avatar ?? card?.avatar} name={name} size={56} host={isHost(user)} />} name={name} sub={app} background={card?.background} keys={keys} />;
 }
 
 /** A person's face's menu, the right button or a finger held down (kumo, 2026-11-16: an agent's
@@ -89,9 +89,9 @@ export function usePeople(members?: ChannelMembers): AgentRow[] {
     for (const a of apps?.apps ?? []) {
       if (isComputer(a)) continue;
       const appName = a.web ? t("term.panel") : a.name;
-      if (hasApp(ps, a.id)) out.push({ session: "", member: `${a.id}/*`, agent: "" as AgentRow["agent"], nick: appName, name: t("channel.app"), status: "idle", recv: [], avatar: a.avatar, person: true });
+      if (hasApp(ps, a.id)) out.push({ session: "", member: `${a.id}/*`, agent: "" as AgentRow["agent"], nick: appName, name: t("channel.app"), status: "idle", on: [], avatar: a.avatar, person: true });
       for (const l of (apps?.logins ?? []).filter((x) => x.app === a.id)) {
-        if (hasLogin(ps, a.id, l.id)) out.push({ session: "", member: `${a.id}/${l.id}`, agent: "" as AgentRow["agent"], nick: l.name, name: appName, status: "idle", recv: [], avatar: l.avatar, person: true });
+        if (hasLogin(ps, a.id, l.id)) out.push({ session: "", member: `${a.id}/${l.id}`, agent: "" as AgentRow["agent"], nick: l.name, name: appName, status: "idle", on: [], avatar: l.avatar, person: true });
       }
     }
     return out;

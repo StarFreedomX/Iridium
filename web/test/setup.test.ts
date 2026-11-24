@@ -24,7 +24,7 @@ describe("a channel's people", () => {
     expect(everyone(["ir_web/a"])).toBe(false);
   });
   test("read from the members: those that are no agent's", () => {
-    const m = { members: [{ member: "*", recv: ["*"] }, { member: "agent:s1", session: "s1", recv: ["*"] }, { member: "ir_web/a", recv: ["*"] }] } as ChannelMembers;
+    const m = { members: [{ member: "*" }, { member: "agent:s1", session: "s1", on: [{ message: { from: ["*"] } }] }, { member: "ir_web/a" }] } as ChannelMembers;
     expect(peopleOf(m)).toEqual(["*", "ir_web/a"]);
     expect(peopleOf(undefined)).toEqual([]);
   });

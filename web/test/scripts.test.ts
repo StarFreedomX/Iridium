@@ -1,12 +1,12 @@
-// Receive sets and a channel's scripts, what the page reads and writes of them (src/chat/channel/scripts.ts).
+// A channel's subscriptions and commands, what the page reads and writes of them (src/chat/channel/scripts.ts).
 import { describe, expect, test } from "vitest";
-import { asName, blankTrigger, cronReading, dailyCron, draftOf, recvLabel, recvOf, recvWhole, remindScript, scriptOfUser, scriptRefusal, shellQuoted, splitWords, toggle, triggerLine, triggerOf, wakeScript, type CronWords, type TriggerWords } from "../src/chat/channel/scripts";
+import { asName, blankTrigger, cronReading, dailyCron, draftOf, onOf, recvLabel, recvOf, recvWhole, scriptOfUser, scriptRefusal, splitWords, toggle, triggerLine, triggerOf, type CronWords, type TriggerWords } from "../src/chat/channel/scripts";
 
 const names: Record<string, string> = { "ir_web/a": "kumo", "bot/*": "QQ", "agent:s2": "@codex", "agent:s3": "@pi" };
 const nameOf = (e: string) => names[e] ?? e;
 const rw = { at: "仅被 @ 时", all: "全体成员", sep: "、", n: "{n} 项" };
 const cw: CronWords = { minute: "每分钟", everyMin: "每 {n} 分钟", hourly: "每小时第 {m} 分", everyHour: "每 {n} 小时", daily: "每天 {t}", weekdays: "工作日 {t}", weekly: "每{d} {t}", monthly: "每月 {n} 日 {t}", days: ["周日", "周一", "周二", "周三", "周四", "周五", "周六"], sep: "、" };
-const tw: TriggerWords = { message: "消息：{from}", messageHas: "消息：{from} 含{words}", quote: "“{w}”", or: "或", anyone: "全部", command: "指令：/{name}", cron: "定时：{when}", event: "事件：{events}", events: { join: "加入", leave: "移出" }, sep: "、", recv: { all: "全体成员" }, when: cw };
+const tw: TriggerWords = { said: "{from}说话时", saidWords: "{from}说到{words}时", words: "说到{words}时", any: "有消息时", quote: "「{w}」", or: "或", command: "发送 /{name} 时", cron: "{when}", event: "{events}时", events: { join: "成员加入", leave: "成员移出", wake: "唤醒变更" }, then: "{line} → {text}", sep: "、", recv: { all: "全体成员" }, when: cw };
 
 describe("receive sets", () => {
   test("read: a list as it is, the old words as sets", () => {
@@ -33,6 +33,10 @@ describe("receive sets", () => {
 });
 
 describe("a cron line read", () => {
+  test("a time of day as a line each day", () => {
+    expect(dailyCron("09:05")).toBe("5 9 * * *");
+    expect(dailyCron("24:00")).toBeUndefined();
+  });
   test("the simple ones", () => {
     expect(cronReading("* * * * *", cw)).toBe("每分钟");
     expect(cronReading("*/15 * * * *", cw)).toBe("每 15 分钟");
@@ -51,22 +55,20 @@ describe("a cron line read", () => {
     expect(cronReading("0 9-17 * * *", cw)).toBeUndefined();
     expect(cronReading("0 9 * *", cw)).toBeUndefined();
   });
-  test("a time of day as a line each day", () => {
-    expect(dailyCron("09:05")).toBe("5 9 * * *");
-    expect(dailyCron("24:00")).toBeUndefined();
-    expect(dailyCron("")).toBeUndefined();
-  });
 });
 
 describe("a trigger in words", () => {
-  test("each kind in a line", () => {
-    expect(triggerLine({ message: { from: ["*"], words: ["大肥鱼"] } }, nameOf, tw)).toBe("消息：全体成员 含“大肥鱼”");
-    expect(triggerLine({ message: { from: ["ir_web/a", "agent:s2"], words: ["a", "b"] } }, nameOf, tw)).toBe("消息：kumo、@codex 含“a”或“b”");
-    expect(triggerLine({ message: {} }, nameOf, tw)).toBe("消息：全部");
-    expect(triggerLine({ command: "echo" }, nameOf, tw)).toBe("指令：/echo");
-    expect(triggerLine({ cron: "0 9 * * *" }, nameOf, tw)).toBe("定时：每天 09:00");
-    expect(triggerLine({ cron: "0 9-17 * * *" }, nameOf, tw)).toBe("定时：0 9-17 * * *");
-    expect(triggerLine({ event: ["join", "leave"] }, nameOf, tw)).toBe("事件：加入、移出");
+  test("each kind in a sentence", () => {
+    expect(triggerLine({ message: { from: ["*"] } }, nameOf, tw)).toBe("全体成员说话时");
+    expect(triggerLine({ message: { from: ["*"], words: ["小克"] } }, nameOf, tw)).toBe("全体成员说到「小克」时");
+    expect(triggerLine({ message: { words: ["a", "b"] } }, nameOf, tw)).toBe("说到「a」或「b」时");
+    expect(triggerLine({ message: { from: ["ir_web/a", "agent:s2"] } }, nameOf, tw)).toBe("kumo、@codex说话时");
+    expect(triggerLine({ message: {} }, nameOf, tw)).toBe("有消息时");
+    expect(triggerLine({ command: "echo" }, nameOf, tw)).toBe("发送 /echo 时");
+    expect(triggerLine({ cron: "0 9 * * *" }, nameOf, tw)).toBe("每天 09:00");
+    expect(triggerLine({ cron: "0 9-17 * * *" }, nameOf, tw)).toBe("0 9-17 * * *");
+    expect(triggerLine({ event: ["join", "leave"] }, nameOf, tw)).toBe("成员加入或成员移出时");
+    expect(triggerLine({ event: ["people", "join", "recv"], text: "欢迎新人" }, nameOf, tw)).toBe("成员加入或唤醒变更时 → 欢迎新人");
   });
   test("as the editor holds it, and back: the kind's fields alone", () => {
     const d = draftOf({ message: { from: ["*"], words: ["a", "b"] } });
@@ -76,6 +78,7 @@ describe("a trigger in words", () => {
     expect(triggerOf({ ...blankTrigger("command"), command: "/echo " })).toEqual({ command: "echo" });
     expect(triggerOf({ ...blankTrigger("cron"), cron: " 0  9 * * * " })).toEqual({ cron: "0 9 * * *" });
     expect(triggerOf({ ...draftOf({ event: ["join"] }), from: ["*"] })).toEqual({ event: ["join"] });
+    expect(triggerOf(draftOf({ event: ["people"], text: " hi " }))).toEqual({ event: ["join"], text: "hi" });
   });
 });
 
@@ -86,20 +89,25 @@ describe("scripts", () => {
     expect(scriptOfUser("agent:s1")).toBeUndefined();
     expect(scriptOfUser(undefined)).toBeUndefined();
   });
-  test("templates: 唤醒词, 定时提醒", () => {
-    expect(wakeScript("claude", ["大肥鱼"], { name: "唤醒-claude", intro: "i", say: "$IR_FROM 喊你：$IR_TEXT" })).toEqual({ name: "唤醒-claude", intro: "i", run: 'echo "@claude $IR_FROM 喊你：$IR_TEXT"', on: [{ message: { from: ["*"], words: ["大肥鱼"] } }] });
-    expect(remindScript("pi", "0 9 * * *", 'say "hi" $5', { name: "remind pi!", intro: "" })).toEqual({ name: "remindpi", intro: "", run: 'echo "@pi say \\"hi\\" \\$5"', on: [{ cron: "0 9 * * *" }] });
-  });
-  test("words split, quoted for a shell, a name as a nick is written", () => {
+  test("words split, a name as a nick is written", () => {
     expect(splitWords(" a, b，c、d  e ")).toEqual(["a", "b", "c", "d", "e"]);
-    expect(shellQuoted("a`b\\c")).toBe('"a\\`b\\\\c"');
     expect(asName("x".repeat(40))).toHaveLength(32);
   });
   test("why the server refused one", () => {
     expect(scriptRefusal(409, "name taken")).toBe("taken");
     expect(scriptRefusal(400, "on.cron: bad field")).toBe("cron");
+    expect(scriptRefusal(422, "on[1].event \"x\": of join leave")).toBe("event");
+    expect(scriptRefusal(422, "on[0].message.from: a list of")).toBe("from");
+    expect(scriptRefusal(422, "on: at least one: {message}")).toBe("on");
     expect(scriptRefusal(400, "name: letters, digits, _ and -, at most 32")).toBe("name");
     expect(scriptRefusal(400, "scripts run at the host: this channel's folder is at another computer")).toBe("away");
     expect(scriptRefusal(500, "boom")).toBeUndefined();
+  });
+});
+
+describe("an agent's subscriptions", () => {
+  test("read: a list as it is, none as none", () => {
+    expect(onOf([{ message: { from: ["*"] } }])).toEqual([{ message: { from: ["*"] } }]);
+    expect(onOf(undefined)).toEqual([]);
   });
 });

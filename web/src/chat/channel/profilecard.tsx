@@ -15,7 +15,7 @@ export const CARD_POP = "w-[min(320px,calc(100vw-16px))] overflow-hidden p-0";
 /** A member's card as the daemon has it (GET members/{who}): asked again as any card changes
  *  (the carried "cards"). who: an agent's "agent:<session>", a person's login or app id. */
 export function useCard(who: string) {
-  // Again as any card changes (its name, intro, face): "cards", not only "avatars".
+  // Again as any card changes (its name, face): "cards", not only "avatars".
   const seq = useCarried<number>("cards");
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["card", who], queryFn: () => api.memberCard(who), staleTime: 5_000, retry: false, enabled: !!who });
@@ -33,7 +33,7 @@ export type CardKey = { icon: ReactNode; label: string; run: () => void; disable
 /** face: 56 across, round. sub: the line under the name (what an agent runs as, a person's
  *  app); state: the line after it (an agent's lamp and state). more: what else it shows, before
  *  its keys; after: what they bring, under them (a script's, script.tsx). */
-export function ProfileCard({ face, name, sub, state, intro, background, keys, more, after }: { face: ReactNode; name: string; sub?: ReactNode; state?: ReactNode; intro?: string; background?: string; keys: CardKey[]; more?: ReactNode; after?: ReactNode }) {
+export function ProfileCard({ face, name, sub, state, note, background, keys, more, after }: { face: ReactNode; name: string; sub?: ReactNode; state?: ReactNode; note?: string; background?: string; keys: CardKey[]; more?: ReactNode; after?: ReactNode }) {
   const [gone, setGone] = useState<string | null>(null);
   const banner = background && gone !== background ? background : undefined;
   return (
@@ -53,9 +53,9 @@ export function ProfileCard({ face, name, sub, state, intro, background, keys, m
           </span>
         )}
         {/* What comes after the card is shown (a person's signature) slides open, pushing nothing at once. */}
-        <div className="g-reveal" data-open={intro ? "" : undefined}>
+        <div className="g-reveal" data-open={note ? "" : undefined}>
           <div className="min-h-0 overflow-hidden">
-            <p className="m-0 pt-2 text-sm leading-5 whitespace-pre-wrap text-ink-2 [overflow-wrap:anywhere]">{intro}</p>
+            <p className="m-0 pt-2 text-sm leading-5 whitespace-pre-wrap text-ink-2 [overflow-wrap:anywhere]">{note}</p>
           </div>
         </div>
         {more}

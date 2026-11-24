@@ -35,9 +35,9 @@ import (
 )
 
 const (
-	Prefix          = "/_ir/"     // ir_web's own routes
-	ViewerPrefix    = "/p/"       // a public link's view (Config.Viewer)
-	CookieName      = "__Host-ir" // a login's session cookie
+	Prefix       = "/_ir/"     // ir_web's own routes
+	ViewerPrefix = "/p/"       // a public link's view (Config.Viewer)
+	CookieName   = "__Host-ir" // a login's session cookie
 	// A login holds 180 days, in a browser and in the desktop app alike, used or not (kumo,
 	// 2026-11-22: a passkey pressed once, not again in a few days).
 	IdleTimeout     = 180 * 24 * time.Hour
@@ -45,7 +45,7 @@ const (
 	// The desktop app's sessions (applogin.go): the same.
 	AppTimeout     = AbsoluteTimeout
 	AppIdleTimeout = IdleTimeout
-	InviteTTL       = 10 * time.Minute
+	InviteTTL      = 10 * time.Minute
 
 	// Headers ir_web speaks for a login with (Satori's), set on every browser request it forwards.
 	HeaderPlatform = "Satori-Platform"
@@ -816,7 +816,6 @@ func privateCacheControl(v string) string {
 type apiError struct {
 	Code string `json:"code"`
 }
-
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	h := w.Header()

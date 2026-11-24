@@ -40,7 +40,6 @@ export function ChannelCard({ id, agent, done }: { id: string; agent: Agent; don
         </span>
       }
       name={p?.name || (row ? titleOf(row) : "")}
-      intro={p?.intro}
       background={p?.background}
       keys={keys}
     />

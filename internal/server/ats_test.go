@@ -59,6 +59,8 @@ func TestChannelAts(t *testing.T) {
 	ch := l.create(200, "web", api.NewSession{Agent: api.AgentClaude, Cwd: l.work, Text: "first"})
 	l.waitReply("web", ch, "ok: first")
 	l.want(200, "web", "PUT", "/v1/internal/channels/"+ch+"/people", api.People{People: []string{"*"}}, nil)
+	every := onFrom("*")
+	l.want(200, "web", "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+ch, api.MemberPatch{On: &every}, nil)
 	ats := func(as string) api.ChannelAt {
 		t.Helper()
 		var out api.ChannelAts

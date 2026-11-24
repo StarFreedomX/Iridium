@@ -11,7 +11,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft, LoaderCircle, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api } from "../../api/client";
-import { IntroMax, type Agent, type Profile, type ProfilePatch } from "../../api/types.gen";
+import { type Agent, type Profile, type ProfilePatch } from "../../api/types.gen";
 import { asDataURL, BannerThumb, FacePick, Field } from "../../facepick";
 import { PersonaEditor, PersonaRow } from "../../persona";
 import { t, useLang } from "../../i18n";
@@ -21,6 +21,7 @@ import { useCarried, useList } from "../../store";
 import { errText, toast } from "../../toast";
 import { agentName, cn, FaceChangeOver, IconKey, Tip } from "../../ui";
 import type { Editing } from "./editing";
+import { OnSection } from "./onedit";
 import { Face } from "./face";
 import { memberError } from "./key";
 import { validNick } from "./lib";
@@ -165,7 +166,6 @@ export function EditBody({ editing, back, done }: { editing: Editing; back?: () 
             save={(v) => save(agent ? { nick: v } : { name: v.trim() })}
             explain={memberError}
           />
-          <Field label={t("profile.intro")} value={p.intro ?? ""} max={IntroMax} multi count save={(v) => save({ intro: v })} explain={memberError} />
           {agent && <PersonaRow value={p.persona} open={() => setPersona(true)} />}
           {/* The face's other ways (an emoji, a colour, none); its picture cropped as the face's. */}
           <FacePick
@@ -180,6 +180,7 @@ export function EditBody({ editing, back, done }: { editing: Editing; back?: () 
           />
           <FacePick label={t("profile.background")} preview={<BannerThumb src={p.background} />} set={(v) => save({ background: v })} upload={(f) => setBanner(URL.createObjectURL(f))} />
           {session && <RoleRow session={session} role={p.role} name={name || agentName(kind)} again={() => void qc.invalidateQueries({ queryKey: key })} channel={channel} />}
+          {session && <OnSection channel={channel} session={session} />}
           {session && <Memories session={session} done={done} />}
         </>
       )}

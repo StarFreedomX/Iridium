@@ -22,7 +22,7 @@ import { PULL } from "../../sheet";
 import { getCarried, onCarried, setCarried, useCarried, useConfirms, useList, useSession } from "../../store";
 import { also, carries, events, opened, type SatoriEvent } from "../../stream";
 import { errText } from "../../toast";
-import { Arrive, agentName, cn, lampOf, Logo, PopSurface } from "../../ui";
+import { Arrive, agentName, cn, lampOf, Logo, PopSurface, ServerFace } from "../../ui";
 import { Leaving } from "../../moves";
 import { Asks } from "../asks";
 import { placeDropped } from "../at";
@@ -35,9 +35,8 @@ import { folded } from "../fold";
 import { Stick, toEnd } from "../stick";
 import { askQueue, groupMessages, quoteAt, readMarks, stillWaiting, watchExtra, type AgentRow, type Did, type Group, type Msg, type Src, lineOf, workOf, saidBefore, workKey, eventParts, personName, type EventWords } from "./lib";
 import { channelLog } from "./log";
-import { recvOf } from "./scripts";
+import { onOf } from "./scripts";
 import { useRecvLabel } from "./recv";
-import { IrTag, ScriptFaceKey } from "./script";
 import { betweenAgents, linesOf } from "./merge";
 import { Foldable } from "../longwords";
 import { foldsOnce, useReadTo } from "../foldstate";
@@ -102,7 +101,7 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
     const m = members?.members.find((x) => x.session === a.session);
     const of = states[i] ?? list?.find((x) => x.id === a.session);
     const agent = of?.agent ?? m?.agent ?? a.agent ?? "claude";
-    return { session: a.session, member: `agent:${a.session}`, agent, nick: m?.nick ?? a.nick ?? "", name: m?.name ?? agentName(agent), status: of ? lampOf(of) : (m?.status ?? "idle"), recv: recvOf(m?.recv) };
+    return { session: a.session, member: `agent:${a.session}`, agent, nick: m?.nick ?? a.nick ?? "", name: m?.name ?? agentName(agent), status: of ? lampOf(of) : (m?.status ?? "idle"), on: onOf(m?.on) };
   });
 
   // The stream carries the other agents' states too, as far as it has room; the rest are asked
@@ -536,7 +535,7 @@ export function GroupView({ g, channel, agents, who, record, call, may, quote, q
       </div>
     );
   }
-  if (a.kind === "script") return <ScriptGroup g={g} name={a.name} channel={channel} agents={agents} quote={quote} quoted={quoted} old={old} jump={jump} />;
+  if (a.kind === "script") return <ScriptGroup g={g} channel={channel} agents={agents} quote={quote} quoted={quoted} old={old} jump={jump} />;
   const now = agents.find((x) => x.session === a.session);
   // One no longer in the channel: its harness as the list still has its session.
   const agent = now?.agent ?? list?.find((x) => x.id === a.session)?.agent;
@@ -580,16 +579,15 @@ export function GroupView({ g, channel, agents, who, record, call, may, quote, q
   );
 }
 
-/** A script's messages (docs/channels.md "脚本"): its face (pressed, its card), its name and IR's
- *  tag over what it printed, as an agent's words are drawn. */
-function ScriptGroup({ g, name, channel, agents, quote, quoted, old, jump }: { g: Group; name: string; channel: string; agents: AgentRow[]; quote?: (m: Msg) => void; quoted: (n: number) => { who: string; text: string } | undefined; old?: (m: Msg) => boolean; jump?: (n: number) => void }) {
+/** A command's messages (docs/channels.md "命令"): said as Iridium, its face and name over what
+ *  it printed, as an agent's words are drawn (kumo, 2026-11-24: no face or name of its own). */
+function ScriptGroup({ g, channel, agents, quote, quoted, old, jump }: { g: Group; channel: string; agents: AgentRow[]; quote?: (m: Msg) => void; quoted: (n: number) => { who: string; text: string } | undefined; old?: (m: Msg) => boolean; jump?: (n: number) => void }) {
   return (
     <MsgRow className="flex min-w-0 items-start gap-2.5">
-      <ScriptFaceKey channel={channel} name={name} />
+      <ServerFace size={28} />
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
         <div className="flex h-4 min-w-0 items-center gap-1.5">
-          <span className="min-w-0 truncate text-xs font-medium text-ink-2">{name}</span>
-          <IrTag />
+          <span className="min-w-0 truncate text-xs font-medium text-ink-2">Iridium</span>
           <When time={g.msgs[0]!.time} />
         </div>
         {g.msgs.map((m) => {
@@ -633,9 +631,9 @@ function QuoteLine({ n, q, channel, jump }: { n: number; q?: { who: string; text
   );
 }
 
-const EVENT_KEYS = ["join", "leave", "rename", "recv", "everyone", "added", "removed", "undelivered", "stopped", "silent", "silentWhy", "by", "sep", "profile", "profileChannel", "profileNoBy", "profileChannelNoBy"] as const;
+const EVENT_KEYS = ["join", "leave", "rename", "recv", "on", "wake", "everyone", "added", "removed", "undelivered", "stopped", "silent", "silentWhy", "by", "sep", "profile", "profileChannel", "profileNoBy", "profileChannelNoBy"] as const;
 const SCRIPT_KEYS = { add: "scriptAdd", remove: "scriptRemove", enabled: "scriptEnabled", disabled: "scriptDisabled", changed: "scriptChanged", renamed: "scriptRenamed" } as const;
-const WHAT_KEYS = ["name", "nick", "intro", "avatar", "background"] as const;
+const WHAT_KEYS = ["name", "nick", "intro", "persona", "avatar", "background"] as const;
 
 /** A line of Iridium's own: what happened to the channel (who joined, left, was renamed, what one
  *  receives, its people), in the page's words, the agent in it as its nick is drawn elsewhere;
@@ -643,7 +641,7 @@ const WHAT_KEYS = ["name", "nick", "intro", "avatar", "background"] as const;
 function EventLine({ m, channel }: { m: Msg; channel: string }) {
   useLang();
   const d = useApps().data;
-  const { whole } = useRecvLabel(channel);
+  const { whole, onWhole } = useRecvLabel(channel);
   const words = { ...Object.fromEntries(EVENT_KEYS.map((k) => [k, t(`channel.event.${k}`)])), script: Object.fromEntries(Object.entries(SCRIPT_KEYS).map(([k, v]) => [k, t(`channel.event.${v}`)])), what: Object.fromEntries(WHAT_KEYS.map((k) => [k, t(`channel.what.${k}`)])), whatSep: t("channel.what.sep"), reasons: { 余额不足: t("channel.reason.balance"), 认证失败: t("channel.reason.auth"), 请求太频繁: t("channel.reason.rate") } } as unknown as EventWords;
   // A message taken back: who did it (docs/channels.md "撤回").
   if (m.event?.type === "recall") return <Line>{t("channel.event.recall", { by: m.event.by === "主机" ? "Iridium" : (m.event.by ?? "") })}</Line>;
@@ -652,7 +650,7 @@ function EventLine({ m, channel }: { m: Msg; channel: string }) {
   const apps = (d?.apps ?? []).map((a) => (a.web ? { ...a, name: t("term.panel") } : a));
   return (
     <Line>
-      {parts.map((p, i) => (typeof p === "string" ? p : "nick" in p ? <NickLink key={i} nick={p.nick} /> : "recv" in p ? whole(p.recv) : p.people.map((x) => personName(x, apps, d?.logins ?? [])).join(t("channel.event.sep"))))}
+      {parts.map((p, i) => (typeof p === "string" ? p : "nick" in p ? <NickLink key={i} nick={p.nick} /> : "recv" in p ? whole(p.recv) : "on" in p ? onWhole(p.on) : p.people.map((x) => personName(x, apps, d?.logins ?? [])).join(t("channel.event.sep"))))}
     </Line>
   );
 }
