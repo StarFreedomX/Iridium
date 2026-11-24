@@ -115,7 +115,7 @@ func TestFires(t *testing.T) {
 	cmd := api.Trigger{Command: "standup", Text: "standup"}
 	agents := []Agent{{"x", "xiaoke", []api.Trigger{words, words, cmd}}, {"y", "y", of("*")}}
 	d := Route("ask xiaoke please", From{Member: "web/kumo"}, agents)
-	if strings.Join(d.Wake, " ") != "x y" || strings.Join(d.Texts["x"], "|") != "hi" {
+	if strings.Join(d.Wake, " ") != "x y" || len(d.Texts["x"]) != 1 || d.Texts["x"][0].Text != "hi" {
 		t.Fatalf("%+v", d)
 	}
 	// Named, only whom it names, once: the words naming it set off nothing more.

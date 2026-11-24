@@ -1196,4 +1196,3 @@ func (s *Server) toldNow(session, key string, what ...string) {
 		}
 	}
 }
-

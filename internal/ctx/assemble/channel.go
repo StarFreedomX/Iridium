@@ -17,7 +17,7 @@ import (
 // since the agent last read it, as internal/ctx/strategy planned it.
 
 // ChannelAgent is an agent of the channel: the nick it is called by, the name it goes by, its
-// whom its receive set names (Recv, in words; "": only what names it).
+// what wakes it beside @ (Recv, its on in words; "": only @).
 // At: where it works, when not in the channel's folder (a place as written: mac:/Users/k/x).
 type ChannelAgent struct{ Nick, Name, Recv, At string }
 
@@ -105,7 +105,7 @@ func staticPieces(c Channel) []piece {
 			}
 		}
 		if a.Recv != "" {
-			about = append(about, "woken by "+a.Recv)
+			about = append(about, "wakes on @; "+a.Recv)
 		}
 		if a.At != "" {
 			about = append(about, "at "+a.At)

@@ -35,10 +35,10 @@ type Trigger struct {
 	Text    string          `json:"text,omitempty"`
 }
 
-// Events are what an event subscription may wait for: a member joined or left (an agent, or
-// people added or taken away), an agent renamed, someone's subscriptions changed (an agent's,
-// a script's), an agent's process ended badly, an agent asks (a question, an approval, a plan).
-var Events = []string{"join", "leave", "rename", "on", "error", "ask"}
+// Events are what an event entry may wait for: a member joined or left (an agent, or people
+// added or taken away), an agent renamed, someone's wake rules changed (an agent's, a
+// command's), an agent's process ended badly, an agent asks (a question, an approval, a plan).
+var Events = []string{"join", "leave", "rename", "wake", "error", "ask"}
 
 // MessageTrigger: a message of a sender in From (as a receive set names them, Recv: "*" every
 // person; none: anyone, an agent's turn's last words too) that has one of Words (none: any

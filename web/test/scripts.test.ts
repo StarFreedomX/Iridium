@@ -6,7 +6,7 @@ const names: Record<string, string> = { "ir_web/a": "kumo", "bot/*": "QQ", "agen
 const nameOf = (e: string) => names[e] ?? e;
 const rw = { at: "仅被 @ 时", all: "全体成员", sep: "、", n: "{n} 项" };
 const cw: CronWords = { minute: "每分钟", everyMin: "每 {n} 分钟", hourly: "每小时第 {m} 分", everyHour: "每 {n} 小时", daily: "每天 {t}", weekdays: "工作日 {t}", weekly: "每{d} {t}", monthly: "每月 {n} 日 {t}", days: ["周日", "周一", "周二", "周三", "周四", "周五", "周六"], sep: "、" };
-const tw: TriggerWords = { said: "{from}说话时", saidWords: "{from}说到{words}时", words: "说到{words}时", any: "有消息时", quote: "「{w}」", or: "或", command: "发送 /{name} 时", cron: "{when}", event: "{events}时", events: { join: "成员加入", leave: "成员移出", on: "订阅事件变更" }, then: "{line} → {text}", sep: "、", recv: { all: "全体成员" }, when: cw };
+const tw: TriggerWords = { said: "{from}说话时", saidWords: "{from}说到{words}时", words: "说到{words}时", any: "有消息时", quote: "「{w}」", or: "或", command: "发送 /{name} 时", cron: "{when}", event: "{events}时", events: { join: "成员加入", leave: "成员移出", wake: "唤醒变更" }, then: "{line} → {text}", sep: "、", recv: { all: "全体成员" }, when: cw };
 
 describe("receive sets", () => {
   test("read: a list as it is, the old words as sets", () => {
@@ -68,7 +68,7 @@ describe("a trigger in words", () => {
     expect(triggerLine({ cron: "0 9 * * *" }, nameOf, tw)).toBe("每天 09:00");
     expect(triggerLine({ cron: "0 9-17 * * *" }, nameOf, tw)).toBe("0 9-17 * * *");
     expect(triggerLine({ event: ["join", "leave"] }, nameOf, tw)).toBe("成员加入或成员移出时");
-    expect(triggerLine({ event: ["people", "join", "recv"], text: "欢迎新人" }, nameOf, tw)).toBe("成员加入或订阅事件变更时 → 欢迎新人");
+    expect(triggerLine({ event: ["people", "join", "recv"], text: "欢迎新人" }, nameOf, tw)).toBe("成员加入或唤醒变更时 → 欢迎新人");
   });
   test("as the editor holds it, and back: the kind's fields alone", () => {
     const d = draftOf({ message: { from: ["*"], words: ["a", "b"] } });

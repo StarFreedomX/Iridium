@@ -35,7 +35,7 @@ func makerOn(c caller) []api.Trigger {
 
 // wakesOwn: what c says in session id's own channel, where it is the only agent, wakes it: it
 // names it, or it is for one of its subscriptions; texts, the words of those that are.
-func (s *Server) wakesOwn(id string, c caller, text string) (bool, []string) {
+func (s *Server) wakesOwn(id string, c caller, text string) (bool, []api.Trigger) {
 	m, ok := s.memberRow(id, store.AgentMember(id))
 	if !ok {
 		return true, nil
@@ -70,12 +70,17 @@ func (s *Server) heldWords(id string) string {
 	return "Said here since you were last woken, not given to you then:\n" + strings.Join(held, "\n") + "\n\nNow:\n"
 }
 
-// onText is the words of the subscriptions that woke an agent, after what woke it.
-func onText(texts []string) string {
-	if len(texts) == 0 {
-		return ""
+// onText is what the entries of an agent's on that woke it ask of it, a line each after what woke
+// it: "[woken: a member joins] greet them".
+func (s *Server) onText(ts []api.Trigger) string {
+	var b strings.Builder
+	for i, t := range ts {
+		if i == 0 {
+			b.WriteString("\n")
+		}
+		fmt.Fprintf(&b, "\n[woken: %s] %s", s.ruleWords(t), t.Text)
 	}
-	return "\n\n[subscription] " + strings.Join(texts, "\n[subscription] ")
+	return b.String()
 }
 
 // eventKinds are the kinds of event (api.Events) a line of a channel, or an agent's error or ask
@@ -101,13 +106,13 @@ func eventKinds(ev *channel.Event) []string {
 	return nil
 }
 
-// eventFires: one of on is for an event of kinds; texts, the words of those that are.
-func eventFires(on []api.Trigger, kinds []string) (texts []string, ok bool) {
+// eventFires: one of on is for an event of kinds; texts, those of them with words.
+func eventFires(on []api.Trigger, kinds []string) (texts []api.Trigger, ok bool) {
 	for _, t := range on {
 		if slices.ContainsFunc(t.Event, func(e string) bool { return slices.Contains(kinds, channel.EventKind(e)) }) {
 			ok = true
-			if t.Text != "" && !slices.Contains(texts, t.Text) {
-				texts = append(texts, t.Text)
+			if t.Text != "" {
+				texts = append(texts, t)
 			}
 		}
 	}
@@ -139,7 +144,7 @@ func (s *Server) eventWakes(ch string, seq int64, ev *channel.Event, text string
 			}
 			continue
 		}
-		go s.wakeFor(ch, a.Session, seq, text+onText(texts), reach(who, lk))
+		go s.wakeFor(ch, a.Session, seq, text+s.onText(texts), reach(who, lk))
 	}
 }
 
@@ -158,7 +163,7 @@ func (s *Server) wakeFor(ch, to string, seq int64, words string, lk link) {
 func (s *Server) cronAgents(at time.Time) {
 	r := &s.scripts
 	for _, m := range s.ch.Subscribers() {
-		var texts []string
+		var texts []api.Trigger
 		due := false
 		for _, t := range m.On() {
 			if t.Cron == "" {
@@ -166,8 +171,8 @@ func (s *Server) cronAgents(at time.Time) {
 			}
 			if sp, err := cron.Parse(t.Cron); err == nil && sp.Match(at) {
 				due = true
-				if t.Text != "" && !slices.Contains(texts, t.Text) {
-					texts = append(texts, t.Text)
+				if t.Text != "" {
+					texts = append(texts, t)
 				}
 			}
 		}
@@ -193,7 +198,7 @@ func (s *Server) cronAgents(at time.Time) {
 		if seq == 0 {
 			continue
 		}
-		go s.wakeFor(m.Channel, m.Session, seq, text+onText(texts), s.chain.person(m.Channel, satori.NoteUser))
+		go s.wakeFor(m.Channel, m.Session, seq, text+s.onText(texts), s.chain.person(m.Channel, satori.NoteUser))
 	}
 }
 

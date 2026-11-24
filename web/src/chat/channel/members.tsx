@@ -30,7 +30,7 @@ import { memberError } from "./key";
 import { givenKind, givenParts, givenText, ownAgent, type AgentRow, type GivenKind } from "./lib";
 import { memberMenu, type MenuKey } from "./menu";
 import { recvWords, useRecvName, useRecvOptions } from "./recv";
-import { fromOf, recvLabel, toggle, withFrom } from "./scripts";
+import { fromOf, hasMore, recvLabel, toggle, withFrom } from "./scripts";
 import { CARD_POP, ProfileCard, useCard, type CardKey } from "./profilecard";
 
 const ITEM = "flex h-8 cursor-default items-center gap-2.5 rounded-md px-2.5 text-base outline-none select-none data-highlighted:bg-fill data-popup-open:bg-fill pointer-coarse:h-11";
@@ -205,7 +205,7 @@ function WakePick({ channel, a, set, i }: { channel: string; a: AgentRow; set: (
           <Mail size={15} />
         </span>
         <span className="flex-1">{t("channel.recv")}</span>
-        <span className="max-w-36 truncate text-xs text-ink-3">{recvLabel(from, name, recvWords())}</span>
+        <span className="max-w-36 truncate text-xs text-ink-3">{hasMore(a.on) ? t("on.more", { label: recvLabel(from, name, recvWords()) }) : recvLabel(from, name, recvWords())}</span>
         <ChevronRight size={14} className="text-ink-4" />
       </Menu.SubmenuTrigger>
       <Menu.Portal>

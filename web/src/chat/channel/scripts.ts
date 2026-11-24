@@ -18,6 +18,9 @@ export function recvOf(r: unknown): string[] {
 /** An agent's subscriptions as the server may say them: none, none (only @). */
 export const onOf = (on: unknown): Trigger[] => (Array.isArray(on) ? on.filter((x): x is Trigger => !!x && typeof x === "object") : []);
 
+/** Whether on has more than its plain message entry: words, a time, an event, a command. */
+export const hasMore = (on: Trigger[]) => on.some((x) => !plain(x));
+
 /** A plain message subscription: of senders, of no words in particular. */
 const plain = (tr: Trigger) => !!tr.message && !tr.message.words?.length && !tr.text;
 
@@ -100,12 +103,12 @@ const fill = (tpl: string, v: Record<string, string>) => Object.entries(v).reduc
 
 /** A subscription in one sentence: 全体成员说话时, 说到「小克」时, 每天 09:00, 成员加入时 → 欢迎新人. */
 export function triggerLine(tr: Trigger, nameOf: (entry: string) => string, w: TriggerWords): string {
-  const head = triggerHead(tr, nameOf, w);
+  const head = ruleLine(tr, nameOf, w);
   const text = tr.text?.trim();
   return text ? fill(w.then, { line: head, text }) : head;
 }
 
-function triggerHead(tr: Trigger, nameOf: (entry: string) => string, w: TriggerWords): string {
+export function ruleLine(tr: Trigger, nameOf: (entry: string) => string, w: TriggerWords): string {
   if (tr.message) {
     const from = tr.message.from?.length ? recvNames(tr.message.from, nameOf, w.recv).join(w.sep) : "";
     const words = (tr.message.words ?? []).filter(Boolean).map((x) => fill(w.quote, { w: x })).join(w.or);
@@ -119,10 +122,10 @@ function triggerHead(tr: Trigger, nameOf: (entry: string) => string, w: TriggerW
 }
 
 /** The events a subscription may wait for (internal/api Events). */
-export const EVENTS = ["join", "leave", "rename", "on", "error", "ask"] as const;
+export const EVENTS = ["join", "leave", "rename", "wake", "error", "ask"] as const;
 
 /** An event as the subscriptions name it: those from before them as theirs now. */
-export const eventKind = (e: string) => (e === "recv" || e === "script" ? "on" : e === "people" ? "join" : e);
+export const eventKind = (e: string) => (e === "recv" || e === "script" || e === "on" ? "wake" : e === "people" ? "join" : e);
 
 /** A time of day ("09:30") as a cron line, each day; none for one that is not a time. */
 export function dailyCron(time: string): string | undefined {

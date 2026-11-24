@@ -465,7 +465,7 @@ func (s *Server) sendAs(ctx context.Context, c caller, from, id string, req api.
 	// One agent: woken as among several (docs/channels.md "订阅事件"): by what names it or by one
 	// of its subscriptions; else said in its channel and held for it, given before what next
 	// wakes it. Its own commands, and another session's agent writing to it, reach it as ever.
-	held, texts := "", []string(nil)
+	held, texts := "", []api.Trigger(nil)
 	if !c.byAgent() && !(command && s.m.IsCommand(id, req.Text)) && !session.IsClear(req.Text) {
 		woken, t := s.wakesOwn(id, c, req.Text)
 		if !woken {
@@ -520,7 +520,7 @@ func (s *Server) sendAs(ctx context.Context, c caller, from, id string, req api.
 		seq = s.sat.Input(st.Session, req.ID, req.Text, u, c.ID(), channel.Data{Device: s.deviceOfCaller(c)})
 	}
 	named := s.names(id, seq, req.Text, readerOf(c)) // the logins it names (ats.go)
-	input, queued, err := s.m.SendAs(ctx, id, req.ID, held+satori.ForwardWords(text)+onText(texts), from, true, images...)
+	input, queued, err := s.m.SendAs(ctx, id, req.ID, held+satori.ForwardWords(text)+s.onText(texts), from, true, images...)
 	if err != nil {
 		if seq != 0 {
 			s.ch.Unsay(id, seq) // not sent: not said

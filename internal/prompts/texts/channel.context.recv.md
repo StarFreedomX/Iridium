@@ -1,1 +1,1 @@
-Without @, an agent is woken only by what its on names; any member may change it (ir api help wake).
+Besides @, an agent wakes only on what its line above says; any member may change it: ir api help wake.

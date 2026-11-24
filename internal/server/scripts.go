@@ -47,11 +47,11 @@ const HeaderScript = "X-Iridium-Script"
 
 // Limits of a script.
 const (
-	ScriptTimeout  = 60 * time.Second
-	scriptOutMax   = 16 << 10
-	scriptErrMax   = 4 << 10
-	scriptSayMax   = 4000
-	scriptRunMax   = 4000
+	ScriptTimeout = 60 * time.Second
+	scriptOutMax  = 16 << 10
+	scriptErrMax  = 4 << 10
+	scriptSayMax  = 4000
+	scriptRunMax  = 4000
 )
 
 func (s *Server) scriptRoutes(mux *http.ServeMux) {

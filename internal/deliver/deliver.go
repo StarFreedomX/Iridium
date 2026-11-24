@@ -33,12 +33,12 @@ type From struct {
 }
 
 // Decision is what a message does. Wake: the sessions it is delivered to, in the channel's
-// order; Named: the nicks it names (itself aside); Texts: for a session a subscription woke, the
-// words of those that did (Trigger.Text).
+// order; Named: the nicks it names (itself aside); Texts: for a session its on woke, the entries
+// that did and have words for it (Trigger.Text).
 type Decision struct {
 	Wake  []string
 	Named []string
-	Texts map[string][]string
+	Texts map[string][]api.Trigger
 }
 
 // The two names that call more than one (the user, 2026-11-13): "@全体成员", everyone in the
@@ -83,12 +83,12 @@ func Route(text string, from From, agents []Agent) Decision {
 				d.Wake = append(d.Wake, a.Session)
 			}
 		} else if !from.Quiet && from.Member != "" {
-			fired, texts := false, []string(nil)
+			fired, texts := false, []api.Trigger(nil)
 			for _, t := range a.On {
 				if _, ok := Fires(t, from.Member, text); ok {
 					fired = true
-					if t.Text != "" && !slices.Contains(texts, t.Text) {
-						texts = append(texts, t.Text)
+					if t.Text != "" && !slices.ContainsFunc(texts, func(x api.Trigger) bool { return x.Text == t.Text }) {
+						texts = append(texts, t)
 					}
 				}
 			}
@@ -96,7 +96,7 @@ func Route(text string, from From, agents []Agent) Decision {
 				d.Wake = append(d.Wake, a.Session)
 				if len(texts) > 0 {
 					if d.Texts == nil {
-						d.Texts = map[string][]string{}
+						d.Texts = map[string][]api.Trigger{}
 					}
 					d.Texts[a.Session] = texts
 				}

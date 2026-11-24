@@ -139,7 +139,7 @@ export type ScriptDone = "add" | "remove" | "enabled" | "disabled" | "changed" |
 
 /** The line's words by event (i18n: channel.event.*), their slots in braces: {nick} {from}
  *  {recv} {people} {seq} {reason} {by} {script} {old}; reasons: the server's usual reasons (余额不足…) in them. */
-export type EventWords = Record<"join" | "leave" | "rename" | "recv" | "on" | "everyone" | "added" | "removed" | "undelivered" | "stopped" | "silent" | "silentWhy" | "by" | "sep", string> & {
+export type EventWords = Record<"join" | "leave" | "rename" | "recv" | "on" | "wake" | "everyone" | "added" | "removed" | "undelivered" | "stopped" | "silent" | "silentWhy" | "by" | "sep", string> & {
   /** A script added, removed, turned on or off, changed, renamed: each with who did it in its words. */
   script?: Record<ScriptDone, string>;
   reasons?: Record<string, string>;
@@ -196,6 +196,7 @@ export function eventParts(e: ChEvent, w: EventWords): EventPart[] | undefined {
     case "rename":
     case "recv":
     case "on":
+    case "wake":
     case "undelivered":
     case "stopped":
       out = fill(w[e.type]);

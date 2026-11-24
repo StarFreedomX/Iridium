@@ -9,7 +9,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronRight, PencilLine, Plus, UserPlus, Users } from "lucide-react";
 import { useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { api } from "../../api/client";
-import type { Agent, ChannelMembers, Viewer } from "../../api/types.gen";
+import type { Agent, ChannelMembers, Script, Viewer } from "../../api/types.gen";
 import { agentsQ, isComputer, useApps, useMachines } from "../../data";
 import { t, useLang } from "../../i18n";
 import { useMachine } from "../../machines";
@@ -28,7 +28,8 @@ import { memberError } from "./key";
 import type { AgentRow } from "./lib";
 import { MemberAsks, MemberItems, type Ask } from "./members";
 import { ScriptFace, ScriptPop, scriptState, useScripts, type ScriptPage } from "./script";
-import { onOf } from "./scripts";
+import { onOf, ruleLine } from "./scripts";
+import { triggerWords, useRecvName } from "./recv";
 import { actsOf } from "./menu";
 import { subName, SubTag } from "../subwork";
 import { appAll, hasApp, hasLogin, loginOf, peopleCount, peopleOf, pressApp, pressLogin } from "./setup";
@@ -181,29 +182,60 @@ function MemberList({ id, ask, script }: { id: string; ask: (a: Ask) => void; sc
           <Lamp status="running" />
         </Menu.Item>
       ))}
-      {/* The scripts of its IR (docs/channels.md "脚本"): a row each, its face, name, intro, state. */}
-      {(scripts.length > 0 || may) && <div className={HEAD}>{t("script.group")}</div>}
-      {scripts.map((x) => {
-        const state = scriptState(x);
-        return (
-          <Menu.Item key={x.name} onClick={() => script({ k: "card", name: x.name })} className={ITEM}>
-            <ScriptFace avatar={x.avatar} size={16} />
-            <span className="shrink-0">{x.name}</span>
-            <span className="min-w-0 flex-1" />
-            {state && <span className={cn("shrink-0 text-xs", x.enabled ? "text-err" : "text-ink-3")}>{state}</span>}
-          </Menu.Item>
-        );
-      })}
-      {may && (
-        <Menu.Item onClick={() => script({ k: "new" })} className={ITEM}>
-          <span className="text-ink-2">
-            <Plus size={15} />
-          </span>
-          <span className="flex-1">{t("script.new")}</span>
-        </Menu.Item>
-      )}
+      {/* 订阅事件 (docs/channels.md "唤醒"): the channel's rules, a sentence each, whom it wakes or
+          what it runs after it; an agent's opens its 编辑资料, a command's its card. */}
+      <Rules id={id} agents={agents} scripts={scripts} may={may} script={script} />
       {/* No 人 / 所有人 here (kumo, 2026-11-16): who the people are is 邀请's to show and set. */}
       {may && <Invite id={id} />}
+    </>
+  );
+}
+
+/** 订阅事件: each agent's on, an entry a row ("成员加入时 → @xiaoke 欢迎新人"), and each command
+ *  (its face, "每天 09:00 → 日报"); 新建: an agent's (its 编辑资料) or a command. */
+function Rules({ id, agents, scripts, may, script }: { id: string; agents: ChannelMembers["members"]; scripts: Script[]; may: boolean; script: (p: ScriptPage) => void }) {
+  const name = useRecvName(id);
+  const w = triggerWords();
+  const rows: { key: string; face: ReactNode; line: string; state?: string; off?: boolean; open: () => void }[] = [];
+  for (const m of agents) {
+    const agent = m.agent ?? "claude";
+    for (const [j, tr] of onOf(m.on).entries())
+      rows.push({
+        key: `${m.member}#${j}`,
+        face: <Face id={m.session!} agent={agent} size={16} />,
+        line: t("on.to", { line: ruleLine(tr, name, w), who: [`@${m.nick || agentName(agent)}`, tr.text?.trim()].filter(Boolean).join(" ") }),
+        open: () => requestAnimationFrame(() => openEdit({ channel: id, agent: m.session! })),
+      });
+  }
+  for (const x of scripts) {
+    const state = scriptState(x);
+    rows.push({ key: `script:${x.name}`, face: <ScriptFace avatar={x.avatar} size={16} />, line: t("on.to", { line: x.on.map((tr) => ruleLine(tr, name, w)).join(t("on.or")), who: x.name }), state, off: x.enabled, open: () => script({ k: "card", name: x.name }) });
+  }
+  if (!rows.length && !may) return null;
+  return (
+    <>
+      <div className={HEAD}>{t("on.group")}</div>
+      {rows.map((r) => (
+        <Menu.Item key={r.key} onClick={r.open} className={ITEM}>
+          <span className="grid size-4 shrink-0 place-items-center">{r.face}</span>
+          <span className="min-w-0 flex-1 truncate">{r.line}</span>
+          {r.state && <span className={cn("shrink-0 text-xs", r.off ? "text-err" : "text-ink-3")}>{r.state}</span>}
+        </Menu.Item>
+      ))}
+      {may && (
+        <Sub icon={<Plus size={15} />} label={t("on.new")} i={0}>
+          {agents.map((m) => (
+            <Menu.Item key={m.member} onClick={() => requestAnimationFrame(() => openEdit({ channel: id, agent: m.session! }))} className={ITEM}>
+              <Face id={m.session!} agent={m.agent ?? "claude"} size={16} />
+              <span className="min-w-0 flex-1 truncate">@{m.nick || agentName(m.agent ?? "claude")}</span>
+            </Menu.Item>
+          ))}
+          <Menu.Item onClick={() => script({ k: "new" })} className={ITEM}>
+            <ScriptFace size={16} />
+            <span className="flex-1">{t("on.newCommand")}</span>
+          </Menu.Item>
+        </Sub>
+      )}
     </>
   );
 }

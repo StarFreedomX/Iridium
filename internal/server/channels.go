@@ -1481,7 +1481,7 @@ func (s *Server) memberPatch(w http.ResponseWriter, r *http.Request) {
 	var warn []string
 	if now.Agent() && was.Triggers != now.Triggers {
 		on := now.On()
-		s.tellMembers(c, ch, fmt.Sprintf("@%s 唤醒：%s", now.Nick, s.onWords(on)), channel.Event{Type: "on", Member: now.Member, Nick: now.Nick, On: on})
+		s.tellMembers(c, ch, fmt.Sprintf("@%s 唤醒：%s", now.Nick, s.onWords(on)), channel.Event{Type: "wake", Member: now.Member, Nick: now.Nick, On: on})
 		s.readsChanged(ch) // the channel's own agent: how far it has read depends on it
 		warn = s.loops(ch, now.Member)
 	}
@@ -1877,7 +1877,7 @@ func (e *behindError) Error() string { return e.text }
 // whose turn (an agent's, a script's) stands at l in the channel's run. A person's begins a run
 // and wakes whom the rules give it; past MaxHops in a row nobody is woken. limit: someone was to
 // be woken and nobody is, for the limit reached (0: none was).
-func (s *Server) wakes(text string, from deliver.From, l link, list []deliver.Agent) (wake, named []string, texts map[string][]string, limit int) {
+func (s *Server) wakes(text string, from deliver.From, l link, list []deliver.Agent) (wake, named []string, texts map[string][]api.Trigger, limit int) {
 	// <at> written in the words calls as "@nick" does (Markdown and Satori's elements mixed).
 	text = satori.AtWords(text, s.ch.Nick)
 	d := deliver.Route(text, from, list)
@@ -2086,7 +2086,7 @@ func (s *Server) sendChannelAs(ctx context.Context, c caller, from, ch string, r
 	var failed []string
 	sent := 0
 	for _, t := range wake {
-		queued, err := s.deliverTo(ctx, ch, t, seq, text+onText(texts[t]), req.ID, from, images, reach(who, lk))
+		queued, err := s.deliverTo(ctx, ch, t, seq, text+s.onText(texts[t]), req.ID, from, images, reach(who, lk))
 		if err != nil {
 			s.logf("server: channel %s: message %d to %s: %v", ch, seq, t, err)
 			firstErr = cmp.Or(firstErr, err)
@@ -2493,7 +2493,7 @@ func (s *Server) routeSaid(m channel.Message) {
 	go func() {
 		for _, t := range wake {
 			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-			_, err := s.deliverTo(ctx, m.Channel, t, m.Seq, m.Text+onText(texts[t]), "", from, nil, reach(who, lk))
+			_, err := s.deliverTo(ctx, m.Channel, t, m.Seq, m.Text+s.onText(texts[t]), "", from, nil, reach(who, lk))
 			cancel()
 			if err != nil {
 				s.logf("server: channel %s: message %d to %s: %v", m.Channel, m.Seq, t, err)

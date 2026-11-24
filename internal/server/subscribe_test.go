@@ -23,7 +23,7 @@ func TestSubscriptions(t *testing.T) {
 
 	// Another joins: the greeter is woken by it, given its subscription's words.
 	l.want(200, "web", "POST", "/v1/internal/channels/"+ch+"/members", api.NewMember{Agent: api.AgentClaude, Nick: "late"}, &ms)
-	l.waitSaid("web", ch, "@greeter ", "late", "[subscription] say hello")
+	l.waitSaid("web", ch, "@greeter ", "late", "[woken: a member joins] say hello")
 
 	// A time: a line of the channel, then the agent woken by it.
 	tick := []api.Trigger{{Cron: "* * * * *", Text: "tick"}}
@@ -31,7 +31,7 @@ func TestSubscriptions(t *testing.T) {
 	l.idle(greeter)
 	l.s.cronAgents(time.Now().Truncate(time.Minute))
 	l.waitSaid("web", ch, "iridium", "定时", "@greeter")
-	l.waitSaid("web", ch, "@greeter ", "[subscription] tick")
+	l.waitSaid("web", ch, "@greeter ", "[woken: at ", "] tick")
 
 	// A ring: the first wakes on the greeter's last words, the greeter on the first's.
 	l.idle(greeter)

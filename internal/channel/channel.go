@@ -173,12 +173,12 @@ func CleanOn(on []api.Trigger, self string) ([]api.Trigger, error) {
 	return out, nil
 }
 
-// EventKind is the subscription's name of a kind of line from before the subscriptions:
-// "recv" and "script" are "on", "people" "join" (and "leave").
+// EventKind is an event entry's name of a kind of line: those of before it as theirs now,
+// "recv", "script" and "on" (2026-11-23) are "wake", "people" "join" (and "leave").
 func EventKind(e string) string {
 	switch e = strings.TrimSpace(e); e {
-	case "recv", "script":
-		return "on"
+	case "recv", "script", "on":
+		return "wake"
 	case "people":
 		return "join"
 	}
