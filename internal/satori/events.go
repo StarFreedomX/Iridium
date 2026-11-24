@@ -192,17 +192,20 @@ func (s *Service) handle(n session.Notice, at time.Time) {
 		s.started[n.Session] = at
 		s.mu.Unlock()
 		s.rest(n.Session, origin)
-		if s.log != nil {
-			s.log.Listen(n.Session, at.Add(-2*time.Second).UnixMilli())
-			s.sayingOf(n.Session).from = s.endOf(n.Session)
-		}
+		// Told the turn began first: what is kept of the turn before (the twins of its messages
+		// where it was called) is let go before this turn's first message is made.
 		if s.onBegan != nil {
 			s.onBegan(n.Session)
+		}
+		if s.log != nil {
+			s.log.Listen(n.Session, at.Add(-2*time.Second).UnixMilli())
+			s.greet(n.Session, n.From)
 		}
 	case session.NoticeTaken:
 		if s.onTaken != nil {
 			s.onTaken(n.Session, n.Text)
 		}
+		s.regreet(n.Session, origin)
 	case session.NoticeWriting:
 		s.writing(n.Session, n.Text, origin)
 	case noticeWritten:

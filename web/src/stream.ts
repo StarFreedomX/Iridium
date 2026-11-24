@@ -13,7 +13,7 @@ export const drafts = new Set<(d: DraftEvent) => void>();
  *  (message-updated: the whole of it again), taken back (what it was from in _data), an emoji put
  *  on one or taken off (user, emoji). An agent's message is told as it begins to be written
  *  (_data.writing) and again as it grows and as its work goes on (docs/next/ui.md). */
-export type SatoriEvent = { type: string; channel?: { id: string }; message?: { id: string; content: string; created_at?: number; updated_at?: number; user?: { id: string; name?: string; nick?: string; is_bot?: boolean }; _data?: { kind?: string; event?: unknown; session?: string; block?: string; from?: number; to?: number; input?: string; writing?: boolean } }; user?: { id: string; name?: string }; emoji?: { id: string; name?: string }; _data?: { kind?: string } };
+export type SatoriEvent = { type: string; channel?: { id: string }; message?: { id: string; content: string; created_at?: number; updated_at?: number; user?: { id: string; name?: string; nick?: string; is_bot?: boolean }; _data?: { kind?: string; ask?: unknown; card?: string; event?: unknown; session?: string; block?: string; from?: number; to?: number; input?: string; writing?: boolean } }; user?: { id: string; name?: string }; emoji?: { id: string; name?: string }; _data?: { kind?: string } };
 /** Told each Satori event: what was said in the channels this login sees (chat/channel). */
 export const events = new Set<(e: SatoriEvent) => void>();
 /** Told each time the stream opens, which it may have been down: drafts go, new blocks are fetched. */

@@ -11,7 +11,7 @@ import { flushSync } from "react-dom";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
 import { Popover } from "@base-ui/react/popover";
 import { api } from "../../api/client";
-import type { Block, ChannelReads, Reader, SessionState as LiveSession, Session } from "../../api/types.gen";
+import type { Ask, Block, ChannelReads, Reader, SessionState as LiveSession, Session } from "../../api/types.gen";
 import { firstScreen, fresh, freshState, isWhole, stateAhead, type Sent } from "../../chats";
 import { LOCAL_ME, useApps, useMe, useWhoList, useWorkspaces } from "../../data";
 import { t, useLang } from "../../i18n";
@@ -36,7 +36,7 @@ import { Stick, toEnd } from "../stick";
 import { WorkLine } from "../work";
 import { askQueue, quoteAt, watchExtra, type AgentRow, type Did, type Msg, type Work, eventParts, personName, type EventWords } from "./lib";
 import { channelLog } from "./log";
-import { doneBefore, readMarks, type Group, type Person } from "./rows";
+import { doneBefore, openAsks, readMarks, type Group, type Person } from "./rows";
 import { lendActs } from "./menu";
 import { onOf } from "./scripts";
 import { useRecvLabel } from "./recv";
@@ -365,7 +365,9 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
   const old = (m: Msg) => foldsOnce(id, `m${m.n}`, olds?.has(m.n));
   const secretAt = useSecret()?.at;
   const secretHere = secretAt === id || (!!solo && secretAt === solo.session);
-  const asking = agents.some((a) => !!stateAt(a.session)?.asks.length) || agents.some((a) => confirms.some((c) => c.session === a.session && c.kind !== "ask")) || secretHere;
+  // The asks open, as the channel's messages say (an ask's message carries it while it is open).
+  const asks = useMemo(() => openAsks(log.msgs, agents.map((a) => ({ session: a.session, asks: stateAt(a.session)?.asks ?? [] }))), [log.msgs, agents.map((a) => `${a.session}:${(stateAt(a.session)?.asks ?? []).map((x) => x.requestId).join(",")}`).join(" ")]);
+  const asking = agents.some((a) => !!asks.get(a.session)?.length) || agents.some((a) => confirms.some((c) => c.session === a.session && c.kind !== "ask")) || secretHere;
   const compacting = soloState?.status === "compacting";
   const compactSince = useRef(0);
   if (!compacting) compactSince.current = 0;
@@ -393,7 +395,7 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
             {!hold &&
               groups.map((g) => (
                 <div key={g.key} className="relative flex min-w-0 flex-col">
-                  <GroupView g={g} channel={id} agents={agents} who={who} record={record} call={call} may={may} quote={may ? quoting : undefined} quoted={quoted} bars={bars} fold={fold} old={old} jump={jump} wrote={log.wrote} hidden={hidden} pending={pending} />
+                  <GroupView g={g} channel={id} agents={agents} who={who} record={record} call={call} may={may} quote={may ? quoting : undefined} quoted={quoted} bars={bars} fold={fold} old={old} jump={jump} wrote={log.wrote} born={log.born} hidden={hidden} pending={pending} />
                   {/* In the gap under it, over nothing: coming late, it moves nothing (docs/前端设计规范.md). */}
                   {SHOW_READS && marks.has(g.key) && <ReadMarks readers={marks.get(g.key)!} agents={agents} />}
                 </div>
@@ -420,7 +422,7 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
                 </Of>
               ) : null;
             })}
-            <AskQueue agents={agents} states={agents.map((a) => stateAt(a.session))} cwd={s.cwd} off={!may} />
+            <AskQueue agents={agents} states={agents.map((a) => stateAt(a.session))} asks={asks} cwd={s.cwd} off={!may} />
             {!may ? (
               <NotJoined />
             ) : (
@@ -564,12 +566,12 @@ export function Of({ a, children, off }: { a: AgentRow; children: ReactNode; off
 /** The channel's agents' asks as one queue (docs/channels.md "提问"): the oldest open, the rest one
  *  line, 还有 N 个, pressed open too. Each under its agent. */
 const SEEN = new Map<string, Map<string, number>>();
-export function AskQueue({ agents, states, cwd, off }: { agents: AgentRow[]; states: (LiveSession | undefined)[]; cwd: string; off: boolean }) {
+export function AskQueue({ agents, states, asks, cwd, off }: { agents: AgentRow[]; states: (LiveSession | undefined)[]; asks: Map<string, Ask[]>; cwd: string; off: boolean }) {
   const [all, setAll] = useState(false);
   const key = agents.map((a) => a.session).join(",");
   let seen = SEEN.get(key);
   if (!seen) SEEN.set(key, (seen = new Map()));
-  const queue = askQueue(agents.map((a, i) => ({ session: a.session, asks: states[i]?.asks ?? [] })), seen);
+  const queue = askQueue(agents.map((a) => ({ session: a.session, asks: asks.get(a.session) ?? [] })), seen);
   if (!queue.length) return null;
   const shown = all ? queue : queue.slice(0, 1);
   return (
@@ -614,7 +616,7 @@ function blockFor(m: Msg, agents: AgentRow[]): Block {
  *  agents). wrote: the messages this page saw written, drawn so to their end and never folded of
  *  themselves. hidden: those whose count of what was done before them is the line of the one
  *  before (rows.ts doneBefore). */
-export function GroupView({ g, channel, agents, who, record, call, may, quote, quoted, bars, fold, old, jump, wrote, hidden, pending }: { fold?: (m: Msg) => boolean; old?: (m: Msg) => boolean; jump?: (n: number) => void; g: Group<Sent>; channel: string; agents: AgentRow[]; who: Who; record: (session: string) => void; call: (nick: string) => void; may: boolean; quote?: (m: Msg) => void; quoted: (n: number) => { who: string; text: string } | undefined; bars: (session: string) => ReactNode; wrote?: ReadonlySet<number>; hidden?: ReadonlySet<number>; pending?: (x: Sent, bare: boolean) => ReactNode }) {
+export function GroupView({ g, channel, agents, who, record, call, may, quote, quoted, bars, fold, old, jump, wrote, born, hidden, pending }: { born?: Set<number>; fold?: (m: Msg) => boolean; old?: (m: Msg) => boolean; jump?: (n: number) => void; g: Group<Sent>; channel: string; agents: AgentRow[]; who: Who; record: (session: string) => void; call: (nick: string) => void; may: boolean; quote?: (m: Msg) => void; quoted: (n: number) => { who: string; text: string } | undefined; bars: (session: string) => ReactNode; wrote?: ReadonlySet<number>; hidden?: ReadonlySet<number>; pending?: (x: Sent, bare: boolean) => ReactNode }) {
   const list = useList();
   const a = g.author;
   const msgs = g.lines.flatMap((l) => (l.m ? [l.m] : []));
@@ -659,7 +661,14 @@ export function GroupView({ g, channel, agents, who, record, call, may, quote, q
           const session = m.src?.session ?? a.session;
           const line = (props: { work?: Work; did?: Did; span?: { from: number; to: number } }) => <WorkLine channel={channel} n={m.n} session={session} may={may} esc={agents.length === 1} {...props} />;
           return (
-            <div key={m.n} data-seq={m.n} className={cn(m.kind === "error" && "text-err")}>
+            <div
+              key={m.n}
+              data-seq={m.n}
+              // Come by an event: in as a bubble sent from here comes (kumo, 2026-11-24), its
+              // head with it where it is the first of its sender's run.
+              ref={(el) => void (el && born?.delete(m.n) && pushIn(m === msgs[0] ? (el.closest<HTMLElement>("[data-row]") ?? el) : el))}
+              className={cn(m.kind === "error" && "text-err")}
+            >
               {/* What an older message says was done before it, where the one before has no line of its own for it. */}
               {m.did && !m.work && !hidden?.has(m.n) && line({ did: m.did, ...(m.src?.from !== undefined && m.src.to ? { span: { from: m.src.from, to: m.src.to } } : {}) })}
               {said && (

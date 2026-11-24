@@ -37,6 +37,8 @@ export class ChannelLog {
   readonly placed = new Map<number, Placed>();
   /** The messages this page saw being written: drawn as they were written to the end. */
   readonly wrote = new Set<number>();
+  /** The messages that came by an event since they were last drawn: each comes in once. */
+  readonly born = new Set<number>();
   private coming: Promise<void> | undefined;
   private again = false;
   /** Where to read on from, when an event's message came further on than the next number: the
@@ -181,6 +183,8 @@ export class ChannelLog {
     if (it.n < (this.msgs[0]?.n ?? 0)) return;
     this.touched.set(it.n, ++this.told);
     if (it.writing) this.wrote.add(it.n);
+    // New under the eyes: drawn coming in, as a bubble sent from here is (page.tsx).
+    if (told === "message-created") this.born.add(it.n);
     const end = this.end;
     this.put([it]);
     if (it.n <= end + 1) return;

@@ -313,6 +313,7 @@ export const en: Dict = {
   "work.step": "Step {n}",
   "work.step1": "1 step",
   "work.steps": "{n} steps",
+  "work.thinking": "Thinking",
   "work.earlier": "{n} earlier steps",
   "work.agents": "{n} subagents",
   "work.sec": "{s}s",

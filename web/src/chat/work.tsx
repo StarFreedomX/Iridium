@@ -193,7 +193,7 @@ export function WorkLine({ channel, n, session, work, did, span, may, esc }: { c
               <>
                 <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-run" />
                 <span key={`s${steps}`} className="g-fade shrink-0 tabular-nums">
-                  {t("work.step", { n: steps })}
+                  {steps ? t("work.step", { n: steps }) : t("work.thinking")}
                 </span>
                 {work.tool && (
                   <span key={`t${steps}`} className="g-fade flex min-w-0 items-center gap-1.5">

@@ -3031,6 +3031,11 @@ func (s *Server) liveSaid(m channel.Message, passing bool) {
 			s.sat.TwinNow(tw.channel, tw.seq, m, passing, "")
 			return
 		}
+		// Taken away meanwhile (made as its turn began, of a turn whose first words were another
+		// message): no twin of it.
+		if _, there := s.ch.Get(m.Channel, m.Seq); !there {
+			return
+		}
 		unlock := s.chain.lock(id)
 		c, ok := s.calls.answering(id, taken)
 		ok = ok && c.Channel != m.Channel && s.ch.Speaks(c.Channel, id)
@@ -3040,6 +3045,21 @@ func (s *Server) liveSaid(m channel.Message, passing bool) {
 		}
 		if seq := s.sat.Twin(c.Channel, m, s.chain.of(c.Channel, id).origin); seq != 0 {
 			s.twins.put(id, m.Seq, twin{c.Channel, seq})
+		}
+	})
+}
+
+// liveGone: m, told by liveSaid, is no more (a message made as a turn began, of a turn that
+// came to nothing): its twin goes with it.
+func (s *Server) liveGone(m channel.Message) {
+	id, ok := store.SessionOfMember(m.Author)
+	if !ok || m.Channel != id {
+		return
+	}
+	s.answers.add(id, func() {
+		tw, has := s.twins.of(id, m.Seq)
+		if has {
+			s.sat.DropTwin(tw.channel, tw.seq)
 		}
 	})
 }

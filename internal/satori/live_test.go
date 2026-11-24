@@ -42,10 +42,16 @@ func TestLiveMessage(t *testing.T) {
 		r.s.Notice(session.Notice{Session: "s1", Kind: k, Text: text, Tool: tool})
 	}
 	r.s.Notice(session.Notice{Session: "s1", Kind: session.NoticeTurnStart, From: "app1"})
-	n(session.NoticeWriting, "I will ", "")
+	// Its turn begun: a message of its at once, of no words, that says it is at it.
 	c := liveEvents(t, w, 1)[0]
-	if c.Type != "message-created" || c.Message.ID != "3" || c.Message.Content != "I will " || c.User.ID != "agent:s1" {
+	if c.Type != "message-created" || c.Message.ID != "3" || !strings.Contains(c.Message.Content, `<iridium:work steps="0" running="true"`) || c.User.ID != "agent:s1" {
 		t.Fatalf("created: %+v %+v", c, c.Message)
+	}
+	// Its first words are that message's.
+	n(session.NoticeWriting, "I will ", "")
+	c = liveEvents(t, w, 1)[0]
+	if c.Type != "message-updated" || c.Message.ID != "3" || c.Message.Content != "I will " {
+		t.Fatalf("its words: %+v %+v", c, c.Message)
 	}
 	time.Sleep(writeEvery + 20*time.Millisecond)
 	n(session.NoticeWriting, "look.", "")
@@ -104,17 +110,39 @@ func TestLiveWorkFirst(t *testing.T) {
 	}
 	n(session.NoticeTurnStart, "", "")
 	n(session.NoticeTool, "", "Bash")
-	c := liveEvents(t, w, 1)[0]
-	if c.Type != "message-created" || c.Message.ID != "3" || !strings.HasPrefix(c.Message.Content, "<iridium:work") || !strings.Contains(c.Message.Content, "running") {
+	evs := liveEvents(t, w, 2)
+	if c := evs[0]; c.Type != "message-created" || c.Message.ID != "3" || !strings.HasPrefix(c.Message.Content, "<iridium:work") || !strings.Contains(c.Message.Content, "running") {
+		t.Fatalf("its turn begun: %+v %+v", c, c.Message)
+	}
+	if c := evs[1]; c.Type != "message-updated" || c.Message.ID != "3" || !strings.Contains(c.Message.Content, `steps="1"`) || !strings.Contains(c.Message.Content, `tool="Bash"`) {
 		t.Fatalf("work first: %+v %+v", c, c.Message)
 	}
 	n(session.NoticeWriting, "Done.", "")
-	evs := liveEvents(t, w, 2)
+	evs = liveEvents(t, w, 2)
 	// The work of the wordless one is done, then the words are a new message.
 	if evs[0].Type != "message-updated" || evs[0].Message.ID != "3" || strings.Contains(evs[0].Message.Content, "running") {
 		t.Fatalf("work done: %+v %+v", evs[0], evs[0].Message)
 	}
 	if evs[1].Type != "message-created" || evs[1].Message.ID != "4" || evs[1].Message.Content != "Done." {
 		t.Fatalf("words: %+v %+v", evs[1], evs[1].Message)
+	}
+}
+
+// A turn that says and does nothing: the message made as it began is taken away again.
+func TestLiveNothing(t *testing.T) {
+	r := newRig(t)
+	r.f.addSession("s1", 2)
+	w := r.dial(nil)
+	w.send(OpIdentify, Identify{Token: "ir_good", Live: true})
+	w.want(OpReady, nil)
+	r.s.Notice(session.Notice{Session: "s1", Kind: session.NoticeTurnStart})
+	r.s.Notice(session.Notice{Session: "s1", Kind: session.NoticeTurnEnd})
+	evs := liveEvents(t, w, 2)
+	if evs[0].Type != "message-created" || evs[1].Type != "message-deleted" || evs[1].Message.ID != evs[0].Message.ID {
+		t.Fatalf("%+v %+v", evs[0], evs[1])
+	}
+	var l List[Message]
+	if status, e := r.as("u1", "message.list", map[string]any{"channel_id": "s1"}, &l); status != 200 || len(l.Data) != 2 {
+		t.Fatalf("listed: %d %+v %+v", status, e, l.Data)
 	}
 }

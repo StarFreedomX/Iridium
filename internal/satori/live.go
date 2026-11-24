@@ -39,6 +39,9 @@ type saying struct {
 	carrier int64
 	// last: the words of the last message it said in this turn.
 	last string
+	// pre: the message made as its turn began, of no words and no work yet: its first words are
+	// that message's, or its first work; neither come, it is taken away again.
+	pre int64
 	// from: how far its record went when the message that carries the work began (or its turn,
 	// for one of no words): where that work's steps begin, whatever of them the record has by
 	// the time the first is told.
@@ -127,13 +130,19 @@ func (s *Service) TwinNow(ch string, seq int64, m channel.Message, passing bool,
 	if !ok {
 		return
 	}
-	if passing {
+	if passing && !(cur.Kind == channel.KindWork && m.Kind == channel.KindSaid) {
 		// Not kept: the next one is.
 		if cur.D.Writing {
 			cur.Text = m.Text
 		}
 		cur.D.Work = m.D.Work
 		s.tellLive("message-updated", cur, true, origin)
+		return
+	}
+	if cur.Kind == channel.KindWork && m.Kind == channel.KindSaid {
+		if t, ok := s.log.Words(ch, seq, m.Text, m.D.Writing); ok {
+			s.tellLive("message-updated", t, false, origin)
+		}
 		return
 	}
 	var text *string
@@ -210,7 +219,8 @@ func (s *Service) writing(id, piece, origin string) {
 			return // nothing to show yet
 		}
 		st.from = s.endOf(id)
-		m, adopted, err := s.log.Begin(id, st.text.String(), true, s.heardOf(id))
+		pre := st.pre
+		m, adopted, err := s.log.Begin(id, st.text.String(), true, s.heardOf(id), pre)
 		if err != nil || m.Seq == 0 {
 			s.logf("satori: channel of %s: %v", id, err)
 			st.text.Reset()
@@ -219,7 +229,7 @@ func (s *Service) writing(id, piece, origin string) {
 		// It speaks again: what it did since it last spoke is done.
 		s.settle(id, st.carrier, origin)
 		st.seq, st.carrier, st.told, st.whole = m.Seq, m.Seq, time.Now(), adopted
-		s.tellLive("message-created", m, false, origin)
+		s.begun(id, pre, m, origin)
 		return
 	}
 	if st.whole {
@@ -281,14 +291,15 @@ func (s *Service) say(id, text, origin string) {
 			return
 		}
 		st.from = s.endOf(id)
-		got, _, err := s.log.Begin(id, text, false, s.heardOf(id))
+		pre := st.pre
+		got, _, err := s.log.Begin(id, text, false, s.heardOf(id), pre)
 		if err != nil || got.Seq == 0 {
 			s.logf("satori: channel of %s: %v", id, err)
 			return
 		}
 		m = got
 		s.settle(id, st.carrier, origin)
-		s.tellLive("message-created", m, false, origin)
+		s.begun(id, pre, m, origin)
 	}
 	st.seq, st.carrier, st.last, st.whole = 0, m.Seq, text, false
 	st.text.Reset()
@@ -342,9 +353,12 @@ func (s *Service) step(id, tool, origin string) {
 	// Something was said in its channel after the message that carries its work (words put into
 	// its turn, another's): what it does from here is after that, on a message of its own
 	// (kumo, 2026-11-24: the steps under words sent into a turn counted those from before them).
-	if st.carrier != 0 && st.seq == 0 && s.log.End(id) > st.carrier {
+	if st.carrier != 0 && st.seq == 0 && s.saidAfter(id, st.carrier) {
 		s.settle(id, st.carrier, origin)
 		st.carrier, st.from = 0, s.endOf(id)
+	}
+	if st.carrier == 0 && st.pre != 0 {
+		st.carrier, st.pre = st.pre, 0
 	}
 	if st.carrier == 0 {
 		m, err := s.log.BeginWork(id, channel.Work{Steps: 1, Tool: tool, Running: true, At: now, From: st.from, Agents: sendsAgent(tool)})
@@ -388,6 +402,85 @@ func (s *Service) rest(id, origin string) {
 		}
 	}
 	s.settle(id, st.carrier, origin)
+	if st.pre != 0 {
+		s.gone(id, st.pre, origin)
+	}
+}
+
+// greet: id's agent begins a turn heard live: a message of its at once, of no words yet, that
+// says it is at it (kumo, 2026-11-24: nothing told a person their words were taken till the
+// agent wrote its first). What it first says or does is that message's.
+func (s *Service) greet(id, origin string) {
+	if s.log == nil || !s.log.Listening(id) {
+		return
+	}
+	st := s.sayingOf(id)
+	st.from = s.endOf(id)
+	m, err := s.log.BeginWork(id, channel.Work{Running: true, At: time.Now().UnixMilli(), From: st.from})
+	if err != nil || m.Seq == 0 {
+		return
+	}
+	st.pre = m.Seq
+	s.tellLive("message-created", m, false, origin)
+}
+
+// regreet tells the message made as id's turn began once more: who hears of it (where the agent
+// was called) may know only now where that is.
+func (s *Service) regreet(id, origin string) {
+	if s.log == nil {
+		return
+	}
+	if st := s.sayingOf(id); st.pre != 0 {
+		if m, ok := s.log.Get(id, st.pre); ok {
+			s.tellLive("message-updated", m, true, origin)
+		}
+	}
+}
+
+// begun: m is the message id's agent begins to say: the one made as its turn began (pre), now
+// with words, or another, and then that one is not needed.
+func (s *Service) begun(id string, pre int64, m channel.Message, origin string) {
+	st := s.sayingOf(id)
+	st.pre = 0
+	if pre != 0 && m.Seq == pre {
+		s.tellLive("message-updated", m, false, origin)
+		return
+	}
+	if pre != 0 {
+		s.gone(id, pre, origin)
+	}
+	s.tellLive("message-created", m, false, origin)
+}
+
+// gone takes message seq of id's channel away, one made as a turn began that came to nothing.
+func (s *Service) gone(id string, seq int64, origin string) {
+	m, ok := s.log.Get(id, seq)
+	if !ok {
+		return
+	}
+	s.log.Forget(id, seq)
+	s.tellGone(m, origin)
+	if s.onLiveGone != nil {
+		s.onLiveGone(m)
+	}
+}
+
+// tellGone tells those who take messages live that m is no more.
+func (s *Service) tellGone(m channel.Message, origin string) {
+	st, err := s.b.Session(m.Channel)
+	if err != nil {
+		return
+	}
+	msg := Message{ID: strconv.FormatInt(m.Seq, 10), User: s.authorOf(m, nil), CreatedAt: m.At, Data: logData(m)}
+	s.emitTo(toLive, false, st.Session, "", Event{Type: "message-deleted", Message: &msg, User: msg.User}, nil, logData(m).Kind, origin)
+}
+
+// DropTwin takes a twin (Twin) away with the message it was of.
+func (s *Service) DropTwin(ch string, seq int64) {
+	if m, ok := s.log.Get(ch, seq); ok {
+		s.log.Forget(ch, seq)
+		s.tellGone(m, "")
+	}
 }
 
 // heardOf is the number of the last message heard from id's agent.
@@ -403,4 +496,20 @@ func sendsAgent(tool string) int {
 		return 1
 	}
 	return 0
+}
+
+// saidAfter: someone else said something in id's channel after its message seq (words put into
+// its turn, another's): not its own, nor a line of Iridium's, nor one taken away.
+func (s *Service) saidAfter(id string, seq int64) bool {
+	rows, err := s.log.Between(id, seq, 0, 50)
+	if err != nil {
+		return false
+	}
+	me := store.AgentMember(id)
+	for _, m := range rows {
+		if !m.Gone && m.Author != me && (m.Kind == channel.KindUser || m.Kind == channel.KindSaid) {
+			return true
+		}
+	}
+	return false
 }

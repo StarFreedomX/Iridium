@@ -159,6 +159,7 @@ func New(cfg config.Config, m *session.Manager, h *hub.Hub, logf func(string, ..
 	s.sat.Channels(s.ch)
 	s.sat.OnSaid(s.routeSaid)
 	s.sat.OnLive(s.liveSaid)
+	s.sat.OnLiveGone(s.liveGone)
 	// A turn's start and end in order with what its agent wrote (answers), so that its words
 	// are said where it was called before the call closes.
 	s.sat.OnTaken(s.answers.took)

@@ -1,9 +1,9 @@
 package satori
 
 import (
-	"encoding/json"
 	"cmp"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"slices"

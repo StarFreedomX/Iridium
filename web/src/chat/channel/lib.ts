@@ -4,7 +4,7 @@
 // (internal/deliver Mentions) and put into the composer; the agents listed under a channel's row;
 // a channel's lamp.
 import type { ChannelMessage } from "../../api/client";
-import type { Agent, Device, FileRef, Session, Status, Trigger } from "../../api/types.gen";
+import type { Agent, Device, FileRef, Session, Status, Trigger, Ask } from "../../api/types.gen";
 import { blockOf } from "../../satori";
 import { onOf, recvOf, scriptOfUser } from "./scripts";
 
@@ -23,7 +23,7 @@ export type Src = { session: string; block?: string; from?: number; to?: number 
  *  msgWords). writing: an agent's, still being written (docs/next/ui.md: told as it begins and as
  *  it grows); work: what the agent did after it (<iridium:work>); a message of kind "work" is
  *  that alone, no words. did: what it did before it, as older messages say (<iridium:activity>). */
-export type Msg = { n: number; text: string; files: FileRef[]; time?: number; author: Author; kind?: string; did?: Did; work?: Work; writing?: boolean; event?: ChEvent; src?: Src; quote?: number; input?: string };
+export type Msg = { n: number; text: string; files: FileRef[]; time?: number; author: Author; kind?: string; did?: Did; work?: Work; writing?: boolean; event?: ChEvent; src?: Src; quote?: number; input?: string; ask?: Ask; card?: string };
 
 /** What an agent did after a message of its turn (<iridium:work>, internal/satori/live.go
  *  workElement): steps, its calls so far; running, while it goes on; tool, the latest call's name;
@@ -211,7 +211,7 @@ export function msgOf(m: ChannelMessage): Msg | undefined {
   const q = /^<quote id="(\d+)"\s*\/>/.exec(m.content);
   const did = author.kind === "agent" ? didOf(m.content) : undefined;
   const work = author.kind === "agent" ? workIn(m.content) : undefined;
-  return { n, text: b.text ?? "", files: b.files ?? [], author, ...(q ? { quote: Number(q[1]) } : {}), ...(m.created_at ? { time: m.created_at } : {}), ...(m._data?.kind ? { kind: m._data.kind } : {}), ...(m._data?.input ? { input: m._data.input } : {}), ...(did ? { did } : {}), ...(work ? { work } : {}), ...(m._data?.writing ? { writing: true } : {}), ...(m._data?.event && typeof m._data.event === "object" ? { event: m._data.event as ChEvent } : {}), ...(author.kind === "agent" && m._data?.session ? { src: { session: m._data.session, ...(m._data.block ? { block: m._data.block } : {}), ...(typeof m._data.from === "number" ? { from: m._data.from } : {}), ...(m._data.to ? { to: m._data.to } : {}) } } : {}) };
+  return { n, text: b.text ?? "", files: b.files ?? [], author, ...(q ? { quote: Number(q[1]) } : {}), ...(m.created_at ? { time: m.created_at } : {}), ...(m._data?.kind ? { kind: m._data.kind } : {}), ...(m._data?.input ? { input: m._data.input } : {}), ...(m._data?.ask ? { ask: m._data.ask as Ask } : {}), ...(m._data?.card ? { card: m._data.card } : {}), ...(did ? { did } : {}), ...(work ? { work } : {}), ...(m._data?.writing ? { writing: true } : {}), ...(m._data?.event && typeof m._data.event === "object" ? { event: m._data.event as ChEvent } : {}), ...(author.kind === "agent" && m._data?.session ? { src: { session: m._data.session, ...(m._data.block ? { block: m._data.block } : {}), ...(typeof m._data.from === "number" ? { from: m._data.from } : {}), ...(m._data.to ? { to: m._data.to } : {}) } } : {}) };
 }
 
 const NICK_RUNE = /[\p{L}\p{N}_-]/u;

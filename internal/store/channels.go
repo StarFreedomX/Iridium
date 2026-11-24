@@ -820,3 +820,12 @@ func (s *Store) SettleLiveMessages() error {
 	_, err := s.db.Exec(`UPDATE channel_messages SET data = json_remove(data, '$.work.running') WHERE data LIKE '%"running":true%'`)
 	return err
 }
+
+// SetChannelMessageKind changes message seq's kind (an agent's message of no words that got its
+// words: channel.KindWork to KindSaid).
+func (s *Store) SetChannelMessageKind(channel string, seq int64, kind string) error {
+	if _, err := s.db.Exec(`UPDATE channel_messages SET kind = ? WHERE channel = ? AND seq = ?`, kind, channel, seq); err != nil {
+		return err
+	}
+	return s.reindex(channel, seq)
+}

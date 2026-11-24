@@ -2,10 +2,11 @@
 // number once, put in as the log, the events and this device's copy bring them; the bubbles of
 // what was sent from this page till each is a message; their order; and the runs of one sender
 // under one head. The table that holds them is log.ts ChannelLog; the page only draws what it gives.
+import type { Ask } from "../../api/types.gen";
 import type { Author, Msg } from "./lib";
 
 /** A message as compared: one read again the same changes nothing. */
-const sig = (m: Msg) => JSON.stringify([m.n, m.text, m.files, m.time, m.author, m.kind, m.did, m.work, m.writing, m.event, m.src, m.quote, m.input]);
+const sig = (m: Msg) => JSON.stringify([m.n, m.text, m.files, m.time, m.author, m.kind, m.did, m.work, m.writing, m.event, m.src, m.quote, m.input, m.card, m.ask]);
 
 /** have with more put in: each number once, in order. A reading replaces what was held, but what it
  *  does not say (the kind, where it is from in its agent's record, a person's input id) stays as
@@ -117,5 +118,24 @@ export function readMarks<S, R extends { member: string; seq: number }>(groups: 
     }
     if (at) out.set(at.key, [...(out.get(at.key) ?? []), r]);
   }
+  return out;
+}
+
+/** The asks open in the channel, as its messages say (docs/next/ui.md: an ask is a message that
+ *  carries the ask while it is open, and none once the update that ends it came): by the session
+ *  of the agent that asks, oldest first. state: what each agent's own state says is open, taken
+ *  only for an ask whose message is not among those held (said before the page's first). */
+export function openAsks(msgs: readonly Msg[], state: readonly { session: string; asks: readonly Ask[] }[]): Map<string, Ask[]> {
+  const out = new Map<string, Ask[]>();
+  const cards = new Set<string>();
+  for (const m of msgs) {
+    if (m.card) cards.add(m.card);
+    if (m.ask && m.author.kind === "agent") out.set(m.author.session, [...(out.get(m.author.session) ?? []), m.ask]);
+  }
+  for (const s of state)
+    for (const a of s.asks) {
+      const have = out.get(s.session) ?? [];
+      if (!cards.has(`ask:${s.session}:${a.requestId}`) && !have.some((x) => x.requestId === a.requestId)) out.set(s.session, [...have, a]);
+    }
   return out;
 }

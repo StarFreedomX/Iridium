@@ -1020,7 +1020,7 @@ func (s *Service) anchor(ch string, seq int64, session string, b api.Block, did 
 // message heard from it. Its record may have had these words, and whoever looked read them in,
 // before its turn was known to be heard (Listen comes a little late): then the first message of
 // this turn that is from the record and was not heard yet is the one (adopted, whole).
-func (s *Service) Begin(session, text string, writing bool, after int64) (m Message, adopted bool, err error) {
+func (s *Service) Begin(session, text string, writing bool, after, pre int64) (m Message, adopted bool, err error) {
 	// What its record has before these words (what it was asked, typed in its terminal or as a
 	// new session's first message) comes before them.
 	s.Touch(session)
@@ -1042,6 +1042,16 @@ func (s *Service) Begin(session, text string, writing bool, after int64) (m Mess
 			}
 		}
 	}
+	// pre: the message made for it as its turn began (BeginWork), of no words yet and no work:
+	// these words are its.
+	if pre != 0 {
+		if m, ok := s.words(session, pre, text, writing); ok {
+			s.mu.Lock()
+			s.await[session] = append(s.await[session], m.Seq)
+			s.mu.Unlock()
+			return m, false, nil
+		}
+	}
 	m, _, err = s.add(Message{ChannelMessage: store.ChannelMessage{Channel: session, Author: author, Kind: KindSaid, Text: text},
 		D: Data{Session: session, Writing: writing}})
 	if err == nil && m.Seq != 0 {
@@ -1050,6 +1060,47 @@ func (s *Service) Begin(session, text string, writing bool, after int64) (m Mess
 		s.mu.Unlock()
 	}
 	return m, false, err
+}
+
+// words gives message seq of ch, one of no words (KindWork), its words: an agent's words from
+// now (KindSaid), text, being written or whole; the work it carried so far stays where it did
+// some. With the channel's lock held, or of a channel that is no session's.
+func (s *Service) words(ch string, seq int64, text string, writing bool) (Message, bool) {
+	m, ok := s.Get(ch, seq)
+	if !ok || m.Kind != KindWork {
+		return Message{}, false
+	}
+	if err := s.st.SetChannelMessageKind(ch, seq, KindSaid); err != nil {
+		s.logf("channel %s: message %d: %v", ch, seq, err)
+		return Message{}, false
+	}
+	m.Kind = KindSaid
+	if err := s.st.EditChannelMessage(ch, seq, text); err != nil {
+		s.logf("channel %s: message %d: %v", ch, seq, err)
+	}
+	m.Text = text
+	m.D.Writing = writing
+	if m.D.Work != nil && m.D.Work.Steps == 0 {
+		m.D.Work = nil
+	}
+	if err := s.st.SetChannelMessageData(ch, seq, m.D.encode()); err != nil {
+		s.logf("channel %s: message %d: %v", ch, seq, err)
+	}
+	return m, true
+}
+
+// Words is words for a message of another channel than its agent's own (a twin).
+func (s *Service) Words(ch string, seq int64, text string, writing bool) (Message, bool) {
+	defer s.lock(ch)()
+	return s.words(ch, seq, text, writing)
+}
+
+// Forget takes message seq of ch away as one never said (a message made as a turn began, of a
+// turn that said and did nothing).
+func (s *Service) Forget(ch string, seq int64) {
+	if err := s.st.ForgetChannelMessage(ch, seq); err != nil {
+		s.logf("channel %s: message %d: %v", ch, seq, err)
+	}
 }
 
 // Wrote: message seq of channel ch is written whole, text its words.

@@ -100,7 +100,7 @@ export function useWhenRow() {
 export function MsgRow({ className, children }: { className?: string; children: ReactNode }) {
   const row = useWhenRow();
   return (
-    <div {...row} className={cn(row.className, className)}>
+    <div {...row} data-row="" className={cn(row.className, className)}>
       {children}
     </div>
   );
