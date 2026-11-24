@@ -202,14 +202,7 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
     if (el) {
       const x = log.sent.find((y) => y.key === fly.current);
       fly.current = null;
-      // Put at the top, what answers it written under it (stick.tsx toEnd): its bubble, then the
-      // row it became.
-      toEnd(scroller.current, () => {
-        const b = x && bubbles.current.get(x.key);
-        if (b) return b;
-        const n = x && log.became(x);
-        return n !== undefined && n !== null ? (scroller.current?.querySelector(`[data-seq="${n}"]`) ?? null) : null;
-      });
+      toEnd(scroller.current);
       const t = pushIn(el);
       if (x) flew.current.set(x, t);
     }
@@ -724,7 +717,8 @@ export const GroupView = memo(function GroupView({ g, channel, agents, who, reco
               ref={(el) => void (el && born?.delete(m.n) && pushIn(m === msgs[0] ? (el.closest<HTMLElement>("[data-row]") ?? el) : el))}
             >
               {/* What an older message says was done before it, where the one before has no line of its own for it. */}
-              {m.did && !m.work && !hidden?.has(m.n) && line({ did: m.did, ...(m.src?.from !== undefined && m.src.to ? { span: { from: m.src.from, to: m.src.to } } : {}) })}
+              {/* No work of its own (said before messages carried it, or a twin where it was called): its steps from its record, by the span it says, as before. */}
+              {!m.work && !hidden?.has(m.n) && (m.did || (m.src?.from !== undefined && !!m.src.to)) && line({ ...(m.did ? { did: m.did } : {}), ...(m.src?.from !== undefined && m.src.to ? { span: { from: m.src.from, to: m.src.to } } : {}) })}
               {/* Its process ended badly: the channel's message of it, said as such (the line under
                   the conversation it was is gone: kumo, 2026-11-25). */}
               {said && m.kind === "error" && <Crash error={w.words} at="said" />}

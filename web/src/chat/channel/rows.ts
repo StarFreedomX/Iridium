@@ -96,7 +96,7 @@ export function doneBefore(msgs: readonly Msg[]): Set<number> {
   const last = new Map<string, Msg>();
   for (const m of msgs) {
     if (m.author.kind !== "agent") continue;
-    if (m.did && last.get(m.author.session)?.work) out.add(m.n);
+    if (last.get(m.author.session)?.work) out.add(m.n);
     last.set(m.author.session, m);
   }
   return out;

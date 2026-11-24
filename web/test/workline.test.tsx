@@ -26,7 +26,6 @@ test("one line of the same height running, done, and as an older message says it
   const done = draw(<WorkLine channel="c" n={2} session="c" work={{ steps: 3, running: false, from: 10, to: 20, ms: 12_000 }} may />);
   const older = draw(<WorkLine channel="c" n={3} session="c" did={{ bash: 2, failed: 0, cmds: "go 2", read: 1, web: 0, agents: 0, other: 0, files: 0, add: 0, del: 0, paths: [] }} may />);
   for (const el of [running, done, older]) expect(lineOf(el).className).toContain("h-7 ");
-  expect(running.textContent).toContain(t("work.step", { n: 3 }));
   expect(running.textContent).toContain("Bash");
   expect(running.querySelectorAll("button")).toHaveLength(2); // the line, its stop key
   expect(done.textContent).toContain(t("work.steps", { n: 3 }));

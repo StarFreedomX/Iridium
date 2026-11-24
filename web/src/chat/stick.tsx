@@ -30,14 +30,10 @@ const near = (el: HTMLElement) => Math.max(600, el.clientHeight * 2);
  *  anchoring: Chromium, Firefox, Safari 27 on). ?noanchor=1 tries the page's own way. */
 const anchors = () => typeof CSS !== "undefined" && CSS.supports("overflow-anchor", "auto") && !/[?&]noanchor=1/.test(location.search);
 
-type Turn = () => Element | null;
-type Chat = { toEnd(turn?: Turn): void; letGo(): void; rests(): boolean };
+type Chat = { toEnd(): void; letGo(): void; rests(): boolean };
 const chats = new WeakMap<HTMLElement, Chat>();
-/** A message sent from here: the chat follows again. turn: where that message is drawn (its
- *  bubble, then its row): it is put at the top, the room under it kept so (the chat's end there),
- *  and what answers it is written into that room, nothing moving, till it fills it (as ChatGPT's
- *  and Claude's pages do; kumo, 2026-11-25). */
-export const toEnd = (el: HTMLElement | null, turn?: Turn) => el && chats.get(el)?.toEnd(turn);
+/** A message sent from here: the chat follows again, to its end. */
+export const toEnd = (el: HTMLElement | null) => el && chats.get(el)?.toEnd();
 /** The chat is taken up by the reader's doing elsewhere (a quote pressed, gone to). */
 export const letGo = (el: HTMLElement | null) => el && chats.get(el)?.letGo();
 /** At its very newest and still: the phone's sheet may be swiped on from it (sheet.tsx). */
@@ -95,8 +91,7 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
   const [, redraw] = useState(0);
   // following: the reader's; left: px to the end as this last put it; ours: where this put the
   // scroll (to the part of a px); mark: without the browser's anchoring, the top row and its place.
-  const room = useRef<HTMLDivElement>(null);
-  const s = useRef({ following: place.top === null, turn: null as Turn | null, room: 0, frame: 0, last: 0, ours: -1, left: 0, pane: 0, drawn: false, tail: undefined as unknown, paging: false, drag: false, native: true, mark: null as Mark | null, hand: -Infinity }).current;
+  const s = useRef({ following: place.top === null, frame: 0, last: 0, ours: -1, left: 0, pane: 0, drawn: false, tail: undefined as unknown, paging: false, drag: false, native: true, mark: null as Mark | null, hand: -Infinity }).current;
 
   const maxOf = (el: HTMLElement) => el.scrollHeight - el.clientHeight;
   const hands = () => s.drag || performance.now() - s.hand < HAND;
@@ -115,19 +110,6 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     m.off = now;
   };
   const stop = () => (cancelAnimationFrame(s.frame), (s.frame = s.left = 0));
-  /** The room under the turn sent last: as much as puts its message at the top with the chat at
-   *  its end (the padding over it, under the top bar), less as what comes under it grows. Its
-   *  message not found this moment (its bubble going as its row comes): as it was. */
-  const fit = (el: HTMLElement) => {
-    const r = room.current;
-    const col = el.firstElementChild;
-    if (!r || !col || !s.turn) return;
-    const a = s.turn();
-    if (!a?.isConnected) return;
-    const under = col.getBoundingClientRect().bottom - a.getBoundingClientRect().top;
-    const h = Math.max(0, Math.round(el.clientHeight - (parseFloat(el.style.paddingTop) || 0) - (parseFloat(el.style.paddingBottom) || 0) - under));
-    if (h !== s.room) (s.room = h), (r.style.height = `${h}px`);
-  };
   const pin = (el: HTMLElement, why: string) => (Math.abs(leftOf(el)) > 0.5 && moveLog("stick.pin", why, { dy: -Math.round(leftOf(el)) }), stop(), put(el, maxOf(el)));
   // The follow, a frame at a time while there are px left to the end.
   const step = () => {
@@ -135,7 +117,6 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     const el = list.current;
     if (!el || !s.following) return;
     keep(el);
-    fit(el);
     // By the time it is drawn at, at most two frames' worth after the page was busy: the way left
     // is gone on with, not jumped.
     const now = performance.now();
@@ -155,12 +136,10 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
   const run = () => void (!s.frame && s.following && ((s.last = performance.now()), (s.frame = requestAnimationFrame(step))));
   const leave = () => (s.following && moveLog("stick.leave", "reader"), (s.following = false), stop());
   const follow = () => ((s.following = true), setFresh(false));
-  /** To the end, eased from no farther than NEAR (the key pressed, a message sent: turn, where
-   *  it is drawn, the end put under it). */
-  const goDown = (why: string, turn?: Turn) => {
+  /** To the end, eased from no farther than NEAR (the key pressed, a message sent). */
+  const goDown = (why: string) => {
     const el = list.current;
     if (!el) return;
-    if (turn) (s.turn = turn), fit(el);
     if (!s.following && maxOf(el) - el.scrollTop > NEAR) (moveLog("stick.jump", why, { dy: -Math.round(maxOf(el) - NEAR - el.scrollTop) }), put(el, maxOf(el) - NEAR));
     follow();
     run();
@@ -218,8 +197,7 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     // pane itself another height (the keyboard, the window): at the end at once.
     const ro = new ResizeObserver(() => {
       keep(el);
-      fit(el);
-      const pane = el.clientHeight !== s.pane;
+        const pane = el.clientHeight !== s.pane;
       s.pane = el.clientHeight;
       // Something in it draws its own change of height (a list of steps opening, words folding,
       // the room under it for the composer): the end stays where it is each frame, so what is under
@@ -229,7 +207,7 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     });
     ro.observe(el);
     if (el.firstElementChild) ro.observe(el.firstElementChild);
-    chats.set(el, { toEnd: (turn) => goDown("send", turn), letGo: leave, rests: () => s.following && !s.frame && atFoot(el) });
+    chats.set(el, { toEnd: () => goDown("send"), letGo: leave, rests: () => s.following && !s.frame && atFoot(el) });
     // The reader's way up, seen before the scroll comes; down at the very end, where none comes.
     const wheel = (e: WheelEvent) => {
       s.hand = performance.now();
@@ -287,8 +265,6 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
           centred, in line with the composer and the top bar (the user, 2026-11-06). */}
       <div ref={list} role="log" aria-label={t("chat.log")} onScroll={scrolled} className={cn("gapless absolute inset-0 overflow-y-auto [scrollbar-gutter:stable_both-edges]", eased && "g-room")} style={style}>
         {children}
-        {/* The room under the turn sent last (fit): never what keeps the view in place. */}
-        <div ref={room} aria-hidden className="[overflow-anchor:none]" />
       </div>
       {fresh && !quiet && (
         <button type="button" onClick={() => goDown("key")} className="g-pop g-press glass thick float absolute left-1/2 z-10 flex h-8 -translate-x-1/2 items-center gap-1.5 rounded-full px-3 text-xs font-medium text-ink" style={{ bottom: bottom + 10 }}>

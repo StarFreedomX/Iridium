@@ -310,7 +310,6 @@ export const zh = {
   "channel.did.web": "网页 {n}",
   "channel.did.agents": "子 agent {n}",
   "channel.did.other": "其他工具 {n}",
-  "work.step": "第 {n} 步",
   "work.step1": "1 步",
   "work.steps": "{n} 步",
   "work.reaching": "连接中",

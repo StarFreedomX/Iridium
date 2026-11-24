@@ -310,7 +310,6 @@ export const en: Dict = {
   "channel.did.web": "web {n}",
   "channel.did.agents": "subagents {n}",
   "channel.did.other": "other tools {n}",
-  "work.step": "Step {n}",
   "work.step1": "1 step",
   "work.steps": "{n} steps",
   "work.reaching": "Connecting",

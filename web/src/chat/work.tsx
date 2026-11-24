@@ -193,13 +193,16 @@ export function WorkLine({ channel, n, session, work, did, span, may, esc }: { c
   const read = () => from !== undefined && void (work ? readSteps(session, from, undefined, steps) : readSteps(session, from, to)).catch(() => {});
   // Read as it is drawn (its line says what was done by its sorts, as its record has it), and
   // again as its steps go on while it is open.
-  useEffect(() => void ((open || !running) && read()), [open, steps, running, to]);
+  useEffect(() => void read(), [open, steps, running, to]);
   const limit = work ? Math.max(steps, 1) : undefined;
   const all = useMemo(() => (blocks ? allStepsOf(blocks, running, limit) : undefined), [blocks, running, limit]);
-  const runs = useMemo(() => (all && !running ? foldLine(all) : []), [all, running]);
+  const runs = useMemo(() => (all ? foldLine(all) : []), [all]);
   const diff = useMemo(() => diffSum(runs), [runs]);
+  // One step done: the step itself on the line, pressed its card; nothing to fold (kumo, 2026-11-25).
+  const one = !running && all?.length === 1 ? all[0] : undefined;
   const parts = did && !work ? didParts(did) : [];
-  if (!work && !parts.length) return null;
+  // An older message's span read and nothing in it: no line.
+  if (!work && !parts.length && !runs.length) return null;
   /** Opened or put away; to: narrowed to that sort (pressed again while it is: put away; another
    *  while open: narrowed to that one instead, still open). */
   const toggle = (to: Only | null = null) => {
@@ -214,7 +217,8 @@ export function WorkLine({ channel, n, session, work, did, span, may, esc }: { c
   };
   return (
     <div className="min-w-0">
-      <div className="flex h-7 min-w-0 items-center gap-1.5 text-sm text-ink-3 pointer-coarse:h-9">
+      {/* The room right of its keys opens all of it too (kumo, 2026-11-25); each key keeps its own. */}
+      <div onClick={(e) => opens && !one && !(e.target as Element).closest("button") && toggle()} className={cn("flex h-7 min-w-0 items-center gap-1.5 text-sm text-ink-3 pointer-coarse:h-9", opens && !one && "cursor-pointer")}>
         {/* The key that opens all of it, before the rest; where it worked, pressed, the same. */}
         <button
           type="button"
@@ -223,21 +227,25 @@ export function WorkLine({ channel, n, session, work, did, span, may, esc }: { c
           onPointerEnter={read}
           onPointerDown={read}
           onFocus={read}
-          onClick={() => toggle()}
-          className={cn("flex h-full min-w-0 items-center gap-1.5 rounded-sm text-left outline-none", running || !runs.length ? "flex-1" : "shrink-0", opens && "cursor-pointer hover:text-ink-2 focus-visible:text-ink-2", open && !only && "text-ink-2")}
+          onClick={(e) => (one ? setCard((c) => (c?.open ? { ...c, open: false } : { key: one.at, at: one.at, group: [one.at], el: e.currentTarget, open: true })) : toggle())}
+          className={cn("flex h-full min-w-0 items-center gap-1.5 rounded-sm text-left outline-none", !runs.length || one ? "flex-1" : "shrink-0", opens && "cursor-pointer hover:text-ink-2 focus-visible:text-ink-2", open && !only && "text-ink-2")}
         >
-          {opens && <ChevronRight size={13} aria-hidden className={cn("shrink-0 text-ink-4 transition-transform duration-(--dur-2)", open && "rotate-90")} />}
+          {opens && !one && <ChevronRight size={13} aria-hidden className={cn("shrink-0 text-ink-4 transition-transform duration-(--dur-2)", open && "rotate-90")} />}
           {away && <Where place={away} short />}
+          {one && <StepLine s={one} />}
           {work ? (
             running ? (
               <>
-                {/* No lamp of its own (its face has one): before its first step an icon as a
-                    step's, a plug being reached, the thinking chip once it thinks (kumo, 2026-11-25). */}
-                <span key={`s${steps}${reached ? "r" : ""}`} className="g-fade flex shrink-0 items-center gap-1.5 tabular-nums">
-                  {!steps && (reached ? <KindIcon kind="thinking" /> : <Plug size={14} aria-hidden className="shrink-0 text-ink-3" />)}
-                  {steps ? t("work.step", { n: steps }) : reached ? t("work.thinking") : t("work.reaching")}
-                </span>
-                {work.tool && (
+                {/* No lamp of its own (its face has one): before its first step a plug being
+                    reached, the thinking chip once it thinks; then its sorts as when it is done,
+                    no count of steps (kumo, 2026-11-25). */}
+                {!steps && (
+                  <span key={reached ? "r" : "c"} className="g-fade flex shrink-0 items-center gap-1.5">
+                    {reached ? <KindIcon kind="thinking" /> : <Plug size={14} aria-hidden className="shrink-0 text-ink-3" />}
+                    {reached ? t("work.thinking") : t("work.reaching")}
+                  </span>
+                )}
+                {!!steps && !runs.length && work.tool && (
                   <span key={`t${steps}`} className="g-fade flex min-w-0 items-center gap-1.5">
                     <KindIcon kind={kindOf(work.tool)} shell={isShell(work.tool)} />
                     <span className="min-w-0 truncate text-ink-2">{work.tool}</span>
@@ -270,7 +278,7 @@ export function WorkLine({ channel, n, session, work, did, span, may, esc }: { c
         </button>
         {/* What was done, by its sorts, as before (kumo, 2026-11-24): each pressed opens its own
             steps alone. */}
-        {!running && runs.length > 0 && all && (
+        {!one && runs.length > 0 && all && (
           <span className="g-fade flex min-w-0 flex-1 items-center gap-3 overflow-hidden whitespace-nowrap">
             {runs.map((r) => {
               const groups = r.name ? runCmds(all, r.name) : [{ cmd: undefined, n: r.n, failed: false }];
@@ -420,7 +428,7 @@ function StepList({ reveal, session, steps, only, rows, open, card, setCard, shu
           )}
         </div>
       </div>
-      {ever && (
+      {(ever || !!card) && (
         <Popover.Root open={!!card?.open && !!chosen} onOpenChange={(o) => !o && card && setCard({ ...card, open: false })}>
           <PopSurface anchor={card?.el && aside(card.el)} still sideOffset={4} className="flex max-h-[min(72dvh,620px,var(--available-height))] w-[min(620px,calc(100vw-16px))] flex-col overflow-hidden">
             {chosen && card && (
