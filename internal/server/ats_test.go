@@ -117,6 +117,14 @@ func TestChannelAts(t *testing.T) {
 		t.Fatalf("send: %d %+v", code, r)
 	}
 	l.waitReply("web", ch, "ok: ping @ann, here")
+	// The agent's own words name her too, once they are told as its reply: a moment after its
+	// turn's end is seen. Waited for, so that it is not after she has read (below).
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		if m, ok := l.s.ch.Get(ch, r.Seq+1); ok && m.D.Final {
+			break
+		}
+	}
+	time.Sleep(100 * time.Millisecond)
 	if a := ats("ann"); a.Seq != r.Seq || a.Everyone {
 		t.Errorf("named: %+v, want #%d", a, r.Seq)
 	}
