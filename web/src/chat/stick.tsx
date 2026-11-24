@@ -18,6 +18,10 @@ import { cn } from "../ui";
  *  --move) for what comes by itself, a third of it for what a person did (a message sent, the
  *  composer, a line pressed). */
 export const approach = (left: number, ms: number, tau: number) => left * Math.exp(-ms / tau);
+/** A person scrolling (a wheel, a finger, a key, the scrollbar) has the scroll to itself this
+ *  long after each of its moves: the follow writes no place meanwhile, so a trackpad's glide and
+ *  bounce at the end are not cut each frame (kumo, 2026-11-25). */
+const HAND = 160;
 /** The key to go down, from far up: put this short of the end, the rest eased. */
 const NEAR = 96;
 /** How near the top the page before is put in: two screens, at least 600px. */
@@ -90,9 +94,10 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
   const [, redraw] = useState(0);
   // following: the reader's; left: px to the end as this last put it; ours: where this put the
   // scroll (to the part of a px); mark: without the browser's anchoring, the top row and its place.
-  const s = useRef({ following: place.top === null, quick: false, frame: 0, last: 0, ours: -1, left: 0, pane: 0, drawn: false, tail: undefined as unknown, paging: false, drag: false, native: true, mark: null as Mark | null }).current;
+  const s = useRef({ following: place.top === null, quick: false, frame: 0, last: 0, ours: -1, left: 0, pane: 0, drawn: false, tail: undefined as unknown, paging: false, drag: false, native: true, mark: null as Mark | null, hand: -Infinity }).current;
 
   const maxOf = (el: HTMLElement) => el.scrollHeight - el.clientHeight;
+  const hands = () => s.drag || performance.now() - s.hand < HAND;
   const atFoot = (el: HTMLElement) => maxOf(el) - el.scrollTop < 2;
   const put = (el: HTMLElement, top: number) => ((el.scrollTop = top), (s.ours = top));
   /** Px still to go to the end: from where this put it, unless something else moved it since. */
@@ -123,6 +128,8 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     const y = leftOf(el);
     if (y > s.left + 0.5) moveLog("stick.follow", s.quick ? "quick" : "grew", { dy: -Math.round(y - s.left) });
     if (y <= 0.5 || reduced() || document.hidden) return void (y > 0.5 ? pin(el, "reduced") : stop());
+    // In a person's hands: the way left kept as it is, gone on with once they let go.
+    if (hands()) return void ((s.left = y), (s.frame = requestAnimationFrame(step)));
     s.left = approach(y, dt, s.quick ? motion.move() / 3 : motion.move());
     if (s.left < 0.5) s.left = 0;
     put(el, maxOf(el) - s.left);
@@ -199,7 +206,7 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
       // Something in it draws its own change of height (a list of steps opening, words folding,
       // the room under it for the composer): the end stays where it is each frame, so what is under
       // the change does not move and what is over it does, both ways alike (kumo, 2026-11-24).
-      if (s.following) pane ? pin(el, "pane") : sizing(el) ? pin(el, "own") : run();
+      if (s.following) pane && !hands() ? pin(el, "pane") : sizing(el) && !hands() ? pin(el, "own") : run();
       mark(el);
     });
     ro.observe(el);
@@ -207,6 +214,7 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     chats.set(el, { toEnd: () => goDown("send"), letGo: leave, rests: () => s.following && !s.frame && atFoot(el), byHand: () => void (s.quick = s.following) });
     // The reader's way up, seen before the scroll comes; down at the very end, where none comes.
     const wheel = (e: WheelEvent) => {
+      s.hand = performance.now();
       if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
       if (e.deltaY < 0 && el.scrollTop > 0 && !inner(e.target, el)) leave();
       else if (e.deltaY > 0 && !s.following && atFoot(el)) follow();
@@ -215,6 +223,7 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     const touch = (e: TouchEvent) => {
       const p = e.touches[0];
       if (!p) return;
+      s.hand = performance.now();
       if (e.type === "touchmove" && p.clientY - y > 2 && el.scrollTop > 0 && !inner(e.target, el)) leave();
       else if (e.type === "touchmove" && y - p.clientY > 2 && !s.following && atFoot(el)) follow();
       y = p.clientY;
