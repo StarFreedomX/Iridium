@@ -208,7 +208,7 @@ DELETE internal/web/push/subscriptions {endpoint} -> {ok}  remove a subscription
 POST internal/web/push/test - -> {sent}  push a test to your own subscriptions; person only
 
 # wake
-PATCH internal/channels/{id}/members/{member} {nick?, on?} -> ChannelMembers  rename a member (agent:<session>; its nick is the same in every channel), set what wakes an agent (on: the whole list); any member, any agent's, and the channel says so; warn: a ring they make  [more]
+PATCH internal/channels/{id}/members/{member} {nick?, on?} -> ChannelMembers  rename a member (agent:<session>; its nick is the same in every channel), set what wakes an agent (on: the whole list); any member, any agent's, and the channel says so; refused (422 bad_on): a loop of agents waking each other by their last words alone (an agent calls another with @); warn: a ring through a command  [more]
   Every member is given all that is said in the channel when it is next woken; on says what wakes it beside @nick (always). A list, each one of:
   {"message":{"from":[…],"words":[…]}}: from "*" every person, "<app>/<login>", "<app>/*", "agent:<session>" (its turn's last words); none: anyone. words: any of them (case not minded); none: any words.
   {"command":"name"} a person's /name; {"cron":"m h dom mon dow"} the host's time; {"event":["join","leave","rename","wake","error","ask"]} a member came or went, an agent renamed, someone's wake rules changed, an agent's error, an agent asks.

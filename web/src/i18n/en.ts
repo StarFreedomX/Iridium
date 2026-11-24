@@ -373,6 +373,7 @@ export const en: Dict = {
   "on.remove": "Delete",
   "on.cancel": "Cancel",
   "on.loop": "Agents waking each other in a loop",
+  "on.loopRefused": "Agents would wake each other in a loop. Not saved. An agent calls another with @",
   "script.group": "Commands",
   "script.new": "New command",
   "script.edit": "Edit command",

@@ -774,7 +774,10 @@ func (s *Server) addAgent(ctx context.Context, c caller, ch string, st *api.Sess
 		s.keepSpawned(id, api.Spawned{By: c.session, Channel: ch})
 	}
 	// Its nick with the joining: one that does not join keeps the nick it had.
-	m, err := s.ch.Join(ch, id, req.On, req.Nick, s.harnessOf, s.full(ch, launched))
+	m, err := channel.Member{}, s.ring(ch, store.AgentMember(id), req.On)
+	if err == nil {
+		m, err = s.ch.Join(ch, id, req.On, req.Nick, s.harnessOf, s.full(ch, launched))
+	}
 	if err != nil {
 		if started {
 			// Not in the channel after all: not started for it either.
@@ -1479,6 +1482,12 @@ func (s *Server) memberPatch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	was, _ := s.memberRow(ch, r.PathValue("member"))
+	if p.On != nil && was.Agent() {
+		if err := s.ring(ch, was.Member, *p.On); err != nil {
+			s.memberFault(w, err)
+			return
+		}
+	}
 	now, err := s.ch.Change(ch, r.PathValue("member"), p.Nick, p.On, s.harnessOf)
 	if err != nil {
 		s.memberFault(w, err)

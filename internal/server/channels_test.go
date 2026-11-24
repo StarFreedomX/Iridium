@@ -16,7 +16,6 @@ import (
 
 	"github.com/kumoSleeping/iridium/internal/api"
 	"github.com/kumoSleeping/iridium/internal/channel"
-	"github.com/kumoSleeping/iridium/internal/deliver"
 	"github.com/kumoSleeping/iridium/internal/gate"
 	"github.com/kumoSleeping/iridium/internal/satori"
 	"github.com/kumoSleeping/iridium/internal/session"
@@ -604,7 +603,7 @@ func TestRemoteBareChannelOwn(t *testing.T) {
 
 // An agent that speaks in a channel with ir is held to what it has seen of it: what it had not
 // seen comes back with its send; too far behind, it is told to read first. Its receive set
-// wakes it by who speaks; two subscribed to each other stop at MaxHops. The one that started an
+// wakes it by who speaks; two subscribed to each other are refused. The one that started an
 // agent is told when it says nothing.
 func TestChannelSendCheckAndRecv(t *testing.T) {
 	t.Parallel()
@@ -690,15 +689,13 @@ func TestChannelSendCheckAndRecv(t *testing.T) {
 		}
 	}
 
-	// Subscribed to an agent: its turn's last words reach it. Two subscribed to each other pass
-	// them on, not without end: MaxHops in a row, then the channel says so.
+	// Subscribed to an agent: its turn's last words reach it. Two subscribed to each other are
+	// refused as the second is set (subscribe.go ring); a command and an agent that wake each
+	// other stop at MaxHops (scripts_test.go).
 	l.want(200, "web", "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+guest, map[string]any{"on": onFrom("agent:" + ch)}, nil)
 	_, sr = l.send("web", ch, api.Send{Text: "for the first"})
 	l.waitSaid("web", guest, fmt.Sprintf("ok: #%d: for the first", sr.Seq), "@guest ok: #")
-	l.want(200, "web", "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+ch, map[string]any{"on": onFrom("*", "agent:"+guest)}, nil)
-	l.send("web", ch, api.Send{Text: "ping"})
-	l.waitSaid("web", ch, "未转交", fmt.Sprint(deliver.MaxHops))
-	l.want(200, "web", "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+ch, map[string]any{"on": onFrom("*")}, nil)
+	l.want(422, "web", "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+ch, map[string]any{"on": onFrom("*", "agent:"+guest)}, nil)
 	l.want(200, "web", "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+guest, map[string]any{"on": []api.Trigger{}}, nil)
 
 	// An agent the channel's own agent started: the one that started it is told when the other

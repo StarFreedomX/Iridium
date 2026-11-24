@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -10,7 +11,7 @@ import (
 
 // Subscriptions beside words (docs/channels.md "订阅事件"): an event wakes an agent with the
 // words it was given; a time does, said in the channel; two agents that wake each other are
-// warned of as the second is set.
+// refused as the second is set.
 func TestSubscriptions(t *testing.T) {
 	t.Parallel()
 	l := start(t)
@@ -41,10 +42,25 @@ func TestSubscriptions(t *testing.T) {
 	if len(ms.Warn) != 0 {
 		t.Errorf("no ring yet: %v", ms.Warn)
 	}
+	// Refused, and nothing changed: the first wakes as it did.
 	back := onFrom("*", "agent:"+greeter)
-	l.want(200, "web", "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+ch, api.MemberPatch{On: &back}, &ms)
-	if len(ms.Warn) != 1 || !strings.Contains(ms.Warn[0], "loop: ") || !strings.Contains(ms.Warn[0], "@greeter") {
-		t.Errorf("the ring: %v", ms.Warn)
+	var e api.Error
+	l.want(422, "web", "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+ch, api.MemberPatch{On: &back}, &e)
+	if e.Code != "bad_on" || !strings.Contains(e.Message, "@greeter") {
+		t.Errorf("the ring: %+v", e)
 	}
+	l.want(200, "web", "GET", "/v1/internal/channels/"+ch+"/members", nil, &ms)
+	for _, m := range ms.Members {
+		if m.Session == ch && strings.Contains(fmt.Sprint(m.On), greeter) {
+			t.Errorf("the ring kept: %v", m.On)
+		}
+	}
+	// Nor one that joins with it: anyone's last words wake the greeter, and the greeter's it.
+	anyone := []api.Trigger{{Message: &api.MessageTrigger{}}}
+	l.want(200, "web", "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+greeter, api.MemberPatch{On: &anyone}, &ms)
+	l.want(422, "web", "POST", "/v1/internal/channels/"+ch+"/members", api.NewMember{Agent: api.AgentClaude, Nick: "echo", On: onFrom("agent:" + greeter)}, &e)
+	// A person's words beside: no ring.
+	people := onFrom("*")
+	l.want(200, "web", "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+ch, api.MemberPatch{On: &people}, &ms)
 	l.waitSaid("web", ch, "iridium", "唤醒：")
 }

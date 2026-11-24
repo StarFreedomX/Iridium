@@ -202,6 +202,69 @@ func (s *Server) cronAgents(at time.Time) {
 	}
 }
 
+// ring refuses subscriptions on for agent member of channel ch that would close a ring of agents
+// alone (kumo, 2026-11-24: not allowed from the start, not warned of): each one's last words
+// waking the next, round to the first, no one having called anyone. An agent calls another by
+// naming it (@). A ring through a command is not this: its words name whom they wake (loops).
+// nil: none, or on is not a change of them (unknown channel).
+func (s *Server) ring(ch, member string, on []api.Trigger) error {
+	ms, err := s.ch.Members(ch)
+	if err != nil {
+		return nil
+	}
+	type node struct {
+		member, nick string
+		on           []api.Trigger
+	}
+	var nodes []node
+	first := -1
+	for _, m := range ms {
+		if !m.Agent() {
+			continue
+		}
+		n := node{member: m.Member, nick: m.Nick, on: m.On()}
+		if m.Member == member {
+			n.on, first = on, len(nodes)
+		}
+		nodes = append(nodes, n)
+	}
+	if first < 0 {
+		// Not of the channel yet (it joins with these): what it would be there.
+		first = len(nodes)
+		nodes = append(nodes, node{member: member, nick: "it", on: on})
+	}
+	wakes := func(a, b node) bool {
+		return a.member != b.member && slices.ContainsFunc(b.on, func(t api.Trigger) bool {
+			return t.Message != nil && (len(t.Message.From) == 0 || deliver.Receives(t.Message.From, a.member))
+		})
+	}
+	seen := map[int]bool{}
+	var path []int
+	var walk func(i int) bool
+	walk = func(i int) bool {
+		path = append(path, i)
+		seen[i] = true
+		for j := range nodes {
+			if !wakes(nodes[i], nodes[j]) {
+				continue
+			}
+			if j == first || (!seen[j] && walk(j)) {
+				return true
+			}
+		}
+		path = path[:len(path)-1]
+		return false
+	}
+	if !walk(first) {
+		return nil
+	}
+	var names []string
+	for _, k := range path {
+		names = append(names, "@"+nodes[k].nick)
+	}
+	return fmt.Errorf("%w: a loop of agents waking each other by their last words alone: %s → %s; an agent calls another by naming it (@nick)", channel.ErrOn, strings.Join(names, " → "), names[0])
+}
+
 // loops are the rings of channel ch's subscriptions (warnings, a line each), those through
 // member first: an agent's last words that wake another whose words wake the first, a script
 // that names an agent whose words run it… Each goes round till MaxHops in a row.

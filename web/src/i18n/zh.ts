@@ -373,6 +373,7 @@ export const zh = {
   "on.remove": "删除",
   "on.cancel": "取消",
   "on.loop": "唤醒成环",
+  "on.loopRefused": "agent 互相唤醒成环，未保存。叫起另一个 agent 用 @",
   "script.group": "命令",
   "script.new": "新建命令",
   "script.edit": "编辑命令",
