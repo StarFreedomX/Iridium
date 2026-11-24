@@ -9,7 +9,7 @@ import { flushSync } from "react-dom";
 import { t, useLang } from "../i18n";
 import { motion, reduced } from "../motion";
 import { moveLog } from "../motionlog";
-import { layoutMoves } from "./stick";
+import { byHand } from "./stick";
 import { cn } from "../ui";
 import { FOLD_AT, FOLD_SHOW } from "./channel/folds";
 import { FoldMenu, useFold, type Fold } from "./foldstate";
@@ -40,7 +40,7 @@ export function LongWords({ fold, lines, children, ctl, onOpen, prev, quiet, at 
   const long = lines > at;
   const open = ctl ? !ctl.folded : own;
   // Folded or opened from its menu: its height glides as a press's does, from how tall it was then
-  // first, then said to move of itself: the chat sees no change. Nothing measured otherwise.
+  // first, a person's doing for the chat. Nothing measured otherwise.
   useLayoutEffect(() => {
     const p = prev?.current;
     if (!p) return;
@@ -48,7 +48,7 @@ export function LongWords({ fold, lines, children, ctl, onOpen, prev, quiet, at 
     if (!p.h || !p.el) return;
     const h = p.h;
     p.h = 0;
-    if (!reduced()) (glide(p.el, h), layoutMoves(p.el, motion.dur(2)));
+    if (!reduced()) (glide(p.el, h), byHand(p.el));
   });
   if (!ctl && (!fold || !long)) return <>{children}</>;
   const folds = !open || pressed;
@@ -63,8 +63,8 @@ export function LongWords({ fold, lines, children, ctl, onOpen, prev, quiet, at 
     };
     const el = box.current;
     if (!el || reduced()) return set();
-    // Its height is its own to draw: the chat only keeps its end under it (stick.tsx).
-    layoutMoves(el, motion.dur(2));
+    // Its height is its own to draw, a person's doing: the chat follows it quickly (stick.tsx).
+    byHand(el);
     const from = el.offsetHeight;
     flushSync(set);
     glide(el, from);

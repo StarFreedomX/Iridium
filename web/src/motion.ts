@@ -112,8 +112,8 @@ export function useGlide(ref: RefObject<HTMLElement | null>) {
   }, [ref]);
 }
 
-/** Send: the new bubble fades in as the conversation is pushed up by it (the chat's glide,
- *  chat/stick.tsx), in the same move and the same time: begun together, done together. */
+/** Send: the new bubble fades in as the conversation is pushed up by it (the chat's follow,
+ *  chat/stick.tsx, its scroll place followed quickly), begun together. */
 export function pushIn(bubble: HTMLElement, from?: number): number {
   moveLog("pushIn", "send", { ms: Math.round(motion.move()) });
   const a = reduced()

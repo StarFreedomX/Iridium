@@ -29,7 +29,6 @@ import { t } from "../i18n";
 import { agentName, Avatar, Badge, cn, IconKey, IrMark, Logo, own, PopSurface, tilde, Tip, titleOf, useEver, useLongPress, useMenuAt } from "../ui";
 import { useHome, useMachines } from "../data";
 import { LocalMark } from "../me";
-import { motion, reduced } from "../motion";
 import { go } from "../route";
 import { Files, isLink, Picture, previews, SentFile, shownAs } from "./files";
 import { Pictures } from "./pictures";
@@ -40,7 +39,7 @@ import { Markdown, Streamed } from "./markdown";
 import { partialInput } from "./partial";
 import { machineNamed, MentionCard, NamedCards, Worded } from "./mention";
 import { draftWords, fromSatori, type Mention, sessionOf, type Source, withoutFiles, withoutNameLines } from "./refs";
-import { layoutMoves } from "./stick";
+import { byHand } from "./stick";
 import { MachineFace } from "../machines";
 import { useList } from "../store";
 import type { Agent } from "../api/types.gen";
@@ -782,8 +781,7 @@ export const lasted = (ms: number) => (ms < 950 ? `${(ms / 1000).toFixed(1)}s` :
 export const tookOf = (s: Step) => (s.kind === "tool" && s.time && s.result?.time ? s.result.time - s.time : undefined);
 
 /** In-place expandable step list with capped inner scroll and edge fades, and one shared StepCard
- *  popover. Registers layoutMoves on the .g-reveal wrapper synchronously before toggling
- *  open/close so stick.tsx follows every frame with zero room spacer or reversal. */
+ *  popover. Pressed, its height is a person's doing, said to the chat (stick.tsx byHand). */
 function StepsFold({ steps, session, cwd }: { steps: Step[]; session: string; cwd: string }) {
   const [open, setOpen] = useState(false);
   const ever = useEver(open);
@@ -816,7 +814,7 @@ function StepsFold({ steps, session, cwd }: { steps: Step[]; session: string; cw
 
   const toggleOpen = () => {
     const el = revealRef.current;
-    if (el && !reduced() && !document.hidden) layoutMoves(el, motion.move() + motion.fade() + 80, open ? 0 : undefined);
+    if (el) byHand(el);
     if (open) setSel(null);
     setOpen(!open);
   };

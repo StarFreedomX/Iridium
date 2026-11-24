@@ -12,7 +12,6 @@ import { api } from "../api/client";
 import type { Block } from "../api/types.gen";
 import { lineOf } from "../chats";
 import { t, useLang } from "../i18n";
-import { motion, reduced } from "../motion";
 import { cn, keep, kept, PopSurface, useEver } from "../ui";
 import { useAway, Where } from "./away";
 import type { Did, Work } from "./channel/lib";
@@ -21,7 +20,7 @@ import { folded, kindOf, type Step } from "./fold";
 import { StopKey } from "./live";
 import { Pictures } from "./pictures";
 import { KindIcon, lasted, ROW, StepCard, StepLine, tookOf } from "./said";
-import { layoutMoves } from "./stick";
+import { byHand } from "./stick";
 
 /** How many step rows show at most; past that the list scrolls in itself. */
 export const ROWS = 8;
@@ -169,9 +168,8 @@ export function WorkLine({ channel, n, session, work, did, span, may, esc }: { c
   if (!work && !parts.length) return null;
   const toggle = () => {
     if (!opens) return;
-    // Its height told to the conversation before it changes (stick.tsx), as a fold's is.
-    const el = reveal.current;
-    if (el && !reduced() && !document.hidden) layoutMoves(el, motion.move() + motion.fade() + 80, open ? 0 : undefined);
+    // A person's doing: the conversation follows its height quickly (stick.tsx).
+    if (reveal.current) byHand(reveal.current);
     if (open) setCard((c) => c && { ...c, open: false });
     else {
       read();

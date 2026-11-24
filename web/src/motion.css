@@ -10,7 +10,7 @@
      g-dialog   the settings rise out of their key at the sidebar's foot (app.tsx)
      g-fade     plain cross-fade
      g-arrive   a row comes in under the last (an agent called, taking over): it rises in, the
-                conversation above pushed up by the chat's glide (chat/stick.tsx); g-depart: it fades
+                conversation above pushed up by the chat's follow (chat/stick.tsx); g-depart: it fades
      g-wait     a placeholder of what is coming, of its size: comes after a moment, breathes
      g-swap     one icon for another in place, both drawn, cross-faded (a folder shut / open)
      g-lid      the archive bin's lid, hinged at its right end, springs up as it opens
@@ -212,17 +212,12 @@
 }
 
 /* --- fade --- */
-/* A fold shutting (chat/stick.tsx toggleFold): still open as its height glides down, its chevron already turning back. */
-details[data-shut] > summary .fold-chev {
-  rotate: none !important;
-}
-
 .g-fade {
   animation: g-fade-in var(--dur-2) var(--ease-out) both;
 }
 /* --- arrive: a row comes in at the conversation's end (an agent called, a subagent at work): whole
    at once in the layout, what is in it rising in; the conversation above is pushed up by the chat's
-   own glide (chat/stick.tsx), on the compositor. Its height is not animated: a track opening laid
+   follow (chat/stick.tsx: its scroll place). Its height is not animated: a track opening laid
    the whole conversation out again each frame, and moved it against the glide (kumo, 2026-11-17). --- */
 .g-arrive > * {
   animation: g-rise var(--dur-2) var(--ease-out) both;

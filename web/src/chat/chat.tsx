@@ -156,7 +156,7 @@ function TranscriptView({ id, sheet = 0, onSheet, onMe, onBack }: { id: string; 
 
   return (
     <div className="relative h-full">
-      <Stick scroller={scroller} tail={grew} older={() => log.older()} busy={busy} draw={changed} place={chat.place} bottom={bottomH} style={{ paddingTop: 64, paddingBottom: bottomH + 20 }}>
+      <Stick scroller={scroller} tail={grew} older={() => log.older()} draw={changed} place={chat.place} bottom={bottomH} style={{ paddingTop: 64, paddingBottom: bottomH + 20 }}>
         <div data-column className="mx-auto flex max-w-(--chat-w) flex-col gap-5 px-4 sm:px-6">
           {rows.map((b) => (
             <Said key={b.kind === "fold" ? (foldKey(b.steps) ?? b.at) : b.at} b={b} session={id} cwd={cwd} source={source} onJump={openChat} />

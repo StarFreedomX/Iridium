@@ -1,7 +1,8 @@
 // Who may move the page (docs/动画.md): what changes a row's place or height by an animation, or
 // writes a scroll place, is one of the few listed here. A new one is not added to a component:
-// it is said to the page's movers (chat/stick.tsx for the conversation's end, moves.ts for rows
-// that change places), or, when it must be its own, added here with its reason in docs/动画.md.
+// it is left to the page's movers (chat/stick.tsx, the conversation's scroll: what changes height
+// in it needs to say nothing; moves.ts, rows that change places), or, when it must be its own,
+// added here with its reason in docs/动画.md.
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { expect, test } from "vitest";
@@ -22,8 +23,7 @@ const using = (re: RegExp) =>
 test("an animation made by script only where it is listed", () => {
   expect(using(/\.animate\(/)).toEqual([
     "chat/channel/jump.ts", // the message a quote went to, lit for a moment (colour only)
-    "chat/longwords.tsx", // long words opened or folded: their own height, told to the chat (layoutMoves)
-    "chat/stick.tsx", // a fold pressed: its height and its rows' fading
+    "chat/longwords.tsx", // long words opened or folded: their own height, a person's doing for the chat (byHand)
     "motion.ts", // a row's keys sliding sideways (useGlide), a message sent rising in (pushIn, fadeIn)
     "moves.ts", // rows that change places
     "usage.tsx", // the usage panel's numbers
@@ -38,7 +38,7 @@ test("a conversation's scroll place written only by its follow, and where a thin
     "chat/mention.tsx", // the composer's backdrop with its text
     "chat/meters.tsx", // the model list's own rows
     "chat/said.tsx", // a fold of steps' own list (scrolled in place, capped), kept at its newest
-    "chat/stick.tsx",
+    "chat/stick.tsx", // the conversation's own scroll: the follow, what is seen kept, the page before put in
     "chat/work.tsx", // an agent's work line's own list of steps (a fixed height), kept at its newest
   ]);
 });
@@ -53,6 +53,6 @@ test("a row's room opened or shut by CSS only where it is listed", () => {
     "chat/forwardcard.tsx",
     "chat/react.tsx",
     "chat/said.tsx",
-    "chat/work.tsx", // an agent's work line, pressed: its steps open under it (layoutMoves told first)
+    "chat/work.tsx", // an agent's work line, pressed: its steps open under it (byHand said first)
   ]);
 });

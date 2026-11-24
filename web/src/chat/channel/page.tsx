@@ -363,7 +363,6 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
   const readTo = useReadTo(id, reads?.readers, members?.me, log.loaded ? log.end : undefined);
   const olds = useMemo(() => (readTo === undefined ? undefined : oldRead(log.msgs, readTo)), [log.msgs, readTo]);
   const old = (m: Msg) => foldsOnce(id, `m${m.n}`, olds?.has(m.n));
-  const working = agents.filter((a) => WORKING.has(a.status));
   const secretAt = useSecret()?.at;
   const secretHere = secretAt === id || (!!solo && secretAt === solo.session);
   const asking = agents.some((a) => !!stateAt(a.session)?.asks.length) || agents.some((a) => confirms.some((c) => c.session === a.session && c.kind !== "ask")) || secretHere;
@@ -375,7 +374,6 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
   // The conversation grew at its end: a message come, a bubble, the last message written on.
   const last = log.msgs.at(-1);
   const grew = `${log.end} ${sent.length} ${last?.text.length ?? 0}`;
-  const busy = working.length > 0 || log.msgs.some((m) => m.writing || m.work?.running);
   const padTop = 64; // the bar's 48px, a gap
 
   if (!s) {
@@ -390,7 +388,7 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
   return (
     <Nicks.Provider value={nicks}>
       <div className="relative h-full" onDragOver={(e) => files(e) || session(e) || place(e)} onDrop={drop}>
-        <Stick key={hold ? "hold" : "whole"} scroller={scroller} tail={grew} older={() => log.older()} busy={busy} draw={changed} place={entry.place} bottom={stackH} quiet={asking} style={{ paddingTop: padTop, paddingBottom: stackH + 20 }}>
+        <Stick key={hold ? "hold" : "whole"} scroller={scroller} tail={grew} older={() => log.older()} draw={changed} place={entry.place} bottom={stackH} quiet={asking} style={{ paddingTop: padTop, paddingBottom: stackH + 20 }}>
           <div data-column className="mx-auto flex max-w-(--chat-w) flex-col gap-5 px-4 [--depart-gap:1.25rem] sm:px-6">
             {!hold &&
               groups.map((g) => (
