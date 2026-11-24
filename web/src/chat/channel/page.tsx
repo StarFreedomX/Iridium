@@ -30,7 +30,7 @@ import { Composer, type ComposerHandle } from "../composer";
 import { Copyable } from "../copyable";
 import { ContextRing, modelView, QuotaBars } from "../meters";
 import { fromSatori, PLACE_DRAG, SESSION_DRAG, sourceOf, withDevice, yours } from "../refs";
-import { Assistant, Attached, Line, MsgRow, Pending, Said, When, YouBubble } from "../said";
+import { Assistant, Attached, Line, MsgRow, Pending, Said, StepsHead, When, YouBubble } from "../said";
 import { folded } from "../fold";
 import { Stick, toEnd } from "../stick";
 import { askQueue, groupMessages, quoteAt, readMarks, stillWaiting, watchExtra, type AgentRow, type Did, type Group, type Msg, type Src, lineOf, workOf, saidBefore, workKey, eventParts, personName, type EventWords } from "./lib";
@@ -50,7 +50,7 @@ import { NotJoined } from "./key";
 import { MemberFace } from "./face";
 import { AgentFace } from "./members";
 import { OtherTurn } from "../atwork";
-import { AwayBox, useAway } from "../away";
+import { useAway, Where } from "../away";
 import { PersonCard, PersonMenu, useNamed } from "./person";
 import { NickLink, Nicks, NickWords } from "./nick";
 import { useRecalled } from "../reactions";
@@ -692,13 +692,11 @@ function Work({ src, did, said, channel }: { src: Src; did?: Did; said?: string;
   if (!work?.length) return did ? <DidLine did={did} /> : null;
   const shown = folded(work);
   const rows = shown.map((b) => <Said key={b.at} b={b} session={src.session} cwd={row?.cwd ?? ""} source={() => ({ kind: "you" }) as ReturnType<Parameters<typeof Said>[0]["source"]>} onJump={openChat} />);
-  if (rows.length)
-    return (
-      <AwayBox place={away} session={src.session} count={shown.reduce((n, b) => n + (b.kind === "fold" ? b.steps.length : 1), 0)}>
-        {rows}
-      </AwayBox>
-    );
-  return <div className="mb-1.5 flex min-w-0 flex-col gap-3">{rows}</div>;
+  return (
+    <div className="mb-1.5 flex min-w-0 flex-col gap-3">
+      <StepsHead.Provider value={away ? <Where place={away} /> : null}>{rows}</StepsHead.Provider>
+    </div>
+  );
 }
 
 /** What the agent did before the words under it, in one quiet line. */

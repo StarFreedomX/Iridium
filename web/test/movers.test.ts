@@ -37,13 +37,13 @@ test("a conversation's scroll place written only by its follow, and where a thin
     "chat/composer.tsx", // the composer's own lists
     "chat/mention.tsx", // the composer's backdrop with its text
     "chat/meters.tsx", // the model list's own rows
+    "chat/said.tsx", // a steps' popover's own list, kept at its newest
     "chat/stick.tsx",
   ]);
 });
 
 test("a row's room opened or shut by CSS only where it is listed", () => {
   expect(using(/g-reveal|grid-rows-\[0fr\]/).filter((f) => f.startsWith("chat/"))).toEqual([
-    "chat/away.tsx",
     "chat/channel/members.tsx",
     "chat/channel/profilecard.tsx",
     "chat/channel/script.tsx",

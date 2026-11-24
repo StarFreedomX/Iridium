@@ -12,10 +12,10 @@ import { carries, opened } from "../stream";
 import { cn } from "../ui";
 import { liveOf, type AgentRow, type Src } from "./channel/lib";
 import { AgentFace } from "./channel/members";
-import { AwayBox, useAway } from "./away";
+import { useAway, Where } from "./away";
 import { folded, type Tool } from "./fold";
 import { StopKey, ToolDraft, Waiting } from "./live";
-import { Running, Said, When, useWhenRow } from "./said";
+import { Running, Said, StepsHead, When, useWhenRow } from "./said";
 
 /** The turn's row at the end of the conversation: the call being written, else the one running
  *  (the newest, how many more beside it), else the dots once it has gone quiet; one line high, even
@@ -145,37 +145,24 @@ export function OtherTurn({ a, channel, st, said, spoken, alone, bars, call, rec
     </>
   );
   const label = `${a.nick} · ${t("chat.working")}`;
-  // Its steps in the box (away.tsx; away from the channel's folder, the box says where),
-  // the row of what runs now at the end of the last.
-  {
-    // Only its steps are in the box: its words stand outside it, between the boxes, as they will
-    // once said to the channel (kumo, 2026-11-19: an answer whole sat in the box of the computer's
-    // tools). Each box under the words before it, so none is put in again as more comes.
-    const parts: ReactNode[] = [];
-    let steps: ReactNode[] = [];
-    let after = "start";
-    for (const b of rows) {
-      if (b.kind !== "assistant") {
-        steps.push(node(b));
-        continue;
-      }
-      if (steps.length) parts.push(<AwayBox key={`box:${after}`} place={away} session={a.session}>{steps}</AwayBox>);
-      parts.push(node(b));
-      steps = [];
-      after = b.at;
-    }
-    parts.push(
-      <AwayBox key={`box:${after}`} place={away} session={a.session}>
-        {steps}
-        {activity(true)}
-      </AwayBox>,
-    );
-    return (
-      <div role="group" aria-label={label} className="flex min-w-0 flex-col gap-5">
-        <TurnFrame bare={alone} face={<AgentFace channel={channel} a={a} call={call} record={record} may={may} />} head={headOf()}>
-          {parts}
+  // Its steps a line each lot, where they were done said at the line's head (away.tsx); its
+  // words between, as they will be once said to the channel; the row of what runs now at the end.
+  return (
+    <div role="group" aria-label={label} className="flex min-w-0 flex-col gap-5">
+      {rows.length || alone ? (
+        <>
+          {rows.length > 0 && (
+            <TurnFrame bare={alone} face={<AgentFace channel={channel} a={a} call={call} record={record} may={may} />} head={headOf()}>
+              <StepsHead.Provider value={away ? <Where place={away} /> : null}>{rows.map(node)}</StepsHead.Provider>
+            </TurnFrame>
+          )}
+          {activity(false)}
+        </>
+      ) : (
+        <TurnFrame face={<AgentFace channel={channel} a={a} call={call} record={record} may={may} />} head={headOf()}>
+          {activity(true)}
         </TurnFrame>
-      </div>
-    );
-  }
+      )}
+    </div>
+  );
 }

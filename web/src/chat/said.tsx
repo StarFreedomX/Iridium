@@ -9,11 +9,11 @@ import { LongWords } from "./longwords";
 import { FORWARD_CARD, ForwardHead, ForwardRow, Forwards } from "./forwardcard";
 import { msgWords, splitForwards, withForwards } from "./forward";
 import { FOLD_AT, linesOf } from "./channel/merge";
-import { Archive, ArchiveRestore, ArrowUpRight, BookOpen, Bot, BotMessageSquare, ChartColumn, Check, ChevronRight, CircleStop, CircleX, Clock, CloudDownload, CloudUpload, Copy, Cpu, Earth, FileCode, FileDiff, FilePen, Files as FilesIcon, FileText, FlaskConical, FolderGit2, FolderOpen, Folders, FoldVertical, GitBranch, GitCommitHorizontal, GitPullRequest, Globe, Hammer, History, Hourglass, KeyRound, Laptop, Link2, List, ListChecks, LoaderCircle, MessagesSquare, LockKeyhole, MessageCircleQuestionMark, MessageSquarePlus, Monitor, MonitorSmartphone, MousePointerClick, Network, Package, PencilLine, Plug, RotateCcw, RotateCw, Search, Send, ServerCog, SlidersHorizontal, Smartphone, SquareTerminal, Terminal, Trash2, type LucideIcon, UserRound, Workflow as WorkflowIcon, Wrench, X } from "lucide-react";
+import { Archive, ArchiveRestore, ArrowUpRight, BookOpen, Bot, BotMessageSquare, ChartColumn, Check, ChevronLeft, ChevronRight, CircleStop, CircleX, Clock, CloudDownload, CloudUpload, Copy, Cpu, Earth, FileCode, FileDiff, FilePen, Files as FilesIcon, FileText, FlaskConical, FolderGit2, FolderOpen, Folders, FoldVertical, GitBranch, GitCommitHorizontal, GitPullRequest, Globe, Hammer, History, Hourglass, KeyRound, Laptop, Link2, List, ListChecks, LoaderCircle, LockKeyhole, MessageCircleQuestionMark, MessageSquarePlus, Monitor, MonitorSmartphone, MousePointerClick, Network, Package, PencilLine, Plug, RotateCcw, RotateCw, Search, Send, ServerCog, SlidersHorizontal, Smartphone, SquareTerminal, Terminal, Trash2, type LucideIcon, UserRound, Workflow as WorkflowIcon, Wrench, X } from "lucide-react";
 import { Copyable } from "./copyable";
 import { Dispatch, Sent as SentTo, TaskBack } from "./dispatched";
 import { handBack, toldOf } from "./dispatch";
-import { Children, createContext, forwardRef, memo, useContext, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { Children, createContext, forwardRef, memo, useContext, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { givenTurn, linkNicks, type GivenTurn } from "./channel/lib";
 import { reactionLine } from "./react";
 import { Nicks, NickWords } from "./channel/nick";
@@ -749,30 +749,51 @@ const ROW = "flex h-7 min-w-0 cursor-default list-none items-center gap-2 rounde
  *  once with its kind's icon (a shell's, one per call when they do different things) and ×n, then
  *  the lines their edits changed, which opens to a line each.
  *  Each, pressed, shows what it was given and what came back in a card (StepView). */
-/** In a box that is itself the fold (away.tsx AwayBox): steps are drawn each on its line, not
- *  under a line of their own to be opened again (kumo, 2026-11-24: a fold in a fold). */
-export const FlatSteps = createContext(false);
+/** What is said before a steps' line's marks (where the work was done, away.tsx): its row's. */
+export const StepsHead = createContext<ReactNode>(null);
+/** In a steps' popover: a step pressed is shown in that popover, not in one of its own. */
+const Drill = createContext<((s: Step) => void) | null>(null);
 
 function Fold({ steps, session, cwd }: { steps: Step[]; session: string; cwd: string }) {
-  const flat = useContext(FlatSteps);
   const one = steps.length === 1 ? steps[0]! : undefined;
+  const head = useContext(StepsHead);
   // A call to a subagent: the agent's words to it, not a step's line (dispatched.tsx).
   if (one?.kind === "tool" && toldOf(one)) return <Dispatch call={one as Tool} session={session} />;
-  if (one) return <StepView s={one} session={session} cwd={cwd} />;
-  if (flat)
-    return (
-      <div className="flex min-w-0 flex-col">
-        {steps.map((s) => (s.kind === "tool" && toldOf(s) ? <Dispatch key={s.at} call={s as Tool} session={session} /> : <StepView key={s.at} s={s} session={session} cwd={cwd} lifted />))}
-      </div>
-    );
-  const runs = foldLine(steps);
-  const diff = diffSum(runs);
+  if (one && !head) return <StepView s={one} session={session} cwd={cwd} />;
   const opened = steps.flatMap((s) => (s.kind === "tool" && newOfCall(s)) || []);
   return (
     <div className="min-w-0">
-      <details className="group/fold -my-0.5 w-full min-w-0">
-        <summary className={ROW} aria-label={foldSaid(runs)}>
-          <span className="min-w-0 truncate">
+      <StepsKey steps={steps} session={session} cwd={cwd} />
+      {/* The sessions its ir new steps opened, under its line. */}
+      {opened.length > 0 && <Opened opened={opened} />}
+    </div>
+  );
+}
+
+/** Steps as one line, as high whatever they are (kumo, 2026-11-24: nothing in the conversation
+ *  opens in place; its height changes only as a message comes or is taken back): each kind's
+ *  mark and how many. Pressed, they are listed in a popover as tall as they are, to a most it
+ *  scrolls inside past (kumo, 2026-11-24: one step is not given a whole pane); a step pressed there is shown in the same popover, with a way back. */
+function StepsKey({ steps, session, cwd }: { steps: Step[]; session: string; cwd: string }) {
+  const head = useContext(StepsHead);
+  const [open, setOpen] = useState(false);
+  const ever = useEver(open);
+  const [detail, setDetail] = useState<Step | null>(null);
+  const row = useRef<HTMLButtonElement>(null);
+  const list = useRef<HTMLDivElement>(null);
+  const runs = foldLine(steps);
+  const diff = diffSum(runs);
+  // More steps as it is open (a turn at work): kept at the newest unless scrolled up from it.
+  const atEnd = useRef(true);
+  useLayoutEffect(() => {
+    const el = list.current;
+    if (el && atEnd.current) el.scrollTop = el.scrollHeight;
+  }, [steps.length, open, detail]);
+  return (
+    <>
+      <button ref={row} type="button" aria-haspopup="dialog" aria-expanded={open} aria-label={foldSaid(runs)} onClick={() => (setDetail(null), setOpen(!open))} className={cn(ROW, "-my-0.5 w-full text-left outline-none focus-visible:text-ink-2", open && "text-ink-2")}>
+        {head}
+        <span className="min-w-0 truncate">
             {runs.map((r, i) => (
               <span key={i} className={cn(i > 0 && "ml-3")}>
                 {(r.name ? runCmds(steps, r.name) : [{ cmd: undefined, n: 1, failed: false }]).map((g, j, gs) => (
@@ -788,20 +809,33 @@ function Fold({ steps, session, cwd }: { steps: Step[]; session: string; cwd: st
                 {!isShell(r.name) && r.n > 1 && runCmds(steps, r.name).length < 2 && <span className="tabular-nums"> ×{r.n}</span>}
               </span>
             ))}
-          </span>
-          {diff && <DiffStat d={diff} />}
-          <ChevronRight size={13} className="fold-chev shrink-0 text-ink-4 transition-transform duration-(--dur-2) group-open/fold:rotate-90" />
-        </summary>
-        <div className="mt-0.5 ml-[7px] flex flex-col pl-3 shadow-[inset_1px_0_0_var(--edge)]">
-          {steps.map((s) => (
-            <StepView key={s.at} s={s} session={session} cwd={cwd} lifted />
-          ))}
-        </div>
-      </details>
-      {/* The sessions its ir new steps opened, under its line, open or shut: not moving in and out
-          as it folds. */}
-      {opened.length > 0 && <Opened opened={opened} />}
-    </div>
+        </span>
+        {diff && <DiffStat d={diff} />}
+      </button>
+      {ever && (
+        <Popover.Root open={open} onOpenChange={setOpen}>
+          <PopSurface anchor={row.current} still align="start" sideOffset={4} className="flex max-h-[min(60dvh,520px,var(--available-height))] w-[min(620px,calc(100vw-16px))] flex-col overflow-hidden">
+            {detail ? (
+              <>
+                <button type="button" onClick={() => setDetail(null)} aria-label={t("nav.back")} className={cn(ROW, "h-9 shrink-0 px-2 shadow-[inset_0_-0.5px_0_var(--edge)]")}>
+                  <ChevronLeft size={14} className="shrink-0" />
+                  <span className="min-w-0 flex-1 truncate">
+                    <StepLine s={detail} cwd={cwd} />
+                  </span>
+                </button>
+                <StepCard s={detail} session={session} />
+              </>
+            ) : (
+              <div ref={list} onScroll={(e) => (atEnd.current = e.currentTarget.scrollHeight - e.currentTarget.clientHeight - e.currentTarget.scrollTop < 24)} className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-3 py-2">
+                <Drill.Provider value={setDetail}>
+                  {steps.map((s) => (s.kind === "tool" && toldOf(s) ? <Dispatch key={s.at} call={s as Tool} session={session} /> : <StepView key={s.at} s={s} session={session} cwd={cwd} lifted />))}
+                </Drill.Provider>
+              </div>
+            )}
+          </PopSurface>
+        </Popover.Root>
+      )}
+    </>
   );
 }
 
@@ -862,6 +896,13 @@ function StepCall({ s, session, cwd, bare }: { s: Step; session: string; cwd: st
     setAt({ x: pointed ? e.clientX : (r?.left ?? 0) + 22, y: r?.bottom ?? (pointed ? e.clientY : 0) });
   };
   const anchor = usePointAnchor(at);
+  const drill = useContext(Drill);
+  if (drill)
+    return (
+      <button type="button" onClick={() => drill(s)} className={cn(ROW, "w-full shrink-0 text-left outline-none focus-visible:text-ink-2")}>
+        <StepLine s={s} cwd={cwd} bare={bare} />
+      </button>
+    );
   return (
     <Popover.Root open={open} onOpenChange={toggle}>
       <Popover.Trigger ref={row} className={cn(ROW, "w-full text-left outline-none focus-visible:text-ink-2", open && "text-ink-2")}>
@@ -1116,50 +1157,14 @@ export function Running({ tool, cwd }: { tool: Tool; cwd: string }) {
  *  (kumo, 2026-11-19: its pictures came in anew, a fold opened in it shut). bare: nothing to hold
  *  yet, no line of its own; the place is there from the turn's first row. */
 export function Earlier({ done, fresh, words, steps, children, after, bare }: { done: boolean; fresh?: boolean; words: number; steps: number; children: ReactNode; after?: ReactNode; bare?: boolean }) {
-  // fresh: its turn ended in front of you as it came to have something to fold: drawn open, then
-  // folding, not gone at once.
-  const [open, setOpen] = useState(!done || !!fresh);
-  const was = useRef(done);
-  useEffect(() => {
-    if (!done || !fresh) return;
-    const f = requestAnimationFrame(() => requestAnimationFrame(() => setOpen(false)));
-    return () => cancelAnimationFrame(f);
-  }, []);
-  useEffect(() => {
-    if (done !== was.current) setOpen(!done);
-    was.current = done;
-  }, [done]);
-  // Its line drawn as the steps' fold's is (Fold; kumo, 2026-11-16: no design of its own): an
-  // icon, its name and how many, the chevron. Open, what it holds as it stood in the turn: no
-  // rule beside it, not set in (kumo, 2026-11-16: the rule is the steps' fold's alone; with one
-  // here too, a fold of steps in it stood behind two, and the turn's rows moved aside as it ended).
-  const within = !done && open;
-  // after is always in the one place, after the fold, the turn going on or ended: put inside it
-  // while the turn went on and taken out as it ended, the last thing said was drawn anew as its
-  // turn ended (kumo, 2026-11-23: a flicker as each answer was done). The gap between the two is
-  // the turn's own (TurnFrame's), as wide as the fold's; nothing to fold yet, no fold to stand
-  // in it.
-  const has = Children.count(children) > 0;
+  // Nothing of a turn folds in place any more (kumo, 2026-11-24): its rows stay as they were
+  // said, each steps' line as high as it was; shut as the turn ended, the page came down under
+  // whoever was reading it.
+  void done, void fresh, void words, void steps, void bare;
   return (
     <>
-    {(has || !bare) && <div className="flex min-w-0 flex-col">
-      {!bare && <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className={cn(ROW, "-my-0.5 w-full text-left")}>
-        <span className="min-w-0 truncate">
-          <MessagesSquare size={14} className="mr-2 inline-block align-[-2.5px]" />
-          <span className="text-ink-2">{t("msg.earlier")}</span>
-          <span className="tabular-nums"> ×{words + steps}</span>
-        </span>
-        <ChevronRight size={13} className={cn("shrink-0 text-ink-4 transition-transform duration-(--dur-2)", open && "rotate-90")} />
-      </button>}
-      <div inert={!open || undefined} aria-hidden={!open || undefined} className="g-reveal" data-open={open ? "" : undefined}>
-        <div className={cn("min-h-0 min-w-0", !within && "overflow-hidden")}>
-          <div className={cn("flex min-w-0 flex-col gap-5", !bare && "mt-0.5 pt-4")}>
-            {children}
-          </div>
-        </div>
-      </div>
-    </div>}
-    {after}
+      {children}
+      {after}
     </>
   );
 }
