@@ -72,8 +72,9 @@ export function LongWords({ fold, lines, children, ctl, onOpen, prev, quiet, at 
   const more = lines - show;
   return (
     <div ref={outer} className="flex min-w-0 flex-col">
-      {/* Its first lines, the last fading out. */}
-      <div ref={box} className={cn("min-w-0", folds && "overflow-clip", !open && "[mask-image:linear-gradient(to_bottom,black_55%,transparent)]")} style={open ? undefined : { maxHeight: show * LINE }}>
+      {/* Its first lines, the last fading out: the last line and a half, never more (a step's
+          record shows 28 lines and faded the 13 under them to nothing, kumo, 2026-11-24: 别虚化这么多). */}
+      <div ref={box} className={cn("min-w-0", folds && "overflow-clip", !open && "[mask-image:linear-gradient(to_bottom,black_max(55%,calc(100%_-_35px)),transparent)]")} style={open ? undefined : { maxHeight: show * LINE }}>
         {children}
       </div>
       {folds && (
