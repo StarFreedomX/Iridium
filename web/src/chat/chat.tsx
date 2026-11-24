@@ -395,8 +395,10 @@ function WholeChat({ id, sheet = 0, onSheet, onMe, hold }: { id: string; sheet?:
   // agent's latest turn. Each ring is controlled by it, so one opened stays the only one open as
   // turns come after it, and closes on a press outside or Esc.
   const [ctxAt, setCtxAt] = useState<string | null>(null);
-  // By the blocks alone: a draft's next piece (ten a second) draws no settled row again.
-  const shown = useMemo(() => folded(log.blocks), [log.blocks]);
+  // By the blocks alone: a draft's next piece (ten a second) draws no settled row again. Calls
+  // run only while the turn does: one left without a result as it ends (stopped in the middle of
+  // it) is a step of the fold, not a call running on under the page.
+  const shown = useMemo(() => folded(log.blocks, busy), [log.blocks, busy]);
   const sent = useMemo(() => dispatched(shown), [shown]);
   const cwd = s?.cwd ?? row?.cwd ?? "";
   // 在哪干活 under the title (plan, 2026-11-10): the places this one sent sessions to, and those its

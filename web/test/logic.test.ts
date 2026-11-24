@@ -69,6 +69,15 @@ describe("folded", () => {
     const shown = folded([b("0.0", "user", { text: "go" }), b("5.0", "thinking", { text: "  " }), b("10.0", "tool", { id: "a", name: "Bash", input: "{}" })]);
     expect(shown.map((s) => s.kind)).toEqual(["user", "running"]);
   });
+  test("a stretch that is over has no call running: one left without a result is a step of its fold", () => {
+    const blocks = [b("0.0", "user", { text: "go" }), b("10.0", "tool", { id: "a", name: "Bash", input: JSON.stringify({ command: "set -e; ./push" }) })];
+    const done = folded(blocks, false);
+    expect(done.map((s) => s.kind)).toEqual(["user", "fold"]);
+    expect(done[1]?.kind === "fold" && done[1].steps.map((s) => s.id)).toEqual(["a"]);
+    expect(done.some((s) => s.kind === "running")).toBe(false);
+    // Its turn going on, the same call runs on its own.
+    expect(folded(blocks).map((s) => s.kind)).toEqual(["user", "running"]);
+  });
 });
 
 describe("argOf", () => {

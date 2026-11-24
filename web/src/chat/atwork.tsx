@@ -128,7 +128,8 @@ export function OtherTurn({ a, channel, st, said, spoken, alone, bars, call, rec
     if (!past) grown?.();
   }, [users]);
   const away = useAway(channel, a.session);
-  const shown = folded(past ?? liveOf(log.blocks, said, spoken ? (x) => spoken.has(x) : undefined));
+  // past: a part of the turn already done, nothing of it still running.
+  const shown = folded(past ?? liveOf(log.blocks, said, spoken ? (x) => spoken.has(x) : undefined), !past);
   const running = shown.flatMap((b) => (b.kind === "running" ? [b.tool] : []));
   const rows = shown.filter((b) => b.kind !== "running" && b.kind !== "user");
   const cwd = st?.cwd ?? "";

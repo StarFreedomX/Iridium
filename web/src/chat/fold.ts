@@ -10,7 +10,11 @@ export type Step = Block & { kind: "tool" | "thinking" };
  *  fold, and the calls still running. */
 export type Shown = (Block & { kind: "user" | "assistant" | "system" }) | { kind: "fold"; at: string; steps: Step[] } | { kind: "running"; at: string; tool: Tool };
 
-export function folded(blocks: Block[]): Shown[] {
+/** atWork: its turn goes on, so its last calls may still be running. False for a stretch that is
+ *  over (what an agent did before its words in a channel, a part of its turn given something more
+ *  after it): a call there with no result is one whose result never came (the agent stopped in the
+ *  middle of it, its limit out), and it is a step like any other, not a call running for hours. */
+export function folded(blocks: Block[], atWork = true): Shown[] {
   // A result whose call was on another page goes with it by id.
   const results = new Map(blocks.flatMap((b) => (b.kind === "result" && b.id ? [[b.id, b] as const] : [])));
   const all = blocks.flatMap((b): Block[] => {
@@ -20,7 +24,7 @@ export function folded(blocks: Block[]): Shown[] {
     return r ? [{ ...b, result: { at: r.at, time: r.time, text: r.text ?? "", length: r.length, error: r.error, images: r.images } }] : [b];
   });
   let end = all.length;
-  while (all[end - 1]?.kind === "tool" || all[end - 1]?.kind === "thinking") end--;
+  if (atWork) while (all[end - 1]?.kind === "tool" || all[end - 1]?.kind === "thinking") end--;
   const running = new Set(all.slice(end).filter((b): b is Tool => b.kind === "tool" && !b.result));
   const shown: Shown[] = [];
   // A step that starts another agent's session is a line of its own, never folded with the

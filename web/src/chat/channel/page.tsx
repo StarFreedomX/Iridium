@@ -690,7 +690,10 @@ function Work({ src, did, said, channel }: { src: Src; did?: Did; said?: string;
   });
   const work = q.data;
   if (!work?.length) return did ? <DidLine did={did} /> : null;
-  const shown = folded(work);
+  // A stretch that is over: a call of it with no result never got one, and is a step, not a call
+  // still running (kumo, 2026-11-24: 底下这行理论上不该存在的吧, a bash line for 149m41s under its
+  // words).
+  const shown = folded(work, false);
   const rows = shown.map((b) => <Said key={b.at} b={b} session={src.session} cwd={row?.cwd ?? ""} source={() => ({ kind: "you" }) as ReturnType<Parameters<typeof Said>[0]["source"]>} onJump={openChat} />);
   return (
     <div className="mb-1.5 flex min-w-0 flex-col gap-3">
