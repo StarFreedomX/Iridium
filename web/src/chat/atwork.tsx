@@ -15,8 +15,7 @@ import { AgentFace } from "./channel/members";
 import { AwayBox, useAway } from "./away";
 import { folded, type Tool } from "./fold";
 import { StopKey, ToolDraft, Waiting } from "./live";
-import { Earlier, Running, Said, When, useWhenRow } from "./said";
-import { earlierOf } from "./turns";
+import { Running, Said, When, useWhenRow } from "./said";
 
 /** The turn's row at the end of the conversation: the call being written, else the one running
  *  (the newest, how many more beside it), else the dots once it has gone quiet; one line high, even
@@ -134,14 +133,6 @@ export function OtherTurn({ a, channel, st, said, spoken, alone, bars, call, rec
   const rows = shown.filter((b) => b.kind !== "running" && b.kind !== "user");
   const cwd = st?.cwd ?? "";
   const node = (b: (typeof rows)[number]) => <Said key={b.at} b={b} session={a.session} cwd={cwd} source={noSource} onJump={openChat} />;
-  const e = earlierOf(rows, (b) => b.kind === "assistant");
-  // All its rows in the one place from the first (Earlier's after): none is put in again as it
-  // comes to be among the earlier ones.
-  const body = rows.length ? (
-    <Earlier key="earlier" done={false} bare={!e} words={e?.words ?? 0} steps={(e?.before ?? []).reduce((n, b) => n + (b.kind === "fold" ? b.steps.length : 0), 0)} after={(e?.after ?? rows).map(node)}>
-      {(e?.before ?? []).map(node)}
-    </Earlier>
-  ) : null;
   const stop = may && !past ? <StopKey session={a.session} /> : null;
   const time = rows.map((b) => (b.kind === "fold" ? b.steps[0]?.time : "time" in b ? b.time : undefined)).find(Boolean);
   const activity = (under: boolean) => past ? null : <Activity calls={[]} running={running} cwd={cwd} quiet grew={`${a.session} ${log.end} ${running.length}`} under={under} stop={stop} />;
@@ -154,9 +145,9 @@ export function OtherTurn({ a, channel, st, said, spoken, alone, bars, call, rec
     </>
   );
   const label = `${a.nick} · ${t("chat.working")}`;
-  // At work away from the channel's folder: its steps in the box that says where (away.tsx),
+  // Its steps in the box (away.tsx; away from the channel's folder, the box says where),
   // the row of what runs now at the end of the last.
-  if (away) {
+  {
     // Only its steps are in the box: its words stand outside it, between the boxes, as they will
     // once said to the channel (kumo, 2026-11-19: an answer whole sat in the box of the computer's
     // tools). Each box under the words before it, so none is put in again as more comes.
@@ -187,25 +178,4 @@ export function OtherTurn({ a, channel, st, said, spoken, alone, bars, call, rec
       </div>
     );
   }
-  const face = <AgentFace channel={channel} a={a} call={call} record={record} may={may} />;
-  const head = headOf();
-  // One frame, with its face or bare: its rows are not put in again as the face comes or goes.
-  return (
-    <div role="group" aria-label={label} className="flex min-w-0 flex-col gap-5">
-      {rows.length || alone ? (
-        <>
-          {rows.length > 0 && (
-            <TurnFrame bare={alone} face={face} head={head}>
-              {body}
-            </TurnFrame>
-          )}
-          {activity(false)}
-        </>
-      ) : (
-        <TurnFrame face={face} head={head}>
-          {activity(true)}
-        </TurnFrame>
-      )}
-    </div>
-  );
 }

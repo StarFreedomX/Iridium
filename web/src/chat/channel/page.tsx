@@ -692,7 +692,7 @@ function Work({ src, did, said, channel }: { src: Src; did?: Did; said?: string;
   if (!work?.length) return did ? <DidLine did={did} /> : null;
   const shown = folded(work);
   const rows = shown.map((b) => <Said key={b.at} b={b} session={src.session} cwd={row?.cwd ?? ""} source={() => ({ kind: "you" }) as ReturnType<Parameters<typeof Said>[0]["source"]>} onJump={openChat} />);
-  if (away)
+  if (rows.length)
     return (
       <AwayBox place={away} session={src.session} count={shown.reduce((n, b) => n + (b.kind === "fold" ? b.steps.length : 1), 0)}>
         {rows}

@@ -3,7 +3,7 @@
 // words, said to the channel, stay on the page outside it. One box for both: a computer has its
 // face, its name and its link's lamp; a folder here its mark and its name. Nothing scrolls inside
 // it: a finished turn's is one line until pressed, its height gliding.
-import { ChevronRight, Folder } from "lucide-react";
+import { ChevronRight, Folder, ListTree } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { useMachines } from "../data";
 import { t, useLang } from "../i18n";
@@ -12,6 +12,7 @@ import type { Place } from "../places";
 import { useList } from "../store";
 import { cn, tilde } from "../ui";
 import { awayOf, folderName } from "./awayof";
+import { FlatSteps } from "./said";
 
 /** Where session works when that is not channel's folder: both as the list has them. */
 export function useAway(channel: string, session: string): Place | undefined {
@@ -49,8 +50,16 @@ function Link({ m }: { m: Machine }) {
 
 /** The line that says where: the mark, the name (never wrapped: cut short), the path after it,
  *  a gap between them and no dot (docs/前端设计规范.md: 不用“·”分隔). */
-function Where({ place }: { place: Place }) {
+function Where({ place }: { place?: Place }) {
   const ms = useMachines();
+  // In the channel's own folder: no place to say, only what the box is.
+  if (!place)
+    return (
+      <span className="flex min-w-0 flex-1 items-center gap-1.5">
+        <ListTree size={14} className="shrink-0" aria-hidden />
+        <span className="truncate font-medium text-ink-2">{t("msg.earlier")}</span>
+      </span>
+    );
   for (const x of ms) lastMachine.set(x.id, x);
   const m = place.machine ? (ms.find((x) => x.id === place.machine) ?? lastMachine.get(place.machine)) : undefined;
   const path = m ? shownPath(`${m.id}:${place.path.replaceAll("\\", "/")}`, ms).label : tilde(place.path);
@@ -65,12 +74,16 @@ function Where({ place }: { place: Place }) {
   );
 }
 
-const BOX = "-mx-2.5 min-w-0 rounded-xl bg-fill px-2.5";
+// Two thirds of the column on a computer, and light (kumo, 2026-11-24: not the whole width, less grey).
+const BOX = "-mx-2.5 min-w-0 rounded-xl bg-fill/50 px-2.5 sm:mr-0 sm:w-2/3";
 const HEAD = "flex h-8 w-full min-w-0 items-center gap-2 text-left text-xs text-ink-3 pointer-coarse:h-9";
 
+/** place: where, when that is not the channel's folder; none: the work of an agent in the
+ *  channel's folder, in the same box (kumo, 2026-11-24: every agent's steps drawn this one way: a
+ *  message of the channel is its steps in one line, then its words). */
 /** Work at place, in its box. count: a finished turn's, how many steps it holds: one line, pressed
  *  open and shut; undefined: a turn at work, open while it lasts. */
-export function AwayBox({ place, count, session, children }: { place: Place; count?: number; session?: string; children: ReactNode }) {
+export function AwayBox({ place, count, session, children }: { place?: Place; count?: number; session?: string; children: ReactNode }) {
   useLang();
   const folds = count !== undefined;
   // Just now open at work: open still, then folding (its height gliding), as a turn's earlier
@@ -92,7 +105,7 @@ export function AwayBox({ place, count, session, children }: { place: Place; cou
         <div className={HEAD}>
           <Where place={place} />
         </div>
-        <div className="flex min-w-0 flex-col gap-5 pt-1 pb-2">{children}</div>
+        <div className="flex min-w-0 flex-col gap-1 pt-1 pb-2"><FlatSteps.Provider value>{children}</FlatSteps.Provider></div>
       </div>
     );
   return (
@@ -104,7 +117,7 @@ export function AwayBox({ place, count, session, children }: { place: Place; cou
       </button>
       <div inert={!open || undefined} aria-hidden={!open || undefined} className="g-reveal" data-open={open ? "" : undefined}>
         <div className="min-h-0 min-w-0 overflow-hidden">
-          <div className="flex min-w-0 flex-col gap-3 pt-1 pb-2.5">{children}</div>
+          <div className="flex min-w-0 flex-col gap-1 pt-1 pb-2.5"><FlatSteps.Provider value>{children}</FlatSteps.Provider></div>
         </div>
       </div>
     </div>

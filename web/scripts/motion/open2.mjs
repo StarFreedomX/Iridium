@@ -1,0 +1,11 @@
+import { chromium } from "playwright-core";
+const [base, id] = process.argv.slice(2);
+const b = await chromium.launch({ executablePath: "/home/iridium/.cache/ms-playwright/chromium-1254/chrome-linux64/chrome", args: ["--no-sandbox"] });
+const p = await b.newPage({ viewport: { width: 1200, height: 950 }, serviceWorkers: "block" });
+p.on("pageerror", (e) => console.log("ERR", e.message.slice(0, 200)));
+await p.goto(base + "?lang=zh#/s/" + id); await p.waitForTimeout(4500);
+const k = p.locator('main [role=log] button[aria-expanded]:not([aria-haspopup])').last();
+await k.scrollIntoViewIfNeeded(); await k.click(); await p.waitForTimeout(700);
+console.log("inner folds in open box:", await p.evaluate(() => document.querySelectorAll('main [role=log] .g-reveal[data-open] details').length));
+await p.screenshot({ path: "/tmp/irperf/box.png" });
+await b.close();

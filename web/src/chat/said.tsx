@@ -13,7 +13,7 @@ import { Archive, ArchiveRestore, ArrowUpRight, BookOpen, Bot, BotMessageSquare,
 import { Copyable } from "./copyable";
 import { Dispatch, Sent as SentTo, TaskBack } from "./dispatched";
 import { handBack, toldOf } from "./dispatch";
-import { Children, forwardRef, memo, useContext, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { Children, createContext, forwardRef, memo, useContext, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { givenTurn, linkNicks, type GivenTurn } from "./channel/lib";
 import { reactionLine } from "./react";
 import { Nicks, NickWords } from "./channel/nick";
@@ -749,11 +749,22 @@ const ROW = "flex h-7 min-w-0 cursor-default list-none items-center gap-2 rounde
  *  once with its kind's icon (a shell's, one per call when they do different things) and ×n, then
  *  the lines their edits changed, which opens to a line each.
  *  Each, pressed, shows what it was given and what came back in a card (StepView). */
+/** In a box that is itself the fold (away.tsx AwayBox): steps are drawn each on its line, not
+ *  under a line of their own to be opened again (kumo, 2026-11-24: a fold in a fold). */
+export const FlatSteps = createContext(false);
+
 function Fold({ steps, session, cwd }: { steps: Step[]; session: string; cwd: string }) {
+  const flat = useContext(FlatSteps);
   const one = steps.length === 1 ? steps[0]! : undefined;
   // A call to a subagent: the agent's words to it, not a step's line (dispatched.tsx).
   if (one?.kind === "tool" && toldOf(one)) return <Dispatch call={one as Tool} session={session} />;
   if (one) return <StepView s={one} session={session} cwd={cwd} />;
+  if (flat)
+    return (
+      <div className="flex min-w-0 flex-col">
+        {steps.map((s) => (s.kind === "tool" && toldOf(s) ? <Dispatch key={s.at} call={s as Tool} session={session} /> : <StepView key={s.at} s={s} session={session} cwd={cwd} lifted />))}
+      </div>
+    );
   const runs = foldLine(steps);
   const diff = diffSum(runs);
   const opened = steps.flatMap((s) => (s.kind === "tool" && newOfCall(s)) || []);
