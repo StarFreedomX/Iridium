@@ -52,7 +52,6 @@ const (
 	scriptErrMax   = 4 << 10
 	scriptSayMax   = 4000
 	scriptRunMax   = 4000
-	scriptIntroMax = 300
 )
 
 func (s *Server) scriptRoutes(mux *http.ServeMux) {
@@ -146,7 +145,7 @@ func (s *Server) scriptAdd(w http.ResponseWriter, r *http.Request) {
 		refuse(w, http.StatusBadRequest, "bad_request", err.Error())
 		return
 	}
-	x := store.Script{Channel: ch, Name: strings.TrimSpace(req.Name), Intro: strings.TrimSpace(req.Intro), Avatar: strings.TrimSpace(req.Avatar), Run: strings.TrimSpace(req.Run), Enabled: req.Enabled == nil || *req.Enabled}
+	x := store.Script{Channel: ch, Name: strings.TrimSpace(req.Name), Avatar: strings.TrimSpace(req.Avatar), Run: strings.TrimSpace(req.Run), Enabled: req.Enabled == nil || *req.Enabled}
 	on, err := cleanTriggers(req.On, x.Name)
 	if err == nil {
 		err = checkScript(x)
@@ -195,7 +194,6 @@ func (s *Server) scriptPatch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	set("name", &x.Name, p.Name)
-	set("intro", &x.Intro, p.Intro)
 	set("avatar", &x.Avatar, p.Avatar)
 	set("run", &x.Run, p.Run)
 	if p.On != nil {
@@ -314,8 +312,6 @@ func checkScript(x store.Script) error {
 		return errors.New("run: the command line to run")
 	case utf8.RuneCountInString(x.Run) > scriptRunMax:
 		return fmt.Errorf("run: at most %d characters", scriptRunMax)
-	case utf8.RuneCountInString(x.Intro) > scriptIntroMax:
-		return fmt.Errorf("intro: at most %d characters", scriptIntroMax)
 	case utf8.RuneCountInString(x.Avatar) > 16:
 		return errors.New("avatar: an emoji or a colour (#rrggbb)")
 	}
@@ -385,7 +381,7 @@ func byOf(raw string) api.ScriptBy {
 }
 
 func (s *Server) scriptOut(x store.Script) api.Script {
-	out := api.Script{Channel: x.Channel, Name: x.Name, Intro: x.Intro, Avatar: x.Avatar, Run: x.Run, On: triggersOf(x), Enabled: x.Enabled, Made: byOf(x.Made), Changed: byOf(x.Changed)}
+	out := api.Script{Channel: x.Channel, Name: x.Name, Avatar: x.Avatar, Run: x.Run, On: triggersOf(x), Enabled: x.Enabled, Made: byOf(x.Made), Changed: byOf(x.Changed)}
 	if out.Made.At == 0 {
 		out.Made.At = x.CreatedAt
 	}

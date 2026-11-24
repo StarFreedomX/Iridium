@@ -964,8 +964,7 @@ func TestChannelInviteGreets(t *testing.T) {
 	l.waitReply("web", ch, "ok: first")
 	var ms api.ChannelMembers
 	l.want(200, "web", "POST", "/v1/internal/channels/"+ch+"/members", api.NewMember{Agent: api.AgentClaude, Greet: true}, &ms)
-	// No intro (the page gives none): it is asked to write one first (otae, 2026-11-23).
-	l.waitSaid("web", ch, "@claude2", "你还没有介绍")
+	l.waitSaid("web", ch, "@claude2", "邀请你加入了这个频道")
 	l.want(200, "web", "POST", "/v1/internal/channels/"+ch+"/members", api.NewMember{Agent: api.AgentClaude}, &ms)
 	time.Sleep(300 * time.Millisecond)
 	for _, m := range l.said("web", ch) {
@@ -973,13 +972,13 @@ func TestChannelInviteGreets(t *testing.T) {
 			t.Errorf("one invited with no greet spoke: %s", m)
 		}
 	}
-	// One with an intro is not asked for one.
-	l.want(200, "web", "POST", "/v1/internal/channels/"+ch+"/members", api.NewMember{Agent: api.AgentClaude, Intro: "runs the tests", Greet: true}, &ms)
+	// No intro is asked for (kumo, 2026-11-24: intros gone).
+	l.want(200, "web", "POST", "/v1/internal/channels/"+ch+"/members", api.NewMember{Agent: api.AgentClaude, Greet: true}, &ms)
 	l.waitSaid("web", ch, "@claude4", "邀请你加入了这个频道")
 	for _, m := range l.said("web", ch) {
 		// Its own words, not the channel's context it echoes after them.
 		if first, _, _ := strings.Cut(m, "\n"); strings.Contains(first, "@claude4 ") && strings.Contains(first, "你还没有介绍") {
-			t.Errorf("one with an intro asked for one: %s", m)
+			t.Errorf("asked for an intro: %s", m)
 		}
 	}
 }

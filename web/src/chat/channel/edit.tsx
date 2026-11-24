@@ -11,7 +11,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft, LoaderCircle, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api } from "../../api/client";
-import { IntroMax, type Agent, type Profile, type ProfilePatch } from "../../api/types.gen";
+import { type Agent, type Profile, type ProfilePatch } from "../../api/types.gen";
 import { asDataURL, BannerThumb, FacePick, Field } from "../../facepick";
 import { PersonaEditor, PersonaRow } from "../../persona";
 import { t, useLang } from "../../i18n";
@@ -166,7 +166,6 @@ export function EditBody({ editing, back, done }: { editing: Editing; back?: () 
             save={(v) => save(agent ? { nick: v } : { name: v.trim() })}
             explain={memberError}
           />
-          <Field label={t("profile.intro")} value={p.intro ?? ""} max={IntroMax} multi count save={(v) => save({ intro: v })} explain={memberError} />
           {agent && <PersonaRow value={p.persona} open={() => setPersona(true)} />}
           {/* The face's other ways (an emoji, a colour, none); its picture cropped as the face's. */}
           <FacePick

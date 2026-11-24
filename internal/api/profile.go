@@ -14,13 +14,12 @@ const (
 // person's or an app's user id, a channel's id. Name: what it is called by (an agent's nick, a
 // login's name, a channel's name). Avatar, Background: where the image is fetched ("/v1/…"), or
 // an emoji, or a colour ("#2f4f6f"); "" none. Persona: an agent's own words on how it works,
-// in its system prompt after its intro (otae, 2026-11-21). Model: what an agent runs as. Role:
+// in its system prompt (otae, 2026-11-21). Model: what an agent runs as. Role:
 // the role its session was started as.
 type Profile struct {
 	ID         string `json:"id"`
 	Kind       string `json:"kind"`
 	Name       string `json:"name,omitempty"`
-	Intro      string `json:"intro,omitempty"`
 	Persona    string `json:"persona,omitempty"`
 	Avatar     string `json:"avatar,omitempty"`
 	Background string `json:"background,omitempty"`
@@ -40,15 +39,13 @@ type Profile struct {
 type ProfilePatch struct {
 	Nick       *string `json:"nick,omitempty"`
 	Name       *string `json:"name,omitempty"`
-	Intro      *string `json:"intro,omitempty"`
 	Persona    *string `json:"persona,omitempty"`
 	Avatar     *string `json:"avatar,omitempty"`
 	Background *string `json:"background,omitempty"`
 }
 
-// IntroMax is how many characters an intro may have; PersonaMax, a persona; MemoryMax, a memory.
+// PersonaMax is how many characters a persona may have; MemoryMax, a memory.
 const (
-	IntroMax   = 200
 	PersonaMax = 5000
 	MemoryMax  = 300
 )

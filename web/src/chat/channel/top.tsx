@@ -189,7 +189,7 @@ function MemberList({ id, ask, script }: { id: string; ask: (a: Ask) => void; sc
           <Menu.Item key={x.name} onClick={() => script({ k: "card", name: x.name })} className={ITEM}>
             <ScriptFace avatar={x.avatar} size={16} />
             <span className="shrink-0">{x.name}</span>
-            <span className="min-w-0 flex-1 truncate text-xs text-ink-3">{x.intro}</span>
+            <span className="min-w-0 flex-1" />
             {state && <span className={cn("shrink-0 text-xs", x.enabled ? "text-err" : "text-ink-3")}>{state}</span>}
           </Menu.Item>
         );

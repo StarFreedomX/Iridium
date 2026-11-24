@@ -310,7 +310,7 @@ func TestMoveAgentProfile(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	if err := s.SetProfile(ChannelProfileKey("a"), Profile{Intro: "tests", Avatar: "🧪"}); err != nil {
+	if err := s.SetProfile(ChannelProfileKey("a"), Profile{Persona: "tests", Avatar: "🧪"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.AddMemory(Memory{Owner: s.MemoryOwner("a"), Text: "short answers", Session: "a"}); err != nil {
@@ -322,7 +322,7 @@ func TestMoveAgentProfile(t *testing.T) {
 	if err := s.MoveAgent("b", "c"); err != nil {
 		t.Fatal(err)
 	}
-	if p := s.Profile(ChannelProfileKey("c")); p.Intro != "tests" || p.Avatar != "🧪" || s.Profile(ChannelProfileKey("a")) != (Profile{}) {
+	if p := s.Profile(ChannelProfileKey("c")); p.Persona != "tests" || p.Avatar != "🧪" || s.Profile(ChannelProfileKey("a")) != (Profile{}) {
 		t.Errorf("the card: %+v", p)
 	}
 	if ms, _ := s.Memories(s.MemoryOwner("c"), 0); len(ms) != 1 || ms[0].Text != "short answers" {

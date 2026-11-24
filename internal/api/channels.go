@@ -20,9 +20,8 @@ type ChannelMember struct {
 	Status  Status    `json:"status,omitempty"`
 	Cwd     string    `json:"cwd,omitempty"`
 	Machine string    `json:"machine,omitempty"`
-	// Its card (Profile): Intro; Avatar, Background where they are an emoji or a colour, or the
+	// Its card (Profile): Avatar, Background where they are an emoji or a colour, or the
 	// background's image; Role, the role its session was started as.
-	Intro      string `json:"intro,omitempty"`
 	Avatar     string `json:"avatar,omitempty"`
 	Background string `json:"background,omitempty"`
 	Role       string `json:"role,omitempty"`
@@ -59,9 +58,8 @@ type NewMember struct {
 	On      []Trigger `json:"on,omitempty"`
 	// Role: start it as this role (its id or name): the role's agent, model, preset and card,
 	// where the fields above say nothing; its effort and mode are these fields' or the agent's
-	// own. Intro, Persona, Avatar, Background: its card (ProfilePatch).
+	// own. Persona, Avatar, Background: its card (ProfilePatch).
 	Role       string `json:"role,omitempty"`
-	Intro      string `json:"intro,omitempty"`
 	Persona    string `json:"persona,omitempty"`
 	Avatar     string `json:"avatar,omitempty"`
 	Background string `json:"background,omitempty"`

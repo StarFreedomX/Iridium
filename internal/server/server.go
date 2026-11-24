@@ -115,7 +115,7 @@ type Server struct {
 	faceSeen map[string]string
 	faceDue  bool
 	faceIDs  string // the hosted channels in the list, as last seen (faces.go facesOnList)
-	// cardsSeq: the state "cards", up by one at each change of a card (its name, intro, face).
+	// cardsSeq: the state "cards", up by one at each change of a card (its name, face).
 	cardsSeq atomic.Int64
 	// listDue: the list of sessions is to be made again shortly (listSoon).
 	listDue atomic.Bool

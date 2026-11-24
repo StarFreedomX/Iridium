@@ -623,7 +623,7 @@ func (s *Server) membersOf(c caller, ch string) (api.ChannelMembers, error) {
 				am.Name = s.sessionName(st)
 			}
 			p := s.agentProfile(m.Session)
-			am.Intro, am.Avatar, am.Background, am.Role = p.Intro, p.Avatar, p.Background, p.Role
+			am.Avatar, am.Background, am.Role = p.Avatar, p.Background, p.Role
 		}
 		out.Members = append(out.Members, am)
 	}
@@ -744,7 +744,7 @@ func (s *Server) addAgent(ctx context.Context, c caller, ch string, st *api.Sess
 		}
 	} else {
 		ns := api.NewSession{Agent: req.Agent, Cwd: cmp.Or(req.Cwd, st.Cwd), Machine: st.Machine, Model: req.Model, Mode: req.Mode,
-			Effort: req.Effort, Preset: req.Preset, Role: req.Role, Intro: req.Intro, Avatar: req.Avatar, Background: req.Background}
+			Effort: req.Effort, Preset: req.Preset, Role: req.Role, Avatar: req.Avatar, Background: req.Background}
 		if req.Cwd != "" {
 			ns.Machine = req.Machine
 		} else if req.Machine != "" && req.Machine != st.Machine {
@@ -1398,15 +1398,11 @@ func (s *Server) tellMembers(c caller, ch, text string, ev channel.Event) int64 
 
 // greet asks session id's agent, just invited into channel ch by c (its line there, seq), to
 // say a line there: hello, and who it is (kumo, 2026-11-16: an agent invited says a word, not
-// a face that flashes up and goes). One with no intro and an ir writes its intro first: the
-// page's invite gives none, nor does a role (otae, 2026-11-23). A turn of its own, as a message
-// given to it is; not waited for.
+// a face that flashes up and goes). A turn of its own, as a message given to it is; not waited
+// for.
 func (s *Server) greet(c caller, ch, id string, seq int64) {
 	by := s.satoriUser(c).Name
 	words := fmt.Sprintf("%s 邀请你加入了这个频道。用一两句话跟大家打个招呼，说说你是谁。", cmp.Or(by, "Iridium"))
-	if s.st.Profile(store.ChannelProfileKey(id)).Intro == "" && s.m.HasIR(id) {
-		words = fmt.Sprintf("%s 邀请你加入了这个频道。你还没有介绍：先用一句话写好（你在这里做什么，至多 %d 字，给频道里的人和 agent 看）：ir api PATCH internal/self intro='…'；再用一两句话跟大家打个招呼，说说你是谁。", cmp.Or(by, "Iridium"), api.IntroMax)
-	}
 	lk := s.chain.person(ch, c.ID())
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -2325,7 +2321,6 @@ func (s *Server) deliverAs(ctx context.Context, ch, to string, seq int64, said, 
 				}
 			}
 		}
-		ca.Intro = head(s.st.Profile(store.ChannelProfileKey(a.Session)).Intro, 80)
 		ca.Recv = s.triggerWords(a.On)
 		cc.Agents = append(cc.Agents, ca)
 		keys = append(keys, a.Session+"="+channel.EncodeTriggers(a.On)+"@"+ca.At)
@@ -2337,12 +2332,12 @@ func (s *Server) deliverAs(ctx context.Context, ch, to string, seq int64, said, 
 				continue
 			}
 			on := s.triggerWords(triggersOf(x))
-			cc.Scripts = append(cc.Scripts, assemble.ChannelScript{Name: x.Name, Intro: head(x.Intro, 80), On: on})
+			cc.Scripts = append(cc.Scripts, assemble.ChannelScript{Name: x.Name, On: on})
 			keys = append(keys, "script:"+x.Name+"="+on)
 		}
 	}
 	slices.Sort(keys)
-	cc.Key, cc.People = strings.Join(keys, ","), s.peopleOf(ch)
+	cc.Key = strings.Join(keys, ",")
 	for _, pc := range s.profileChanges(ch, to) {
 		cc.Changes = append(cc.Changes, assemble.ProfileChange{Who: pc.Who, What: pc.What, To: pc.To})
 	}

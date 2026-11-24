@@ -293,7 +293,7 @@ Web Push，总开关在配置 `push`，默认关。VAPID 密钥存在状态目�
 | `POST /v1/internal/channels/{id}/read` | `Read {seq}`：我读到这条了；只给人。读到的位置之前点到我的标记一并清掉 |
 | `GET /v1/internal/ats` | `ChannelAts`：`{频道ID: ChannelAt {seq, everyone}}`，各频道里第一条点到我、我还没读的消息（`docs/channels.md`“有人 @ 我”）；`everyone`：只是 `@全体成员`。agent 的 `ir` 得到空的 |
 | `PUT /v1/internal/channels/{id}/people` | `People {people}`：谁能在频道里说话，`["*"]` 或不给是所有人；只给人，要在群里 |
-| `PATCH /v1/internal/channels/{id}/members/{member}` | `MemberPatch {nick?, on?}`；称呼在所有频道都改，要有用那个会话的权限；`on` 是订阅事件（整份替换，`docs/channels.md`“订阅事件”），频道里任何成员都能改任何 agent 的；回答的 `warn` 是订阅连成的圈 |
+| `PATCH /v1/internal/channels/{id}/members/{member}` | `MemberPatch {nick?, on?}`；称呼在所有频道都改，要有用那个会话的权限；`on` 是唤醒（整份替换，`docs/channels.md`“唤醒”），频道里任何成员都能改任何 agent 的；回答的 `warn` 是订阅连成的圈 |
 | `DELETE /v1/internal/channels/{id}/members/{member}` | 移出（退订）一个 agent（`agent:<会话>`，别的 400），它的会话照旧；频道自己的 agent 移不出（422 `no_such_member`）；只给人 |
 | `GET /v1/internal/sessions/{id}/injections` | 频道给过这个 agent 什么，新的在前：`Injection {id, seq, input, at, record}` |
 

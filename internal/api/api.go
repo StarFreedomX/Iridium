@@ -463,10 +463,9 @@ type NewSession struct {
 	Members *ChannelSetup `json:"members,omitempty"`
 	// Role: start it as this role (its id or name): the role's agent, model, preset and card,
 	// where the fields above say nothing; its effort and mode are these fields' or the agent's
-	// own. Nick, Intro, Persona, Avatar, Background: its card (ProfilePatch), over the role's.
+	// own. Nick, Persona, Avatar, Background: its card (ProfilePatch), over the role's.
 	Role       string `json:"role,omitempty"`
 	Nick       string `json:"nick,omitempty"`
-	Intro      string `json:"intro,omitempty"`
 	Persona    string `json:"persona,omitempty"`
 	Avatar     string `json:"avatar,omitempty"`
 	Background string `json:"background,omitempty"`

@@ -1,5 +1,5 @@
 // The scripts of a channel's IR (docs/channels.md "脚本"): a script's face, its card and its
-// editor, one popover's pages (g-slide; back at the top left): the card (its face, name, intro;
+// editor, one popover's pages (g-slide; back at the top left): the card (its face, name;
 // who changed it last and from where, who made it; its triggers in words; its command line; 运行,
 // 停用/启用, 编辑, 删除 asked again in place; what a run gave; its latest runs, sliding open); the
 // editor (名称, 介绍, 头像, 命令, 触发), a new one from a template first (唤醒词, 定时提醒, 空白).
@@ -214,7 +214,6 @@ function Card({ channel, name, dir, back, edit, done }: { channel: string; name:
         name={x.name}
         sub={<IrTag />}
         state={state && <span className={cn(x.enabled && "text-err")}>{state}</span>}
-        intro={x.intro}
         keys={keys}
         more={
           <>
@@ -350,7 +349,6 @@ function Editor({ channel, name, draft, dir, back, saved }: { channel: string; n
   const was = useScripts(channel)?.find((s) => s.name === name);
   const from = was ?? draft;
   const [nm, setName] = useState(from?.name ?? "");
-  const [intro, setIntro] = useState(from?.intro ?? "");
   const [avatar, setAvatar] = useState(from?.avatar ?? "");
   const [run, setRun] = useState(from?.run ?? "");
   const [on, setOn] = useState<TriggerDraft[]>(() => (from?.on.length ? from.on.map(draftOf) : [blankTrigger()]));
@@ -361,7 +359,7 @@ function Editor({ channel, name, draft, dir, back, saved }: { channel: string; n
     if (!ok || busy) return;
     setBusy(true);
     setError("");
-    const x = { name: nm, intro: intro.trim(), avatar, run, on: on.map(triggerOf) };
+    const x = { name: nm, avatar, run, on: on.map(triggerOf) };
     try {
       const s = name ? await api.patchScript(channel, name, x) : await api.addScript(channel, x);
       qc.setQueryData<Script[]>(scriptsKey(channel), (all) => [...(all ?? []).filter((y) => y.name !== name && y.name !== s.name), s]);
@@ -379,10 +377,6 @@ function Editor({ channel, name, draft, dir, back, saved }: { channel: string; n
       <label className={LABEL}>
         {t("script.name")}
         <input value={nm} maxLength={32} onChange={(e) => (setName(e.target.value), setError(""))} aria-invalid={(!!nm && !validNick(nm)) || undefined} className={cn(INPUT, "h-8 pointer-coarse:h-10", nm && !validNick(nm) && "text-err")} />
-      </label>
-      <label className={LABEL}>
-        {t("script.intro")}
-        <textarea value={intro} rows={2} onChange={(e) => (setIntro(e.target.value.replace(/\n/g, " ")), setError(""))} className={cn(INPUT, "field-sizing-content max-h-32 min-h-[3.25rem] resize-none py-1.5 leading-5")} />
       </label>
       <FacePick label={t("script.avatar")} preview={<ScriptFace avatar={avatar} size={28} />} set={async (v) => setAvatar(v)} still />
       <label className={LABEL}>

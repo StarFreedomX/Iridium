@@ -21,7 +21,7 @@ func TestScripts(t *testing.T) {
 
 	// A word that calls the agent.
 	var x api.Script
-	fish := api.NewScript{Name: "fish", Intro: "喊大肥鱼叫起 claude", Avatar: "🐟", Run: `printf '@claude 有人喊你：%s' "$IR_TEXT"`, On: []api.Trigger{{Message: &api.MessageTrigger{From: []string{"*"}, Words: []string{"大肥鱼"}}}}}
+	fish := api.NewScript{Name: "fish", Avatar: "🐟", Run: `printf '@claude 有人喊你：%s' "$IR_TEXT"`, On: []api.Trigger{{Message: &api.MessageTrigger{From: []string{"*"}, Words: []string{"大肥鱼"}}}}}
 	l.want(200, "web", "POST", path, fish, &x)
 	if x.Name != "fish" || !x.Enabled || x.Made.Member == "" || x.Made.At == 0 || len(x.On) != 1 {
 		t.Fatalf("added: %+v", x)

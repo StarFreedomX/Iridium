@@ -579,11 +579,10 @@ export interface NewSession {
   /**
    * Role: start it as this role (its id or name): the role's agent, model, preset and card,
    * where the fields above say nothing; its effort and mode are these fields' or the agent's
-   * own. Nick, Intro, Persona, Avatar, Background: its card (ProfilePatch), over the role's.
+   * own. Nick, Persona, Avatar, Background: its card (ProfilePatch), over the role's.
    */
   role?: string;
   nick?: string;
-  intro?: string;
   persona?: string;
   avatar?: string;
   background?: string;
@@ -1322,10 +1321,9 @@ export interface ChannelMember {
   cwd?: string;
   machine?: string;
   /**
-   * Its card (Profile): Intro; Avatar, Background where they are an emoji or a colour, or the
+   * Its card (Profile): Avatar, Background where they are an emoji or a colour, or the
    * background's image; Role, the role its session was started as.
    */
-  intro?: string;
   avatar?: string;
   background?: string;
   role?: string;
@@ -1369,10 +1367,9 @@ export interface NewMember {
   /**
    * Role: start it as this role (its id or name): the role's agent, model, preset and card,
    * where the fields above say nothing; its effort and mode are these fields' or the agent's
-   * own. Intro, Persona, Avatar, Background: its card (ProfilePatch).
+   * own. Persona, Avatar, Background: its card (ProfilePatch).
    */
   role?: string;
-  intro?: string;
   persona?: string;
   avatar?: string;
   background?: string;
@@ -1974,14 +1971,13 @@ export type CardKind = typeof CardKindAgent | typeof CardKindPerson | typeof Car
  * person's or an app's user id, a channel's id. Name: what it is called by (an agent's nick, a
  * login's name, a channel's name). Avatar, Background: where the image is fetched ("/v1/…"), or
  * an emoji, or a colour ("#2f4f6f"); "" none. Persona: an agent's own words on how it works,
- * in its system prompt after its intro (otae, 2026-11-21). Model: what an agent runs as. Role:
+ * in its system prompt (otae, 2026-11-21). Model: what an agent runs as. Role:
  * the role its session was started as.
  */
 export interface Profile {
   id: string;
   kind: string;
   name?: string;
-  intro?: string;
   persona?: string;
   avatar?: string;
   background?: string;
@@ -2004,21 +2000,16 @@ export interface Profile {
 export interface ProfilePatch {
   nick?: string;
   name?: string;
-  intro?: string;
   persona?: string;
   avatar?: string;
   background?: string;
 }
 /**
- * IntroMax is how many characters an intro may have; PersonaMax, a persona; MemoryMax, a memory.
- */
-export const IntroMax = 200;
-/**
- * IntroMax is how many characters an intro may have; PersonaMax, a persona; MemoryMax, a memory.
+ * PersonaMax is how many characters a persona may have; MemoryMax, a memory.
  */
 export const PersonaMax = 5000;
 /**
- * IntroMax is how many characters an intro may have; PersonaMax, a persona; MemoryMax, a memory.
+ * PersonaMax is how many characters a persona may have; MemoryMax, a memory.
  */
 export const MemoryMax = 300;
 /**
@@ -2301,14 +2292,13 @@ export interface PushMessage {
  * (Iridium itself, one of every channel's members) runs when one of its triggers (On) fires, in
  * the channel's folder at the host. What it prints is said in the channel under its name; with
  * ir it may do anything else (IRIDIUM_SCRIPT names it, its words are said as its own).
- * Name: one in the channel, as a nick is written; Intro, Avatar (an emoji, or a colour
+ * Name: one in the channel, as a nick is written; Avatar (an emoji, or a colour
  * "#rrggbb"): its card. Enabled: off, it keeps its place and does not run. Made, Changed: who
  * made it and who changed it last; Last: its latest run.
  */
 export interface Script {
   channel: string;
   name: string;
-  intro?: string;
   avatar?: string;
   run: string;
   on: Trigger[];
@@ -2364,7 +2354,6 @@ export interface ScriptBy {
  */
 export interface NewScript {
   name: string;
-  intro?: string;
   avatar?: string;
   run: string;
   on: Trigger[];
@@ -2375,7 +2364,6 @@ export interface NewScript {
  */
 export interface ScriptPatch {
   name?: string;
-  intro?: string;
   avatar?: string;
   run?: string;
   on?: Trigger[];

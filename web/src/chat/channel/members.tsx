@@ -143,7 +143,6 @@ function CardOf({ channel, a, call, record, may, talk, done, edit }: Parameters<
           {sessionStatusText(a)}
         </>
       }
-      intro={card?.intro ?? row?.intro}
       background={card?.background ?? row?.background}
       keys={keys}
     />

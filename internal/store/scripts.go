@@ -43,7 +43,6 @@ const scriptsSchema = `CREATE TABLE IF NOT EXISTS channel_scripts (
 type Script struct {
 	Channel   string
 	Name      string
-	Intro     string
 	Avatar    string
 	Run       string
 	Triggers  string
@@ -57,11 +56,11 @@ type Script struct {
 // ErrScriptTaken: the channel has a script of that name.
 var ErrScriptTaken = errors.New("the channel has a script of that name")
 
-const scriptCols = `channel, name, intro, avatar, run, triggers, enabled, made, changed, created_at, changed_at`
+const scriptCols = `channel, name, avatar, run, triggers, enabled, made, changed, created_at, changed_at`
 
 func scanScript(r interface{ Scan(...any) error }) (Script, error) {
 	var x Script
-	err := r.Scan(&x.Channel, &x.Name, &x.Intro, &x.Avatar, &x.Run, &x.Triggers, &x.Enabled, &x.Made, &x.Changed, &x.CreatedAt, &x.ChangedAt)
+	err := r.Scan(&x.Channel, &x.Name, &x.Avatar, &x.Run, &x.Triggers, &x.Enabled, &x.Made, &x.Changed, &x.CreatedAt, &x.ChangedAt)
 	return x, err
 }
 
@@ -104,8 +103,8 @@ func (s *Store) AddScript(x Script) error {
 	if x.ChangedAt == 0 {
 		x.ChangedAt = x.CreatedAt
 	}
-	_, err := s.db.Exec(`INSERT INTO channel_scripts (`+scriptCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		x.Channel, x.Name, x.Intro, x.Avatar, x.Run, x.Triggers, x.Enabled, x.Made, x.Changed, x.CreatedAt, x.ChangedAt)
+	_, err := s.db.Exec(`INSERT INTO channel_scripts (`+scriptCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		x.Channel, x.Name, x.Avatar, x.Run, x.Triggers, x.Enabled, x.Made, x.Changed, x.CreatedAt, x.ChangedAt)
 	if err != nil && strings.Contains(err.Error(), "UNIQUE") {
 		return ErrScriptTaken
 	}
@@ -120,8 +119,8 @@ func (s *Store) PutScript(was string, x Script) error {
 		return err
 	}
 	defer tx.Rollback()
-	_, err = tx.Exec(`UPDATE channel_scripts SET name = ?, intro = ?, avatar = ?, run = ?, triggers = ?, enabled = ?, changed = ?, changed_at = ? WHERE channel = ? AND name = ?`,
-		x.Name, x.Intro, x.Avatar, x.Run, x.Triggers, x.Enabled, x.Changed, x.ChangedAt, x.Channel, was)
+	_, err = tx.Exec(`UPDATE channel_scripts SET name = ?, avatar = ?, run = ?, triggers = ?, enabled = ?, changed = ?, changed_at = ? WHERE channel = ? AND name = ?`,
+		x.Name, x.Avatar, x.Run, x.Triggers, x.Enabled, x.Changed, x.ChangedAt, x.Channel, was)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
 			return ErrScriptTaken

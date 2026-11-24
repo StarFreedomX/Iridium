@@ -24,7 +24,6 @@ import (
 	"github.com/kumoSleeping/iridium/internal/access"
 	"github.com/kumoSleeping/iridium/internal/api"
 	"github.com/kumoSleeping/iridium/internal/channel"
-	"github.com/kumoSleeping/iridium/internal/ctx/assemble"
 	"github.com/kumoSleeping/iridium/internal/deliver"
 	"github.com/kumoSleeping/iridium/internal/gate"
 	"github.com/kumoSleeping/iridium/internal/session"
@@ -294,15 +293,6 @@ func (s *Server) setFaces(c caller, key string, p *store.Profile, avatar, backgr
 	return what, nil
 }
 
-// intro checks an intro: at most api.IntroMax characters, one paragraph.
-func intro(v string) (string, error) {
-	v = strings.Join(strings.Fields(v), " ")
-	if len([]rune(v)) > api.IntroMax {
-		return "", fmt.Errorf("%w: intro: at most %d characters", session.ErrBadRequest, api.IntroMax)
-	}
-	return v, nil
-}
-
 // persona is v as a persona is kept: its lines as written (an agent's persona is read as it was
 // written into its system prompt), trimmed, at most PersonaMax characters.
 func persona(v string) (string, error) {
@@ -319,7 +309,7 @@ func persona(v string) (string, error) {
 func (s *Server) agentProfile(id string) api.Profile {
 	key := store.ChannelProfileKey(id)
 	p := s.st.Profile(key)
-	out := api.Profile{ID: store.AgentMember(id), Kind: api.CardKindAgent, Session: id, Name: s.ch.Nick(id), Intro: p.Intro, Persona: p.Persona, Role: s.st.RoleOf(id)}
+	out := api.Profile{ID: store.AgentMember(id), Kind: api.CardKindAgent, Session: id, Name: s.ch.Nick(id), Persona: p.Persona, Role: s.st.RoleOf(id)}
 	st, err := s.m.State(id)
 	if err == nil {
 		out.Agent, out.Status = st.Agent, st.Status
@@ -335,8 +325,7 @@ func (s *Server) agentProfile(id string) api.Profile {
 // channelProfile is the card of channel ch: a session's own channel's its own, not its
 // agent's (roomKey); a face or a background it has not been given, its agent's.
 func (s *Server) channelProfile(ch string) api.Profile {
-	p := s.st.Profile(s.roomKey(ch))
-	out := api.Profile{ID: ch, Kind: api.CardKindChannel, Name: s.channelName(ch), Intro: p.Intro}
+	out := api.Profile{ID: ch, Kind: api.CardKindChannel, Name: s.channelName(ch)}
 	st, err := s.m.State(ch)
 	if err != nil {
 		st = nil
@@ -357,7 +346,7 @@ func (s *Server) personProfile(id string) (api.Profile, bool) {
 		return api.Profile{}, false
 	}
 	key := store.PersonProfileKey(id)
-	out := api.Profile{ID: id, Kind: api.CardKindPerson, Name: info.Name, Intro: s.st.Profile(key).Intro, Avatar: info.Avatar}
+	out := api.Profile{ID: id, Kind: api.CardKindPerson, Name: info.Name, Avatar: info.Avatar}
 	if info.Kind != gate.KindPanel && !info.Host() {
 		out.Kind = api.CardKindApp
 	}
@@ -420,7 +409,7 @@ func (s *Server) profileNote(c caller, ch, member, nick string, what []string) {
 	if ch == "" || len(what) == 0 {
 		return
 	}
-	names := map[string]string{"nick": "称呼", "name": "名称", "intro": "介绍", "persona": "设定", "avatar": "头像", "background": "背景"}
+	names := map[string]string{"nick": "称呼", "name": "名称", "persona": "设定", "avatar": "头像", "background": "背景"}
 	var parts []string
 	for _, w := range what {
 		parts = append(parts, names[w])
@@ -495,16 +484,6 @@ func (s *Server) patchAgent(c caller, id, in string, p api.ProfilePatch) error {
 	}
 	key := store.ChannelProfileKey(id)
 	prof := s.st.Profile(key)
-	if p.Intro != nil {
-		v, err := intro(*p.Intro)
-		if err != nil {
-			return err
-		}
-		if v != prof.Intro {
-			prof.Intro = v
-			what = append(what, "intro")
-		}
-	}
 	if p.Persona != nil {
 		v, err := persona(*p.Persona)
 		if err != nil {
@@ -582,19 +561,9 @@ func (s *Server) patchChannel(ctx context.Context, c caller, ch string, p api.Pr
 		}
 		what = append(what, "name")
 	}
-	// A session's own channel too: its own intro, face and background, not its agent's.
+	// A session's own channel too: its own face and background, not its agent's.
 	key := s.roomKey(ch)
 	prof := s.st.Profile(key)
-	if p.Intro != nil {
-		v, err := intro(*p.Intro)
-		if err != nil {
-			return err
-		}
-		if v != prof.Intro {
-			prof.Intro = v
-			what = append(what, "intro")
-		}
-	}
 	dir := ""
 	if st, err := s.m.State(ch); err == nil && st.Machine == "" {
 		dir = st.Cwd
@@ -620,7 +589,7 @@ func (s *Server) patchChannel(ctx context.Context, c caller, ch string, p api.Pr
 	return nil
 }
 
-// patchPerson changes c's own card: its intro and its background (its name and its face are
+// patchPerson changes c's own card: its background (its name and its face are
 // the gate's: the profile page).
 func (s *Server) patchPerson(c caller, p api.ProfilePatch) error {
 	if c.byAgent() {
@@ -628,13 +597,6 @@ func (s *Server) patchPerson(c caller, p api.ProfilePatch) error {
 	}
 	key := store.PersonProfileKey(c.ID())
 	prof := s.st.Profile(key)
-	if p.Intro != nil {
-		v, err := intro(*p.Intro)
-		if err != nil {
-			return err
-		}
-		prof.Intro = v
-	}
 	faces, err := s.setFaces(c, key, &prof, nil, p.Background, "", "")
 	if err != nil {
 		return err
@@ -1105,7 +1067,6 @@ func (s *Server) saidBy(c caller, member, id string) []api.RecallHit {
 // card is a card as an agent is told of it: what it compares to say what changed.
 type card struct {
 	Name       string `json:"name,omitempty"`
-	Intro      string `json:"intro,omitempty"`
 	Persona    string `json:"persona,omitempty"` // the agent's own alone (cardsFor)
 	Avatar     string `json:"avatar,omitempty"`
 	Background string `json:"background,omitempty"`
@@ -1114,7 +1075,7 @@ type card struct {
 // cardOf is the card under key, by name; its images by their versions.
 func (s *Server) cardOf(key, name string) card {
 	p := s.st.Profile(key)
-	c := card{Name: name, Intro: p.Intro, Persona: p.Persona, Avatar: p.Avatar, Background: p.Background}
+	c := card{Name: name, Persona: p.Persona, Avatar: p.Avatar, Background: p.Background}
 	if _, v, ok := s.face(key, false, ""); ok {
 		c.Avatar = v
 	}
@@ -1153,7 +1114,7 @@ func (s *Server) cardsFor(ch, to string) map[string]card {
 }
 
 // ProfileChange is a card changed since an agent was last told: Who ("" the channel), What
-// ("name", "intro", "persona": its own, "avatar", "background"), From and To (words; none for
+// ("name", "persona": its own, "avatar", "background"), From and To (words; none for
 // an image).
 type ProfileChange struct{ Who, What, From, To string }
 
@@ -1190,9 +1151,6 @@ func (s *Server) profileChanges(ch, to string) []ProfileChange {
 		if n.Name != w.Name {
 			out = append(out, ProfileChange{who, "name", w.Name, n.Name})
 		}
-		if n.Intro != w.Intro {
-			out = append(out, ProfileChange{who, "intro", w.Intro, n.Intro})
-		}
 		if n.Persona != w.Persona {
 			out = append(out, ProfileChange{who, "persona", w.Persona, n.Persona})
 		}
@@ -1224,8 +1182,6 @@ func (s *Server) toldNow(session, key string, what ...string) {
 			switch f {
 			case "nick", "name":
 				w.Name = now.Name
-			case "intro":
-				w.Intro = now.Intro
 			case "persona":
 				w.Persona = now.Persona
 			case "avatar":
@@ -1241,30 +1197,3 @@ func (s *Server) toldNow(session, key string, what ...string) {
 	}
 }
 
-// peopleOf are the people of channel ch that have an intro (at most 8), as an agent there is
-// told of them.
-func (s *Server) peopleOf(ch string) []assemble.ChannelPerson {
-	profs, err := s.st.Profiles(store.PersonProfileKey(""))
-	if err != nil {
-		return nil
-	}
-	var out []assemble.ChannelPerson
-	for key, p := range profs {
-		if p.Intro == "" {
-			continue
-		}
-		info, ok := s.gate().Endpoint(strings.TrimPrefix(key, store.PersonProfileKey("")))
-		if !ok {
-			continue
-		}
-		if id := info.Identity(); !id.Host() && !s.ch.Has(ch, id.App, id.Login) {
-			continue
-		}
-		out = append(out, assemble.ChannelPerson{Name: info.Name, Intro: head(p.Intro, 80)})
-	}
-	slices.SortFunc(out, func(a, b assemble.ChannelPerson) int { return cmp.Compare(a.Name, b.Name) })
-	if len(out) > 8 {
-		out = out[:8]
-	}
-	return out
-}

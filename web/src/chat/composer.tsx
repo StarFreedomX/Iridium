@@ -751,7 +751,7 @@ const isCommon = (c: Cmd) => !c.script && COMMON.includes(c.name as (typeof COMM
 /** A command of the palette: the agent's, or a script's (its face beside it). */
 type Cmd = Command & { script?: Script };
 /** The commands of a channel's scripts that are on, each its script's intro (or name) as what it does. */
-const scriptCommands = (scripts?: Script[]): Cmd[] => (scripts ?? []).filter((x) => x.enabled).flatMap((x) => x.on.flatMap((tr) => (tr.command ? [{ name: tr.command, description: x.intro || x.name, script: x }] : [])));
+const scriptCommands = (scripts?: Script[]): Cmd[] => (scripts ?? []).filter((x) => x.enabled).flatMap((x) => x.on.flatMap((tr) => (tr.command ? [{ name: tr.command, description: x.name, script: x }] : [])));
 const groupOf = (c: Cmd) => (c.script ? "script" : isCommon(c) ? "common" : "agent");
 
 /** The commands as the page's menus are (the model's, a right press's), not a bar as wide as the

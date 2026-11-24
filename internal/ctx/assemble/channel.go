@@ -17,18 +17,15 @@ import (
 // since the agent last read it, as internal/ctx/strategy planned it.
 
 // ChannelAgent is an agent of the channel: the nick it is called by, the name it goes by, its
-// intro (the head of it), whom its receive set names (Recv, in words; "": only what names it).
+// whom its receive set names (Recv, in words; "": only what names it).
 // At: where it works, when not in the channel's folder (a place as written: mac:/Users/k/x).
-type ChannelAgent struct{ Nick, Name, Intro, Recv, At string }
+type ChannelAgent struct{ Nick, Name, Recv, At string }
 
-// ChannelScript is a script the channel's IR runs: its name, its intro, its triggers in words.
-type ChannelScript struct{ Name, Intro, On string }
-
-// ChannelPerson is one of the channel's people that has an intro: the name, the intro.
-type ChannelPerson struct{ Name, Intro string }
+// ChannelScript is a command the channel's IR runs: its name, what runs it in words.
+type ChannelScript struct{ Name, On string }
 
 // ProfileChange is a card changed since the agent was last told: Who ("": the channel), What
-// ("name", "intro", "avatar", "background"), To: the new words (none for an image).
+// ("name", "avatar", "background"), To: the new words (none for an image).
 type ProfileChange struct{ Who, What, To string }
 
 // Channel is what the agent called is told of the channel. You: its own nick; Agents: all of
@@ -58,12 +55,11 @@ type Channel struct {
 	// their place.
 	Brief bool
 	// Key: what the standing words are of beside their text: the channel's agents (their
-	// sessions). The names and intros in them are not part of it: when those change, the agent is
+	// sessions). The names in them are not part of it: when those change, the agent is
 	// told what changed (Changes), not everything again.
 	Key string
-	// People: the channel's people that have an intro. Changes: the cards changed since the
+	// Changes: the cards changed since the
 	// agent was last told.
-	People  []ChannelPerson
 	Changes []ProfileChange
 	// Scripts: the scripts the channel's IR runs (docs/channels.md "脚本").
 	Scripts []ChannelScript
@@ -76,11 +72,11 @@ type Channel struct {
 	Recalled []int64
 }
 
-// ChannelStaticKey names the standing words as they are for c, apart from the names and intros
+// ChannelStaticKey names the standing words as they are for c, apart from the names
 // in them: the text of the fragments, which channel, which agents (c.Key), whether it reads
 // more with ir. What a channel's injection record keeps; changed, the words are given again.
 func ChannelStaticKey(c Channel) string {
-	c.You, c.Name, c.People, c.Changes, c.Scripts = "", "", nil, nil, nil
+	c.You, c.Name, c.Changes, c.Scripts = "", "", nil, nil
 	c.Agents = []ChannelAgent{{Nick: c.Key}}
 	return prompts.Hash(ChannelStatic(c))
 }
@@ -103,7 +99,7 @@ func staticPieces(c Channel) []piece {
 	for _, a := range c.Agents {
 		s := a.Nick // without @: the agent echoing the list calls nobody
 		var about []string
-		for _, v := range []string{a.Name, a.Intro} {
+		for _, v := range []string{a.Name} {
 			if v != "" {
 				about = append(about, v)
 			}
@@ -128,13 +124,6 @@ func staticPieces(c Channel) []piece {
 	default:
 		ps = append(ps, text(idChannelMembers, "you", c.You, "agents", strings.Join(agents, ", ")))
 	}
-	if len(c.People) > 0 {
-		var people []string
-		for _, p := range c.People {
-			people = append(people, p.Name+" ("+p.Intro+")")
-		}
-		ps[0] = piece{parts: mustParts(ps[0], text(idChannelPeople, "people", strings.Join(people, ", ")))}
-	}
 	// Where the channel is and who works elsewhere, the agent called among them or not.
 	if c.Place != "" && (c.At != "" || slices.ContainsFunc(c.Agents, func(a ChannelAgent) bool { return a.At != "" })) {
 		ps[0] = piece{parts: mustParts(ps[0], text(idChannelPlace, "place", c.Place))}
@@ -149,7 +138,7 @@ func staticPieces(c Channel) []piece {
 		for _, x := range c.Scripts {
 			s := x.Name
 			var about []string
-			for _, v := range []string{x.Intro, x.On} {
+			for _, v := range []string{x.On} {
 				if v != "" {
 					about = append(about, v)
 				}
@@ -203,10 +192,6 @@ func changePieces(c Channel) []piece {
 		switch {
 		case ch.What == "name":
 			ps = append(ps, text(idChannelProfileName, "who", who, "to", ch.To))
-		case ch.What == "intro" && ch.To == "":
-			ps = append(ps, text(idChannelProfileNoIntro, "who", who))
-		case ch.What == "intro":
-			ps = append(ps, text(idChannelProfileIntro, "who", who), words(ch.To, Ref{Kind: "profile", ID: "intro"}), text(idNL))
 		case ch.What == "persona" && ch.To == "":
 			ps = append(ps, text(idChannelProfileNoPers))
 		case ch.What == "persona":

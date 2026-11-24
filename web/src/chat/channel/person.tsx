@@ -43,7 +43,7 @@ export function PersonCard({ user, name, avatar, app, call, dm: other = true }: 
   if (call) keys.push({ icon: <AtSign size={14} />, label: t("channel.call"), run: () => call(name) });
   if (card?.mine) keys.push({ icon: <PencilLine size={14} />, label: t("profile.edit"), run: () => setEdit(true) });
   if (edit) return <SelfEdit back={() => setEdit(false)} />;
-  return <ProfileCard face={<Avatar src={avatar ?? card?.avatar} name={name} size={56} host={isHost(user)} />} name={name} sub={app} intro={card?.intro} background={card?.background} keys={keys} />;
+  return <ProfileCard face={<Avatar src={avatar ?? card?.avatar} name={name} size={56} host={isHost(user)} />} name={name} sub={app} background={card?.background} keys={keys} />;
 }
 
 /** A person's face's menu, the right button or a finger held down (kumo, 2026-11-16: an agent's

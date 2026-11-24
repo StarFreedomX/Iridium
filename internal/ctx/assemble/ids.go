@@ -64,7 +64,6 @@ const (
 
 	// What an agent is told of itself (self.go).
 	idSelfWho          = "self.who"           // the nick it goes by
-	idSelfIntro        = "self.intro"         // before its intro
 	idSelfMemory       = "self.memory"        // heads what it chose to remember
 	idSelfMemoryLine   = "self.memory-line"   // before one memory: when, where from
 	idSelfMemoryMore   = "self.memory-more"   // how many more there are
@@ -79,15 +78,12 @@ const (
 	idSelfHelpers      = "self.helpers"       // its own subagents first, a session through ir when it must be one
 
 	// The cards of a channel (channel.go).
-	idChannelPeople         = "channel.context.people"            // the people that have an intro
 	idChannelScripts        = "channel.context.scripts"           // the scripts IR runs there
 	idChannelPlace          = "channel.context.place"             // the channel's folder, when an agent works elsewhere
 	idChannelAway           = "channel.context.away"              // the agent called is one that does
 	idChannelRecv           = "channel.context.recv"              // receive sets, and how to change one
 	idChannelProfiles       = "channel.context.profiles"          // heads the cards changed
 	idChannelProfileName    = "channel.context.profile-name"      // one renamed
-	idChannelProfileIntro   = "channel.context.profile-intro"     // before a new intro
-	idChannelProfileNoIntro = "channel.context.profile-nointro"   // an intro taken away
 	idChannelProfilePersona = "channel.context.profile-persona"   // before its own new persona (only its own is told)
 	idChannelProfileNoPers  = "channel.context.profile-nopersona" // its own persona taken away
 	idChannelProfileImage   = "channel.context.profile-image"     // a new face or background

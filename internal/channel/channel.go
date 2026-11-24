@@ -254,7 +254,7 @@ type Event struct {
 	Reason   string        `json:"reason,omitempty"`
 	By       string        `json:"by,omitempty"`
 	// What: for "profile" (a card changed: Member's, or the channel's when there is none), the
-	// fields that did: "name", "intro", "avatar", "background".
+	// fields that did: "name", "avatar", "background".
 	What []string `json:"what,omitempty"`
 }
 
