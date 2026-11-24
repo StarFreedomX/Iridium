@@ -17,8 +17,9 @@ import { FoldMenu, useFold, type Fold } from "./foldstate";
 /** One of the words' lines: 15px type on 23px lines. */
 const LINE = 23;
 
-/** el's height glides from what it was (from) to what it is now. */
-const glide = (el: HTMLElement, from: number) => (moveLog("longwords", "fold", { dy: el.offsetHeight - from }), el).animate([{ height: `${from}px` }, { height: `${el.offsetHeight}px` }], { duration: motion.dur(2), easing: motion.ease("out") });
+/** el's height glides from what it was (from) to what it is now: its most too, which a fold sets
+ *  at once (folded, it went there in one frame while opening glided; kumo, 2026-11-24). */
+const glide = (el: HTMLElement, from: number) => (moveLog("longwords", "fold", { dy: el.offsetHeight - from }), el).animate([{ height: `${from}px`, maxHeight: `${from}px` }, { height: `${el.offsetHeight}px`, maxHeight: `${el.offsetHeight}px` }], { duration: motion.dur(2), easing: motion.ease("out") });
 
 /** A fold set from elsewhere (its message's menu): how tall it was just before (0: nothing to
  *  glide), whether it was set by its own key (mine), its element. */

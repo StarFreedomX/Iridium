@@ -245,6 +245,14 @@ function StepList({ reveal, session, blocks, running, rows, open, card, setCard,
   const ever = useEver(open);
   const box = useRef<HTMLDivElement>(null);
   const atEnd = useRef(true);
+  const wasOn = useRef("");
+  // A press anywhere but on the card puts it away (a row's own press: above).
+  useEffect(() => {
+    if (!card?.open) return;
+    const down = (e: PointerEvent) => !(e.target as Element).closest?.("[role=dialog]") && setCard({ ...card, open: false });
+    document.addEventListener("pointerdown", down, true);
+    return () => document.removeEventListener("pointerdown", down, true);
+  }, [card]);
   // Opened already as it is first drawn (kept open): there at once, not opening under the eyes.
   const [snap, setSnap] = useState(open);
   useEffect(() => {
@@ -258,7 +266,7 @@ function StepList({ reveal, session, blocks, running, rows, open, card, setCard,
     if (open && el && atEnd.current) el.scrollTop = el.scrollHeight;
   }, [open, list.length]);
   const shown = card ? list.find((s) => s.at === card.at) : undefined;
-  const rowsOf = list.map((s, i) => {
+  const rowsOf = list.map((s) => {
     const took = tookOf(s);
     const on = !!card?.open && card.at === s.at;
     return (
@@ -267,10 +275,16 @@ function StepList({ reveal, session, blocks, running, rows, open, card, setCard,
         type="button"
         aria-haspopup="dialog"
         aria-expanded={on}
-        onClick={(e) => setCard(on ? { ...card!, open: false } : { at: s.at, el: e.currentTarget, open: true })}
+        onPointerDown={() => (wasOn.current = on ? s.at : "")}
+        onClick={(e) => {
+          // Pressed while its card was open: the card is put away (the press outside it did that
+          // already), not opened again.
+          const shut = on || wasOn.current === s.at;
+          wasOn.current = "";
+          setCard(shut ? (card ? { ...card, open: false } : null) : { at: s.at, el: e.currentTarget, open: true });
+        }}
         className={cn(ROW, "w-full shrink-0 text-left outline-none focus-visible:text-ink-2", on && "text-ink")}
       >
-        <span className="w-6 shrink-0 text-right text-xs text-ink-4 tabular-nums">{i + 1}</span>
         <StepLine s={s} />
         {took !== undefined && <span className="ml-auto shrink-0 pl-2 text-xs text-ink-4 tabular-nums">{lasted(took)}</span>}
       </button>

@@ -5,11 +5,12 @@
 // wheel, finger, key or scrollbar lets go, coming back to the end takes it again; nothing this
 // page scrolls by itself changes it. No row is moved, no height animated, nothing waited for.
 import { ArrowDown } from "lucide-react";
-import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 import { flushSync } from "react-dom";
 import { t } from "../i18n";
 import { motion, reduced } from "../motion";
 import { moveLog } from "../motionlog";
+import { cn } from "../ui";
 
 /** The follow: the px left to the end shrink by the same share each ms (an ease-out, at rest once,
  *  never past the end), and what comes meanwhile adds to them: it moves from the first frame,
@@ -36,6 +37,18 @@ export const restsAtEnd = (el: HTMLElement) => chats.get(el)?.rests() ?? false;
 /** A person pressed something that changes its chat's height from now (a work line, words
  *  folded): followed as quickly as a message sent. */
 export const byHand = (el: Element) => void chats.get(el.closest<HTMLElement>("[role=log]")!)?.byHand();
+
+/** Whether something of the list (or the list itself) is changing its own height now, by a
+ *  transition or an animation of its own. */
+const SIZES = ["grid-template-rows", "height", "max-height", "padding-bottom"];
+const sizing = (el: HTMLElement) =>
+  el.getAnimations({ subtree: true }).some((a) => {
+    if (a.playState !== "running") return false;
+    const prop = (a as CSSTransition).transitionProperty;
+    if (prop) return SIZES.includes(prop);
+    const fx = a.effect as KeyframeEffect | null;
+    return !!fx?.getKeyframes?.().some((k) => "height" in k || "maxHeight" in k);
+  });
 
 /** Whether a box between target and the list scrolls up itself (a long output): the list does not. */
 const inner = (target: EventTarget | null, list: HTMLElement) => {
@@ -180,7 +193,10 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
       keep(el);
       const pane = el.clientHeight !== s.pane;
       s.pane = el.clientHeight;
-      if (s.following) pane ? pin(el, "pane") : run();
+      // Something in it draws its own change of height (a list of steps opening, words folding,
+      // the room under it for the composer): the end stays where it is each frame, so what is under
+      // the change does not move and what is over it does, both ways alike (kumo, 2026-11-24).
+      if (s.following) pane ? pin(el, "pane") : sizing(el) ? pin(el, "own") : run();
       mark(el);
     });
     ro.observe(el);
@@ -215,10 +231,14 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     };
   }, []);
 
-  // The stack under it another height (the composer): a person's doing, followed quickly (the
-  // observer sees it).
-  const padNow = style?.paddingBottom;
-  useLayoutEffect(() => void (s.drawn && s.following && (s.quick = true)), [padNow]);
+  // The room under it (the composer's height) glides to its new size, taller or shorter alike,
+  // once it has been drawn: not as it opens.
+  const [eased, setEased] = useState(false);
+  useEffect(() => {
+    const f = requestAnimationFrame(() => setEased(true));
+    return () => cancelAnimationFrame(f);
+  }, []);
+
 
   const scrolled = () => {
     const el = list.current!;
@@ -234,7 +254,7 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     <>
       {/* A scrollbar that takes room has its width kept on the left too: the conversation stays
           centred, in line with the composer and the top bar (the user, 2026-11-06). */}
-      <div ref={list} role="log" aria-label={t("chat.log")} onScroll={scrolled} className="gapless absolute inset-0 overflow-y-auto [scrollbar-gutter:stable_both-edges]" style={style}>
+      <div ref={list} role="log" aria-label={t("chat.log")} onScroll={scrolled} className={cn("gapless absolute inset-0 overflow-y-auto [scrollbar-gutter:stable_both-edges]", eased && "g-room")} style={style}>
         {children}
       </div>
       {fresh && !quiet && (

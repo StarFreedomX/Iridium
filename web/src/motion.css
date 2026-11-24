@@ -201,20 +201,31 @@
 .g-reveal {
   display: grid;
   grid-template-rows: 0fr;
-  transition: grid-template-rows var(--move) var(--ease-out) calc(var(--fade) - var(--reveal));
+  transition: grid-template-rows var(--move) var(--ease-out);
 }
 .g-reveal[data-open] {
   grid-template-rows: 1fr;
-  transition-delay: 0s;
+}
+/* What opens is there from the first frame, cut where the box ends and fading into the cut (kumo,
+   2026-11-24: 从中间劈开，向上长出，交界处淡化): the cut's fade is gone once it is whole. */
+@property --reveal-cut {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
 }
 .g-reveal > * {
   min-height: 0;
-  opacity: 0;
-  transition: opacity var(--fade) var(--ease-out);
+  --reveal-cut: 18px;
+  mask-image: linear-gradient(to bottom, #000 calc(100% - var(--reveal-cut)), transparent);
+  transition: --reveal-cut var(--move) var(--ease-out);
 }
 .g-reveal[data-open] > * {
-  opacity: 1;
-  transition-delay: calc(var(--move) - var(--reveal));
+  --reveal-cut: 0px;
+}
+/* The room under a conversation for what stands under it (the composer): to its new size the
+   same way taller and shorter (chat/stick.tsx keeps the end in place each frame). */
+.g-room {
+  transition: padding-bottom var(--move) var(--ease-out);
 }
 .g-reveal.g-snap,
 .g-reveal.g-snap > * {
