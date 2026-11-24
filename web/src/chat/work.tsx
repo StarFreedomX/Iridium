@@ -156,6 +156,9 @@ function didParts(did: Did): string[] {
 }
 
 /** A step pressed: its card, out of its row (kept as it shuts, to fold back into it). */
+/** How long an agent that has done nothing yet in its turn is said to be being reached. */
+const REACH = 4000;
+
 /** The card open out of a row: key the row, group its steps (their places), at the one chosen. */
 type Card = { key: string; at: string; group: string[]; el: HTMLElement; open: boolean };
 
@@ -176,6 +179,14 @@ export function WorkLine({ channel, n, session, work, did, span, may, esc }: { c
   const blocks = useSpan(session, from);
   const [card, setCard] = useState<Card | null>(null);
   const [only, setOnly] = useState<Only | null>(null);
+  // Before its first step: being reached for its first REACH ms, thinking after (kumo, 2026-11-24).
+  const began = work?.at ?? 0;
+  const [reached, setReached] = useState(() => !began || Date.now() - began >= REACH);
+  useEffect(() => {
+    if (reached || !work?.running || work.steps) return;
+    const id = setTimeout(() => setReached(true), Math.max(0, REACH - (Date.now() - began)));
+    return () => clearTimeout(id);
+  }, [reached, began, work?.running, work?.steps]);
   const reveal = useRef<HTMLDivElement>(null);
   // All its steps, a row each (kumo, 2026-11-24: 直接全展开): as many rows as the work says it
   // has, so that it is whole as it opens, before they are read.
@@ -222,8 +233,8 @@ export function WorkLine({ channel, n, session, work, did, span, may, esc }: { c
             running ? (
               <>
                 <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-run" />
-                <span key={`s${steps}`} className="g-fade shrink-0 tabular-nums">
-                  {steps ? t("work.step", { n: steps }) : t("work.thinking")}
+                <span key={`s${steps}${reached ? "r" : ""}`} className="g-fade shrink-0 tabular-nums">
+                  {steps ? t("work.step", { n: steps }) : reached ? t("work.thinking") : t("work.reaching")}
                 </span>
                 {work.tool && (
                   <span key={`t${steps}`} className="g-fade flex min-w-0 items-center gap-1.5">
