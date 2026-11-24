@@ -7,7 +7,7 @@
 // card (input, output, diff) from that row. Which lines are open is kept in this browser.
 import { Popover } from "@base-ui/react/popover";
 import { ChevronRight } from "lucide-react";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type RefObject } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode, type RefObject } from "react";
 import { api } from "../api/client";
 import type { Block } from "../api/types.gen";
 import { lineOf } from "../chats";
@@ -139,7 +139,8 @@ function didParts(did: Did): string[] {
 }
 
 /** A step pressed: its card, out of its row (kept as it shuts, to fold back into it). */
-type Card = { at: string; el: HTMLElement; open: boolean };
+/** The card open out of a row: key the row, group its steps (their places), at the one chosen. */
+type Card = { key: string; at: string; group: string[]; el: HTMLElement; open: boolean };
 
 /** An agent's work on a message of channel (n, its number): work, as the message carries it; or
  *  did, what an older message says was done before it, and span: where that is in the record, if
@@ -159,7 +160,12 @@ export function WorkLine({ channel, n, session, work, did, span, may, esc }: { c
   const reveal = useRef<HTMLDivElement>(null);
   // How many rows high its steps are, set as they open: ROWS while the work goes on, else as many
   // as it has (said by the work, or read already).
-  const rowsNow = () => (running ? ROWS : Math.max(1, Math.min(ROWS, steps || (blocks ? stepsOf(blocks, false).length : ROWS))));
+  const rowsNow = () => {
+    if (running) return ROWS;
+    const read = blocks ? stepsOf(blocks, false).slice(0, work ? Math.max(steps, 1) : undefined) : undefined;
+    const have = read && (!work || read.length >= steps) ? runsOf(read).length : steps || ROWS;
+    return Math.max(1, Math.min(ROWS, have));
+  };
   const [rows, setRows] = useState(rowsNow);
   const read = () => from !== undefined && void (work ? readSteps(session, from, undefined, steps) : readSteps(session, from, to)).catch(() => {});
   // Read as it is open, and again as its steps go on.
@@ -235,24 +241,37 @@ export function WorkLine({ channel, n, session, work, did, span, may, esc }: { c
   );
 }
 
-/** The steps under a line, opened in place: a row each, at most ROWS seen, the rest scrolled to in
- *  the list itself. Its height (rows) is set as it opens and kept while it is: ROWS while the work
- *  goes on (new steps come in the list, which keeps its newest in view, and does not grow), as
- *  many as there are once it is done. A row pressed: its card, out of the row. */
+/** Steps one after another by the same tool, as one row. */
+export type Run = { at: string; steps: Step[] };
+export function runsOf(steps: Step[]): Run[] {
+  const out: Run[] = [];
+  for (const s of steps) {
+    const last = out.at(-1);
+    const head = last?.steps[0];
+    if (last && head && head.kind === "tool" && s.kind === "tool" && head.name === s.name) last.steps.push(s);
+    else out.push({ at: s.at, steps: [s] });
+  }
+  return out;
+}
+
+/** The rows shown of runs: all of them, or (more than ROWS) the latest, under one row for those
+ *  before (kumo, 2026-11-24: no list that scrolls inside the conversation). */
+export function rowsOf(runs: Run[]): { earlier: Step[]; shown: Run[] } {
+  if (runs.length <= ROWS) return { earlier: [], shown: runs };
+  const cut = runs.length - (ROWS - 1);
+  return { earlier: runs.slice(0, cut).flatMap((r) => r.steps), shown: runs.slice(cut) };
+}
+
+/** The steps under a line, opened in place: a row for each run of one tool, at most ROWS, none
+ *  scrolled. Its height (rows) is set as it opens and kept while it is: ROWS while the work goes
+ *  on, as many as there are once it is done. A row pressed: its card out of the row; of several
+ *  steps, the card lists them over the one chosen. */
 function StepList({ reveal, session, blocks, running, rows, open, card, setCard, limit }: { reveal: RefObject<HTMLDivElement | null>; session: string; blocks?: Block[]; running: boolean; rows: number; open: boolean; limit?: number; card: Card | null; setCard: (c: Card | null) => void }) {
   const list = useMemo(() => (blocks ? stepsOf(blocks, running).slice(0, limit) : []), [blocks, running, limit]);
+  const { earlier, shown: runs } = useMemo(() => rowsOf(runsOf(list)), [list]);
   // Made as it is first opened.
   const ever = useEver(open);
-  const box = useRef<HTMLDivElement>(null);
-  const atEnd = useRef(true);
   const wasOn = useRef("");
-  // A press anywhere but on the card puts it away (a row's own press: above).
-  useEffect(() => {
-    if (!card?.open) return;
-    const down = (e: PointerEvent) => !(e.target as Element).closest?.("[role=dialog]") && setCard({ ...card, open: false });
-    document.addEventListener("pointerdown", down, true);
-    return () => document.removeEventListener("pointerdown", down, true);
-  }, [card]);
   // Opened already as it is first drawn (kept open): there at once, not opening under the eyes.
   const [snap, setSnap] = useState(open);
   useEffect(() => {
@@ -260,61 +279,92 @@ function StepList({ reveal, session, blocks, running, rows, open, card, setCard,
     const f = requestAnimationFrame(() => setSnap(false));
     return () => cancelAnimationFrame(f);
   }, [snap]);
-  // Its newest in view, in the list itself, unless the one looking went up in it.
-  useLayoutEffect(() => {
-    const el = box.current;
-    if (open && el && atEnd.current) el.scrollTop = el.scrollHeight;
-  }, [open, list.length]);
-  const shown = card ? list.find((s) => s.at === card.at) : undefined;
-  const rowsOf = list.map((s) => {
-    const took = tookOf(s);
-    const on = !!card?.open && card.at === s.at;
+  // A press anywhere but on the card puts it away.
+  useEffect(() => {
+    if (!card?.open) return;
+    const down = (e: PointerEvent) => {
+      const on = e.target as Element;
+      if (on.closest?.("[role=dialog]")) return;
+      // On its own row: that press puts it away, and the click that follows does not open it again.
+      wasOn.current = on.closest?.<HTMLElement>("[data-step-row]")?.dataset.stepRow === card.key ? card.key : "";
+      setCard({ ...card, open: false });
+    };
+    document.addEventListener("pointerdown", down, true);
+    return () => document.removeEventListener("pointerdown", down, true);
+  }, [card]);
+  const among = card ? list.filter((s) => card.group.includes(s.at)) : [];
+  const chosen = card ? (among.find((s) => s.at === card.at) ?? among[0]) : undefined;
+  const row = (key: string, group: Step[], body: ReactNode) => {
+    const on = !!card?.open && card.key === key;
     return (
       <button
-        key={s.at}
+        key={key}
         type="button"
         aria-haspopup="dialog"
         aria-expanded={on}
-        onPointerDown={() => (wasOn.current = on ? s.at : "")}
+        data-step-row={key}
         onClick={(e) => {
           // Pressed while its card was open: the card is put away (the press outside it did that
           // already), not opened again.
-          const shut = on || wasOn.current === s.at;
+          const shut = on || wasOn.current === key;
           wasOn.current = "";
-          setCard(shut ? (card ? { ...card, open: false } : null) : { at: s.at, el: e.currentTarget, open: true });
+          setCard(shut ? (card ? { ...card, open: false } : null) : { key, at: group[0]!.at, group: group.map((s) => s.at), el: e.currentTarget, open: true });
         }}
         className={cn(ROW, "w-full shrink-0 text-left outline-none focus-visible:text-ink-2", on && "text-ink")}
       >
-        <StepLine s={s} />
-        {took !== undefined && <span className="ml-auto shrink-0 pl-2 text-xs text-ink-4 tabular-nums">{lasted(took)}</span>}
+        {body}
       </button>
     );
-  });
+  };
+  const tookAll = (ss: Step[]) => {
+    const ts = ss.map(tookOf);
+    return ts.some((x) => x === undefined) ? undefined : ts.reduce<number>((a, b) => a + (b ?? 0), 0);
+  };
+  const took = (ss: Step[]) => {
+    const ms = tookAll(ss);
+    return ms !== undefined && <span className="ml-auto shrink-0 pl-2 text-xs text-ink-4 tabular-nums">{lasted(ms)}</span>;
+  };
   return (
     <>
       <div ref={reveal} inert={!open || undefined} aria-hidden={!open || undefined} className={cn("g-reveal", snap && "g-snap")} data-open={open ? "" : undefined}>
         <div className="min-h-0 min-w-0 overflow-hidden">
           {ever && (
-            <div
-              ref={box}
-              onScroll={(e) => (atEnd.current = e.currentTarget.scrollHeight - e.currentTarget.clientHeight - e.currentTarget.scrollTop < 8)}
-              style={{ "--rows": rows } as CSSProperties}
-              className="steps-scroll ml-[3px] flex h-[calc(var(--rows)*28px)] min-w-0 flex-col overflow-y-auto overscroll-contain pl-3 shadow-[inset_1px_0_0_var(--edge)] pointer-coarse:h-[calc(var(--rows)*36px)]"
-            >
-              {rowsOf}
+            <div style={{ "--rows": rows } as CSSProperties} className="ml-[3px] flex h-[calc(var(--rows)*28px)] min-w-0 flex-col overflow-hidden pl-3 shadow-[inset_1px_0_0_var(--edge)] pointer-coarse:h-[calc(var(--rows)*36px)]">
+              {earlier.length > 0 && row("earlier", earlier, <span className="shrink-0 text-xs text-ink-4">{t("work.earlier", { n: earlier.length })}</span>)}
+              {runs.map((r) =>
+                row(
+                  r.at,
+                  r.steps,
+                  <>
+                    <StepLine s={r.steps[0]!} />
+                    {r.steps.length > 1 && <span className="shrink-0 text-xs text-ink-4 tabular-nums">× {r.steps.length}</span>}
+                    {took(r.steps)}
+                  </>,
+                ),
+              )}
             </div>
           )}
         </div>
       </div>
       {ever && (
-        <Popover.Root open={!!card?.open && !!shown} onOpenChange={(o) => !o && card && setCard({ ...card, open: false })}>
+        <Popover.Root open={!!card?.open && !!chosen} onOpenChange={(o) => !o && card && setCard({ ...card, open: false })}>
           <PopSurface anchor={card?.el} still sideOffset={4} className="flex max-h-[min(72dvh,620px,var(--available-height))] w-[min(620px,calc(100vw-16px))] flex-col overflow-hidden">
-            {shown && (
+            {chosen && card && (
               <>
-                <StepCard key={shown.at} s={shown} session={session} />
-                {shown.kind === "tool" && !!shown.result?.images?.length && (
+                {among.length > 1 && (
+                  <div className="flex max-h-[168px] shrink-0 flex-col overflow-y-auto overscroll-contain border-b border-edge px-3 py-1 pointer-coarse:max-h-[216px]">
+                    {among.map((s) => (
+                      <button key={s.at} type="button" aria-pressed={s.at === chosen.at} onClick={() => setCard({ ...card, at: s.at })} className={cn(ROW, "w-full shrink-0 text-left outline-none focus-visible:text-ink-2", s.at === chosen.at && "text-ink")}>
+                        <StepLine s={s} />
+                        {took([s])}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <StepCard key={chosen.at} s={chosen} session={session} />
+                {chosen.kind === "tool" && !!chosen.result?.images?.length && (
                   <div className="px-3 pb-3">
-                    <Pictures session={session} s={shown} />
+                    <Pictures session={session} s={chosen} />
                   </div>
                 )}
               </>

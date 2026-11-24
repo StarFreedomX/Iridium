@@ -39,7 +39,6 @@ test("a conversation's scroll place written only by its follow, and where a thin
     "chat/meters.tsx", // the model list's own rows
     "chat/said.tsx", // a fold of steps' own list (scrolled in place, capped), kept at its newest
     "chat/stick.tsx", // the conversation's own scroll: the follow, what is seen kept, the page before put in
-    "chat/work.tsx", // an agent's work line's own list of steps (a fixed height), kept at its newest
   ]);
 });
 
