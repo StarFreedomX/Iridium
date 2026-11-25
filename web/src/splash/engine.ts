@@ -265,7 +265,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
       // (kumo, 2026-11-25); about letters or a mark the code is as everywhere.
       if (photo && m <= 0.5) {
         const d = Math.hypot(((i % cols) + 0.5) * cw - mid, (((i / cols) | 0) + 0.5) * ROW - py) - side * 0.47;
-        a = BASE * clamp(1 - d / (side * 0.22));
+        a = BASE * clamp(1 - d / (side * 0.09));
       }
       if (photo && m > 0.5) {
         const lum = (0.3 * sharp[o]! + 0.59 * sharp[o + 1]! + 0.11 * sharp[o + 2]!) / 255;
@@ -293,7 +293,9 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
     for (let r = 0; r < rows; r++) {
       const o = Math.floor(off[r]!), f = off[r]! - o, row = text[r]!, y = r * ROW + 0.5;
       const env = seen(y + ROW / 2);
-      if (env < 0.01 && fr[r]! < 0.01) continue;
+      let warm = false;
+      for (let k = 0; k < cols && !warm; k++) warm = heat[r * cols + k]! > 0.02;
+      if (env < 0.01 && fr[r]! < 0.01 && !warm) continue;
       let run = "", at = 0, key = -1;
       const flush = () => {
         if (!run || !(key & 31)) return;
@@ -308,7 +310,23 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
           const [hr, hg, hb] = rainbowAt(((((k + 0.5) * cw - fx0) / span) * 300 + (r * ROW - py) * 0.4 - shift) % 360 + 360);
           (cr += (hr - cr) * fmi), (cg += (hg - cg) * fmi), (cb += (hb - cb) * fmi);
         }
-        const k2 = Math.min(24, Math.round(clamp(cur.a[i]! + heat[i]! * 0.34) * (env + (1 - env) * (fm[i] ?? 0)) * 24)) | ((cr >> 3) << 5) | ((cg >> 3) << 10) | ((cb >> 3) << 15);
+        // About the pointer a lens (kumo, 2026-11-25): the code there seen wherever it is, past the
+        // band's edges or a face's rim too, and drawn larger, one character at a time.
+        const hi = heat[i]!;
+        if (hi > 0.08) {
+          flush();
+          run = "";
+          key = -1;
+          const ch = row[(k + o) % len] ?? " ";
+          const z = 1 + 0.9 * hi;
+          g.font = `${FONT * z}px ui-monospace, "SF Mono", Menlo, "JetBrains Mono", "Cascadia Mono", "DejaVu Sans Mono", monospace`;
+          g.fillStyle = `rgba(${cr | 0},${cg | 0},${cb | 0},${clamp(BASE + 0.15 + hi * 0.6)})`;
+          g.fillText(ch, (k - f) * cw - (cw * (z - 1)) / 2, y - (ROW * (z - 1)) / 2);
+          g.font = `${FONT}px ui-monospace, "SF Mono", Menlo, "JetBrains Mono", "Cascadia Mono", "DejaVu Sans Mono", monospace`;
+          at = k + 1;
+          continue;
+        }
+        const k2 = Math.min(24, Math.round(clamp(cur.a[i]! + hi * 0.34) * (env + (1 - env) * Math.max(fm[i] ?? 0, hi)) * 24)) | ((cr >> 3) << 5) | ((cg >> 3) << 10) | ((cb >> 3) << 15);
         if (k2 !== key) {
           flush();
           run = "";
