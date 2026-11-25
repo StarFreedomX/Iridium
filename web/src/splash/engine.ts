@@ -431,7 +431,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
   const KX = new Float32Array(RN), KY = new Float32Array(RN), KZ = new Float32Array(RN), KA = new Float32Array(RN * 3), KB = new Float32Array(RN * 3);
   {
     const at = (u: number): [number, number, number, number] => {
-      const c = Math.cos(u), sn = Math.sin(u), l = 1.25 * sn * c, f = -0.62 * c;
+      const c = Math.cos(u), sn = Math.sin(u), l = 1.25 * sn * c, f = -0.4 * c;
       return [c, l * Math.cos(f), l * Math.sin(f) + 0.2 * sn, f];
     };
     for (let j = 0; j < RN; j++) {
@@ -465,7 +465,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
     for (let j = 0; j < RN; j++) stir2[j] = Math.max(stir[j]!, (stir[(j + 1) % RN]! + stir[(j + RN - 1) % RN]!) * 0.49) * dec;
     [stir, stir2] = [stir2, stir];
     const top = footT >= 0 ? footT : H, t = still ? 5000 : now;
-    const A = Math.min(W * 0.4, top * 0.36, 290) * (1 + 0.03 * Math.sin(t / 1700)), wv = A * 0.15, xc = W / 2, yc = cy >= 0 ? cy : top * 0.5;
+    const A = Math.min(W * 0.33, top * 0.29, 230) * (1 + 0.03 * Math.sin(t / 1700)), wv = A * 0.1, xc = W / 2, yc = cy >= 0 ? cy : top * 0.5;
     // It sways: about its length, about its height, and a little in the pane.
     const a1 = 0.1 + 0.3 * Math.sin(t / 2300), a2 = 0.32 * Math.sin(t / 3100 + 1), a3 = 0.47 + 0.07 * Math.sin(t / 4100);
     const c1 = Math.cos(a1), s1 = Math.sin(a1), c2 = Math.cos(a2), s2 = Math.sin(a2), c3 = Math.cos(a3), s3 = Math.sin(a3);
@@ -501,15 +501,15 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
       if (sb < 0.74) {
         // Gaps in it, wider and oftener towards the tail.
         if (sb > 0.3) {
-          const ph = sb * 13 + 0.35 * Math.sin(sb * 31);
+          const ph = sb * 7;
           // (what a star has stirred is whole for the while)
-          if (e < 0.25 && ph - Math.floor(ph) < (sb - 0.3) * 0.75) continue;
+          if (e < 0.25 && ph - Math.floor(ph) < (sb - 0.3) * 0.5) continue;
         }
         wide = wv * (sb < 0.035 ? 0.45 + sb / 0.035 * 0.55 : Math.pow(1 - sb / 0.74, 0.55) * 0.9 + 0.1);
         lum = 1 - sb * 0.4;
       } else {
-        const ph = sb * 15;
-        if (e < 0.25 && ph - Math.floor(ph) < 0.62) continue;
+        const ph = sb * 8;
+        if (e < 0.25 && ph - Math.floor(ph) < 0.6) continue;
         wide = wv * 0.1;
         lum = 0.55;
       }
@@ -518,30 +518,19 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
       const gap = Math.abs(iu / RN - 0.75);
       if (gap < 0.035) continue;
       if (gap < 0.1) wide *= (gap - 0.035) / 0.065;
-      const tw = 0.4 * Math.sin((iu / RN) * 12.57 - t / 900) + 0.3 * Math.sin(sb * 9 - t / 700), ct = Math.cos(tw), st = Math.sin(tw);
+      const tw = 0.25 * Math.sin((iu / RN) * 12.57 - t / 900), ct = Math.cos(tw), st = Math.sin(tw);
       const j3 = iu * 3, ax = KA[j3]!, ay = KA[j3 + 1]!, az = KA[j3 + 2]!, wx = ax * ct + KB[j3]! * st, wy = ay * ct + KB[j3 + 1]! * st, wz = az * ct + KB[j3 + 2]! * st;
       // A star over it (kumo, 2026-11-26: the stars are to move it): it swells there and shakes,
       // and that goes along the body with the colours.
       wide = wide * (1 + 0.45 * e) + wv * 0.12 * e;
       // The swimming: the body's middle line to one side and the other, more towards the tail.
-      const sw = A * (0.012 + 0.07 * sb) * Math.sin(sb * 26 - wag) + A * 0.028 * e * Math.sin(iu * 0.35 - t / 55);
+      const sw = A * (0.02 + 0.05 * sb) * Math.sin(sb * 20 - wag) + A * 0.028 * e * Math.sin(iu * 0.35 - t / 55);
       const hue0 = sb * 520 - flow + e * 150, mx = KX[iu]! * A + ax * sw, my = KY[iu]! * A + ay * sw, mz = KZ[iu]! * A + az * sw;
       const RM = Math.max(2, Math.ceil((wide * 2.5) / cw) + 1);
       for (let iv = 0; iv < RM; iv++) {
         const vn = (iv / (RM - 1)) * 2 - 1, v = vn * wide;
-        // Its two edges and its spine stronger than between them.
-        put(mx + wx * v, my + wy * v, mz + wz * v, (vn * vn > 0.6 || vn * vn < 0.03 ? 1 : 0.5) * lum + e * 0.5, hue0 + vn * 40, iu);
+        put(mx + wx * v, my + wy * v, mz + wz * v, lum + e * 0.5, hue0 + vn * 24, iu);
       }
-    }
-    // A wave through both loops, along the figure's length (kumo, 2026-11-26: a sine and a cosine):
-    // a thin line wound about it, a sine seen from one side and a cosine from the other, going
-    // along, in pieces, fainter to its ends.
-    const HN = 360, hr = A * 0.14;
-    for (let j = 0; j < HN; j++) {
-      const q = j / HN, ph = q * 7 - t / 2600;
-      if (ph - Math.floor(ph) < 0.2) continue;
-      const x = (q * 2 - 1) * A * 1.38, ang = (x / A) * 6.8 - t / 520, end = Math.min(1, (1 - Math.abs(q * 2 - 1)) * 3.5);
-      put(x, hr * Math.sin(ang) * end, hr * Math.cos(ang) * end, 0.3 + 0.3 * end, 180 + q * 300 + flow * 0.6, -1);
     }
   };
 
