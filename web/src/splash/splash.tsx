@@ -71,7 +71,10 @@ export function Splash({ show = true, fig = null, scene = "", className }: { sho
       // On a computer (kumo, 2026-11-25): Iridium's letters (or a mark) in a band across the middle;
       // a face over the whole pane, the code about it going to none (engine.ts), a little smaller.
       const face = !!faceRef.current;
-      e.window(ph ? top - h / 2 + 28 : face ? pane / 2 : (48 + top) / 2, ph ? h : face ? pane * 2 : h);
+      // The band a little taller than the figure, above and below it (kumo, 2026-11-25: room for
+      // the stars and rings the pointer colours in it); on the phone still ending on the composer.
+      const bh = Math.min(ph ? top + 28 : top - 48, h * 1.4);
+      e.window(ph ? top + 28 - bh / 2 : face ? pane / 2 : (48 + top) / 2, ph ? bh : face ? pane * 2 : bh);
       e.place(ph ? w / 2 : -1, ph ? Math.min(w * 0.94, h * 0.98) : Math.min(h * 0.92, w * 0.7) * (face ? 0.82 : 1), ph ? -1 : (48 + top) / 2);
       e.foot(ph ? top - 6 : -1);
     };

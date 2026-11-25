@@ -297,14 +297,17 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
     // none (kumo, 2026-11-25: the whole pane was gone over each frame for it, and it lagged).
     const rim = photo && !leaving && now - t0 > spreadNow + TURN + 400 ? ps * 0.6 : 0;
     const lensR = lensOn ? LENS : 0;
+    const live = shapes(now);
     for (let r = 0; r < rows; r++) {
       const o = Math.floor(off[r]!), f = off[r]! - o, row = text[r]!, y = r * ROW + 0.5, ym = y + ROW / 2;
       const env = seen(ym);
       const inLens = lensR > 0 && Math.abs(ym - ly) < lensR;
-      if (!inLens && (env < 0.01 && fr[r]! < 0.01)) continue;
-      if (!inLens && rim && Math.abs(ym - py) > rim) continue;
-      const k0 = rim && !inLens ? Math.max(0, Math.floor((px - rim) / cw)) : 0;
-      const k1 = rim && !inLens ? Math.min(cols, Math.ceil((px + rim) / cw) + 1) : cols;
+      const here = live.length ? live.filter((q) => Math.abs(ym - q.y) < q.reach) : live;
+      const open = inLens || here.length > 0;
+      if (!open && (env < 0.01 && fr[r]! < 0.01)) continue;
+      if (!open && rim && Math.abs(ym - py) > rim) continue;
+      const k0 = rim && !open ? Math.max(0, Math.floor((px - rim) / cw)) : 0;
+      const k1 = rim && !open ? Math.min(cols, Math.ceil((px + rim) / cw) + 1) : cols;
       let run = "", at = 0, key = -1;
       const flush = () => {
         if (!run || !(key & 31)) return;
@@ -324,23 +327,36 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
           if (d < lensR) mz = 1 + 0.85 * (1 - d / lensR) ** 2;
         }
         const glow = (mz - 1) / 0.85;
+        // A star or ring the pointer left, over this cell: the cell's own character in its colour.
+        let lit = 0, hue = 0;
+        for (const q of here) {
+          const dx = xm - q.x, dy = ym - q.y;
+          if (Math.abs(dx) > q.reach) continue;
+          const d = Math.hypot(dx, dy), a = Math.atan2(dy, dx);
+          const v = q.fade * clamp(1 - Math.abs(d - edge(q, a)) / q.w);
+          if (v > lit) (lit = v), (hue = q.hue + (a * 180) / Math.PI + now * 0.12);
+        }
         const fmi = Math.max(rainbow ? (fm[i] ?? 0) : 0, glow > 0.02 ? Math.min(1, glow * 1.6) : 0);
         if (fmi > 0) {
           const [hr, hg, hb] = rainbowAt(hueAt(xm, ym));
           (cr += (hr - cr) * fmi), (cg += (hg - cg) * fmi), (cb += (hb - cb) * fmi);
+        }
+        if (lit > 0.02) {
+          const [hr, hg, hb] = rainbowAt(hue), m = Math.min(1, lit * 1.4);
+          (cr += (hr - cr) * m), (cg += (hg - cg) * m), (cb += (hb - cb) * m);
         }
         if (mz > 1.03) {
           flush();
           run = "";
           key = -1;
           g.font = FONTS(mz);
-          g.fillStyle = `rgba(${cr | 0},${cg | 0},${cb | 0},${clamp(Math.max(cur.a[i]! * env, BASE) + 0.55 * glow)})`;
+          g.fillStyle = `rgba(${cr | 0},${cg | 0},${cb | 0},${clamp(Math.max(cur.a[i]! * env, BASE, lit * 0.95) + 0.55 * glow)})`;
           g.fillText(row[(k + o) % len] ?? " ", lx + (xm - lx) * mz - (cw * mz) / 2, ly + (ym - ly) * mz - (ROW * mz) / 2);
           g.font = FONTS(1);
           at = k + 1;
           continue;
         }
-        const k2 = Math.min(24, Math.round(clamp(cur.a[i]!) * (env + (1 - env) * (fm[i] ?? 0)) * 24)) | ((cr >> 3) << 5) | ((cg >> 3) << 10) | ((cb >> 3) << 15);
+        const k2 = Math.min(24, Math.round(Math.max(clamp(cur.a[i]!) * (env + (1 - env) * (fm[i] ?? 0)), lit * 0.95) * 24)) | ((cr >> 3) << 5) | ((cg >> 3) << 10) | ((cb >> 3) << 15);
         if (k2 !== key) {
           flush();
           run = "";
@@ -354,56 +370,40 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
       }
       flush();
     }
-    sparks(now);
   };
 
-  // What the pointer leaves (kumo, 2026-11-25: not a tail of code): little stars and rings along its
-  // way, and a press sends rings out about it; each in the rainbow, rising and going.
-  type Spark = { x: number; y: number; vx: number; vy: number; at: number; life: number; ring: boolean; size: number; hue: number; spin: number; seed: number };
+  // What the pointer leaves (kumo, 2026-11-25): stars and rings, growing out from a point, drawn
+  // in no character of their own: the code's rows go on as they are, and those of their characters
+  // a shape's outline lies over are in the rainbow (kumo: not a new character put in).
+  type Spark = { x: number; y: number; vx: number; vy: number; at: number; life: number; ring: boolean; size: number; hue: number; spin: number };
+  type Shape = { x: number; y: number; rad: number; turn: number; ring: boolean; fade: number; hue: number; w: number; reach: number };
   let pops: Spark[] = [];
   let lx = 0, ly = 0, lensOn = false, lastPop = 0;
   const pop = (x: number, y: number, ring: boolean, speed: number, size: number) => {
     const a = Math.random() * Math.PI * 2;
-    pops.push({ x, y, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed - (ring ? 0 : 8), at: performance.now(), life: ring ? 900 + Math.random() * 500 : 700 + Math.random() * 500, ring, size, hue: Math.random() * 360, spin: (Math.random() - 0.5) * 1.5, seed: (Math.random() * 997) | 0 });
-    if (pops.length > 40) pops = pops.slice(-40);
+    pops.push({ x, y, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed - (ring ? 0 : 10), at: performance.now(), life: ring ? 1100 + Math.random() * 500 : 900 + Math.random() * 500, ring, size, hue: Math.random() * 360, spin: (Math.random() - 0.5) * 1.5 });
+    if (pops.length > 30) pops = pops.slice(-30);
   };
-  // A shape spelt in characters (kumo, 2026-11-25: of code, as the rest): points along its outline,
-  // a character at each, about as far apart as the cells are wide.
-  const outline = (ring: boolean, rad: number, turn: number): [number, number][] => {
-    if (ring) {
-      const n = Math.max(6, Math.round((2 * Math.PI * rad) / (cw * 1.15)));
-      return Array.from({ length: n }, (_, j) => [Math.cos(turn + (j / n) * 2 * Math.PI) * rad, Math.sin(turn + (j / n) * 2 * Math.PI) * rad]);
-    }
-    const tips: [number, number][] = [];
-    for (let j = 0; j < 10; j++) {
-      const a = turn + (j * Math.PI) / 5 - Math.PI / 2, d = j % 2 ? rad * 0.45 : rad;
-      tips.push([Math.cos(a) * d, Math.sin(a) * d]);
-    }
-    const out: [number, number][] = [];
-    for (let j = 0; j < 10; j++) {
-      const [ax, ay] = tips[j]!, [bx, by] = tips[(j + 1) % 10]!;
-      const n = Math.max(1, Math.round(Math.hypot(bx - ax, by - ay) / (cw * 1.15)));
-      for (let q = 0; q < n; q++) out.push([ax + ((bx - ax) * q) / n, ay + ((by - ay) * q) / n]);
-    }
-    return out;
-  };
-  const sparks = (now: number) => {
-    if (!pops.length) return;
+  /** The shapes now: where each is, how far out it has grown, how much of it is left. */
+  const shapes = (now: number): Shape[] => {
+    if (!pops.length) return [];
     pops = pops.filter((p) => now - p.at < p.life);
-    g.font = FONTS(1);
-    for (const p of pops) {
+    return pops.map((p) => {
       const t = (now - p.at) / p.life, s2 = (now - p.at) / 1000;
-      const x = p.x + p.vx * s2, y = p.y + p.vy * s2;
-      // Out from a point to its size, fast at first, slowing.
-      const grow = 1 - (1 - t) ** 3;
-      const pts = outline(p.ring, Math.max(cw * 0.6, p.size * grow), p.spin * s2);
-      const fade = t < 0.6 ? 1 : 1 - (t - 0.6) / 0.4;
-      pts.forEach(([dx, dy], j) => {
-        const [r2, g2, b2] = rainbowAt(p.hue + j * (360 / pts.length) + now * 0.12);
-        g.fillStyle = `rgba(${r2 | 0},${g2 | 0},${b2 | 0},${0.95 * fade})`;
-        g.fillText(GLYPHS[(p.seed + j) % GLYPHS.length]!, x + dx - cw / 2, y + dy - ROW / 2);
-      });
-    }
+      // Out from a point to its size, fast at first, slowing; going in its last part.
+      const rad = Math.max(cw, p.size * (1 - (1 - t) ** 3)), w = ROW * 0.8;
+      return { x: p.x + p.vx * s2, y: p.y + p.vy * s2, rad, turn: p.spin * s2, ring: p.ring, fade: t < 0.55 ? 1 : 1 - (t - 0.55) / 0.45, hue: p.hue, w, reach: rad + w };
+    });
+  };
+  const ARM = Math.PI / 5, SIN_ARM = Math.sin(ARM);
+  /** How far from its middle a shape's outline is at angle a: a ring's its radius; a star's, the
+   *  line between the tip and the notch on either side of a. */
+  const edge = (q: Shape, a: number) => {
+    if (q.ring) return q.rad;
+    const rel = (((a - q.turn + Math.PI / 2) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+    const j = Math.floor(rel / ARM), u = rel - j * ARM;
+    const r0 = j % 2 ? q.rad * 0.45 : q.rad, r1 = j % 2 ? q.rad : q.rad * 0.45;
+    return (r0 * r1 * SIN_ARM) / (r0 * Math.sin(u) + r1 * Math.sin(ARM - u));
   };
 
   const frame = (now: number) => {
@@ -677,16 +677,16 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
       ly = y;
       lensOn = true;
       const now = performance.now();
-      if (moved > 6 && now - lastPop > 110) {
+      if (moved > 6 && now - lastPop > 140) {
         lastPop = now;
-        pop(x, y, Math.random() < 0.4, 6 + Math.random() * 14, 12 + Math.random() * 10);
+        pop(x, y, Math.random() < 0.4, 10 + Math.random() * 20, 30 + Math.random() * 22);
       }
       kick();
     },
     tap(x, y) {
       if (still || !W) return;
-      for (let j = 0; j < 3; j++) pop(x, y, true, 4 + Math.random() * 10, 36 + j * 26 + Math.random() * 10);
-      for (let j = 0; j < 4; j++) pop(x, y, false, 50 + Math.random() * 70, 16 + Math.random() * 10);
+      for (let j = 0; j < 3; j++) pop(x, y, true, 4 + Math.random() * 10, 80 + j * 60 + Math.random() * 16);
+      for (let j = 0; j < 5; j++) pop(x, y, false, 120 + Math.random() * 140, 36 + Math.random() * 20);
       kick();
     },
     stop() {
