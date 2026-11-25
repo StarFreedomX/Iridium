@@ -572,7 +572,6 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
           // Its letters clear over what it names: the browser's spelling marks would lie under the
           // marks' names (a title is no misspelling).
           spellCheck={marked ? false : undefined}
-          placeholder={t("composer.placeholder")}
           aria-label={t("composer.placeholder")}
           onChange={(e) => {
             const el = e.target;
