@@ -76,9 +76,10 @@ export function PlaceLines({ name, remote, machine, machineName, path }: { name:
 export const hasMention = (text: string) => mentions(text).some((p) => typeof p !== "string");
 
 /** Behind the composer's box, whose own letters are clear while it names something: the same words
- *  in the same place (refs.ts boxed), each named one on a soft ground, its mark in the slot before
- *  its name; a member named (names: those @ may name), its @ faint before its name, as words
- *  draw it. Only colours and grounds, never a width, so each letter lies under the caret's.
+ *  in the same place (refs.ts boxed), each named one as the words sent draw it (kumo, 2026-11-25:
+ *  no ground): its mark in the slot before its name, underlined; a member named (names: those @
+ *  may name), its @ faint, underlined with its name; no face after it, which would take room.
+ *  Only colours and lines, never a width, so each letter lies under the caret's.
  *  Scrolls with the box. */
 export function MentionMarks({ text, box, className, names }: { text: string; box: RefObject<HTMLTextAreaElement | null>; className: string; names?: readonly string[] }) {
   const back = useRef<HTMLDivElement>(null);
@@ -97,23 +98,22 @@ export function MentionMarks({ text, box, className, names }: { text: string; bo
     if (r.from > at) parts.push(b.value.slice(at, r.from));
     if (r.m.kind === "nick") {
       parts.push(
-        <span key={r.from} className="mention-mark">
-          <span className="text-ink-3">@</span>
-          {b.value.slice(r.from + 1, r.to)}
+        <span key={r.from} className="text-ink-3 underline decoration-ink-4 underline-offset-2">
+          @<span className="text-ink">{b.value.slice(r.from + 1, r.to)}</span>
         </span>,
       );
       at = r.to;
       continue;
     }
     parts.push(
-      <span key={r.from} className="mention-mark">
+      <span key={r.from}>
         <span className="relative">
           {MARK}
           <span className="absolute inset-0 grid place-items-center">
             <Mark m={r.m} size={14} />
           </span>
         </span>
-        {b.value.slice(r.from + 1, r.to)}
+        <span className="underline decoration-ink-4 underline-offset-2">{b.value.slice(r.from + 1, r.to)}</span>
       </span>,
     );
     at = r.to;

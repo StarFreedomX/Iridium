@@ -220,15 +220,6 @@ body {
 .float.rest {
   box-shadow: var(--shadow-rest);
 }
-/* A session named in the composer (chat/mention.tsx): a soft ground under its words, a little wider
-   than them by a shadow, so no letter moves. */
-.mention-mark {
-  border-radius: 5px;
-  background: var(--fill-2);
-  box-shadow: 0 0 0 2px var(--fill-2);
-  -webkit-box-decoration-break: clone;
-  box-decoration-break: clone;
-}
 /* Solid, the blur would be worked out each frame under a ground it cannot be seen through: none,
    and the layer it made (a stacking context) kept, so nothing in it moves in front or behind. */
 @media (prefers-reduced-transparency: reduce) {
