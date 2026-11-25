@@ -32,7 +32,7 @@ export const foldersQ = (path: string, machine?: string) => ({ queryKey: ["folde
 
 /** Its children's height, glided to as it changes (a folder of more or fewer folders): the popover
  *  grows and shrinks instead of jumping (the user, 2026-11-06). */
-function Tall({ children, className }: { children: ReactNode; className?: string }) {
+export function Tall({ children, className }: { children: ReactNode; className?: string }) {
   const inner = useRef<HTMLDivElement>(null);
   const [h, setH] = useState<number | undefined>(undefined);
   useLayoutEffect(() => {

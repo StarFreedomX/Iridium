@@ -7,7 +7,7 @@ import { Menu } from "@base-ui/react/menu";
 import { Popover } from "@base-ui/react/popover";
 import { useQueryClient } from "@tanstack/react-query";
 import { useQuery } from "../../api/query";
-import { Check, ChevronRight, PencilLine, Plus, Users } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, PencilLine, Plus, Users } from "lucide-react";
 import { useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { api } from "../../api/client";
 import type { Agent, ChannelMembers, Script, Viewer } from "../../api/types.gen";
@@ -19,12 +19,14 @@ import { openChat } from "../../route";
 import { useCarried, useList, useSession } from "../../store";
 import { working } from "../../tree";
 import { toast } from "../../toast";
-import { agentName, Avatar, cn, Lamp, PopSurface, Tip, MenuPortal } from "../../ui";
+import { agentName, Avatar, cn, Lamp, PopSurface, Tip, MenuPortal, useMedia } from "../../ui";
 import { openEdit } from "./editing";
 import { Face, MemberFace } from "./face";
 import { ContextMark } from "../meters";
 import { mayAct, useMembers } from "./gate";
-import { AddAgents, ITEM, POPUP } from "./invite";
+import { AddAgents, ITEM, KindPage, POPUP } from "./invite";
+import { Tall } from "../../create";
+import type { Machine } from "../../machines";
 import { prefetchChoices } from "./pick";
 import { useAhead } from "../../prefetch";
 import { memberError } from "./key";
@@ -40,7 +42,8 @@ import { appAll, hasApp, hasLogin, loginOf, peopleCount, peopleOf, pressApp, pre
 const SUB = "no-bar max-h-[min(480px,var(--available-height))] min-w-52 max-w-[calc(100vw-16px)] overflow-y-auto p-1.5";
 const HEAD = "truncate px-2.5 pt-2 pb-0.5 text-xs text-ink-3 select-none first:pt-1";
 
-function Sub({ icon, label, lead, now, i, children }: { icon: ReactNode; label: string; lead?: ReactNode; now?: string; i: number; children: ReactNode }) {
+/** bare: no mark at the row's end (the + panel's rows: kumo, 2026-11-25). */
+function Sub({ icon, label, lead, now, i, bare, children }: { icon: ReactNode; label: string; lead?: ReactNode; now?: string; i: number; bare?: boolean; children: ReactNode }) {
   return (
     <Menu.SubmenuRoot>
       <Menu.SubmenuTrigger style={{ "--i": i } as CSSProperties} className={ITEM}>
@@ -48,7 +51,7 @@ function Sub({ icon, label, lead, now, i, children }: { icon: ReactNode; label: 
         {lead}
         <span className="min-w-0 flex-1 truncate">{label}</span>
         {now && <span className="max-w-36 truncate text-xs text-ink-3">{now}</span>}
-        <ChevronRight size={14} className="text-ink-4" />
+        {!bare && <ChevronRight size={14} className="text-ink-4" />}
       </Menu.SubmenuTrigger>
       <MenuPortal>
         <Menu.Positioner className="z-50" sideOffset={4} collisionPadding={8}>
@@ -164,9 +167,7 @@ export function TopRight({ id }: { id: string }) {
           <MenuPortal>
             <Menu.Positioner side="bottom" align="end" sideOffset={6} collisionPadding={8} className="z-50">
               <Menu.Popup finalFocus={false} className={cn(POPUP, SUB, "w-[min(320px,calc(100vw-16px))]")}>
-                <div className="g-stagger flex flex-col">
-                  <Invite id={id} />
-                </div>
+                <Invite id={id} />
               </Menu.Popup>
             </Menu.Positioner>
           </MenuPortal>
@@ -259,30 +260,58 @@ function Invite({ id }: { id: string }) {
   const loginsOf = (app: string) => (d?.logins ?? []).filter((l) => l.app === app);
   const idsOf = (app: string) => loginsOf(app).map((l) => l.id);
   const setPeople = (p: string[]) => run(() => api.setPeople(id, p));
-  return (
+  // A finger's (kumo, 2026-11-25): no menu beside a row; pressed, what it would open is the
+  // panel's next page, 返回 at its head. The list stays as it was left under it (the computer
+  // picked), only not drawn.
+  const finger = useMedia("(pointer: coarse)");
+  const [page, setPage] = useState<{ k: Agent; m?: Machine } | { app: string } | null>(null);
+  const loginRows = (app: string) => (
     <>
-      <AddAgents id={id} />
-      {apps.length > 0 && <div role="separator" className="mx-2.5 my-1 border-t border-(--edge)" />}
+      <Menu.Item closeOnClick={false} disabled={members?.me === appAll(app)} onClick={() => setPeople(pressApp(people, ids, idsOf, app, members?.me))} className={ITEM}>
+        {check(hasApp(people, app))}
+        <span className="flex-1 font-medium">{t("channel.everyone")}</span>
+      </Menu.Item>
+      {loginsOf(app).map((l) => (
+        <Menu.Item key={l.id} closeOnClick={false} disabled={members?.me === loginOf(app, l.id)} onClick={() => setPeople(pressLogin(people, ids, idsOf, app, l.id, members?.me))} className={ITEM}>
+          {check(hasLogin(people, app, l.id))}
+          <Avatar src={l.avatar} name={l.name} size={16} />
+          <span className="min-w-0 flex-1 truncate">{l.name}</span>
+        </Menu.Item>
+      ))}
+    </>
+  );
+  return (
+    <Tall>
+      <div className={cn("g-stagger flex flex-col", page && "hidden")}>
+        <AddAgents id={id} onKind={finger ? (k, m) => setPage({ k, m }) : undefined} />
+        {apps.length > 0 && <div role="separator" className="mx-2.5 my-1 border-t border-(--edge)" />}
         {apps.map((a) => {
           const name = a.web ? t("term.panel") : a.name;
-          const logins = loginsOf(a.id);
-          return (
-            <Sub key={a.id} icon={<Avatar src={a.avatar} name={a.name} size={16} type={a.type} host={!!a.host} />} label={name} now={hasApp(people, a.id) ? t("channel.everyone") : String(logins.filter((l) => hasLogin(people, a.id, l.id)).length || "")} i={0}>
-              <Menu.Item closeOnClick={false} disabled={members?.me === appAll(a.id)} onClick={() => setPeople(pressApp(people, ids, idsOf, a.id, members?.me))} className={ITEM}>
-                {check(hasApp(people, a.id))}
-                <span className="flex-1 font-medium">{t("channel.everyone")}</span>
-              </Menu.Item>
-              {logins.map((l) => (
-                <Menu.Item key={l.id} closeOnClick={false} disabled={members?.me === loginOf(a.id, l.id)} onClick={() => setPeople(pressLogin(people, ids, idsOf, a.id, l.id, members?.me))} className={ITEM}>
-                  {check(hasLogin(people, a.id, l.id))}
-                  <Avatar src={l.avatar} name={l.name} size={16} />
-                  <span className="min-w-0 flex-1 truncate">{l.name}</span>
-                </Menu.Item>
-              ))}
+          const now = hasApp(people, a.id) ? t("channel.everyone") : String(loginsOf(a.id).filter((l) => hasLogin(people, a.id, l.id)).length || "");
+          const icon = <Avatar src={a.avatar} name={a.name} size={16} type={a.type} host={!!a.host} />;
+          return finger ? (
+            <Menu.Item key={a.id} closeOnClick={false} onClick={() => setPage({ app: a.id })} className={ITEM}>
+              <span className="text-ink-2">{icon}</span>
+              <span className="min-w-0 flex-1 truncate">{name}</span>
+              {now && <span className="max-w-36 truncate text-xs text-ink-3">{now}</span>}
+            </Menu.Item>
+          ) : (
+            <Sub key={a.id} icon={icon} label={name} now={now} i={0} bare>
+              {loginRows(a.id)}
             </Sub>
           );
         })}
-    </>
+      </div>
+      {page && (
+        <div className="g-slide flex flex-col">
+          <Menu.Item closeOnClick={false} onClick={() => setPage(null)} className={cn(ITEM, "text-ink-2")}>
+            <ChevronLeft size={15} />
+            <span className="min-w-0 flex-1 truncate">{"app" in page ? ((x) => (x?.web ? t("term.panel") : x?.name))(apps.find((a) => a.id === page.app)) : agentName(page.k)}</span>
+          </Menu.Item>
+          {"app" in page ? loginRows(page.app) : <KindPage id={id} k={page.k} m={page.m} done={() => setPage(null)} />}
+        </div>
+      )}
+    </Tall>
   );
 }
 

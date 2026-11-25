@@ -11,7 +11,7 @@
 import { Menu } from "@base-ui/react/menu";
 import { useQueryClient } from "@tanstack/react-query";
 import { useQuery } from "../../api/query";
-import { ChevronRight, LoaderCircle } from "lucide-react";
+import { LoaderCircle } from "lucide-react";
 import { useState, type CSSProperties } from "react";
 import { api } from "../../api/client";
 import type { Agent, ChannelMembers, Role } from "../../api/types.gen";
@@ -57,7 +57,7 @@ export function useAdd(id: string) {
  *  and the kinds of agent of the one picked. Every template and every kind any computer has
  *  keeps its row whichever is picked, one the picked computer lacks drawn faint and not pressed:
  *  the menu is as tall for each computer. */
-export function AddAgents({ id }: { id: string }) {
+export function AddAgents({ id, onKind }: { id: string; onKind?: (k: Agent, m?: Machine) => void }) {
   useLang();
   const row = useList()?.find((x) => x.id === id);
   const own = (useSession(id) ?? row)?.machine ?? "";
@@ -95,7 +95,7 @@ export function AddAgents({ id }: { id: string }) {
       ))}
       {roles.length > 0 && <div role="separator" className="mx-2.5 my-1 border-t border-(--edge)" />}
       {kinds.map((k, i) => (
-        <Kind key={`${picked}/${k}`} id={id} k={k} m={to} lacks={!has.includes(k)} i={roles.length + i} off={off || !has.includes(k)} busy={busy === (to ? `${to.id}/${k}` : k)} add={add} />
+        <Kind key={`${picked}/${k}`} id={id} k={k} m={to} lacks={!has.includes(k)} onPage={onKind && (() => onKind(k, to))} i={roles.length + i} off={off || !has.includes(k)} busy={busy === (to ? `${to.id}/${k}` : k)} add={add} />
       ))}
     </>
   );
@@ -113,22 +113,36 @@ function RoleRow({ role, i, off, busy, add }: { role: Role; i: number; off: bool
   );
 }
 
-/** One kind's row: its name and the model a press of it uses (not known yet: the name alone).
- *  lacks: the computer picked has no such agent; its name alone, nothing asked of it. */
-function Kind({ id, k, m, lacks, i, off, busy, add }: { id: string; k: Agent; m?: Machine; lacks?: boolean; i: number; off: boolean; busy: boolean; add: ReturnType<typeof useAdd>["add"] }) {
+/** One kind's row: its name and the model a press of it uses (not known yet: the name alone,
+ *  and no menu: a press adds it as it is). lacks: the computer picked has no such agent; its
+ *  name alone, nothing asked of it. Its models open beside it, with no mark of it at the row's
+ *  end (kumo, 2026-11-25); onPage (a finger's): pressed, they are the panel's next page, no
+ *  menu of its own. */
+function Kind({ id, k, m, lacks, onPage, i, off, busy, add }: { id: string; k: Agent; m?: Machine; lacks?: boolean; onPage?: () => void; i: number; off: boolean; busy: boolean; add: ReturnType<typeof useAdd>["add"] }) {
   // Where its models are asked: the channel's own place, or the computer it would run at.
   const at = m ? { machine: m.id } : { channel: id };
   const [p, setP] = useState<{ model: string; effort: string; preset?: string }>({ model: "", effort: "" });
   const asked = useQuery({ ...choicesQ(k, at), enabled: !lacks }).data;
   const { send } = draftDefault(asked);
-  // A mouse's press adds it as it is; a finger's opens its menu (no hover to open it by).
-  const press = () => !matchMedia("(pointer: coarse)").matches && void add(k, p.model || send, p.effort, p.preset, undefined, m);
+  const row = (
+    <>
+      {busy ? <LoaderCircle size={16} className="animate-spin text-ink-3" /> : <Logo agent={k} size={16} />}
+      <span className="min-w-0 flex-1 truncate">{lacks ? agentName(k) : draftName(k, asked)}</span>
+    </>
+  );
+  const style = { "--i": i } as CSSProperties;
+  const cls = cn(ITEM, "data-disabled:opacity-40");
+  const plain = () => void add(k, p.model || send, p.effort, p.preset, undefined, m);
+  if (!asked?.models.length || onPage)
+    return (
+      <Menu.Item closeOnClick={false} disabled={off} onClick={asked?.models.length && onPage ? onPage : plain} style={style} className={cls}>
+        {row}
+      </Menu.Item>
+    );
   return (
     <Menu.SubmenuRoot>
-      <Menu.SubmenuTrigger disabled={off} onClick={press} style={{ "--i": i } as CSSProperties} className={cn(ITEM, "data-disabled:opacity-40")}>
-        {busy ? <LoaderCircle size={16} className="animate-spin text-ink-3" /> : <Logo agent={k} size={16} />}
-        <span className="min-w-0 flex-1 truncate">{lacks ? agentName(k) : draftName(k, asked)}</span>
-        <ChevronRight size={14} className="shrink-0 text-ink-4" />
+      <Menu.SubmenuTrigger disabled={off} onClick={plain} style={style} className={cls}>
+        {row}
       </Menu.SubmenuTrigger>
       <MenuPortal>
         <Menu.Positioner className="z-50" sideOffset={4} collisionPadding={8}>
@@ -139,4 +153,13 @@ function Kind({ id, k, m, lacks, i, off, busy, add }: { id: string; k: Agent; m?
       </MenuPortal>
     </Menu.SubmenuRoot>
   );
+}
+
+/** A kind's models as the panel's page (a finger's: no menu beside the row): one picked adds it
+ *  with that one and the page is done. */
+export function KindPage({ id, k, m, done }: { id: string; k: Agent; m?: Machine; done: () => void }) {
+  const at = m ? { machine: m.id } : { channel: id };
+  const [p, setP] = useState<{ model: string; effort: string; preset?: string }>({ model: "", effort: "" });
+  const { add } = useAdd(id);
+  return <DraftModels agent={k} at={at} model={p.model} effort={p.effort} preset={p.preset} set={(x) => (x.model !== undefined ? (void add(k, x.model, p.effort, p.preset, undefined, m), done()) : setP({ ...p, ...x }))} />;
 }
