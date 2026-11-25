@@ -8,8 +8,8 @@ import type { Agent } from "../api/types.gen";
 import { AGY_DATA_URI, CLAUDE, DSH, DSH_VIEWBOX, OPENAI, OPENAI_VIEWBOX, PI, PI_VIEWBOX } from "../logos";
 import { STANDARD, type Fig } from "./figure";
 
-const FONT_PX = 9; // px; a narrow band's (fine): 7
-const ROW_PX = 10; // px, a row's height; fine: 8
+const FONT_PX = 8; // px; a narrow band's (fine): 7
+const ROW_PX = 9; // px, a row's height; fine: 8
 const SRC = 256; // px, the figure as it is drawn before the cells are read from it
 const BASE = 0.12; // a cell's opacity with no figure on it
 const TURN = 700; // ms, one cell going over
@@ -121,7 +121,7 @@ export const ahead = (f: Fig) => void (f.src && picture(f.src));
 // anew (kumo, 2026-11-25: it blinked).
 let kept: { at: number; cols: number; rows: number; text: string[][]; off: Float32Array<ArrayBuffer>; speed: Float32Array<ArrayBuffer>; cur: Field; key: string } | null = null;
 
-export type Splash = { leave(done: () => void): void; enter(): void; figure(f: Fig | null): void; place(x: number, side: number): void; power(f: number): void; resize(): void; near(x: number, y: number): void; stop(): void };
+export type Splash = { leave(done: () => void): void; enter(): void; figure(f: Fig | null): void; place(x: number, side: number, y?: number): void; power(f: number): void; resize(): void; near(x: number, y: number): void; stop(): void };
 
 /** fine: smaller characters, more of them to a figure (the portrait layout, where the band is
  *  narrow and a figure of few cells is a blur: kumo, 2026-11-25). */
@@ -147,6 +147,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
   // drawn gliding to the asked, never set over to it in one frame (kumo, 2026-11-25: it twitched).
   let pw = STANDARD, pwT = STANDARD;
   let cx = -1, most = 0, px = -1, ps = 0;
+  let cy = -1, py = -1; // its middle's height in the band: asked (-1: the band's own) and drawn
   let vel = 0, wasGliding = false, tick = 0, calm = false, odd = false;
   let leaving: (() => void) | null = null, left = false, spreadNow = SPREAD;
   const goal = (): [number, number] => (cx < 0 ? [W / 2, Math.min(H * 0.92, W * 0.7)] : [cx, most]);
@@ -189,7 +190,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
   const read = (): Field => {
     const n = cols * rows, out = field(n);
     if (!n) return out;
-    const mid = px, side = ps, fx = mid - side / 2, fy = (H - side) / 2;
+    const mid = px, side = ps, fx = mid - side / 2, fy = py - side / 2;
     small.width = cols;
     small.height = rows;
     mg.imageSmoothingQuality = "high";
@@ -205,7 +206,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
     const tw = Math.max(2, Math.round(cols / 10)), th = Math.max(2, Math.round(rows / 5));
     tiny.width = tw;
     tiny.height = th;
-    const grow = 1.5, hs = side * grow, hx = mid - hs / 2, hy = (H - hs) / 2;
+    const grow = 1.5, hs = side * grow, hx = mid - hs / 2, hy = py - hs / 2;
     tg.drawImage(src, (hx / W) * tw, (hy / H) * th, (hs / W) * tw, (hs / H) * th);
     mg.clearRect(0, 0, cols, rows);
     mg.drawImage(tiny, 0, 0, cols, rows);
@@ -292,13 +293,15 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
     if (flow > 0) for (let r = 0; r < rows; r++) off[r] = (((off[r]! + speed[r]! * flow * pace(pw) * dt) % len) + len) % len;
     // The figure's place, size and strength glide to what is asked: the cells read anew each frame.
     const [gx, gs] = goal();
-    const gliding = Math.abs(gx - px) > 0.4 || Math.abs(gs - ps) > 0.4 || Math.abs(pwT - pw) > 0.004;
+    const gy = cy < 0 ? H / 2 : cy;
+    const gliding = Math.abs(gx - px) > 0.4 || Math.abs(gy - py) > 0.4 || Math.abs(gs - ps) > 0.4 || Math.abs(pwT - pw) > 0.004;
     if (gliding) {
       const k = 1 - Math.exp(-dt / 0.16);
       px += (gx - px) * k;
+      py += (gy - py) * k;
       ps += (gs - ps) * k;
       pw += (pwT - pw) * k;
-    } else if (wasGliding) (px = gx), (ps = gs), (pw = pwT);
+    } else if (wasGliding) (px = gx), (py = gy), (ps = gs), (pw = pwT);
     if ((gliding || wasGliding) && !leaving) to = read();
     const span = now - t0;
     const turning = span < spreadNow + TURN + 400;
@@ -364,7 +367,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
     }
     from = { a: cur.a.slice(), r: cur.r.slice(), g: cur.g.slice(), b: cur.b.slice() };
     const far = Math.hypot(W / 2, H / 2) || 1;
-    for (let i = 0; i < wait.length; i++) wait[i] = (Math.hypot(((i % cols) + 0.5) * cw - px, (((i / cols) | 0) + 0.5) * ROW - H / 2) / far) * SPREAD * (0.92 + Math.random() * 0.16);
+    for (let i = 0; i < wait.length; i++) wait[i] = (Math.hypot(((i % cols) + 0.5) * cw - px, (((i / cols) | 0) + 0.5) * ROW - py) / far) * SPREAD * (0.92 + Math.random() * 0.16);
     t0 = performance.now();
     spreadNow = SPREAD;
     // Faster for a moment as it first comes; a figure changing leaves the flow as it is.
@@ -386,6 +389,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
   /** What is asked, at once (no motion wanted, or nothing drawn yet to move from). */
   const settle = () => {
     [px, ps] = goal();
+    py = cy < 0 ? H / 2 : cy;
     pw = pwT;
     if (!cur.a.length || drawnKey !== (fig?.key ?? "")) return;
     to = read();
@@ -406,6 +410,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
     g.font = `${FONT}px ui-monospace, "SF Mono", Menlo, "JetBrains Mono", "Cascadia Mono", "DejaVu Sans Mono", monospace`;
     cw = g.measureText("M").width || 5.4;
     [px, ps] = goal();
+    py = cy < 0 ? H / 2 : cy;
     pw = pwT;
     cols = Math.ceil(W / cw) + 1;
     rows = Math.floor(H / ROW);
@@ -455,7 +460,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
       from = { a: cur.a.slice(), r: cur.r.slice(), g: cur.g.slice(), b: cur.b.slice() };
       to = { a: new Float32Array(cur.a.length), r: cur.r.slice(), g: cur.g.slice(), b: cur.b.slice() };
       const far = Math.hypot(Math.max(px, W - px), H / 2) || 1;
-      for (let i = 0; i < wait.length; i++) wait[i] = (1 - Math.hypot(((i % cols) + 0.5) * cw - px, (((i / cols) | 0) + 0.5) * ROW - H / 2) / far) * SPREAD * 1.5 * (0.92 + Math.random() * 0.16);
+      for (let i = 0; i < wait.length; i++) wait[i] = (1 - Math.hypot(((i % cols) + 0.5) * cw - px, (((i / cols) | 0) + 0.5) * ROW - py) / far) * SPREAD * 1.5 * (0.92 + Math.random() * 0.16);
       leaving = done;
       t0 = performance.now();
       spreadNow = SPREAD * 1.5;
@@ -477,8 +482,9 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
       flowTo = performance.now() + 1400;
       kick();
     },
-    place(x, side) {
-      if (Math.abs(x - cx) < 1 && Math.abs(side - most) < 1) return;
+    place(x, side, y = -1) {
+      if (Math.abs(x - cx) < 1 && Math.abs(side - most) < 1 && Math.abs(y - cy) < 1) return;
+      cy = y;
       cx = x;
       most = side;
       if (!W) return;

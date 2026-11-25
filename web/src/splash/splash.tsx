@@ -36,7 +36,9 @@ export function Splash({ show = true, fig = null, scene = "", className }: { sho
   // Under the + panel it is the same band, moved down and made smaller as one piece, slowly: not
   // drawn anew there, not gone and come again (kumo, 2026-11-25). How far and how small, by the
   // pane's height (fit).
-  const [down, setDown] = useState({ dy: 0, k: 1 });
+  const [down, setDown] = useState(0);
+  const lowRef = useRef(low);
+  lowRef.current = low;
   const fitRef = useRef(() => {});
   const phoneRef = useRef(phone);
   phoneRef.current = phone;
@@ -56,18 +58,18 @@ export function Splash({ show = true, fig = null, scene = "", className }: { sho
       e.resize();
       const w = el.clientWidth, h = el.clientHeight, free = w - PANEL;
       const left = asideRef.current && free >= 240;
-      // The portrait layout: as large as the band has room for.
-      const side = left ? Math.min(h * 0.92, free * 0.9) : phoneRef.current ? Math.min(h * 0.98, w * 0.94) : Math.min(h * 0.92, w * 0.7);
-      const own = !left && !phoneRef.current;
-      e.place(own ? -1 : left ? free / 2 : w / 2, side);
-      // The pane's height, the composer's 76px at its foot: the room under a panel of half of it.
+      // The portrait layout: as large as the band has room for. Under the + panel (lowRef) the
+      // band is moved down, its foot on the composer, its characters as they are and the band as
+      // wide (kumo, 2026-11-25: not made smaller); the figure goes to the part of it left under
+      // the panel, half the pane's height less the composer, as large as that part.
       const pane = el.parentElement?.parentElement?.clientHeight ?? 0;
-      const room = Math.max(120, pane / 2 - 128);
-      const k = Math.min(1, room / h);
-      setDown((d) => {
-        const dy = Math.round(pane - 76 - room / 2 - (pane / 2 - 24));
-        return d.dy === dy && Math.abs(d.k - k) < 0.005 ? d : { dy, k };
-      });
+      const room = Math.min(h, Math.max(120, pane / 2 - 128));
+      const under = phoneRef.current && lowRef.current;
+      const side = left ? Math.min(h * 0.92, free * 0.9) : under ? Math.min(room * 0.98, w * 0.94) : phoneRef.current ? Math.min(h * 0.98, w * 0.94) : Math.min(h * 0.92, w * 0.7);
+      const own = !left && !phoneRef.current;
+      e.place(own ? -1 : left ? free / 2 : w / 2, side, under ? h - room / 2 : -1);
+      const dy = Math.round(pane - 76 - (pane / 2 - 24 + h / 2));
+      setDown((d) => (d === dy ? d : dy));
     };
     fitRef.current = fit;
     fit();
@@ -99,11 +101,11 @@ export function Splash({ show = true, fig = null, scene = "", className }: { sho
     else if (shownAt.current !== scene || !eng.current) setThere(false);
     else eng.current.leave(() => setThere(false));
   }, [show, scene, there]);
-  useEffect(() => fitRef.current(), [aside]);
+  useEffect(() => fitRef.current(), [aside, low]);
   useEffect(() => eng.current?.power(show ? power : STANDARD), [power, show]);
   if (!there) return null;
   return (
-    <div aria-hidden={!now} style={{ transform: low ? `translateY(${down.dy}px) scale(${down.k})` : undefined }} className={cn("pointer-events-none absolute inset-x-0 top-[calc(50%-24px)] z-1 -translate-y-1/2 transition-transform duration-700 ease-(--ease-out) motion-reduce:transition-none", phone ? "h-[clamp(260px,56%,460px)]" : "h-[clamp(220px,46%,420px)]", className)}>
+    <div aria-hidden={!now} style={{ transform: low ? `translateY(${down}px)` : undefined }} className={cn("pointer-events-none absolute inset-x-0 top-[calc(50%-24px)] z-1 -translate-y-1/2 transition-transform duration-700 ease-(--ease-out) motion-reduce:transition-none", phone ? "h-[clamp(260px,56%,460px)]" : "h-[clamp(220px,46%,420px)]", className)}>
       <canvas ref={cv} aria-hidden className="absolute inset-0 size-full text-ink" style={{ maskImage: MASK, maskComposite: "intersect", WebkitMaskImage: MASK, WebkitMaskComposite: "source-in" }} />
     </div>
   );
