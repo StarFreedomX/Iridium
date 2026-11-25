@@ -33,7 +33,7 @@ import { onOf, ruleLine } from "./scripts";
 import { triggerWords, useRecvName } from "./recv";
 import { actsOf } from "./menu";
 import { subName, SubTag } from "../subwork";
-import { appAll, hasApp, hasLogin, loginOf, peopleCount, peopleOf, pressApp, pressLogin } from "./setup";
+import { appAll, hasApp, hasLogin, loginOf, peopleOf, pressApp, pressLogin } from "./setup";
 
 const SUB = "no-bar max-h-[min(480px,var(--available-height))] min-w-52 max-w-[calc(100vw-16px)] overflow-y-auto p-1.5";
 const HEAD = "truncate px-2.5 pt-2 pb-0.5 text-xs text-ink-3 select-none first:pt-1";
@@ -62,7 +62,7 @@ function Sub({ icon, label, lead, now, i, children }: { icon: ReactNode; label: 
 const check = (on: boolean) => <span className="grid size-3.5 place-items-center text-ink">{on && <Check size={14} />}</span>;
 
 /** The bar's right (the user, 2026-11-13): who is looking now, their faces, pressed their names;
- *  the members, a key with their count (agents and people) opening the list of them. */
+ *  the members, a key with the faces and the count of who is looking, opening the list of them. */
 export function TopRight({ id }: { id: string }) {
   useLang();
   const qc = useQueryClient();
@@ -83,10 +83,6 @@ export function TopRight({ id }: { id: string }) {
   };
   const keyAhead = useAhead(ahead, [id, kinds.join(" "), members?.members.length]);
   const viewers = useCarried<Viewer[]>(`viewers:${id}`) ?? [];
-  const agents = (members?.members ?? []).filter((m) => m.session);
-  // How many its members are, on the key itself: its agents and its people (each login once).
-  const logins = useApps().data?.logins ?? [];
-  const count = agents.length + peopleCount(peopleOf(members), logins);
   // What an agent's menu asks with from the list (清空, 移出, 注入记录): the cards the face's
   // menu asks with, under the members' key.
   const key = useRef<HTMLButtonElement>(null);
@@ -104,8 +100,9 @@ export function TopRight({ id }: { id: string }) {
           <Menu.Trigger
             render={
               <button ref={key} type="button" aria-label={t("channel.members")} {...keyAhead} className="g-press flex h-8 items-center gap-1 rounded-md px-2 text-ink-2 hover:bg-fill hover:text-ink data-popup-open:bg-fill pointer-coarse:h-10">
-                {/* Who is looking, their faces in place of the icon: one key, not two side by side
-                    (kumo, 2026-11-25); the names at the menu's head. */}
+                {/* Who is looking, their faces in place of the icon and how many they are: one key,
+                    not two side by side; the members' count said nothing (kumo, 2026-11-25). The
+                    names at the menu's head. */}
                 {viewers.length ? (
                   <span className="flex items-center">
                     {viewers.slice(0, 3).map((v, i) => (
@@ -117,7 +114,7 @@ export function TopRight({ id }: { id: string }) {
                 ) : (
                   <Users size={16} />
                 )}
-                <span className="text-xs tabular-nums">{count}</span>
+                {viewers.length > 0 && <span className="text-xs tabular-nums">{viewers.length}</span>}
               </button>
             }
           />
