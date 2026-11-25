@@ -9,7 +9,7 @@
 // and at its foot the colour tags (colors.ts); a group's: rename, its path, 通知. The mouse resting
 // on a row fetches its chat ahead.
 import { Menu } from "@base-ui/react/menu";
-import { Archive, ArchiveRestore, ArrowDown, ArrowUp, Bot, Check, ChevronRight, Copy, Ellipsis, Ungroup, Folder, FolderOpen, ListCollapse, Moon, Pencil, Pin, PinOff, Plus, RefreshCw, Square } from "lucide-react";
+import { Archive, ArchiveRestore, ArrowDown, ArrowUp, Bot, Check, ChevronRight, Copy, Ellipsis, Ungroup, Folder, FolderOpen, ListCollapse, Moon, Pencil, Pin, PinOff, Plus, RefreshCw, Square, FolderPlus } from "lucide-react";
 import { ConfirmIcon, confirmName, confirmTitle } from "./confirmname";
 import { Fragment, lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactElement, type ReactNode, type RefObject } from "react";
 import { api } from "./api/client";
@@ -22,6 +22,8 @@ import { useMoves } from "./motion";
 import { folderLevels, sessionLevels, usePushMenus, wsLevels, type PushLevel } from "./push";
 import { allFolders, folderSessions, foldersHolding, foldMore, groupHolding, machineOf, remotePath, type Folder as FolderNode, type Tree, type WsNode } from "./tree";
 import { createAt, onOpenPlace, type Place } from "./places";
+import { FileBrowserTrigger } from "./filebrowser-trigger";
+import { listKept } from "./chat/channel/adding";
 import { LinkDot } from "./link";
 import { errText, toast } from "./toast";
 import { manages, useMachines, useMe, useSaidLine, useUpdate } from "./data";
@@ -64,7 +66,6 @@ type Props = {
   /** What agents' ir asked this panel for (invites, tokens): under 需要你 too. */
   confirms: Need[];
   onConfirm: (c: Need) => void;
-  createKey: (trigger: ReactElement) => ReactNode;
   filesKey?: ReactNode;
   wsPlus: (ws: WsNode, trigger: ReactElement, open: boolean, setOpen: (o: boolean) => void) => ReactNode;
   me: ReactNode;
@@ -273,6 +274,8 @@ export function Sidebar(p: Props) {
     if (!expanded(w.key)) toggle(w.key);
     const fs = allFolders(w.rows.flatMap((r) => (r.kind === "folder" ? [r.f] : []))).filter((f) => folderSessions(f).some((s) => s.id === p.selected));
     for (const f of fs) if (!expanded(f.key)) toggle(f.key);
+    // One just made from a row here: the list stays (chat/channel/adding.ts).
+    if (listKept(p.selected)) return;
     requestAnimationFrame(() => list.current?.querySelector(`[data-flip="${CSS.escape(`s:${p.selected}`)}"]`)?.scrollIntoView({ block: "nearest", behavior: "smooth" }));
   }, [p.selected, selListed, p.searching]);
   // A session's row (its subagents have none: kumo, 2026-11-15). The sessions it started (ir new)
@@ -360,7 +363,7 @@ export function Sidebar(p: Props) {
             lane={lane}
             place={placeFolderAt}
             pin={pinFolderOn}
-            newHere={gone(f.path) ? undefined : () => setPlusOpen(f.key)}
+            newSub={gone(f.path) ? undefined : () => setPlusOpen(f.key)}
             // As a workspace's: not its count, the "+" that opens a session in the folder
             // (the user, 2026-11-06).
             plus={!gone(f.path) && p.wsPlus(
@@ -397,6 +400,7 @@ export function Sidebar(p: Props) {
           open={open}
           onToggle={() => p.toggle(w.key)}
           foldBack={foldBackOf([w.key, ...allFolders(tops(w)).map((x) => x.key)])}
+          newSub={w.id !== 0 && !gone(w.root) ? () => setPlusOpen(w.key) : undefined}
           wkey={w.key}
           place={placeGroup}
           up={up && (() => placeGroup(w.key, up.key, "top"))}
@@ -501,17 +505,13 @@ export function Sidebar(p: Props) {
   );
 }
 
-/** The file browser and the "+" for a new workspace. On a phone the keys stand right of the
+/** The file browser (a channel in a folder no group holds is made in it: no "+" here, kumo,
+ *  2026-11-25). On a phone the keys stand right of the
  *  sheet's tabs. The jump box is a keyboard's (nav.searchKey, the user, 2026-11-08). */
-export function HeadKeys(p: Pick<Props, "createKey" | "filesKey">) {
+export function HeadKeys(p: Pick<Props, "filesKey">) {
   return (
     <span className="flex shrink-0 items-center gap-0.5">
       {p.filesKey}
-      {p.createKey(
-        <button type="button" aria-label={t("menu.new")} className="g-press grid size-8 place-items-center rounded-md text-ink-3 hover:bg-fill hover:text-ink-2 data-popup-open:bg-fill data-popup-open:text-ink-2 pointer-coarse:size-10">
-          <Plus size={18} />
-        </button>,
-      )}
     </span>
   );
 }
@@ -709,7 +709,7 @@ function DropLine({ list }: { list: RefObject<HTMLDivElement | null> }) {
 /** A group's row; its menu (right click, long-press): its sessions archived, as a folder's (the
  *  user, 2026-11-08: a group is a folder now), rename, its path copied, open or folded, 通知 while
  *  push is on. 未归类 itself (id 0): its sessions archived and its 通知. */
-function WsRow({ flip, id, name, root, sessions, hung, machine, remote, folders, open, onToggle, foldBack, end, wkey, place, up, down }: { flip: string; id: number; name: string; root: string; sessions: Session[]; hung: Session[]; machine?: Machine; remote?: boolean; folders?: boolean; open: boolean; onToggle: () => void; foldBack?: () => void; end: ReactNode; wkey: string; place: (key: string, target: string, edge: Edge) => void; up?: () => void; down?: () => void }) {
+function WsRow({ flip, id, name, root, sessions, hung, machine, remote, folders, open, onToggle, foldBack, newSub, end, wkey, place, up, down }: { flip: string; id: number; name: string; root: string; sessions: Session[]; hung: Session[]; machine?: Machine; remote?: boolean; folders?: boolean; open: boolean; onToggle: () => void; foldBack?: () => void; newSub?: () => void; end: ReactNode; wkey: string; place: (key: string, target: string, edge: Edge) => void; up?: () => void; down?: () => void }) {
   const machines = useMachines();
   const push = usePushMenus();
   const me = useMe().data;
@@ -730,6 +730,7 @@ function WsRow({ flip, id, name, root, sessions, hung, machine, remote, folders,
       : []),
     // What was opened of its folded sessions, folded again (the user, 2026-11-22).
     ...(foldBack ? [{ icon: <ListCollapse size={15} />, label: t("menu.foldSessions"), run: foldBack }] : []),
+    ...(newSub ? [{ icon: <FolderPlus size={15} />, label: t("new.subFolder"), run: newSub }] : []),
     ...(real
       ? [
           { icon: <Pencil size={15} />, label: t("menu.rename"), run: () => setRenaming(true) },
@@ -1137,7 +1138,7 @@ export function sessionTags(s: Session): Tags {
 /** A folder's row in a workspace: its name, the "+" for a session in it; its menu (right click,
  *  long-press): a session here, its path copied, open or folded, its sessions archived, its colour
  *  tag. */
-function FolderRow({ f, ws, depth, label, hung, open, onToggle, foldBack, newHere, plus, lane, place, pin }: { f: FolderNode; ws: number; depth: number; label: ReactNode; hung: Session[]; open: boolean; onToggle: () => void; foldBack?: () => void; newHere?: () => void; plus: ReactNode; lane: string; place: (path: string, target: FolderNode, edge: Edge, lane: string) => void; pin: (path: string, on: boolean) => void }) {
+function FolderRow({ f, ws, depth, label, hung, open, onToggle, foldBack, newSub, plus, lane, place, pin }: { f: FolderNode; ws: number; depth: number; label: ReactNode; hung: Session[]; open: boolean; onToggle: () => void; foldBack?: () => void; newSub?: () => void; plus: ReactNode; lane: string; place: (path: string, target: FolderNode, edge: Edge, lane: string) => void; pin: (path: string, on: boolean) => void }) {
   const machines = useMachines();
   const me = useMe().data;
   // Dragged among the folders of its group (reorder.ts): the panels' and 本机's, as a group.
@@ -1170,7 +1171,7 @@ function FolderRow({ f, ws, depth, label, hung, open, onToggle, foldBack, newHer
       ? [{ icon: <Archive size={15} />, label: t("menu.archiveHere", { n: all.length + hung.length }), sure: t("menu.archiveSure"), run: () => void Promise.all(all.map((s) => api.patch(s.id, { archived: true }))).then(done(t("toast.archived")), failed) }]
       : []),
     ...(foldBack ? [{ icon: <ListCollapse size={15} />, label: t("menu.foldSessions"), run: foldBack }] : []),
-    ...(newHere ? [{ icon: <Plus size={15} />, label: t("menu.newHere"), run: newHere }] : []),
+    ...(newSub ? [{ icon: <FolderPlus size={15} />, label: t("new.subFolder"), run: newSub }] : []),
     { icon: <Copy size={15} />, label: t("menu.copyPath"), run: () => void navigator.clipboard.writeText(shownPath(f.path, machines).real).then(done(t("toast.copied")), failed) },
     { icon: open ? <Folder size={15} /> : <FolderOpen size={15} />, label: open ? t("menu.fold") : t("menu.unfold"), run: onToggle },
     // Pinned: above the sessions at its group's root (reorder.ts).
@@ -1248,7 +1249,7 @@ export type MenuItem = { icon: ReactNode; label: string } & (
 
 /** A menu's items; lead: before the children, at its top; foot: after the items, over the tags;
  *  label, finalFocus: on the popup itself (finalFocus defaults off). */
-export function MenuItems({ lead = [], items, tags, children, foot, label, finalFocus = false }: {
+export function MenuItems({ lead = [], items, tags, children, foot, label, finalFocus = false, className }: {
   lead?: MenuItem[];
   items: MenuItem[];
   tags?: Tags;
@@ -1256,6 +1257,8 @@ export function MenuItems({ lead = [], items, tags, children, foot, label, final
   foot?: ReactNode;
   label?: string;
   finalFocus?: Menu.Popup.Props["finalFocus"];
+  /** More of its surface's classes (the chat bar's ⋯: wider). */
+  className?: string;
 }) {
   // The item pressed once that asks to be pressed again; the popup gone, so is this.
   const [armed, setArmed] = useState<string>();
@@ -1282,7 +1285,7 @@ export function MenuItems({ lead = [], items, tags, children, foot, label, final
     );
   };
   return (
-    <Menu.Popup aria-label={label} finalFocus={finalFocus} className="g-unfold glass thick float no-bar max-h-(--available-height) max-w-[calc(100vw-16px)] min-w-48 overflow-y-auto rounded-lg p-1.5 text-ink outline-none">
+    <Menu.Popup aria-label={label} finalFocus={finalFocus} className={cn("g-unfold glass thick float no-bar max-h-(--available-height) max-w-[calc(100vw-16px)] min-w-48 overflow-y-auto rounded-lg p-1.5 text-ink outline-none", className)}>
       <div className="g-stagger flex flex-col">
         {lead.map(item)}
         {children}
@@ -1344,7 +1347,18 @@ function Empty() {
   const listed = useList() !== undefined;
   const down = useLink().live === false;
   if (!listed && !down) return null;
-  return <div className="g-fade px-2 pt-10 text-center text-sm text-ink-3">{t(listed ? "nav.empty" : "nav.offline")}</div>;
+  return (
+    <div className="g-fade flex flex-col items-center gap-3 px-2 pt-10 text-center text-sm text-ink-3">
+      {t(listed ? "nav.empty" : "nav.offline")}
+      {/* No row to press a "+" on: the file browser, 在此新建 in it (kumo, 2026-11-25). */}
+      {listed && (
+        <FileBrowserTrigger place={{ path: "" }} className="g-press flex h-8 items-center gap-1.5 rounded-md bg-fill px-3 text-sm text-ink-2 hover:bg-fill-2 hover:text-ink pointer-coarse:h-10">
+          <FolderPlus size={15} />
+          {t("browse.title")}
+        </FileBrowserTrigger>
+      )}
+    </div>
+  );
 }
 
 /** A group's or a folder's "+": seen while it is open, or while its row is hovered (a mouse only;

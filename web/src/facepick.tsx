@@ -159,12 +159,6 @@ export function FacePick({ label, preview, set, disabled, upload, still }: { lab
   );
 }
 
-/** A background as a small strip: the image, or the flat ground with none. */
-export function BannerThumb({ src }: { src?: string }) {
-  const [gone, setGone] = useState<string | null>(null);
-  return <span className="relative block h-7 w-12 overflow-hidden rounded-md bg-fill-2">{src && gone !== src && <img src={src} alt="" draggable={false} onError={() => setGone(src)} className="absolute inset-0 size-full object-cover" />}</span>;
-}
-
 const INPUT = "no-ring w-full min-w-0 rounded-md bg-fill px-2.5 text-base placeholder:text-ink-3";
 
 /** A line of the card, typed: saved as it is left (Enter leaves it), Esc puts back what it was.

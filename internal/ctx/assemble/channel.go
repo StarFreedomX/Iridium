@@ -28,7 +28,7 @@ type ChannelAgent struct{ Nick, Agent, Model, Effort, Recv, At string }
 type ChannelScript struct{ Name, On string }
 
 // ProfileChange is a card changed since the agent was last told: Who ("": the channel), What
-// ("name", "avatar", "background"), To: the new words (none for an image).
+// ("name", "persona", "avatar"), To: the new words (none for an image).
 type ProfileChange struct{ Who, What, To string }
 
 // Channel is what the agent called is told of the channel. You: its own nick; Agents: all of
@@ -208,8 +208,6 @@ func changePieces(c Channel) []piece {
 			ps = append(ps, text(idChannelProfilePersona), words(ch.To, Ref{Kind: "profile", ID: "persona"}), text(idNL))
 		case ch.What == "avatar":
 			ps = append(ps, text(idChannelProfileImage, "who", who, "what", "face"))
-		default:
-			ps = append(ps, text(idChannelProfileImage, "who", who, "what", "background"))
 		}
 	}
 	return ps

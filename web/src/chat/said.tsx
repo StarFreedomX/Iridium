@@ -1017,10 +1017,11 @@ function CpArg({ from, to }: { from: CpSide; to: CpSide }) {
  *  the blocks themselves are enough). Shell calls show their command directly without a "command"
  *  field label. All of it shown, however long: the card scrolls (kumo, 2026-11-25). */
 /** A part of a step's card as a terminal writes it (kumo, 2026-11-25): the command after a "$",
- *  what came back under it after a "⎿", lighter; one font, no rule between. */
+ *  what came back under it after a "⎿", lighter; one font, no rule between. The marks themselves
+ *  in the words' own ink, bold: in a lighter one they were hardly seen (kumo, 2026-11-25). */
 const Lead = ({ mark, dim, children }: { mark: string; dim?: boolean; children: ReactNode }) => (
   <div className={cn("flex min-w-0 items-start", dim && "[&_pre]:text-ink-3")}>
-    <span aria-hidden className="w-3.5 shrink-0 py-1 text-center font-mono text-xs leading-[18px] text-ink-4 select-none">{mark}</span>
+    <span aria-hidden className="w-3.5 shrink-0 py-1 text-center font-mono text-xs leading-[18px] font-semibold text-ink select-none">{mark}</span>
     <div className="min-w-0 flex-1">{children}</div>
   </div>
 );

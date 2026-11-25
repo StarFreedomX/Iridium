@@ -281,8 +281,7 @@ Web Push，总开关在配置 `push`，默认关。VAPID 密钥存在状态目�
 | `GET`、`PUT`、`DELETE /v1/internal/channels/{id}/avatar` | 频道（会话）的头像，见 `docs/channels.md`“头像” |
 | `GET`、`PATCH /v1/internal/self` | 自己的资料卡（agent：连同所在频道、之前的上下文、记忆），见 `docs/channels.md`“资料” |
 | `GET`、`PATCH /v1/internal/members/{who}` | 一个成员的资料卡 |
-| `GET /v1/internal/channels/{id}/profile`、`PATCH /v1/internal/channels/{id}` | 频道的资料卡；`GET …/background` 背景图 |
-| `GET /v1/internal/people/{id}/background` | 人的背景图 |
+| `GET /v1/internal/channels/{id}/profile`、`PATCH /v1/internal/channels/{id}` | 频道的资料卡 |
 | `POST /v1/internal/recall`、`POST /v1/internal/remember`、`GET /v1/internal/memory`、`DELETE /v1/internal/memory/{id}` | 查记录、记忆，见“记忆” |
 | `GET`、`POST /v1/internal/roles`、`PATCH`、`DELETE /v1/internal/roles/{id}`、`DELETE /v1/internal/sessions/{id}/role` | 角色，见“角色” |
 | `GET /v1/internal/personas` | `HostPersona[]`：各台电脑上 agent 的宿主给的人格（报了 `agent.personas` 的执行端，本机的在前，每台按 30 秒缓存），`{machine, machineName, agent, id, name, description?, text, from?}`，整段 `text` 拿来当设定；没有就是空表（otae，2026-11-22；`docs/exec.md`） |

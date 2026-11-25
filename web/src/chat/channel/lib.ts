@@ -38,7 +38,7 @@ export type Work = { steps: number; running: boolean; tool?: string; at?: number
  *  strings; everyone), undelivered (seq, nick), stopped (seq), silent (seq, nick: called for it,
  *  it said nothing in the channel; reason: why, its turn ending in an error), profile (a card
  *  changed: member's, by nick, or the channel's own with no member; what: the fields, "name",
- *  "intro", "avatar", "background"). by: who did it, by
+ *  "nick", "persona", "avatar"; older lines "intro", "background" too, not drawn). by: who did it, by
  *  name (the host's as Iridium, however it was kept: 主机 before 2026-11-15). */
 export type ChEvent = { type: string; member?: string; nick?: string; name?: string; from?: string; recv?: string[] | string; on?: Trigger[]; added?: string[]; removed?: string[]; everyone?: boolean; seq?: number; reason?: string; by?: string; what?: string[] };
 
@@ -129,6 +129,9 @@ export function eventParts(e: ChEvent, w: EventWords): EventPart[] | undefined {
       break;
     }
     case "profile": {
+      // Fields cards no longer have (an intro, a background: kumo, 2026-11-25) left out of an
+      // older line; one of nothing else, not drawn.
+      if (w.what) e = { ...e, what: (e.what ?? []).filter((x) => x in w.what!) };
       // Who did it is in the line's own words, not after it.
       const tpl = e.member ? (e.by ? w.profile : w.profileNoBy) : e.by ? w.profileChannel : w.profileChannelNoBy;
       if (!tpl || !e.what?.length) return undefined;

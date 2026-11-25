@@ -4,26 +4,28 @@
 // logins. An agent's row opens the menu its face has (members.tsx MemberItems: one
 // implementation). The face is the title's key (chat.tsx): its card, 编辑资料 in it; on a phone in ⋯.
 import { Menu } from "@base-ui/react/menu";
-import { Popover } from "@base-ui/react/popover";
 import { useQueryClient } from "@tanstack/react-query";
 import { useQuery } from "../../api/query";
-import { Check, ChevronRight, PencilLine, UserPlus, Users } from "lucide-react";
-import { useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { Check, PencilLine, Plus, Users } from "lucide-react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { api } from "../../api/client";
 import type { Agent, ChannelMembers, Script, Viewer } from "../../api/types.gen";
 import { agentsQ, isComputer, useApps, useMachines } from "../../data";
 import { t, useLang } from "../../i18n";
 import { useMachine } from "../../machines";
+import { prefetchRoles } from "../../roles";
 import { openChat } from "../../route";
 import { useCarried, useList, useSession } from "../../store";
 import { working } from "../../tree";
 import { toast } from "../../toast";
-import { agentName, Avatar, cn, Lamp, PopSurface, Tip, MenuPortal } from "../../ui";
+import { agentName, Avatar, cn, Lamp, Tip, MenuPortal } from "../../ui";
 import { openEdit } from "./editing";
 import { Face, MemberFace } from "./face";
 import { ContextMark } from "../meters";
 import { mayAct, useMembers } from "./gate";
-import { AgentKinds, ITEM, MachineKinds, POPUP } from "./invite";
+import { AddAgents, ITEM, POPUP, type Wake } from "./invite";
+import { Deeper, Paged } from "./pages";
+import { onAskAdd, takeAdd } from "./adding";
 import { prefetchChoices } from "./pick";
 import { useAhead } from "../../prefetch";
 import { memberError } from "./key";
@@ -34,36 +36,37 @@ import { onOf, ruleLine } from "./scripts";
 import { triggerWords, useRecvName } from "./recv";
 import { actsOf } from "./menu";
 import { subName, SubTag } from "../subwork";
-import { appAll, hasApp, hasLogin, loginOf, peopleCount, peopleOf, pressApp, pressLogin } from "./setup";
+import { appAll, hasApp, hasLogin, loginOf, peopleOf, pressApp, pressLogin } from "./setup";
 
-const SUB = "no-bar max-h-[min(480px,var(--available-height))] min-w-52 max-w-[calc(100vw-16px)] overflow-y-auto p-1.5";
+const SUB = "no-bar max-h-[min(480px,var(--available-height))] min-w-60 max-w-[calc(100vw-16px)] overflow-y-auto p-1.5";
 const HEAD = "truncate px-2.5 pt-2 pb-0.5 text-xs text-ink-3 select-none first:pt-1";
 
-function Sub({ icon, label, lead, now, i, children }: { icon: ReactNode; label: string; lead?: ReactNode; now?: string; i: number; children: ReactNode }) {
+/** bare: no mark at the row's end (the + panel's rows: kumo, 2026-11-25). */
+function Sub({ icon, label, lead, now, i, bare, children }: { icon: ReactNode; label: string; lead?: ReactNode; now?: string; i: number; bare?: boolean; children: ReactNode }) {
   return (
-    <Menu.SubmenuRoot>
-      <Menu.SubmenuTrigger style={{ "--i": i } as CSSProperties} className={ITEM}>
-        <span className="text-ink-2">{icon}</span>
-        {lead}
-        <span className="min-w-0 flex-1 truncate">{label}</span>
-        {now && <span className="max-w-36 truncate text-xs text-ink-3">{now}</span>}
-        <ChevronRight size={14} className="text-ink-4" />
-      </Menu.SubmenuTrigger>
-      <MenuPortal>
-        <Menu.Positioner className="z-50" sideOffset={4} collisionPadding={8}>
-          <Menu.Popup className={cn(POPUP, SUB)}>
-            <div className="g-stagger flex flex-col">{children}</div>
-          </Menu.Popup>
-        </Menu.Positioner>
-      </MenuPortal>
-    </Menu.SubmenuRoot>
+    <Deeper
+      row={
+        <>
+          <span className="text-ink-2">{icon}</span>
+          {lead}
+          <span className="min-w-0 flex-1 truncate">{label}</span>
+          {now && <span className="max-w-36 truncate text-xs text-ink-3">{now}</span>}
+        </>
+      }
+      title={label}
+      i={i}
+      bare={bare}
+      popup={cn(POPUP, SUB)}
+    >
+      <div className="g-stagger flex flex-col">{children}</div>
+    </Deeper>
   );
 }
 
 const check = (on: boolean) => <span className="grid size-3.5 place-items-center text-ink">{on && <Check size={14} />}</span>;
 
 /** The bar's right (the user, 2026-11-13): who is looking now, their faces, pressed their names;
- *  the members, a key with their count (agents and people) opening the list of them. */
+ *  the members, a key with the faces and the count of who is looking, opening the list of them. */
 export function TopRight({ id }: { id: string }) {
   useLang();
   const qc = useQueryClient();
@@ -78,52 +81,33 @@ export function TopRight({ id }: { id: string }) {
   // The other computers' kinds too, where they would run (invite.tsx); its agents' own model
   // menus too (members.tsx MemberItems: at their machine, none: here).
   const ahead = () => {
+    prefetchRoles();
     prefetchChoices(qc, kinds, { channel: id });
     for (const m of members?.members ?? []) if (m.session && m.agent) prefetchChoices(qc, [m.agent as Agent], { machine: list?.find((x) => x.id === m.session)?.machine || undefined });
     for (const m of machines) if (m.online && m.id !== row?.machine) prefetchChoices(qc, m.agents.map((a) => a.agent as Agent), { machine: m.id });
   };
   const keyAhead = useAhead(ahead, [id, kinds.join(" "), members?.members.length]);
   const viewers = useCarried<Viewer[]>(`viewers:${id}`) ?? [];
-  const agents = (members?.members ?? []).filter((m) => m.session);
-  // How many its members are, on the key itself: its agents and its people (each login once).
-  const logins = useApps().data?.logins ?? [];
-  const count = agents.length + peopleCount(peopleOf(members), logins);
   // What an agent's menu asks with from the list (清空, 移出, 注入记录): the cards the face's
   // menu asks with, under the members' key.
   const key = useRef<HTMLButtonElement>(null);
   const [asked, setAsked] = useState<Ask | null>(null);
   // A script's card, or a new one, out of the members' key (script.tsx): its pages in one popover.
   const [script, setScript] = useState<ScriptPage | null>(null);
+  // The + open by itself on a channel just made with no agent (create.tsx), once it may be
+  // pressed (its members known).
+  const may = mayAct(members);
+  const [adding, setAdding] = useState(false);
+  useEffect(() => {
+    const take = () => may && takeAdd(id) && (ahead(), setAdding(true));
+    take();
+    return onAskAdd(take);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, may]);
   // Asked for as the bar is drawn: the list and each card open whole.
   useScripts(id);
   return (
     <span className="g-fade flex shrink-0 items-center gap-0.5">
-      {viewers.length > 0 && (
-        // Pressed, not hovered (a phone has no hover): the names in a popover.
-        <Popover.Root>
-          <Popover.Trigger
-            render={
-              <button type="button" aria-label={t("channel.viewing")} className="g-press flex h-8 items-center rounded-md px-1.5 hover:bg-fill data-popup-open:bg-fill pointer-coarse:h-10">
-                {viewers.slice(0, 4).map((v, i) => (
-                  <span key={v.member} className="grid rounded-full ring-2 ring-paper" style={{ marginLeft: i ? -5 : 0, zIndex: 4 - i }}>
-                    <MemberFace member={v.member} name={v.name} size={18} />
-                  </span>
-                ))}
-                {viewers.length > 4 && <span className="ml-1 text-xs text-ink-3 tabular-nums">+{viewers.length - 4}</span>}
-              </button>
-            }
-          />
-          <PopSurface align="end" sideOffset={6} className="no-bar max-h-[min(480px,var(--available-height))] min-w-48 max-w-[calc(100vw-16px)] overflow-y-auto p-1.5">
-            <div className={HEAD}>{t("channel.viewing")}</div>
-            {viewers.map((v) => (
-              <div key={v.member} className="flex h-8 items-center gap-2.5 px-2.5 text-base pointer-coarse:h-11">
-                <MemberFace member={v.member} name={v.name} size={18} />
-                <span className="min-w-0 flex-1 truncate">{v.name}</span>
-              </div>
-            ))}
-          </PopSurface>
-        </Popover.Root>
-      )}
       {/* Each kind's models asked for once idle and as the key is pointed at, pressed or opened,
           for 邀请's menus to pop at once (pick.tsx). */}
       <Menu.Root onOpenChange={(open) => open && ahead()}>
@@ -131,32 +115,68 @@ export function TopRight({ id }: { id: string }) {
           <Menu.Trigger
             render={
               <button ref={key} type="button" aria-label={t("channel.members")} {...keyAhead} className="g-press flex h-8 items-center gap-1 rounded-md px-2 text-ink-2 hover:bg-fill hover:text-ink data-popup-open:bg-fill pointer-coarse:h-10">
-                <Users size={16} />
-                <span className="text-xs tabular-nums">{count}</span>
+                {/* Who is looking, their faces in place of the icon and how many they are: one key,
+                    not two side by side; the members' count said nothing (kumo, 2026-11-25). The
+                    names at the menu's head. */}
+                {viewers.length ? (
+                  <span className="flex items-center">
+                    {viewers.slice(0, 3).map((v, i) => (
+                      <span key={v.member} className="grid rounded-full ring-2 ring-paper" style={{ marginLeft: i ? -5 : 0, zIndex: 3 - i }}>
+                        <MemberFace member={v.member} name={v.name} size={18} />
+                      </span>
+                    ))}
+                  </span>
+                ) : (
+                  <Users size={16} />
+                )}
+                {viewers.length > 0 && <span className="text-xs tabular-nums">{viewers.length}</span>}
               </button>
             }
           />
         </Tip>
         <MenuPortal>
           <Menu.Positioner side="bottom" align="end" sideOffset={6} collisionPadding={8} className="z-50">
-            <Menu.Popup finalFocus={false} className={cn(POPUP, SUB)}>
-              <div className="g-stagger flex flex-col">
-                <MemberList id={id} ask={setAsked} script={(p) => requestAnimationFrame(() => setScript(p))} />
-              </div>
+            <Menu.Popup finalFocus={false} className={cn(POPUP, SUB, "w-[min(344px,calc(100vw-16px))]")}>
+              <Paged>
+                <div className="g-stagger flex flex-col">
+                  <MemberList id={id} viewers={viewers} ask={setAsked} script={(p) => requestAnimationFrame(() => setScript(p))} />
+                </div>
+              </Paged>
             </Menu.Popup>
           </Menu.Positioner>
         </MenuPortal>
       </Menu.Root>
+      {/* 邀请, a key of its own (kumo, 2026-11-25): what it opens is the agents to add and the people. */}
+      {may && (
+        <Menu.Root open={adding} onOpenChange={(open) => (setAdding(open), open && ahead())}>
+          <Tip label={t("channel.invite")} side="bottom">
+            <Menu.Trigger
+              render={
+                <button type="button" aria-label={t("channel.invite")} {...keyAhead} className="g-press grid size-8 place-items-center rounded-md text-ink-2 hover:bg-fill hover:text-ink data-popup-open:bg-fill pointer-coarse:size-10">
+                  <Plus size={16} />
+                </button>
+              }
+            />
+          </Tip>
+          <MenuPortal>
+            <Menu.Positioner side="bottom" align="end" sideOffset={6} collisionPadding={8} className="z-50">
+              <Menu.Popup finalFocus={false} className={cn(POPUP, SUB, "w-[min(344px,calc(100vw-16px))]")}>
+                <Invite id={id} />
+              </Menu.Popup>
+            </Menu.Positioner>
+          </MenuPortal>
+        </Menu.Root>
+      )}
       <MemberAsks channel={id} anchor={key} asked={asked} done={() => setAsked(null)} />
       <ScriptPop channel={id} anchor={key} page={script} done={() => setScript(null)} align="end" />
     </span>
   );
 }
 
-/** The members: each agent a submenu, the menu its face has (members.tsx MemberItems; what it
+/** The members: who is looking first, if any; each agent a submenu, the menu its face has (members.tsx MemberItems; what it
  *  asks with, ask, drawn by the bar); the commands of its IR,
  *  each pressed its card (script), and 新建脚本; then 邀请. */
-function MemberList({ id, ask, script }: { id: string; ask: (a: Ask) => void; script: (p: ScriptPage) => void }) {
+function MemberList({ id, viewers, ask, script }: { id: string; viewers: Viewer[]; ask: (a: Ask) => void; script: (p: ScriptPage) => void }) {
   const list = useList();
   const scripts = useScripts(id) ?? [];
   const members = useMembers(id);
@@ -168,7 +188,19 @@ function MemberList({ id, ask, script }: { id: string; ask: (a: Ask) => void; sc
   const lent = actsOf(id);
   return (
     <>
-      <div className={HEAD}>{t("channel.agents")}</div>
+      {viewers.length > 0 && (
+        <>
+          <div className={HEAD}>{t("channel.viewing")}</div>
+          {viewers.map((v) => (
+            <div key={v.member} className="flex h-8 items-center gap-2.5 px-2.5 text-base pointer-coarse:h-11">
+              <MemberFace member={v.member} name={v.name} size={18} />
+              <span className="min-w-0 flex-1 truncate">{v.name}</span>
+            </div>
+          ))}
+        </>
+      )}
+      {/* No agents, no head for them (kumo, 2026-11-25). */}
+      {agents.length > 0 && <div className={HEAD}>{t("channel.agents")}</div>}
       {agents.map((m) => {
         const row = list?.find((x) => x.id === m.session);
         const agent = m.agent ?? row?.agent ?? "claude";
@@ -192,8 +224,7 @@ function MemberList({ id, ask, script }: { id: string; ask: (a: Ask) => void; sc
           card. What wakes an agent is not listed here (kumo, 2026-11-24): it is the agent's own,
           in its 唤醒 and its 编辑资料. */}
       <Commands id={id} scripts={scripts} script={script} />
-      {/* No 人 / 所有人 here (kumo, 2026-11-16): who the people are is 邀请's to show and set. */}
-      {may && <Invite id={id} />}
+      {/* No 人 / 所有人 here (kumo, 2026-11-16), no 邀请 (kumo, 2026-11-25): the + beside the key. */}
     </>
   );
 }
@@ -220,13 +251,10 @@ function Commands({ id, scripts, script }: { id: string; scripts: Script[]; scri
   );
 }
 
-/** 邀请, among the members (the user, 2026-11-13): agents (invite.tsx), people (an app a
- *  submenu of its logins). */
+/** What the + beside the members' key opens (kumo, 2026-11-25): the agents to add (invite.tsx),
+ *  then the people (an app a submenu of its logins). */
 function Invite({ id }: { id: string }) {
   const qc = useQueryClient();
-  const list = useList();
-  const row = useSession(id) ?? list?.find((x) => x.id === id);
-  const here = useMachine(row?.machine);
   const members = useMembers(id);
   const d = useApps().data;
   const set = (ms: ChannelMembers) => void qc.setQueryData<ChannelMembers>(["members", id], ms);
@@ -238,32 +266,44 @@ function Invite({ id }: { id: string }) {
   const loginsOf = (app: string) => (d?.logins ?? []).filter((l) => l.app === app);
   const idsOf = (app: string) => loginsOf(app).map((l) => l.id);
   const setPeople = (p: string[]) => run(() => api.setPeople(id, p));
+  // What wakes the one added (kumo, 2026-11-25): the channel's first agent, only the one adding
+  // it; one added after, only its @. As the panel opens; a press changes it.
+  const [picked, setWake] = useState<Wake | null>(null);
+  const wake: Wake = picked ?? ((members?.members ?? []).some((m) => m.session) ? "at" : "self");
+  const loginRows = (app: string) => (
+    <>
+      <Menu.Item closeOnClick={false} disabled={members?.me === appAll(app)} onClick={() => setPeople(pressApp(people, ids, idsOf, app, members?.me))} className={ITEM}>
+        {check(hasApp(people, app))}
+        <span className="flex-1 font-medium">{t("channel.everyone")}</span>
+      </Menu.Item>
+      {loginsOf(app).map((l) => (
+        <Menu.Item key={l.id} closeOnClick={false} disabled={members?.me === loginOf(app, l.id)} onClick={() => setPeople(pressLogin(people, ids, idsOf, app, l.id, members?.me))} className={ITEM}>
+          {check(hasLogin(people, app, l.id))}
+          <Avatar src={l.avatar} name={l.name} size={16} />
+          <span className="min-w-0 flex-1 truncate">{l.name}</span>
+        </Menu.Item>
+      ))}
+    </>
+  );
+  // In the phone's layout no menu beside a row (kumo, 2026-11-25): pressed, what it would open is
+  // the panel's next page, pushed in (Paged), 返回 at its head.
   return (
-      <Sub icon={<UserPlus size={15} />} label={t("channel.invite")} i={0}>
-        <div className={HEAD}>{row?.machine ? here?.name : t("term.local")}</div>
-        <AgentKinds id={id} />
+    <Paged>
+      <div className="g-stagger flex flex-col">
+        <AddAgents id={id} wake={wake} setWake={setWake} />
+        {apps.length > 0 && <div role="separator" className="mx-2.5 my-1 border-t border-(--edge)" />}
         {apps.map((a) => {
           const name = a.web ? t("term.panel") : a.name;
-          const logins = loginsOf(a.id);
+          const now = hasApp(people, a.id) ? t("channel.everyone") : String(loginsOf(a.id).filter((l) => hasLogin(people, a.id, l.id)).length || "");
+          const icon = <Avatar src={a.avatar} name={a.name} size={16} type={a.type} host={!!a.host} />;
           return (
-            <Sub key={a.id} icon={<Avatar src={a.avatar} name={a.name} size={16} type={a.type} host={!!a.host} />} label={name} now={hasApp(people, a.id) ? t("channel.everyone") : String(logins.filter((l) => hasLogin(people, a.id, l.id)).length || "")} i={0}>
-              <Menu.Item closeOnClick={false} disabled={members?.me === appAll(a.id)} onClick={() => setPeople(pressApp(people, ids, idsOf, a.id, members?.me))} className={ITEM}>
-                {check(hasApp(people, a.id))}
-                <span className="flex-1 font-medium">{t("channel.everyone")}</span>
-              </Menu.Item>
-              {logins.map((l) => (
-                <Menu.Item key={l.id} closeOnClick={false} disabled={members?.me === loginOf(a.id, l.id)} onClick={() => setPeople(pressLogin(people, ids, idsOf, a.id, l.id, members?.me))} className={ITEM}>
-                  {check(hasLogin(people, a.id, l.id))}
-                  <Avatar src={l.avatar} name={l.name} size={16} />
-                  <span className="min-w-0 flex-1 truncate">{l.name}</span>
-                </Menu.Item>
-              ))}
+            <Sub key={a.id} icon={icon} label={name} now={now} i={0} bare>
+              {loginRows(a.id)}
             </Sub>
           );
         })}
-        {/* The other computers' agents, last (kumo, 2026-11-18). */}
-        <MachineKinds id={id} />
-      </Sub>
+      </div>
+    </Paged>
   );
 }
 

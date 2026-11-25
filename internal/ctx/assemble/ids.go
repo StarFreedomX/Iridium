@@ -87,7 +87,7 @@ const (
 	idChannelProfileName    = "channel.context.profile-name"      // one renamed
 	idChannelProfilePersona = "channel.context.profile-persona"   // before its own new persona (only its own is told)
 	idChannelProfileNoPers  = "channel.context.profile-nopersona" // its own persona taken away
-	idChannelProfileImage   = "channel.context.profile-image"     // a new face or background
+	idChannelProfileImage   = "channel.context.profile-image"     // a new face
 
 	// Reactions and messages taken back (channel.go; docs/channels.md "表情" "撤回").
 	idChannelReaction    = "channel.reaction"         // a reaction it receives: the message's number, who, the emoji; then the message's words

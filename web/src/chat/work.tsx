@@ -10,7 +10,8 @@ import { ChevronRight, Plug } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode, type RefObject } from "react";
 import type { Block } from "../api/types.gen";
 import { t, useLang } from "../i18n";
-import { cn, keep, kept, PHONE, PopSurface, useEver, useMedia } from "../ui";
+import { cn, keep, kept, PHONE, PopSurface, useEver } from "../ui";
+import { moveDown } from "./stick";
 import { useAway, Where } from "./away";
 import type { Did, Work } from "./channel/lib";
 import { cmdOfCall, isShell, type Cmd } from "./cmd";
@@ -97,7 +98,23 @@ function didParts(did: Did): string[] {
 const REACH = 4000;
 
 /** The card open out of a row: key the row, group its steps (their places), at the one chosen. */
-type Card = { key: string; at: string; group: string[]; el: HTMLElement; open: boolean };
+type Card = { key: string; at: string; group: string[]; el: HTMLElement; open: boolean; over?: Over };
+/** On a phone, where a step's card stands: right over the row it is of, as wide as the window less
+ *  its margins, as tall as what it holds up to under the top bar (kumo, 2026-11-25). row: the
+ *  row's box; room: px from under the top bar to it. Taken as it opens. */
+type Over = { row: DOMRect; room: number };
+
+/** A row nearer the top than ROOM: the conversation moved down first to make that much room over
+ *  it, as far as it goes. Not on a phone: undefined. */
+const ROOM = 280;
+function overRow(el: HTMLElement): Over | undefined {
+  if (!matchMedia(PHONE).matches) return undefined;
+  const log = el.closest<HTMLElement>("[role=log]");
+  const top = (log ? log.getBoundingClientRect().top + parseFloat(getComputedStyle(log).paddingTop || "0") : 0) + 4;
+  const room = () => el.getBoundingClientRect().top - 4 - top;
+  if (room() < ROOM) moveDown(log, ROOM - room());
+  return { row: el.getBoundingClientRect(), room: Math.max(120, room()) };
+}
 
 /** An agent's work on a message of channel (n, its number): work, as the message carries it; or
  *  did, what an older message says was done before it, and span: where that is in the record, if
@@ -212,7 +229,7 @@ export function WorkLine({ channel, n, session, work, did, span, may, esc }: { c
               const shut = (!!card?.open && card.key === one.at) || wasOn.current === one.at;
               wasOn.current = "";
               clearTimeout(wasOnTimer.current);
-              setCard(shut ? (card ? { ...card, open: false } : null) : { key: one.at, at: one.at, group: [one.at], el: e.currentTarget, open: true });
+              setCard(shut ? (card ? { ...card, open: false } : null) : { key: one.at, at: one.at, group: [one.at], el: e.currentTarget, open: true, over: overRow(e.currentTarget) });
               return;
             }
             toggle();
@@ -308,15 +325,7 @@ export function WorkLine({ channel, n, session, work, did, span, may, esc }: { c
  *  its left stay seen and pressed one after another (kumo, 2026-11-25); where the pane is too
  *  narrow, as far left as it must. A finger's screen: from the row's start. */
 const ASIDE = 176;
-/** On the phone every card opens at one place, one height: under the top bar, whichever row it
- *  is of (kumo, 2026-11-25). */
-const atTop = (el: Element) => ({
-  getBoundingClientRect: () => {
-    const log = el.closest<HTMLElement>("[role=log]");
-    const top = log ? log.getBoundingClientRect().top + parseFloat(getComputedStyle(log).paddingTop || "0") : 8;
-    return new DOMRect(8, top, window.innerWidth - 16, 0);
-  },
-});
+const overIt = (o: Over) => ({ getBoundingClientRect: () => new DOMRect(8, o.row.top, window.innerWidth - 16, o.row.height) });
 
 const aside = (el: Element) => ({
   getBoundingClientRect: () => {
@@ -329,7 +338,6 @@ const aside = (el: Element) => ({
 /** The steps under a line, opened in place: a row each, all of them, none scrolled in the list
  *  itself. A row pressed: its card out of the row; pressed again, or a press elsewhere, puts it away. */
 function StepList({ reveal, session, steps, only, rows, open, card, setCard, wasOn, clearWasOn, shut }: { reveal: RefObject<HTMLDivElement | null>; session: string; steps?: Step[]; only: Only | null; rows?: number; open: boolean; card: Card | null; setCard: (c: Card | null) => void; wasOn: RefObject<string>; clearWasOn: () => void; shut: () => void }) {
-  const phone = useMedia(PHONE);
   const list = useMemo(() => (steps ?? []).filter((s) => isOnly(s, only)), [steps, only]);
   // Made as it is first opened.
   const ever = useEver(open);
@@ -357,7 +365,7 @@ function StepList({ reveal, session, steps, only, rows, open, card, setCard, was
           const shut = on || wasOn.current === key;
           wasOn.current = "";
           clearWasOn();
-          setCard(shut ? (card ? { ...card, open: false } : null) : { key, at: group[0]!.at, group: group.map((s) => s.at), el: e.currentTarget, open: true });
+          setCard(shut ? (card ? { ...card, open: false } : null) : { key, at: group[0]!.at, group: group.map((s) => s.at), el: e.currentTarget, open: true, over: overRow(e.currentTarget) });
         }}
         className={cn(ROW, "w-full shrink-0 text-left outline-none select-none focus-visible:text-ink-2", on && "text-ink")}
       >
@@ -403,9 +411,12 @@ function StepList({ reveal, session, steps, only, rows, open, card, setCard, was
           )}
         </div>
       </div>
+      {/* One for each row: a still card's place is taken as it opens, and another row pressed
+          while the first one's card was still going away opened in that one, at its place
+          (kumo, 2026-11-25). */}
       {(ever || !!card) && (
-        <Popover.Root open={!!card?.open && !!chosen} onOpenChange={(o) => !o && card && setCard({ ...card, open: false })}>
-          <PopSurface anchor={card?.el && (phone ? atTop(card.el) : aside(card.el))} still sideOffset={4} className={cn("flex w-[min(620px,calc(100vw-16px))] flex-col overflow-hidden", phone ? "h-[min(56dvh,520px)]" : "max-h-[min(72dvh,620px,var(--available-height))]")}>
+        <Popover.Root key={card?.key} open={!!card?.open && !!chosen} onOpenChange={(o) => !o && card && setCard({ ...card, open: false })}>
+          <PopSurface anchor={card?.over ? overIt(card.over) : card?.el && aside(card.el)} side={card?.over ? "top" : "bottom"} still sideOffset={4} style={card?.over ? { maxHeight: card.over.room } : undefined} className={cn("flex w-[min(620px,calc(100vw-16px))] flex-col overflow-hidden", card?.over ? "bg-(--glass-thick-solid)!" : "max-h-[min(72dvh,620px,var(--available-height))]")}>
             {chosen && card && (
               <>
                 {among.length > 1 && (

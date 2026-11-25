@@ -22,7 +22,7 @@ import { Crop } from "./profile";
 import { t, useLang } from "./i18n";
 import { agentsQ, useMachines } from "./data";
 import { HostPersonas, PersonaEditor, PersonaRow } from "./persona";
-import { RoleBanner, RoleFace, RoleLine, roleModel, useRoles } from "./roles";
+import { RoleFace, RoleLine, roleModel, useRoles } from "./roles";
 import { Item } from "./settings";
 import { errText, toast } from "./toast";
 import { agentName, cn, IconKey, intoView, MenuPortal } from "./ui";
@@ -179,8 +179,6 @@ function RolePage({ role, onBack }: { role: Role; onBack: () => void }) {
   const [persona, setPersona] = useState(false);
   // A picture chosen for the face, being cropped round as 编辑资料's is (a page of its own).
   const [picture, setPicture] = useState<string | null>(null);
-  // One chosen for the background, its strip being chosen.
-  const [banner, setBanner] = useState<string | null>(null);
   // The models' menu opens to the side with more room: under the row it is cut to what is left
   // below, a row low on the page leaving room for two (otae, 2026-11-22: the others seemed gone).
   const modelKey = useRef<HTMLButtonElement>(null);
@@ -237,23 +235,6 @@ function RolePage({ role, onBack }: { role: Role; onBack: () => void }) {
         />
       </>,
     );
-  if (banner)
-    return cropPage(
-      t("profile.background"),
-      () => setBanner(null),
-      <>
-        <Crop
-          banner
-          src={banner}
-          onCancel={() => setBanner(null)}
-          onDone={(b) =>
-            void asDataURL(b)
-              .then((background) => patch({ background }))
-              .then((ok) => ok && setBanner(null))
-          }
-        />
-      </>,
-    );
   if (persona)
     return (
       <div className="g-slide flex h-full flex-col">
@@ -283,7 +264,6 @@ function RolePage({ role, onBack }: { role: Role; onBack: () => void }) {
           </Item>
           <PersonaRow value={role.persona} open={() => setPersona(true)} />
           <FacePick label={t("profile.avatar")} preview={<RoleFace role={role} size={28} />} set={(avatar) => patch({ avatar })} upload={(f) => setPicture(URL.createObjectURL(f))} />
-          <FacePick label={t("profile.background")} preview={<RoleBanner role={role} className="h-7 w-12 rounded-md" />} set={(background) => patch({ background })} upload={(f) => setBanner(URL.createObjectURL(f))} />
           {v.models.length > 0 && (
             <Item label={t("composer.model")}>
               <Menu.Root

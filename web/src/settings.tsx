@@ -20,7 +20,7 @@ import { manages as managesApps, pushQ, useApps, useMe, useSettings, useUpdate }
 import { t, useLang } from "./i18n";
 import { install, useInstall } from "./install";
 import { LangSwitch, ThemeSwitch, type ThemePref } from "./me";
-import { AvatarCrop, Profile, ProfileMore } from "./profile";
+import { AvatarCrop, Profile } from "./profile";
 import { PUSH_EVENTS, subscribe } from "./pushmenu";
 import { go } from "./route";
 import { useConfirms } from "./store";
@@ -117,7 +117,6 @@ export function SettingsPage({ theme, setTheme, initial = "main" }: { theme: The
       <div className="no-bar min-h-0 flex-1 overflow-y-auto pt-2.5 pb-4">
         <div className="flex flex-col px-3">
           <Profile onPicture={(url) => (setPicture(url), setPage("crop"))} />
-          <ProfileMore />
           <Item label={t("me.theme")}>
             <ThemeSwitch theme={theme} setTheme={setTheme} />
           </Item>

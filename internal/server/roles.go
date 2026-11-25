@@ -31,7 +31,6 @@ func (s *Server) roleRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /v1/internal/roles/{id}", s.roleDelete)
 	mux.HandleFunc("DELETE /v1/internal/sessions/{id}/role", s.roleLeave)
 	mux.HandleFunc("GET /v1/internal/roles/{id}/avatar", s.roleFace)
-	mux.HandleFunc("GET /v1/internal/roles/{id}/background", s.roleFace)
 	mux.HandleFunc("GET /v1/internal/personas", s.personasGet)
 }
 
@@ -42,11 +41,8 @@ func (s *Server) roleOut(r store.Role) api.Role {
 	out.Persona = s.st.Profile(key).Persona
 	info, _ := agents.Get(out.Agent)
 	out.ModelName = strings.TrimSpace(cmp.Or(info.Name, r.Agent) + " " + r.Model)
-	if _, v, ok := s.face(key, false, roleModelKey(r)); ok {
+	if _, v, ok := s.face(key, roleModelKey(r)); ok {
 		out.Avatar = "/v1/internal/roles/" + r.ID + "/avatar?v=" + v
-	}
-	if _, v, ok := s.face(key, true, ""); ok {
-		out.Background = "/v1/internal/roles/" + r.ID + "/background?v=" + v
 	}
 	if ms, err := s.st.Memories(key, 0); err == nil {
 		out.Memories = len(ms)
@@ -97,7 +93,7 @@ func (s *Server) roleFace(w http.ResponseWriter, r *http.Request) {
 	if role, ok := s.roleBy(r.PathValue("id")); ok {
 		fallback = roleModelKey(role)
 	}
-	img, v, ok := s.face(store.RoleProfileKey(r.PathValue("id")), strings.HasSuffix(r.URL.Path, "/background"), fallback)
+	img, v, ok := s.face(store.RoleProfileKey(r.PathValue("id")), fallback)
 	if !ok {
 		refuse(w, http.StatusNotFound, "not_found", "none")
 		return
@@ -187,7 +183,7 @@ func (s *Server) rolePost(w http.ResponseWriter, r *http.Request) {
 		prof := store.Profile{}
 		var err error
 		if prof.Persona, err = persona(req.Persona); err == nil {
-			_, err = s.setFaces(c, key, &prof, strp(req.Avatar), strp(req.Background), "", "")
+			_, err = s.setFace(c, key, &prof, strp(req.Avatar), "", "")
 		}
 		if err == nil {
 			err = s.st.SetProfile(key, prof)
@@ -202,14 +198,13 @@ func (s *Server) rolePost(w http.ResponseWriter, r *http.Request) {
 	reply(w, http.StatusOK, s.roleOut(role))
 }
 
-// keepCard makes session id's card the one kept under key (a role's): its persona, background
-// and the face it is drawn with, its own or, with none, its model's (kumo, 2026-11-17: a role
+// keepCard makes session id's card the one kept under key (a role's): its persona and the face it is drawn with, its own or, with none, its model's (kumo, 2026-11-17: a role
 // kept from a session that had its model's face had none).
 func (s *Server) keepCard(id, key string) error {
 	if err := s.st.CopyProfile(store.ChannelProfileKey(id), key); err != nil {
 		return err
 	}
-	if _, _, ok := s.face(key, false, ""); ok {
+	if _, _, ok := s.face(key, ""); ok {
 		return nil
 	}
 	st, err := s.m.State(id)
@@ -301,7 +296,7 @@ func (s *Server) rolePatch(w http.ResponseWriter, r *http.Request) {
 		}
 		prof.Persona = v
 	}
-	if _, err := s.setFaces(c, key, &prof, p.Avatar, p.Background, "", ""); err != nil {
+	if _, err := s.setFace(c, key, &prof, p.Avatar, "", ""); err != nil {
 		s.error(w, err)
 		return
 	}
@@ -408,7 +403,7 @@ func (s *Server) carded(c caller, id string, req api.NewSession) error {
 			return err
 		}
 	}
-	if req.Persona == "" && req.Avatar == "" && req.Background == "" {
+	if req.Persona == "" && req.Avatar == "" {
 		return nil
 	}
 	prof := s.st.Profile(key)
@@ -419,7 +414,7 @@ func (s *Server) carded(c caller, id string, req api.NewSession) error {
 		}
 		prof.Persona = v
 	}
-	if _, err := s.setFaces(c, key, &prof, strp(req.Avatar), strp(req.Background), req.Cwd, ""); err != nil {
+	if _, err := s.setFace(c, key, &prof, strp(req.Avatar), req.Cwd, ""); err != nil {
 		return err
 	}
 	return s.st.SetProfile(key, prof)

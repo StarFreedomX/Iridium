@@ -55,7 +55,6 @@ export function Copyable({ copy, children, className, quote, act }: { copy?: str
         <MenuPortal>
           <Menu.Positioner anchor={anchor} side="bottom" align="start" sideOffset={4} collisionPadding={8} className="z-50">
             <Menu.Popup finalFocus={false} className="g-unfold glass thick float min-w-48 rounded-lg p-1.5 text-ink outline-none">
-              {act && acts.Top && <acts.Top act={act} />}
               {quote && (
                 <Menu.Item onClick={quote} className={ITEM}>
                   <span className="text-ink-2">
@@ -77,6 +76,7 @@ export function Copyable({ copy, children, className, quote, act }: { copy?: str
                 </Menu.Item>
               )}
               {act && acts.Foot && <acts.Foot act={act} />}
+              {act && acts.Top && <acts.Top act={act} />}
             </Menu.Popup>
           </Menu.Positioner>
         </MenuPortal>

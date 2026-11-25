@@ -321,7 +321,7 @@ type Block struct {
 	// FromDevice: the device a browser of ir_web sent it from (the passkey it logged in with),
 	// for the badge on its avatar; "" not known (that login's device now).
 	FromDevice Device `json:"fromDevice,omitempty"`
-	ID        string `json:"id,omitempty"` // tool, result: the call's id
+	ID         string `json:"id,omitempty"` // tool, result: the call's id
 	// tool: Name, Input as JSON, and Result when it is on the same page.
 	Name   string  `json:"name,omitempty"`
 	Input  string  `json:"input,omitempty"`
@@ -449,12 +449,11 @@ type NewSession struct {
 	Members *ChannelSetup `json:"members,omitempty"`
 	// Role: start it as this role (its id or name): the role's agent, model, preset and card,
 	// where the fields above say nothing; its effort and mode are these fields' or the agent's
-	// own. Nick, Persona, Avatar, Background: its card (ProfilePatch), over the role's.
-	Role       string `json:"role,omitempty"`
-	Nick       string `json:"nick,omitempty"`
-	Persona    string `json:"persona,omitempty"`
-	Avatar     string `json:"avatar,omitempty"`
-	Background string `json:"background,omitempty"`
+	// own. Nick, Persona, Avatar: its card (ProfilePatch), over the role's.
+	Role    string `json:"role,omitempty"`
+	Nick    string `json:"nick,omitempty"`
+	Persona string `json:"persona,omitempty"`
+	Avatar  string `json:"avatar,omitempty"`
 	// Name: the name channel.create gives it (its data.name), for one an agent starts to be
 	// called by in its channel when it gives no Nick. Not of the JSON: set by the Satori side.
 	Name string `json:"-"`

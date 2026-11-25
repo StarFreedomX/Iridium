@@ -1,9 +1,12 @@
 // A place (a folder at this machine or at another, docs/plan.md "@"): pressed where it is named (a
 // card in a chat, the chat's 在哪干活), it is shown in the list: its group opened and scrolled to, as
-// a listed group holds it (sidebar.tsx); else the top "+" opens there (create.tsx). Nothing is kept.
+// a listed group holds it (sidebar.tsx); else the file browser opens there (app.tsx), 在此新建 in it. Nothing is kept.
 
 /** machine: its ID, none for this machine; path: '/'-separated, as the page writes paths. */
 export type Place = { machine?: string; path: string };
+/** A place the file browser opens at. within: the folder it does not leave (a group's, for a
+ *  subfolder made in it), its computer kept; workspace: the group a channel made there goes in. */
+export type BrowseAt = Place & { within?: string; workspace?: number };
 
 const opens = new Set<(p: Place) => void>();
 const creates = new Set<(p: Place) => void>();

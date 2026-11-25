@@ -70,19 +70,22 @@ describe("a changed card's line", () => {
     profileChannel: "{by} 更新了频道资料：{what}",
     profileNoBy: "{nick} 的资料已更新：{what}",
     profileChannelNoBy: "频道资料已更新：{what}",
-    what: { name: "名称", intro: "介绍", avatar: "头像", background: "背景" },
+    what: { name: "名称", persona: "设定", avatar: "头像" },
     whatSep: "、",
   } as unknown as EventWords;
   test("a member's: who, whose, what", () => {
-    expect(eventParts({ type: "profile", member: "agent:s", nick: "pi2", what: ["intro", "avatar"], by: "kumo" }, w)).toEqual(["kumo 更新了 ", { nick: "pi2" }, " 的资料：介绍、头像"]);
-    expect(eventParts({ type: "profile", member: "agent:s", nick: "pi2", what: ["background"], by: "主机" }, w)).toEqual(["Iridium 更新了 ", { nick: "pi2" }, " 的资料：背景"]);
+    expect(eventParts({ type: "profile", member: "agent:s", nick: "pi2", what: ["persona", "avatar"], by: "kumo" }, w)).toEqual(["kumo 更新了 ", { nick: "pi2" }, " 的资料：设定、头像"]);
+    expect(eventParts({ type: "profile", member: "agent:s", nick: "pi2", what: ["avatar"], by: "主机" }, w)).toEqual(["Iridium 更新了 ", { nick: "pi2" }, " 的资料：头像"]);
   });
   test("the channel's own", () => {
     expect(eventParts({ type: "profile", what: ["name"], by: "kumo" }, w)).toEqual(["kumo 更新了频道资料：名称"]);
   });
   test("by no one known: the same without", () => {
-    expect(eventParts({ type: "profile", member: "agent:s", nick: "pi2", what: ["intro"] }, w)).toEqual([{ nick: "pi2" }, " 的资料已更新：介绍"]);
-    expect(eventParts({ type: "profile", what: ["avatar", "later"] }, w)).toEqual(["频道资料已更新：头像、later"]);
+    expect(eventParts({ type: "profile", member: "agent:s", nick: "pi2", what: ["persona"] }, w)).toEqual([{ nick: "pi2" }, " 的资料已更新：设定"]);
+  });
+  test("fields cards no longer have (an intro, a background): left out; none else, no line", () => {
+    expect(eventParts({ type: "profile", what: ["avatar", "background"] }, w)).toEqual(["频道资料已更新：头像"]);
+    expect(eventParts({ type: "profile", member: "agent:s", nick: "pi2", what: ["intro", "background"], by: "kumo" }, w)).toBeUndefined();
   });
   test("nothing changed, or words not given: its own text is shown", () => {
     expect(eventParts({ type: "profile", nick: "pi2", by: "kumo" }, w)).toBeUndefined();

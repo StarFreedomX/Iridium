@@ -14,7 +14,8 @@ import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo,
 import { api, queryClient } from "./api/client";
 import { InPopup } from "./api/query";
 import { firstScreen, watchTurns } from "./chats";
-import { CreatePopover, WsPlus } from "./create";
+import { NewHere } from "./create";
+import { onCreateAt, type BrowseAt } from "./places";
 import { listFromDevice } from "./device/first";
 import { agentsQ, LOCAL_ME, pushQ, selfQ, useApps, useHome, useMe, useSettings, useUpdate, useWorkspaces } from "./data";
 import { FileWindow } from "./file-window";
@@ -22,7 +23,6 @@ import { FileBrowserHandle, loadFileBrowser } from "./filebrowser-trigger";
 import { t, useLang } from "./i18n";
 import { applyTheme, initialTheme, keepTheme, MeKey, useTellLang, type ThemePref } from "./me";
 import { motion, movesAhead, pageTurn, usePaced } from "./motion";
-import type { Place } from "./places";
 import { prefetch, settled } from "./prefetch";
 import { prefetchRoles } from "./roles";
 import { quotaQ } from "./quota";
@@ -309,7 +309,8 @@ export function App() {
   // props change).
   const sheetNowFn = useRef(setSheet);
   sheetNowFn.current = setSheet;
-  const onSheet = useCallback(() => sheetNowFn.current(true), []);
+  // Pressed again while it is out, it is put away (kumo, 2026-11-25: no swipe brings or puts it away).
+  const onSheet = useCallback(() => sheetNowFn.current(!sheetNow.current), []);
   const onMe = useCallback(() => go({ name: "settings" }), []);
   // The rows' own, the same each draw: a row is drawn again only as it changes (sidebar.tsx).
   const phoneNow = useRef(phone);
@@ -322,10 +323,12 @@ export function App() {
   const session = open ? list?.find((s) => s.id === open) : undefined;
   // Sidebar key and chat folder links share one dialog; bumping filesRound remounts a fresh
   // browser on each open, even if reopened mid-exit.
-  const [filesHandle] = useState(() => Dialog.createHandle<Place>());
+  const [filesHandle] = useState(() => Dialog.createHandle<BrowseAt>());
   const [filesRound, setFilesRound] = useState(0);
   // Any host or web login sees the key; the file routes enforce the login's scope per request.
   const filesAllowed = meNow?.host || meNow?.web;
+  // A place no listed group holds, pressed (places.ts): the file browser there, 在此新建 in it.
+  useEffect(() => onCreateAt((p) => filesAllowed && filesHandle.openWithPayload(p)), [filesAllowed, filesHandle]);
   const filesKey = filesAllowed ? (
     <FileBrowserHandle.Provider value={filesHandle}>
       <Suspense fallback={<span className="size-8 pointer-coarse:size-10" />}>
@@ -343,7 +346,7 @@ export function App() {
               <p role="status" className="m-auto text-sm text-ink-3">{t("msg.loading")}</p>
             </>
           }>
-            <FileBrowser key={filesRound} machine={payload.machine ?? ""} path={payload.path} />
+            <FileBrowser key={filesRound} machine={payload.machine ?? ""} path={payload.path} within={payload.within} workspace={payload.workspace} />
           </Suspense>
         </FileWindow>
       )}
@@ -372,9 +375,8 @@ export function App() {
       onConfirm={(c) => (c.session && list?.some((s) => s.id === c.session) ? openChat(c.session) : go({ name: c.kind.startsWith("secret_") ? "secrets" : "apps" }, over(r)))}
       chatCode={chatCode}
       panelsCode={loadPanels}
-      createKey={(trigger) => <CreatePopover trigger={trigger} />}
       filesKey={filesKey}
-      wsPlus={(w, trigger, o, setO) => <WsPlus key={w.key} w={{ id: w.id, name: w.name, path: w.root }} trigger={trigger} open={o} setOpen={setO} opened={(id) => openChat(id)} />}
+      wsPlus={(w, trigger, o, setO) => <NewHere key={w.key} w={{ id: w.id, name: w.name, path: w.root }} trigger={trigger} open={o} setOpen={setO} opened={(id) => openChat(id)} sub={filesAllowed ? (at) => filesHandle.openWithPayload(at) : undefined} />}
       me={me}
       reveal={phone ? onSheet : undefined}
     />
@@ -507,7 +509,7 @@ export function App() {
               <Pager
                 // The tabs' bar is px-3, the list's rows end 4px further right: its "+" in line with
                 // theirs (the user, 2026-11-08).
-                ends={[null, null, <span key="s" className="-mr-1 flex"><HeadKeys filesKey={filesKey} createKey={(trigger) => <CreatePopover trigger={trigger} />} /></span>]}
+                ends={[null, null, <span key="s" className="-mr-1 flex"><HeadKeys filesKey={filesKey} /></span>]}
                 page={sheetPage}
                 still={turnStill}
                 onPage={toPage}

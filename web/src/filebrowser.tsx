@@ -5,11 +5,13 @@ import { Dialog } from "@base-ui/react/dialog";
 import { Menu } from "@base-ui/react/menu";
 import { type UseQueryResult } from "@tanstack/react-query";
 import { useQuery } from "./api/query";
-import { ArrowLeft, ChevronRight, Copy, Download, ExternalLink, Eye, FileText, Folder, FolderOpen, House, Link2, LoaderCircle, RefreshCw } from "lucide-react";
+import { ArrowLeft, ChevronRight, Copy, Download, ExternalLink, Eye, FileText, Folder, FolderOpen, House, Link2, FolderPlus, LoaderCircle, Plus, RefreshCw } from "lucide-react";
 import { lazy, Suspense, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { api, ApiError, queryClient } from "./api/client";
 import type { DirEntry, DirListing } from "./api/types.gen";
 import { nativeAt, placeMention } from "./chat/at";
+import { newChannelAt } from "./create";
+import { openChat } from "./route";
 import { size } from "./chat/files";
 import { previewKind } from "./chat/preview-lib";
 import { Choose } from "./choose";
@@ -64,7 +66,10 @@ function pathTrail(dir: string) {
 }
 
 /** Split-pane folder list and file preview; below 620px only one pane shows at a time. */
-export default function FileBrowser({ machine: initialMachine, path: initialPath }: { machine: string; path: string }) {
+/** within: the folder it does not leave (no computer to change, nothing above it in the trail,
+ *  no ..), opened to make a subfolder: its 新建文件夹 row open; workspace: the group a channel
+ *  made by 在此新建 goes in. */
+export default function FileBrowser({ machine: initialMachine, path: initialPath, within, workspace }: { machine: string; path: string; within?: string; workspace?: number }) {
   const machines = useMachines(true);
   const [machine, setMachine] = useState(initialMachine);
   const [path, setPath] = useState(initialPath);
@@ -88,6 +93,14 @@ export default function FileBrowser({ machine: initialMachine, path: initialPath
   // Keep the opening computer in the switcher even if it is absent from the machine list.
   if (machine && !computer) computers.splice(1, 0, { value: machine, label: machine });
   const here = folders.data?.path ?? path;
+  // The folder kept in, as the computer itself writes it (its first listing's path).
+  const rootAs = useRef<string | undefined>(undefined);
+  if (within && rootAs.current === undefined && folders.data && path === initialPath) rootAs.current = folders.data.path.replaceAll("\\", "/");
+  const root = within ? (rootAs.current ?? within) : undefined;
+  const inside = (p: string) => !root || p === root || p.startsWith(root.replace(/\/+$/, "") + "/");
+  // A folder being named (新建文件夹), its row at the list's head.
+  const [naming, setNaming] = useState<string | null>(within ? "" : null);
+  const [making, setMaking] = useState(false);
   // Normalize Windows separators to '/' so parent() and join() work uniformly.
   const dir = computer?.sep === "\\" ? here.replaceAll("\\", "/") : here;
   const list = useRef<HTMLDivElement>(null);
@@ -99,8 +112,22 @@ export default function FileBrowser({ machine: initialMachine, path: initialPath
     returnTo.current = null;
     setTyped(null);
     setSelected(null);
+    setNaming(null);
+    if (root) return setPath(next && inside(next.replaceAll("\\", "/")) ? next : root);
     setMachine(at);
     setPath(next);
+  };
+  const make = () => {
+    const name = naming?.trim();
+    if (!name || name === "." || name === ".." || /[/\\\0]/.test(name) || making) return;
+    setMaking(true);
+    void api
+      .mkdir({ path: dir, name, ...(machine ? { machine } : {}) })
+      .then(
+        () => (void queryClient.invalidateQueries({ queryKey: ["browse-files", machine] }), visit(join(dir, name))),
+        (e) => toast(t("err.mkdir"), { error: true, description: errText(e) }),
+      )
+      .finally(() => setMaking(false));
   };
   const openFolder = (next: string, fromKeyboard: boolean) => {
     // Keep keyboard focus in the list as the folder's row is replaced.
@@ -136,31 +163,75 @@ export default function FileBrowser({ machine: initialMachine, path: initialPath
     <>
       <header className="flex h-12 shrink-0 items-center gap-2 border-b border-edge px-3 pointer-coarse:h-13">
         {file && <IconKey label={t("browse.toFolder")} className="@min-[620px]:hidden" onClick={() => setSelected(null)}><ArrowLeft size={17} /></IconKey>}
-        <Dialog.Title className="min-w-0 flex-1 text-sm font-semibold">{t("browse.title")}</Dialog.Title>
-        <Choose
+        {/* Its name an icon, the one of the key that opens it (kumo, 2026-11-25); said to a reader. */}
+        <Dialog.Title className="flex min-w-0 flex-1 items-center text-sm font-semibold">
+          {within ? t("new.subFolder") : <><FolderOpen size={17} aria-hidden className="text-ink-2" /><span className="sr-only">{t("browse.title")}</span></>}
+        </Dialog.Title>
+        {!within && <Choose
           label={t("device.computer")}
           options={computers}
           value={machine}
           onChange={(id) => visit("", id)}
           className="pointer-coarse:h-10"
-        />
+        />}
       </header>
       <div className={cn("shrink-0 items-center gap-1 border-b border-edge px-2 py-1", file ? "hidden @min-[620px]:flex" : "flex")}>
-        <IconKey label={t("browse.start")} onClick={() => visit("")}><House size={15} /></IconKey>
-        <PathBar dir={dir} machine={machine} typed={typed} onType={setTyped} onVisit={visit} />
+        <IconKey label={t("browse.start")} onClick={() => visit(root ?? "")}><House size={15} /></IconKey>
+        <PathBar dir={dir} machine={machine} typed={typed} onType={setTyped} onVisit={visit} inside={inside} />
+        <IconKey label={t("pick.newFolder")} disabled={!folders.data?.path} onClick={() => setNaming((n) => (n === null ? "" : null))}><FolderPlus size={15} /></IconKey>
         <IconKey label={t("top.reload")} onClick={() => void folders.refetch()}><RefreshCw size={15} /></IconKey>
         <IconKey label={t("browse.copyChatLink")} disabled={!folders.data?.path} onClick={() => copyChatLink(dir)}><Link2 size={15} /></IconKey>
       </div>
-      <div className="flex min-h-0 flex-1">
+      <div className="relative flex min-h-0 flex-1">
         {/* Pull the focus ring inside the pane so the dialog's overflow-hidden rounded edge does not clip it. */}
         <div ref={list} tabIndex={-1} className={cn("min-w-0 flex-1 flex-col focus-visible:-outline-offset-6 @min-[620px]:flex @min-[620px]:w-72 @min-[620px]:flex-none @min-[620px]:border-r @min-[620px]:border-edge", file ? "hidden" : "flex")}>
           <div ref={scroll} className="min-h-0 flex-1 overflow-auto overscroll-contain p-1.5">
-            <FolderContents machine={machine} dir={dir} folders={folders} selected={file?.name} onFolder={openFolder} onFile={openFile} copyActions={copyActions} />
+            {/* 新建文件夹: a row at the list's head, its height glided; Enter makes it and goes in. */}
+            <div className={cn("grid transition-[grid-template-rows] duration-(--dur-3) ease-(--ease-out) motion-reduce:transition-none", naming !== null ? "grid-rows-[1fr]" : "grid-rows-[0fr]")}>
+              <div className="min-h-0 overflow-hidden">
+                {naming !== null && (
+                  <form className={cn(folderRowClass, "bg-fill")} onSubmit={(e) => (e.preventDefault(), make())}>
+                    {making ? <LoaderCircle size={17} className="shrink-0 animate-spin text-ink-3" /> : <FolderPlus size={17} className="shrink-0 text-ink-2" />}
+                    <input
+                      autoFocus
+                      aria-label={t("pick.newFolder")}
+                      placeholder={t("pick.newFolder")}
+                      value={naming}
+                      onChange={(e) => setNaming(e.currentTarget.value)}
+                      onKeyDown={(e) => {
+                        if (e.key !== "Escape") return;
+                        // Escape shuts the row, not the dialog.
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setNaming(null);
+                      }}
+                      spellCheck={false}
+                      autoComplete="off"
+                      enterKeyHint="done"
+                      className="min-w-0 flex-1 bg-transparent text-sm text-ink outline-none placeholder:text-ink-4"
+                    />
+                  </form>
+                )}
+              </div>
+            </div>
+            <FolderContents machine={machine} dir={dir} top={dir === root} folders={folders} selected={file?.name} onFolder={openFolder} onFile={openFile} copyActions={copyActions} />
           </div>
         </div>
         <div className={cn("min-w-0 flex-1 flex-col @min-[620px]:flex", file ? "flex" : "hidden")}>
           <FilePreview file={file} dir={dir} machine={machine} title={title} />
         </div>
+        {/* 在此新建 (kumo, 2026-11-25), at the window's lower right while no file is looked at: a
+            channel in the folder shown, at the computer shown; the folder is its group. */}
+        {!file && (
+          <Dialog.Close
+            disabled={!folders.data?.path || (!!machine && !computer?.online)}
+            onClick={() => void newChannelAt(nativeAt(computer, dir), machine || undefined, workspace).then((id) => id && openChat(id))}
+            className="g-press absolute right-3 bottom-3 flex h-9 items-center gap-1.5 rounded-full bg-ink pr-3.5 pl-2.5 text-sm font-medium text-on-ink shadow-lg disabled:opacity-40 pointer-coarse:h-11"
+          >
+            <Plus size={16} />
+            {t("browse.newHere")}
+          </Dialog.Close>
+        )}
       </div>
     </>
   );
@@ -168,7 +239,8 @@ export default function FileBrowser({ machine: initialMachine, path: initialPath
 
 /** Editable breadcrumb bar: clickable ancestor segments, with trailing space opening a path input
  *  (Enter visits, Escape cancels without closing the dialog). */
-function PathBar({ dir, machine, typed, onType, onVisit }: {
+function PathBar({ dir, machine, typed, onType, onVisit, inside }: {
+  inside: (path: string) => boolean;
   dir: string;
   machine: string;
   typed: string | null;
@@ -220,7 +292,7 @@ function PathBar({ dir, machine, typed, onType, onVisit }: {
     <div className={cn(bar, "flex items-center px-1")}>
       <nav ref={trail} aria-label={t("pick.path")} className="no-bar min-w-0 overflow-x-auto overscroll-x-contain">
         <ol role="list" className="m-0 flex w-max list-none items-center p-0">
-          {pathTrail(dir).map((folder, i) => {
+          {pathTrail(dir).filter(inside).map((folder, i) => {
             const current = folder === dir;
             const label = folder.replace(/(.)\/+$/, "$1");
             const warm = () => !current && void prefetchDirectory(machine, folder);
@@ -237,7 +309,7 @@ function PathBar({ dir, machine, typed, onType, onVisit }: {
                   onClick={() => !current && onVisit(folder)}
                   className={cn("g-press flex h-7 items-center rounded-sm px-1.5 text-sm whitespace-nowrap focus-visible:-outline-offset-2 pointer-coarse:h-9", current ? "font-semibold text-ink" : "text-ink-2 hover:bg-fill-2")}
                 >
-                  {i === 0 ? label : label.slice(label.lastIndexOf("/") + 1)}
+                  {i === 0 && !parent(folder) ? label : label.slice(label.lastIndexOf("/") + 1)}
                 </button>
               </li>
             );
@@ -260,6 +332,8 @@ const folderRowClass = "flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 t
 type FolderContentsProps = {
   machine: string;
   dir: string;
+  /** dir is the folder the browser is kept in: no .. above it. */
+  top?: boolean;
   folders: UseQueryResult<DirListing>;
   selected?: string;
   onFolder: (path: string, fromKeyboard: boolean) => void;
@@ -289,10 +363,10 @@ type BrowserEntry = Pick<DirEntry, "name" | "type"> & { path: string };
 
 /** The folder's rows and the one menu they share: .. stands first with the parent's real path so
  *  opening, copying and the menu all act on it, and stays usable while the rest loads or fails. */
-function FolderContents({ machine, dir, folders, selected, onFolder, onFile, copyActions }: FolderContentsProps) {
+function FolderContents({ machine, dir, top, folders, selected, onFolder, onFile, copyActions }: FolderContentsProps) {
   const { data, isSuccess } = folders;
   const entries = useMemo(() => {
-    const up = parent(dir);
+    const up = top ? "" : parent(dir);
     const rows: BrowserEntry[] = up ? [{ name: "..", type: "dir", path: up }] : [];
     if (isSuccess) {
       const byName = new Intl.Collator(undefined, { numeric: true });
@@ -300,7 +374,7 @@ function FolderContents({ machine, dir, folders, selected, onFolder, onFile, cop
       for (const { name, type } of sorted) rows.push({ name, type, path: join(dir, name) });
     }
     return rows;
-  }, [dir, data, isSuccess]);
+  }, [dir, top, data, isSuccess]);
   const [at, setAt] = useMenuAt();
   const [target, setTarget] = useState<{ entry: BrowserEntry; key: HTMLButtonElement } | null>(null);
   const anchor = usePointAnchor(at);

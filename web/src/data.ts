@@ -33,7 +33,7 @@ export function useWorkspaces(): { data: Workspace[] | null | undefined } {
   return { data: carried ?? q.data };
 }
 export const agentsQ = { queryKey: ["agents"], queryFn: orNone(api.agents), staleTime: Infinity };
-/** One's own card (profile.tsx ProfileMore): in the settings and 编辑资料 of one's own card. */
+/** One's own card: 编辑资料 of one's own card. */
 export const selfQ = { queryKey: ["self"], queryFn: () => api.self(), retry: false };
 export const useAgents = () => useQuery(agentsQ);
 export const useAgent = (a: string) => useAgents().data?.find((x: AgentInfo) => x.agent === a);
