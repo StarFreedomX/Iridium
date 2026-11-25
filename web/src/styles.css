@@ -739,14 +739,3 @@ body {
 .hljs-subst { color: var(--ink-2); }
 .hljs-addition { color: var(--plus); }
 .hljs-deletion { color: var(--minus); }
-
-/* The splash's game (splash/game.ts): its few words come in, not put there. */
-@keyframes game-say {
-  from {
-    opacity: 0;
-    transform: translateY(3px);
-  }
-}
-.game-say {
-  animation: game-say 0.25s ease-out;
-}

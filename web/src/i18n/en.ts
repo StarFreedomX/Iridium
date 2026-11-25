@@ -978,17 +978,4 @@ export const en: Dict = {
   "app.computerName": "This computer",
   "app.runLocal": "Run Iridium on this computer",
   "app.run": "Run",
-
-  "game.move": "Move: dodge",
-  "game.hold": "Hold: attack, defence down to 1/3",
-  "game.zig": "Draw a zigzag: blast",
-  "game.win": "WIN",
-  "game.lose": "LOST",
-  "game.stream": "Streaming",
-  "game.echo": "Echo",
-  "game.parallel": "Parallel calls",
-  "game.think": "Extended thinking",
-  "game.sub": "Subagents",
-  "game.flow": "Workflow",
-  "game.compact": "Compaction",
 };

@@ -5,22 +5,14 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { Agent } from "../api/types.gen";
 import { useFaceSrc } from "../chat/channel/face";
-import { t } from "../i18n";
-import { useRoles } from "../roles";
 import { cn, PHONE, useMedia } from "../ui";
-import { splash, type Playing, type Splash as Engine } from "./engine";
-import type { Cast } from "./game";
+import { splash, type Splash as Engine } from "./engine";
 import { justMade } from "../chat/channel/adding";
 import { onPoint, pointedAt, powerNow, stage, stagedNow, STANDARD, type Fig } from "./figure";
 
-
-// The game's cast (game.ts): the roles kept, by their faces, and each agent's mark.
-const MARKS: Cast[] = (["claude", "codex", "pi", "dsh", "agy"] as const).map((agent) => ({ agent }));
-
 /** show: false, it fades and is gone. fig: what it draws when no row of the + panel is pointed
  *  at; none: Iridium's letters. */
-/** home: the pane with no channel open: the heart at its upper right is there, and its game. */
-export function Splash({ show = true, fig = null, scene = "", home = false, className }: { show?: boolean; fig?: Fig | null; scene?: string; home?: boolean; className?: string }) {
+export function Splash({ show = true, fig = null, scene = "", className }: { show?: boolean; fig?: Fig | null; scene?: string; className?: string }) {
   const [there, setThere] = useState(show);
   if (show && !there) setThere(true);
   const pointed = useSyncExternalStore(onPoint, pointedAt);
@@ -43,17 +35,6 @@ export function Splash({ show = true, fig = null, scene = "", home = false, clas
   const faceRef = useRef(face);
   faceRef.current = face;
   useEffect(() => fitRef.current(), [face]);
-  // The game (kumo, 2026-11-25): what the page says of it is the little it cannot say in cells:
-  // what to do, one thing at a time, and the name of what the boss does.
-  const [game, setGame] = useState<Playing | null>(null);
-  const [foot, setFoot] = useState(0);
-  const roles = useRoles();
-  const can = home && show && !now && !still;
-  useEffect(() => eng.current?.allow(can), [can, there, phone]);
-  useEffect(() => {
-    eng.current?.cast([...roles.filter((r) => r.avatar).slice(0, 5).map((r) => ({ src: r.avatar!, agent: r.agent })), ...MARKS]);
-    eng.current?.words(t("game.win"), t("game.lose"));
-  }, [roles, there, still, phone]);
   // Before the frame it is first in: one band going as another comes (the empty pane's, a new
   // channel's) is the same characters with no frame between them.
   useLayoutEffect(() => {
@@ -62,7 +43,6 @@ export function Splash({ show = true, fig = null, scene = "", home = false, clas
     const e = splash(el, still, phone);
     eng.current = e;
     e.figure(nowRef.current);
-    e.onGame((s) => setGame(s.on ? s : null));
     e.resize();
     // The canvas is the whole pane; the band is the window of it that is seen (engine.ts), over the
     // composer, and stays there whatever opens over it (kumo, 2026-11-25: it is not to move about). The figure in its middle, whole: in the portrait
@@ -88,8 +68,6 @@ export function Splash({ show = true, fig = null, scene = "", home = false, clas
       e.place(ph ? w / 2 : -1, ph ? Math.min(w * 0.94, h * 0.98) : Math.min(h * 0.92, w * 0.7) * (face ? 0.82 : 1), ph ? -1 : (48 + top) / 2);
       e.foot(ph ? top - 6 : -1);
       e.edge(ph || !face);
-      e.bounds(52, top - 8);
-      setFoot(pane - top);
     };
     fitRef.current = fit;
     fit();
@@ -113,7 +91,7 @@ export function Splash({ show = true, fig = null, scene = "", home = false, clas
       const r = el.getBoundingClientRect();
       if (ev.clientX < r.left || ev.clientX > r.right || ev.clientY < r.top || ev.clientY > r.bottom) return;
       touching = ev.pointerType === "touch";
-      e.tap(ev.clientX - r.left, ev.clientY - r.top, touching);
+      e.tap(ev.clientX - r.left, ev.clientY - r.top);
       e.hold(true);
     };
     // A finger (kumo, 2026-11-25): held and drawn along the pane as a mouse is, the page not
@@ -124,10 +102,8 @@ export function Splash({ show = true, fig = null, scene = "", home = false, clas
       if (!p) return;
       ev.preventDefault();
       const r = el.getBoundingClientRect();
-      e.near(p.clientX - r.left, p.clientY - r.top, true);
+      e.near(p.clientX - r.left, p.clientY - r.top);
     };
-    const esc = (ev: KeyboardEvent) => ev.key === "Escape" && e.play(false);
-    window.addEventListener("keydown", esc);
     const free = (ev: Event) => {
       // A finger's pointer is cancelled as the page would scroll: it is let go by touchend alone.
       if (touching && ev.type === "pointercancel") return;
@@ -143,7 +119,6 @@ export function Splash({ show = true, fig = null, scene = "", home = false, clas
     return () => {
       ro.disconnect();
       tone.disconnect();
-      window.removeEventListener("keydown", esc);
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerdown", press);
       window.removeEventListener("pointerup", free);
@@ -172,11 +147,6 @@ export function Splash({ show = true, fig = null, scene = "", home = false, clas
   return (
     <div aria-hidden={!now} className={cn("pointer-events-none absolute inset-0 z-1", className)}>
       <canvas ref={cv} aria-hidden className="absolute inset-0 size-full text-ink" />
-      {game?.hint && (
-        <div key={game.hint} className="game-say absolute inset-x-0 text-center text-xs text-ink/60" style={{ bottom: foot + 14 }}>
-          {t(`game.${game.hint}`)}
-        </div>
-      )}
     </div>
   );
 }
@@ -209,5 +179,5 @@ export function ChannelSplash({ id, show: blank, last, agents }: { id: string; s
 export function PaneSplash({ open, off }: { open?: string; off?: boolean }) {
   const st = useSyncExternalStore(onPoint, stagedNow);
   const mine = open && st?.id === open ? st : null;
-  return <Splash show={!off && (!open || (mine ? mine.show : justMade(open)))} fig={mine?.fig ?? null} scene={open ?? ""} home={!open} />;
+  return <Splash show={!off && (!open || (mine ? mine.show : justMade(open)))} fig={mine?.fig ?? null} scene={open ?? ""} />;
 }
