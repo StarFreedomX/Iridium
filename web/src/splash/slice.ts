@@ -58,7 +58,7 @@ export function slicer(E: Env) {
   // The page's ink: what is neither a face nor a colour is in it (the count, the fuse's end).
   const ink = () => (E.dark() ? 0xffffffff : 0xff141414);
   // (larger, kumo 2026-11-26: small, in characters, they were not made out)
-  const size = () => Math.max(108, Math.min(196, Math.min(E.W(), E.bottom() - E.top()) * 0.33));
+  const size = () => Math.max(128, Math.min(236, Math.min(E.W(), E.bottom() - E.top()) * 0.4));
 
   /** The sprites, for the pane as large as it is now; made again as that changes. */
   const make = async () => {
@@ -77,7 +77,7 @@ export function slicer(E: Env) {
       if (m) small.push(m);
     }
     // (smaller than the faces: easier to keep a stroke clear of, kumo 2026-11-26)
-    const b = await E.sprite(null, px * 0.47).catch(() => null);
+    const b = await E.sprite(null, px * 0.4).catch(() => null);
     if (made !== sig) return;
     faces = got;
     marks = small;
@@ -134,7 +134,7 @@ export function slicer(E: Env) {
   };
 
   const toss = () => {
-    const W = E.W(), top = E.top(), bot = E.bottom(), isBomb = !!bomb && score > 1 && Math.random() < 0.2;
+    const W = E.W(), top = E.top(), bot = E.bottom(), isBomb = !!bomb && score > 1 && Math.random() < 0.26;
     const from = marks.length && Math.random() < 0.22 ? marks : faces;
     const s = isBomb ? bomb! : from[(Math.random() * from.length) | 0];
     if (!s) return;
@@ -221,9 +221,11 @@ export function slicer(E: Env) {
         if (T - endAt > STAY + GONE) (on = false), E.over();
       } else if (T >= next && faces.length) {
         // A few at a time (kumo, 2026-11-26: more of them), more as the count grows.
-        const n = 1 + (Math.random() < 0.55 ? 1 : 0) + (score > 8 && Math.random() < 0.4 ? 1 : 0) + (score > 20 && Math.random() < 0.4 ? 1 : 0);
+        // Larger as they are now, the going is made up for it (kumo, 2026-11-26): later on they
+        // come a good deal thicker, and what is not to be cut a little oftener.
+        const n = 1 + (Math.random() < 0.55 ? 1 : 0) + (score > 6 && Math.random() < 0.5 ? 1 : 0) + (score > 14 && Math.random() < 0.5 ? 1 : 0) + (score > 26 && Math.random() < 0.5 ? 1 : 0);
         for (let j = 0; j < n; j++) toss();
-        next = T + Math.max(700, 1250 - score * 10) * (0.8 + Math.random() * 0.4);
+        next = T + Math.max(360, 1200 - score * 24) * (0.8 + Math.random() * 0.4);
       }
       for (let i = things.length - 1; i >= 0; i--) {
         const q = things[i]!;
