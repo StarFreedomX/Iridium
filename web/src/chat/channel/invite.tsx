@@ -58,7 +58,7 @@ const wakeOn = (w: Wake, me?: string): Trigger[] => (w === "all" ? [{ message: {
  *  joins (greet; kumo, 2026-11-16). as: as a role (what
  *  roleStart gives; busy is then "role:<id>"). m: at that computer, in its home folder (busy:
  *  "<machine>/<agent>"). wake: what wakes it beside its @ (Wake; none given, only its @). */
-export function useAdd(id: string, wake?: Wake) {
+export function useAdd(id: string, wake?: Wake, done?: () => void) {
   const qc = useQueryClient();
   const me = useMembers(id)?.me;
   const [busy, setBusy] = useState<string | null>(null);
@@ -66,6 +66,8 @@ export function useAdd(id: string, wake?: Wake) {
     setBusy(as ? `role:${as.role}` : m ? `${m.id}/${agent}` : agent);
     try {
       qc.setQueryData<ChannelMembers>(["members", id], await api.addMember(id, { ...(as ?? { agent, ...(model ? { model } : {}), ...(effort ? { effort } : {}), ...(preset ? { preset } : {}) }), ...(m ? { machine: m.id, cwd: m.home } : {}), ...(wake ? { on: wakeOn(wake, me) } : {}), greet: true }));
+      // Added: the panel goes, its menus with it (kumo, 2026-11-25: it stayed over the channel).
+      done?.();
     } catch (e) {
       toast(memberError(e), { error: true });
     } finally {
@@ -80,7 +82,7 @@ export function useAdd(id: string, wake?: Wake) {
  *  and the kinds of agent of the one picked. Every template and every kind any computer has
  *  keeps its row whichever is picked, one the picked computer lacks drawn faint and not pressed:
  *  the menu is as tall for each computer. */
-export function AddAgents({ id, wake, setWake }: { id: string; wake: Wake; setWake: (w: Wake) => void }) {
+export function AddAgents({ id, wake, setWake, done }: { id: string; wake: Wake; setWake: (w: Wake) => void; done?: () => void }) {
   useLang();
   const row = useList()?.find((x) => x.id === id);
   const own = (useSession(id) ?? row)?.machine ?? "";
@@ -95,7 +97,7 @@ export function AddAgents({ id, wake, setWake }: { id: string; wake: Wake; setWa
   const every = new Set<Agent>([...local, ...machines.flatMap((x) => (x.id ? x.agents.map((a) => a.agent as Agent) : []))]);
   const kinds = AGENTS.filter((k) => every.has(k));
   const roles = useRoles();
-  const { busy, add } = useAdd(id, wake);
+  const { busy, add } = useAdd(id, wake, done);
   const full = (row?.agents?.length ?? 1) >= MAX_AGENTS;
   const off = full || busy !== null;
   // Where one added runs when not at the channel's own computer: the one picked, its home folder.

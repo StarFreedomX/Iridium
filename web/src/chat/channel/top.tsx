@@ -161,7 +161,7 @@ export function TopRight({ id }: { id: string }) {
           <MenuPortal>
             <Menu.Positioner side="bottom" align="end" sideOffset={6} collisionPadding={8} className="z-50">
               <Menu.Popup finalFocus={false} className={cn(POPUP, SUB, "w-[min(344px,calc(100vw-16px))]")}>
-                <Invite id={id} />
+                <Invite id={id} done={() => setAdding(false)} />
               </Menu.Popup>
             </Menu.Positioner>
           </MenuPortal>
@@ -253,7 +253,7 @@ function Commands({ id, scripts, script }: { id: string; scripts: Script[]; scri
 
 /** What the + beside the members' key opens (kumo, 2026-11-25): the agents to add (invite.tsx),
  *  then the people (an app a submenu of its logins). */
-function Invite({ id }: { id: string }) {
+function Invite({ id, done }: { id: string; done: () => void }) {
   const qc = useQueryClient();
   const members = useMembers(id);
   const d = useApps().data;
@@ -290,7 +290,7 @@ function Invite({ id }: { id: string }) {
   return (
     <Paged>
       <div className="g-stagger flex flex-col">
-        <AddAgents id={id} wake={wake} setWake={setWake} />
+        <AddAgents id={id} wake={wake} setWake={setWake} done={done} />
         {apps.length > 0 && <div role="separator" className="mx-2.5 my-1 border-t border-(--edge)" />}
         {apps.map((a) => {
           const name = a.web ? t("term.panel") : a.name;
