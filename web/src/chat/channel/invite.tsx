@@ -29,7 +29,7 @@ import { choicesQ, draftDefault, draftName, type At } from "../choices";
 import { CARD_POP, ProfileCard } from "./profilecard";
 import { DraftModels } from "./pick";
 import { ahead as figAhead } from "../../splash/engine";
-import { point, type Fig } from "../../splash/figure";
+import { panel, point, type Fig } from "../../splash/figure";
 
 /** A row pointed at or come to by the keys: the splash draws what it would add (splash/). */
 const pointing = (f: Fig) => ({ onPointerEnter: () => point(f), onFocus: () => point(f) });
@@ -95,7 +95,7 @@ export function AddAgents({ id, wake, setWake }: { id: string; wake: Wake; setWa
   const to = m && picked !== own ? m : undefined;
   // The panel gone: the splash is the channel's own again. The templates' faces asked for as it
   // is drawn: one pointed at is there to be drawn.
-  useEffect(() => () => point(null), []);
+  useEffect(() => (panel(true), () => (point(null), panel(false))), []);
   useEffect(() => roles.forEach((r) => r.avatar && figAhead({ key: r.id, src: r.avatar })), [roles]);
   return (
     <>

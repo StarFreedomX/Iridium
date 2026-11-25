@@ -17,3 +17,12 @@ export function point(f: Fig | null): void {
 }
 export const pointedAt = () => pointed;
 export const onPoint = (h: () => void) => (heard.add(h), () => void heard.delete(h));
+
+// The + panel open: the figure stands left of it and of the menu beside its rows, not under them.
+let open = false;
+export function panel(o: boolean): void {
+  if (open === o) return;
+  open = o;
+  heard.forEach((h) => h());
+}
+export const panelOpen = () => open;

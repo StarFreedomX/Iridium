@@ -9,7 +9,10 @@ import { useFaceSrc } from "../chat/channel/face";
 import { t } from "../i18n";
 import { cn, useMedia } from "../ui";
 import { splash, type Splash as Engine } from "./engine";
-import { onPoint, point, pointedAt, type Fig } from "./figure";
+import { onPoint, panelOpen, point, pointedAt, type Fig } from "./figure";
+
+// The + panel and the menu beside its rows, with the gaps about them: what the figure keeps left of.
+const PANEL = 660;
 
 const MASK = "linear-gradient(to bottom, transparent, #000 24%, #000 76%, transparent), linear-gradient(to right, transparent, #000 10%, #000 90%, transparent)";
 
@@ -27,7 +30,11 @@ export function Splash({ show = true, fig = null, className }: { show?: boolean;
   const asked = show ? (pointed ?? fig) : fig;
   const [left, setLeft] = useState<string | null>(null);
   const now = asked && asked.key === left ? null : asked;
-  const [side, setSide] = useState(0);
+  const aside = useSyncExternalStore(onPoint, panelOpen) && show;
+  const asideRef = useRef(aside);
+  asideRef.current = aside;
+  const [at, setAt] = useState({ x: 0, side: 0 });
+  const fitRef = useRef(() => {});
   const nowRef = useRef(now);
   nowRef.current = now;
   useEffect(() => {
@@ -37,7 +44,16 @@ export function Splash({ show = true, fig = null, className }: { show?: boolean;
     eng.current = e;
     e.figure(nowRef.current);
     e.resize();
-    const fit = () => (e.resize(), setSide(Math.min(el.clientHeight * 0.92, el.clientWidth * 0.7)));
+    // Left of the panel while it is open and there is room for a figure there; else the middle.
+    const fit = () => {
+      e.resize();
+      const w = el.clientWidth, h = el.clientHeight, free = w - PANEL;
+      const left = asideRef.current && free >= 240;
+      const side = left ? Math.min(h * 0.92, free * 0.9) : Math.min(h * 0.92, w * 0.7);
+      e.place(left ? free / 2 : -1, side);
+      setAt({ x: left ? free / 2 : w / 2, side });
+    };
+    fitRef.current = fit;
     fit();
     const ro = new ResizeObserver(fit);
     ro.observe(el);
@@ -54,12 +70,13 @@ export function Splash({ show = true, fig = null, className }: { show?: boolean;
     };
   }, [there, still]);
   useEffect(() => eng.current?.figure(now), [now?.key]);
+  useEffect(() => fitRef.current(), [aside]);
   if (!there) return null;
   return (
     <div aria-hidden={!now} onTransitionEnd={(e) => e.target === e.currentTarget && !show && setThere(false)} className={cn("pointer-events-none absolute inset-x-0 top-[calc(50%-24px)] z-1 h-[clamp(220px,46%,420px)] -translate-y-1/2 transition-opacity duration-(--dur-3) ease-(--ease-out)", !show && "opacity-0", className)}>
       <canvas ref={cv} aria-hidden className="absolute inset-0 size-full text-ink" style={{ maskImage: MASK, maskComposite: "intersect", WebkitMaskImage: MASK, WebkitMaskComposite: "source-in" }} />
-      {now && show && side > 0 && (
-        <button type="button" aria-label={t("nav.back")} onClick={() => (setLeft(now.key), point(null))} style={{ left: `max(8px, calc(50% - ${Math.round(side / 2) + 44}px))` }} className="g-fade g-press pointer-events-auto absolute top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-md text-ink-3 hover:bg-fill hover:text-ink pointer-coarse:size-10">
+      {now && show && at.side > 0 && (
+        <button type="button" aria-label={t("nav.back")} onClick={() => (setLeft(now.key), point(null))} style={{ left: Math.max(8, Math.round(at.x - at.side / 2) - 44) }} className="g-fade g-press pointer-events-auto absolute top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-md text-ink-3 hover:bg-fill hover:text-ink pointer-coarse:size-10">
           <ChevronLeft size={17} />
         </button>
       )}

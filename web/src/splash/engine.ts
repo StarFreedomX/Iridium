@@ -112,7 +112,7 @@ function picture(src: string): Promise<HTMLImageElement | null> {
 /** A figure's picture asked for ahead (a row of the + panel as it is drawn). */
 export const ahead = (f: Fig) => void (f.src && picture(f.src));
 
-export type Splash = { figure(f: Fig | null): void; resize(): void; near(x: number, y: number): void; stop(): void };
+export type Splash = { figure(f: Fig | null): void; place(x: number, side: number): void; resize(): void; near(x: number, y: number): void; stop(): void };
 
 export function splash(cv: HTMLCanvasElement, still: boolean): Splash {
   const g = cv.getContext("2d")!;
@@ -130,6 +130,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean): Splash {
   let wait = new Float32Array(0), heat = new Float32Array(0), off = new Float32Array(0), speed = new Float32Array(0);
   let text: string[][] = [];
   let ink: RGB = [34, 34, 34], dark = false;
+  let cx = -1, most = 0; // where the figure's middle is and how large it may be; -1: the band's own
   let fig: Fig | null = null, photo = false, drawnKey = "", asked = 0;
   let t0 = -1e9, flowTo = 0, last = 0, raf = 0, hot = false, first = true, dead = false;
 
@@ -169,7 +170,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean): Splash {
   const read = (): Field => {
     const n = cols * rows, out = field(n);
     if (!n) return out;
-    const side = Math.min(H * 0.92, W * 0.7), fx = (W - side) / 2, fy = (H - side) / 2;
+    const mid = cx < 0 ? W / 2 : cx, side = cx < 0 ? Math.min(H * 0.92, W * 0.7) : most, fx = mid - side / 2, fy = (H - side) / 2;
     small.width = cols;
     small.height = rows;
     mg.imageSmoothingQuality = "high";
@@ -185,7 +186,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean): Splash {
     const tw = Math.max(2, Math.round(cols / 10)), th = Math.max(2, Math.round(rows / 5));
     tiny.width = tw;
     tiny.height = th;
-    const grow = 1.5, hs = side * grow, hx = (W - hs) / 2, hy = (H - hs) / 2;
+    const grow = 1.5, hs = side * grow, hx = mid - hs / 2, hy = (H - hs) / 2;
     tg.drawImage(src, (hx / W) * tw, (hy / H) * th, (hs / W) * tw, (hs / H) * th);
     mg.clearRect(0, 0, cols, rows);
     mg.drawImage(tiny, 0, 0, cols, rows);
@@ -304,7 +305,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean): Splash {
     }
     from = { a: cur.a.slice(), r: cur.r.slice(), g: cur.g.slice(), b: cur.b.slice() };
     const far = Math.hypot(W / 2, H / 2) || 1;
-    for (let i = 0; i < wait.length; i++) wait[i] = (Math.hypot(((i % cols) + 0.5) * cw - W / 2, (((i / cols) | 0) + 0.5) * ROW - H / 2) / far) * SPREAD * (0.75 + Math.random() * 0.5);
+    for (let i = 0; i < wait.length; i++) wait[i] = (Math.hypot(((i % cols) + 0.5) * cw - (cx < 0 ? W / 2 : cx), (((i / cols) | 0) + 0.5) * ROW - H / 2) / far) * SPREAD * (0.75 + Math.random() * 0.5);
     last = t0 = performance.now();
     flowTo = t0 + (first ? 2600 : 1700);
     first = false;
@@ -362,6 +363,13 @@ export function splash(cv: HTMLCanvasElement, still: boolean): Splash {
       if (W) show(f, false);
     },
     resize,
+    place(x, side) {
+      if (Math.abs(x - cx) < 1 && Math.abs(side - most) < 1) return;
+      const had = cx !== -1 || x !== -1;
+      cx = x;
+      most = side;
+      if (W && had && drawnKey === (fig?.key ?? "")) turn(false);
+    },
     near(x, y) {
       if (still || !W || x < -NEAR || y < -NEAR || x > W + NEAR || y > H + NEAR) return;
       const c0 = Math.max(0, Math.floor((x - NEAR) / cw)), c1 = Math.min(cols - 1, Math.ceil((x + NEAR) / cw));
