@@ -32,7 +32,7 @@ import { ContextRing, ModeKey, ModelKey, modelView, QuotaBars, useMode } from ".
 import { fromSatori, PLACE_DRAG, SESSION_DRAG, sourceOf, withDevice, yours, type Source } from "../refs";
 import { Assistant, Attached, Compaction, Letter, Line, MsgRow, Pending, When, YouBubble } from "../said";
 import { ShellRuns } from "../shell";
-import { Stick, prepend, toEnd } from "../stick";
+import { Stick, toEnd } from "../stick";
 import { WorkLine } from "../work";
 import { askQueue, quoteAt, watchExtra, type AgentRow, type Did, type Msg, type Work, eventParts, personName, type EventWords } from "./lib";
 import { channelLog } from "./log";
@@ -61,33 +61,6 @@ const BUSY = new Set(["running", "compacting", "starting", "waiting"]);
 const turning = (s?: { status: string }) => !!s && BUSY.has(s.status);
 
 let lastStackH = 120;
-
-const SUB_FIRST_MIN = 6;
-/** Estimates how many trailing groups cover ~1.4x the viewport height for stage-1 ("子第一屏")
- *  mount so the initial screen is never blank while deferring earlier groups to stage 2. */
-function subFirstCount<S>(groups: readonly Group<S>[]): number {
-  if (groups.length <= SUB_FIRST_MIN) return groups.length;
-  const target = Math.max((typeof window !== "undefined" ? window.innerHeight : 800) * 1.4, 960);
-  let h = 0;
-  let n = 0;
-  for (let i = groups.length - 1; i >= 0; i--) {
-    const g = groups[i]!;
-    let gh = g.author?.kind === "iridium" ? 24 : 44;
-    for (const l of g.lines) {
-      const m = l.m;
-      if (!m) {
-        gh += 44;
-        continue;
-      }
-      const lines = Math.min(18, Math.max(1, Math.ceil(m.text.length / 46) + (m.text.match(/\n/g)?.length ?? 0)));
-      gh += lines * 23 + (m.work || m.did ? 30 : 0) + m.files.length * 160;
-    }
-    h += gh + 20;
-    n++;
-    if (n >= SUB_FIRST_MIN && h >= target) break;
-  }
-  return n;
-}
 
 /** Smooths the mobile keyboard-dismiss two-step viewport jump (keyboard gone -> lvh, then browser
  *  URL bar reappears -> svh): holds the bottom stack visually at its pre-dismiss Y via inline
@@ -284,9 +257,10 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
   // once it is back, the messages still being written then with it.
   useEffect(() => {
     let live = true;
-    const more = () => void log.newer().then(() => live && changed(), () => {});
     const back = () => void log.newer(true).then(() => live && changed(), () => {});
-    if (!fresh(log.came)) more();
+    // Held from before and not on screen since: what was at work then may have ended unheard
+    // (its lines kept their stop keys: kumo, 2026-11-25), so those are read again.
+    if (!fresh(log.came)) back();
     const hear = (e: SatoriEvent) => {
       if ((e.type !== "message-created" && e.type !== "message-updated" && e.type !== "message-deleted") || e.channel?.id !== id || !e.message) return;
       log.heard({ ...e.message, _data: { ...e._data, ...e.message._data } }, e.type);
@@ -403,27 +377,6 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
   const mine = useMemo(() => (a: Person) => whoNow.current(a).mine, [self.id, self.host, terminals]);
   // The conversation, as the log gives it (log.ts, rows.ts): its rows in order, under their heads.
   const groups = log.groups(mine);
-  // Two-stage channel entry ("子第一屏" -> "当前尺度窗口"): when opening at the bottom, mount the
-  // trailing viewport slice first so frame 1 paints quickly with final heights, then prepend the
-  // rest of the page above with zero visual shift via Stick.prepend.
-  const [expanded, setExpanded] = useState(() => entry.place.top !== null);
-  useEffect(() => {
-    setExpanded(entry.place.top !== null);
-  }, [id]);
-  const subCount = useMemo(() => (expanded ? groups.length : subFirstCount(groups)), [expanded, groups]);
-  const staged = !hold && !expanded && entry.place.top === null && groups.length > subCount;
-  const shownGroups = staged ? groups.slice(-subCount) : groups;
-  useEffect(() => {
-    if (!staged) return;
-    let f2 = 0;
-    const f1 = requestAnimationFrame(() => {
-      f2 = requestAnimationFrame(() => prepend(scroller.current, () => setExpanded(true)));
-    });
-    return () => {
-      cancelAnimationFrame(f1);
-      cancelAnimationFrame(f2);
-    };
-  }, [staged, id]);
   const hidden = useMemo(() => doneBefore(log.msgs), [log.msgs]);
   // Words between agents fold when long (folds.ts betweenAgents).
   const nickSet = new Set(agents.map((a) => a.nick.toLowerCase()).filter(Boolean));
@@ -551,10 +504,10 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
   return (
     <Nicks.Provider value={nicks}>
       <div className="relative h-full" onDragOver={(e) => files(e) || session(e) || place(e)} onDrop={drop}>
-        <Stick key={hold ? "hold" : "whole"} scroller={scroller} tail={grew} older={() => (staged ? Promise.resolve(false) : log.older())} draw={changed} place={entry.place} bottom={stackH} quiet={asking} style={{ paddingTop: padTop, paddingBottom: stackH + 20 }}>
+        <Stick key={hold ? "hold" : "whole"} scroller={scroller} tail={grew} older={() => log.older()} draw={changed} place={entry.place} bottom={stackH} quiet={asking} style={{ paddingTop: padTop, paddingBottom: stackH + 20 }}>
           <div data-column className="mx-auto flex max-w-(--chat-w) flex-col gap-5 px-4 [--depart-gap:1.25rem] sm:px-6">
             {!hold &&
-              shownGroups.map((g) => (
+              groups.map((g) => (
                 <div key={g.key} className="relative flex min-w-0 flex-col">
                   <GroupView g={g} channel={id} agents={rowAgents} who={fx.who} record={record} call={fx.call} may={may} quote={may ? fx.quoting : undefined} quoted={fx.quoted} bars={fx.bars} barsSig={barsSig} fold={fx.fold} old={fx.old} olds={olds} jump={fx.jump} wrote={log.wrote} born={log.born} hidden={hidden} pending={fx.pending} />
                   {/* In the gap under it, over nothing: coming late, it moves nothing (docs/前端设计规范.md). */}

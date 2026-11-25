@@ -467,7 +467,7 @@ export function since(it: Chat, visit = false): void {
   const ch = heldLog(it.log.id);
   if (!ch && !it.log.loaded) return;
   if (visit && !isWhole(it.log.id)) return void firstScreen(it.log.id, it);
-  it.coming = Promise.all([it.log.loaded ? it.log.newer() : undefined, ch?.newer()])
+  it.coming = Promise.all([it.log.loaded ? it.log.newer() : undefined, ch?.newer(true)])
     .then(() => {})
     .catch(() => {})
     .finally(() => (it.coming = undefined));
@@ -664,7 +664,7 @@ async function pump() {
       if (!isWhole(id)) await firstScreen(id, it, { signal: w.stop.signal, priority: "low" } as RequestInit);
       else {
         const ch = heldLog(id);
-        it.coming = (ch ? ch.newer() : it.log.newer())
+        it.coming = (ch ? ch.newer(true) : it.log.newer())
           .catch(() => {})
           .finally(() => (it.coming = undefined));
         await it.coming;

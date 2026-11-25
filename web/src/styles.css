@@ -569,6 +569,18 @@ body {
   box-shadow: inset 0 0 0 1.5px var(--ink-3);
   animation: send-breathe 1.4s ease-in-out infinite;
 }
+/* Not till it has been on its way 1.2 s: one taken sooner shows no ring (kumo, 2026-11-25). */
+.send-late {
+  animation: send-late 0.2s ease-out 1.2s both;
+}
+@keyframes send-late {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
 @keyframes send-breathe {
   0%,
   100% {

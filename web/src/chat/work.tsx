@@ -70,6 +70,16 @@ const tookWords = (ms: number) => {
   return t("work.hour", { h: Math.floor(m / 60), m: m % 60 });
 };
 
+/** How long since since (ms), told again each second. */
+function Elapsed({ since }: { since: number }) {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  return <span className="ml-auto shrink-0 pl-2 text-xs text-ink-4 tabular-nums">{tookWords(Math.max(0, now - since))}</span>;
+}
+
 /** What older messages say was done before them, in the line's words. */
 function didParts(did: Did): string[] {
   const parts: string[] = [];
@@ -285,6 +295,8 @@ export function WorkLine({ channel, n, session, work, did, span, may, esc }: { c
         )}
         {!running && !!work?.agents && <span className="shrink-0 text-xs tabular-nums">{t("work.agents", { n: work.agents })}</span>}
         {!running && !!work?.ms && <span className="ml-auto shrink-0 pl-2 text-xs text-ink-4 tabular-nums">{tookWords(work.ms)}</span>}
+        {/* How long it has been at it, a second at a time (kumo, 2026-11-25). */}
+        {running && !!steps && !!work?.at && <Elapsed since={work.at} />}
         {running && may && <StopKey session={session} esc={esc} />}
       </div>
       {opens && <StepList reveal={reveal} session={session} steps={all} only={only} rows={only || !rows ? undefined : rows} open={open} card={card} setCard={setCard} wasOn={wasOn} clearWasOn={() => clearTimeout(wasOnTimer.current)} shut={() => toggle()} />}

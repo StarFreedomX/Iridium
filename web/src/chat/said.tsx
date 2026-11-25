@@ -248,14 +248,15 @@ const Sender = forwardRef<HTMLDivElement, { who: You | From; time?: number; jump
 
 /** Your words: a bubble on the right, under your terminal's name, its face beside. */
 /** Where a message of yours is, as a small mark outside its bubble's lower left corner, no words (the
- *  user, 2026-11-06; its tip says): going, a ring breathing; waiting in the queue, a clock. Taken,
+ *  user, 2026-11-06; its tip says): going, a ring breathing, shown only once it has been going for
+ *  1.2 s (kumo, 2026-11-25: one sent sooner shows none); waiting in the queue, a clock. Taken,
  *  nothing: no green check (the user, 2026-11-08). The bubble itself is drawn as it will stay. */
 type Going = "sending" | "queued";
 const GOING: Record<Going, string> = { sending: "msg.sending", queued: "msg.queued" };
 function SendState({ state }: { state: Going }) {
   const label = t(GOING[state] as "msg.sending");
   return (
-    <span role="status" aria-label={label} title={label} className="absolute bottom-2 -left-[18px] grid size-3 place-items-center text-ink-3">
+    <span role="status" aria-label={label} title={label} className={cn("absolute bottom-2 -left-[18px] grid size-3 place-items-center text-ink-3", state === "sending" && "send-late")}>
       {state === "queued" ? <Clock size={10} strokeWidth={2.25} className="g-fade" /> : <span className="send-ring" />}
     </span>
   );
