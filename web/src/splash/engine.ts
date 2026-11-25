@@ -142,7 +142,7 @@ export const ahead = (f: Fig) => void (f.src && picture(f.src));
 // anew (kumo, 2026-11-25: it blinked).
 let kept: { at: number; cols: number; rows: number; text: string[][]; off: Float32Array<ArrayBuffer>; speed: Float32Array<ArrayBuffer>; cur: Field; key: string } | null = null;
 
-export type Splash = { leave(done: () => void): void; enter(): void; figure(f: Fig | null): void; place(x: number, side: number, y?: number): void; foot(y: number): void; window(middle: number, height: number): void; recolor(): void; power(f: number): void; resize(): void; stop(): void; edge(on: boolean): void; };
+export type Splash = { leave(done: () => void): void; enter(): void; figure(f: Fig | null): void; place(x: number, side: number, y?: number): void; foot(y: number): void; window(middle: number, height: number): void; recolor(): void; power(f: number): void; resize(): void; near(x: number, y: number): void; tap(x: number, y: number): void; hold(on: boolean): void; stop(): void; edge(on: boolean): void; };
 
 
 /** fine: smaller characters, more of them to a figure (the portrait layout, where the band is
@@ -306,6 +306,91 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
   };
 
   const FONTS = (z: number) => `${FONT * z}px ui-monospace, "SF Mono", Menlo, "JetBrains Mono", "Cascadia Mono", "DejaVu Sans Mono", monospace`;
+  // What the stars, rings and the rocket light this frame, each cell's most (lit) in its hue (litHue):
+  // laid down shape by shape over the cells under their outlines alone, a row at a time (a ring's
+  // two spans, a stroke's band), then read as the rows are drawn; the cells lit are kept (touched)
+  // to be put back to none, not the whole field gone over (kumo, 2026-11-25: lighter work).
+  let lit = new Float32Array(0), litHue = new Float32Array(0), rowLit = new Uint8Array(0), touched = new Int32Array(0), nTouched = 0;
+  const light = (r: number, k: number, v: number, h: number) => {
+    if (v <= 0.02) return;
+    const i = r * cols + k;
+    if (v <= lit[i]!) return;
+    if (lit[i] === 0) touched[nTouched++] = i;
+    lit[i] = v;
+    litHue[i] = h;
+    rowLit[r] = 1;
+  };
+  /** Each cell whose middle is in the band from (ax, ay) to (bx, by), w either side of it: told its
+   *  middle, how far it is from the stroke and where along it (0 to 1). */
+  const stroke = (ax: number, ay: number, bx: number, by: number, w: number, each: (r: number, k: number, x: number, y: number, d: number, u: number) => void) => {
+    const dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy;
+    const r0 = Math.max(0, Math.ceil((Math.min(ay, by) - w - 0.5 - ROW / 2) / ROW)), r1 = Math.min(rows - 1, Math.floor((Math.max(ay, by) + w - 0.5 - ROW / 2) / ROW));
+    for (let r = r0; r <= r1; r++) {
+      const ym = r * ROW + 0.5 + ROW / 2;
+      // The part of the stroke within w of this row, up and down: the cells to look at are by it.
+      let xa = Math.min(ax, bx), xb = Math.max(ax, bx);
+      if (Math.abs(dy) > 1) {
+        const ta = clamp((ym - w - ay) / dy), tb = clamp((ym + w - ay) / dy);
+        (xa = ax + dx * Math.min(ta, tb)), (xb = ax + dx * Math.max(ta, tb));
+        if (xa > xb) [xa, xb] = [xb, xa];
+      }
+      const f = off[r]! - Math.floor(off[r]!);
+      const k0 = Math.max(0, Math.ceil((xa - w) / cw - 0.5 + f)), k1 = Math.min(cols - 1, Math.floor((xb + w) / cw - 0.5 + f));
+      for (let k = k0; k <= k1; k++) {
+        const xm = (k + 0.5 - f) * cw;
+        const u = L2 ? clamp(((xm - ax) * dx + (ym - ay) * dy) / L2) : 0;
+        const d = Math.hypot(xm - ax - dx * u, ym - ay - dy * u);
+        if (d < w) each(r, k, xm, ym, d, u);
+      }
+    }
+  };
+  /** A ring: the cells in it, a row's two spans of it (none of its inside or outside gone over). */
+  const ringOf = (q: Shape, now: number) => {
+    const o = q.rad + q.w, n = Math.max(0, q.rad - q.w);
+    const r0 = Math.max(0, Math.ceil((q.y - o - 0.5 - ROW / 2) / ROW)), r1 = Math.min(rows - 1, Math.floor((q.y + o - 0.5 - ROW / 2) / ROW));
+    for (let r = r0; r <= r1; r++) {
+      const ym = r * ROW + 0.5 + ROW / 2, dy = ym - q.y;
+      const xo = Math.sqrt(Math.max(0, o * o - dy * dy)), xi = Math.abs(dy) < n ? Math.sqrt(n * n - dy * dy) : 0;
+      const f = off[r]! - Math.floor(off[r]!);
+      for (const [a, b] of [[q.x - xo, q.x - xi], [q.x + xi, q.x + xo]] as const) {
+        const k0 = Math.max(0, Math.ceil(a / cw - 0.5 + f)), k1 = Math.min(cols - 1, Math.floor(b / cw - 0.5 + f));
+        for (let k = k0; k <= k1; k++) {
+          const dx = (k + 0.5 - f) * cw - q.x;
+          light(r, k, q.fade * clamp(1 - Math.abs(Math.hypot(dx, dy) - q.rad) / q.w), q.hue + Math.atan2(dy, dx) * 57.3 + now * 0.12);
+        }
+      }
+    }
+  };
+  /** A star: its ten edges, each a stroke. */
+  const starOf = (q: Shape, now: number) => {
+    const tip = (j: number): [number, number] => {
+      const a = q.turn + (j * Math.PI) / 5 - Math.PI / 2, d = j % 2 ? q.rad * 0.45 : q.rad;
+      return [q.x + Math.cos(a) * d, q.y + Math.sin(a) * d];
+    };
+    for (let j = 0; j < 10; j++) {
+      const [ax, ay] = tip(j), [bx, by] = tip(j + 1);
+      stroke(ax, ay, bx, by, q.w, (r, k, x, y, d) => light(r, k, q.fade * (1 - d / q.w), q.hue + Math.atan2(y - q.y, x - q.x) * 57.3 + now * 0.12));
+    }
+  };
+  /** The rocket's way: drawn along it as time stands, then its head and the trail behind it. */
+  const rocketOf = (rn: RocketNow, now: number) => {
+    const { k } = rn, w = ROW * 0.8;
+    for (let i = 1; i < k.pts.length; i++) {
+      const [ax, ay] = k.pts[i - 1]!, [bx, by] = k.pts[i]!, s0 = k.cum[i - 1]!, L = k.cum[i]! - s0;
+      stroke(ax, ay, bx, by, w * 1.7, (r, c, _x, _y, d, u) => {
+        const at = s0 + L * u;
+        let v = 0;
+        if (rn.stop) v = at <= rn.drawn * k.total ? 0.85 * clamp(1 - d / w) : 0;
+        else {
+          const tail = at > rn.head ? 0.75 : clamp(1 - (rn.head - at) / 240);
+          v = tail * clamp(1 - d / (w * (1 + (at <= rn.head ? tail * 0.7 : 0))));
+        }
+        light(r, c, v, at * 0.9 - now * 0.25);
+      });
+    }
+    if (!rn.stop) stroke(rn.hx, rn.hy, rn.hx, rn.hy, ROW * 2.2, (r, c, _x, _y, d) => light(r, c, 1 - d / (ROW * 2.2), rn.head * 0.9 - now * 0.25));
+  };
+
   // The canvas's left and right tenth go to none (a CSS mask before: done in the canvas, what is
   // drawn in it is whole there).
   let edgeOn = true;
@@ -335,7 +420,8 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
   // One line, one rule, nothing staged. The ball turns to the left and the right; the rainbow
   // flows along the band; the code flows through it. Laid down each frame as points of the band
   // (RN along it, a few across), each on the cell it falls in, the nearest kept; no cell asked
-  // anything.
+  // anything. A star over a part of it (draw) stirs that part (stir): another run of colours
+  // there, wider, going out along the band both ways and dying away.
   const RN = 640;
   const PX = new Float32Array(RN + 1), PY = new Float32Array(RN + 1), PZ = new Float32Array(RN + 1);
   // Where its head is: the angle up and down, and round the ball.
@@ -345,6 +431,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
   // cell is that light, not the rainbow, for it and for the satellite itself at the head.
   let flareAt = -1e9, flareNext = 0, rw = new Float32Array(0);
   let ra = new Float32Array(0), rh = new Float32Array(0), rz = new Float32Array(0), ru = new Int16Array(0), rowRing = new Uint8Array(0), ringCells = new Int32Array(0), nRing = 0;
+  let stir = new Float32Array(RN), stir2 = new Float32Array(RN);
   let ringK = 0, ringAt = 0;
   const ringLay = (now: number) => {
     for (let j = 0; j < nRing; j++) (ra[ringCells[j]!] = 0), (rw[ringCells[j]!] = 0);
@@ -353,6 +440,10 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
     const dt = Math.min(50, now - ringAt);
     ringAt = now;
     if (ringK < 0.01 || !rows) return;
+    // What is stirred goes on to its neighbours, less each time, and dies away.
+    const dec = Math.exp(-dt / 700);
+    for (let j = 0; j < RN; j++) stir2[j] = Math.max(stir[j]!, (stir[(j + 1) % RN]! + stir[(j + RN - 1) % RN]!) * 0.49) * dec;
+    [stir, stir2] = [stir2, stir];
     const top = footT >= 0 ? footT : H, t = still ? 5000 : now;
     const R = Math.min(W * 0.34, top * 0.3, 220), wv = Math.max(7, R * 0.085), xc = W / 2, yc = cy >= 0 ? cy : top * 0.5;
     // How many times round for once up and down: 1 most of the time, away from it (as far as 7/4,
@@ -383,12 +474,12 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
     // Up at once, gone in a second.
     const fl = now - flareAt < 90 ? (now - flareAt) / 90 : Math.exp(-(now - flareAt - 90) / 380);
     for (let iu = 0; iu < RN; iu++) {
-      const q = iu / RN;
+      const q = iu / RN, e = stir[iu]!;
       // The satellite itself at the very head; the flare on it and a little way back.
       const white = Math.max(q < 0.012 ? 1 : 0, fl > 0.02 && q < 0.14 ? fl * (1 - q / 0.14) : 0);
       // Thick just behind its head, thinner all the way to its tail.
-      const wide = wv * (q < 0.03 ? 0.3 + (q / 0.03) * 0.7 : Math.pow(1 - q, 0.6) * 0.92 + 0.08) * (1 + 0.8 * white);
-      const hue0 = q * 620 - flow, mx = PX[iu]!, my = PY[iu]!, mz = PZ[iu]!;
+      const wide = wv * (q < 0.03 ? 0.3 + (q / 0.03) * 0.7 : Math.pow(1 - q, 0.6) * 0.92 + 0.08) * (1 + 0.6 * e) * (1 + 0.8 * white);
+      const hue0 = q * 620 - flow + e * 150, mx = PX[iu]!, my = PY[iu]!, mz = PZ[iu]!;
       // Across it: along the ball, square to its way.
       const tx = PX[iu + 1]! - mx, ty = PY[iu + 1]! - my, tz = PZ[iu + 1]! - mz;
       let ax = ty * mz - tz * my, ay = tz * mx - tx * mz, az = tx * my - ty * mx;
@@ -412,7 +503,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
         rz[i] = z2;
         ru[i] = iu;
         // In front, strong; behind, faint.
-        ra[i] = Math.min(1, ((0.62 + 0.38 * (z2 / R)) * lum + white) * ringK);
+        ra[i] = Math.min(1, ((0.62 + 0.38 * (z2 / R)) * lum + e * 0.4 + white) * ringK);
         rw[i] = white;
         rh[i] = hue0 + vn * 30;
       }
@@ -430,11 +521,20 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
     // A face at rest: only the rows and columns about it are drawn, the code beyond its rim being
     // none (kumo, 2026-11-25: the whole pane was gone over each frame for it, and it lagged).
     const rim = photo && !leaving && now - t0 > spreadNow + TURN + 400 ? ps * 0.6 : 0;
+    for (let j = 0; j < nTouched; j++) lit[touched[j]!] = 0;
+    nTouched = 0;
+    rowLit.fill(0);
     ringLay(now);
+    for (const q of shapes(now)) (q.ring ? ringOf : starOf)(q, now);
+    const rs = rocketNow(now);
+    if (rs) rocketOf(rs, now);
+    // Time stood still: the rest of the code dimmed for it.
+    const dim = rs && rs.stop ? 1 - 0.45 * Math.sin(Math.PI * Math.min(1, (now - rs.k.at) / STOP)) ** 0.5 : 1;
     for (let r = 0; r < rows; r++) {
       const o = Math.floor(off[r]!), f = off[r]! - o, row = text[r]!, y = r * ROW + 0.5, ym = y + ROW / 2;
       const env = seen(ym);
-      const lr = rowRing[r] === 1;
+      const rr = rowRing[r] === 1;
+      const lr = rowLit[r] === 1 || rr;
       if (!lr && (env < 0.01 && fr[r]! < 0.01)) continue;
       if (!lr && rim && Math.abs(ym - py) > rim) continue;
       const k0 = rim && !lr ? Math.max(0, Math.floor((px - rim) / cw)) : 0;
@@ -449,9 +549,14 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
       for (let k = k0; k < k1; k++) {
         const i = r * cols + k;
         let cr = cur.r[i]!, cg = cur.g[i]!, cb = cur.b[i]!;
-        // The band over this cell: the cell's own character in the band's colour.
-        const rv = lr ? ra[i]! : 0;
+        // A star, ring or the rocket over this cell: the cell's own character in its colour.
+        let lv = lr ? lit[i]! : 0;
+        const rv = rr ? ra[i]! : 0;
         if (rv > 0) {
+          // The ring's cell: in the ring's colour; a star over it stirs the ring there, and is not
+          // drawn over it.
+          if (lv > 0.3 && ru[i]! >= 0) stir[ru[i]!] = 1;
+          lv = 0;
           const h3 = hueAt3(rh[i]!), wq = rw[i]!;
           // (white on a dark page; on a light one the sun's own gold: black there was ugly, kumo 2026-11-26)
           const g0 = dark ? 255 : 255, g1 = dark ? 255 : 160, g2 = dark ? 255 : 0;
@@ -462,7 +567,11 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
           const h3 = hueAt3((((k + 0.5 - f) * cw - fx0) / span) * 300 + hue0);
           (cr += (HUES[h3]! - cr) * fmi), (cg += (HUES[h3 + 1]! - cg) * fmi), (cb += (HUES[h3 + 2]! - cb) * fmi);
         }
-        const k2 = Math.min(24, Math.round(Math.max(clamp(cur.a[i]!) * (env + (1 - env) * (fm[i] ?? 0)), rv) * 24)) | ((cr >> 3) << 5) | ((cg >> 3) << 10) | ((cb >> 3) << 15);
+        if (lv > 0) {
+          const h3 = hueAt3(litHue[i]!), m = Math.min(1, lv * 1.4);
+          (cr += (HUES[h3]! - cr) * m), (cg += (HUES[h3 + 1]! - cg) * m), (cb += (HUES[h3 + 2]! - cb) * m);
+        }
+        const k2 = Math.min(24, Math.round(Math.max(clamp(cur.a[i]!) * (env + (1 - env) * (fm[i] ?? 0)) * dim, lv * 0.95, rv) * 24)) | ((cr >> 3) << 5) | ((cg >> 3) << 10) | ((cb >> 3) << 15);
         if (k2 !== key) {
           flush();
           run = "";
@@ -477,6 +586,98 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
       flush();
     }
     edges(1);
+  };
+
+  // What the pointer leaves (kumo, 2026-11-25): stars and rings, growing out from a point, drawn
+  // in no character of their own: the code's rows go on as they are, and those of their characters
+  // a shape's outline lies over are in the rainbow (kumo: not a new character put in).
+  type Spark = { x: number; y: number; vx: number; vy: number; at: number; life: number; ring: boolean; size: number; hue: number; spin: number };
+  type Shape = { x: number; y: number; rad: number; turn: number; ring: boolean; fade: number; hue: number; w: number };
+  let pops: Spark[] = [];
+  // The second ring of a press, on its way.
+  let lx = 0, ly = 0, lensOn = false, lastPop = 0;
+  const pop = (x: number, y: number, ring: boolean, speed: number, size: number) => {
+    const a = Math.random() * Math.PI * 2;
+    pops.push({ x, y, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed - (ring ? 0 : 10), at: performance.now(), life: ring ? 1100 + Math.random() * 500 : 900 + Math.random() * 500, ring, size, hue: Math.random() * 360, spin: (Math.random() - 0.5) * 1.5 });
+    if (pops.length > 30) pops = pops.slice(-30);
+  };
+  /** The shapes now: where each is, how far out it has grown, how much of it is left. */
+  const shapes = (now: number): Shape[] => {
+    if (!pops.length) return [];
+    pops = pops.filter((p) => now - p.at < p.life);
+    return pops.map((p) => {
+      const t = (now - p.at) / p.life, s2 = (now - p.at) / 1000;
+      // Out from a point to its size, fast at first, slowing; going in its last part.
+      const rad = Math.max(cw, p.size * (1 - (1 - t) ** 3)), w = ROW * 0.8;
+      return { x: p.x + p.vx * s2, y: p.y + p.vy * s2, rad, turn: p.spin * s2, ring: p.ring, fade: t < 0.55 ? 1 : 1 - (t - 0.55) / 0.45, hue: p.hue, w };
+    });
+  };
+  // A zigzag drawn with the pointer (kumo, 2026-11-25): time stands still (the flow and the stars
+  // stop, the rest of the code dims) as the line drawn lights up along the code, then a rocket
+  // goes along it, faster and faster, its trail behind it, and bursts at its end.
+  type Rocket = { pts: [number, number][]; cum: number[]; total: number; at: number; flown: boolean; puff: number };
+  type RocketNow = { k: Rocket; stop: boolean; drawn: number; head: number; hx: number; hy: number };
+  // No standing still before it goes (kumo, 2026-11-26: the page seemed stuck).
+  const STOP = 0, FLY = 850;
+  let rk: Rocket | null = null;
+  let path: { x: number; y: number; t: number }[] = [];
+  let looked = 0, held = false;
+  /** The pointer's way, its corners only (Ramer–Douglas–Peucker, eps px). */
+  const corners = (pts: { x: number; y: number }[], eps: number): [number, number][] => {
+    const keep = new Uint8Array(pts.length);
+    keep[0] = keep[pts.length - 1] = 1;
+    const go = (a: number, b: number) => {
+      const A = pts[a]!, B = pts[b]!, L = Math.hypot(B.x - A.x, B.y - A.y) || 1;
+      let far = 0, at = -1;
+      for (let i = a + 1; i < b; i++) {
+        const d = Math.abs((B.x - A.x) * (A.y - pts[i]!.y) - (A.x - pts[i]!.x) * (B.y - A.y)) / L;
+        if (d > far) (far = d), (at = i);
+      }
+      if (far > eps && at > 0) (keep[at] = 1), go(a, at), go(at, b);
+    };
+    go(0, pts.length - 1);
+    return pts.filter((_, i) => keep[i]).map((p) => [p.x, p.y]);
+  };
+  /** A zigzag in the pointer's way: two sharp turns or more, between strokes long enough. */
+  const zigzag = (): [number, number][] | null => {
+    if (path.length < 8) return null;
+    const v = corners(path, 14);
+    if (v.length < 4 || v.length > 9) return null;
+    let sharp = 0, total = 0;
+    for (let i = 1; i < v.length; i++) {
+      const L = Math.hypot(v[i]![0] - v[i - 1]![0], v[i]![1] - v[i - 1]![1]);
+      total += L;
+      if (L < 50) return null;
+      if (i < v.length - 1) {
+        const ax = v[i]![0] - v[i - 1]![0], ay = v[i]![1] - v[i - 1]![1], bx = v[i + 1]![0] - v[i]![0], by = v[i + 1]![1] - v[i]![1];
+        if ((ax * bx + ay * by) / (Math.hypot(ax, ay) * Math.hypot(bx, by) || 1) < -0.2) sharp++;
+      }
+    }
+    return sharp >= 2 && total > 260 ? v : null;
+  };
+  const launch = (pts: [number, number][]) => {
+    const cum = [0];
+    for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1]! + Math.hypot(pts[i]![0] - pts[i - 1]![0], pts[i]![1] - pts[i - 1]![1]));
+    rk = { pts, cum, total: cum.at(-1)!, at: performance.now(), flown: false, puff: 0 };
+    path = [];
+    kick();
+  };
+  /** The point s along the rocket's way. */
+  const along = (k: Rocket, s: number): [number, number] => {
+    let i = 1;
+    while (i < k.cum.length - 1 && k.cum[i]! < s) i++;
+    const a = k.pts[i - 1]!, b = k.pts[i]!, L = k.cum[i]! - k.cum[i - 1]! || 1, u = clamp((s - k.cum[i - 1]!) / L);
+    return [a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u];
+  };
+  const rocketNow = (now: number): RocketNow | null => {
+    if (!rk) return null;
+    const t = now - rk.at;
+    const stop = t < STOP;
+    const drawn = STOP ? clamp(t / (STOP * 0.7)) : 1;
+    const u = clamp((t - STOP) / FLY);
+    const head = stop ? -1 : rk.total * u * u;
+    const [hx, hy] = head < 0 ? [-1e9, -1e9] : along(rk, head);
+    return { k: rk, stop, drawn: drawn * (2 - drawn), head, hx, hy };
   };
 
   const frame = (now: number) => {
@@ -498,7 +699,24 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
     vel += (want - vel) * (1 - Math.exp(-dt / (burst ? 0.4 : 0.7)));
     if (!(vel >= 0 && vel <= 1.5)) vel = want; // never out of what a speed is, whatever a frame's time was
     const flow = vel > 0.004 ? vel : 0;
-    if (flow > 0) for (let r = 0; r < rows; r++) off[r] = (((off[r]! + speed[r]! * flow * pace(pw) * dt) % len) + len) % len;
+    const frozen = !!rk && now - rk.at < STOP;
+    if (frozen) for (const p of pops) p.at += dt * 1000;
+    if (rk && !frozen) {
+      const t = now - rk.at;
+      if (!rk.flown) (rk.flown = true), (flowTo = now + 1100);
+      if (t < STOP + FLY && now - rk.puff > 60) {
+        rk.puff = now;
+        const u = (t - STOP) / FLY, [hx, hy] = along(rk, rk.total * u * u);
+        pop(hx, hy, false, 25, 14 + Math.random() * 10);
+      }
+      if (t >= STOP + FLY) {
+        const [ex, ey] = rk.pts.at(-1)!;
+        rk = null;
+        for (let j = 0; j < 7; j++) pop(ex, ey, false, 150 + Math.random() * 180, 36 + Math.random() * 24);
+      }
+    }
+    // Held down (kumo, 2026-11-25): more of them all the while, and the band let out that way.
+    if (flow > 0 && !frozen) for (let r = 0; r < rows; r++) off[r] = (((off[r]! + speed[r]! * flow * pace(pw) * dt) % len) + len) % len;
     // The figure's place, size and strength glide to what is asked: the cells read anew each frame.
     const [gx, gs] = goal();
     const [gc, gh] = winGoal();
@@ -546,8 +764,8 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
     ringK += (ringOn - ringK) * (1 - Math.exp(-dt / 0.35));
     if (Math.abs(ringOn - ringK) < 0.005) ringK = ringOn;
     draw();
-    calm = ringK < 0.01 && !burst && !turning && !gliding && Math.abs(vel - want) < 0.02;
-    if (flow > 0 || want || turning || gliding) kick();
+    calm = ringK < 0.01 && !burst && !turning && !gliding && !pops.length && !lensOn && !rk && !held && Math.abs(vel - want) < 0.02;
+    if (flow > 0 || want || turning || gliding || pops.length || rk || held) kick();
   };
   const kick = () => {
     if (!raf && !dead) raf = requestAnimationFrame(frame);
@@ -622,6 +840,11 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
     for (let i = 0; i < n; i++) (cur.r[i] = ink[0]), (cur.g[i] = ink[1]), (cur.b[i] = ink[2]);
     from = cur;
     wait = new Float32Array(n);
+    lit = new Float32Array(n);
+    litHue = new Float32Array(n);
+    touched = new Int32Array(n);
+    nTouched = 0;
+    rowLit = new Uint8Array(rows);
     ra = new Float32Array(n);
     rw = new Float32Array(n);
     rh = new Float32Array(n);
@@ -730,6 +953,45 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
     recolor() {
       if (!W || leaving || left) return;
       show(fig, true);
+    },
+    near(x, y) {
+      if (still || !W) return;
+      const inside = x >= 0 && y >= 0 && x <= W && y <= H;
+      if (!inside) {
+        if (lensOn) (lensOn = false), kick();
+        return;
+      }
+      const moved = Math.hypot(x - lx, y - ly);
+      lx = x;
+      ly = y;
+      lensOn = true;
+      const now = performance.now();
+      // A line is drawn pressed (a mouse's button down, a finger on the pane), not by a pointer
+      // only passing (kumo, 2026-11-26: rockets went off unasked).
+      if (moved > 3 && held) path.push({ x, y, t: now });
+      path = path.filter((p) => now - p.t < 1400);
+      if (!rk && now - looked > 60) {
+        looked = now;
+        const z = zigzag();
+        if (z) launch(z);
+      }
+      if (moved > 6 && now - lastPop > 140) {
+        lastPop = now;
+        pop(x, y, false, 10 + Math.random() * 20, 30 + Math.random() * 22);
+      }
+      kick();
+    },
+    tap(x, y) {
+      if (still || !W) return;
+      (lx = x), (ly = y), (lensOn = true);
+      // Nothing comes of a press alone any more (kumo, 2026-11-26): stars are left by a pointer's
+      // way, and by a zigzag drawn pressed.
+      kick();
+    },
+    hold(on) {
+      held = on && !still;
+      path = [];
+      if (held) kick();
     },
     edge(on) {
       if (on === edgeOn) return;
