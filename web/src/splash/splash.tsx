@@ -10,7 +10,7 @@ import { t } from "../i18n";
 import { cn, PHONE, useMedia } from "../ui";
 import { splash, type Splash as Engine } from "./engine";
 import { justMade } from "../chat/channel/adding";
-import { onPoint, panelIsUp, panelOpen, point, pointedAt, powerNow, stage, stagedNow, type Fig } from "./figure";
+import { onPoint, panelIsUp, panelOpen, point, pointedAt, powerNow, stage, stagedNow, STANDARD, type Fig } from "./figure";
 
 // The + panel and the menu beside its rows, with the gaps about them: what the figure keeps left of.
 const PANEL = 660;
@@ -90,7 +90,7 @@ export function Splash({ show = true, fig = null, scene = "", className }: { sho
     else eng.current.leave(() => setThere(false));
   }, [show, scene, there]);
   useEffect(() => fitRef.current(), [aside]);
-  useEffect(() => eng.current?.power(show ? power : 0.5), [power, show]);
+  useEffect(() => eng.current?.power(show ? power : STANDARD), [power, show]);
   if (!there) return null;
   return (
     <div aria-hidden={!now} className={cn("pointer-events-none absolute inset-x-0 z-1 transition-[top] duration-(--dur-3) ease-(--ease-out)", low ? "top-[calc(100%-84px)] h-[clamp(200px,34%,300px)] -translate-y-full" : "top-[calc(50%-24px)] h-[clamp(220px,46%,420px)] -translate-y-1/2", className)}>

@@ -7,14 +7,16 @@ import type { Agent } from "../api/types.gen";
 export type Fig = { key: string; src?: string; alt?: string; agent?: Agent };
 
 let pointed: Fig | null = null;
-let power = 0.5;
+/** The effort the flow is at its own speed for: high (kumo, 2026-11-25). */
+export const STANDARD = 0.7;
+let power = STANDARD;
 const heard = new Set<() => void>();
 
 /** The figure a row of the + panel stands for, as it is pointed at; null as the panel goes. */
 export function point(f: Fig | null): void {
   if (pointed?.key === f?.key) return;
   pointed = f;
-  power = 0.5; // another one's effort is not this one's
+  power = STANDARD; // another one's effort is not this one's
   heard.forEach((h) => h());
 }
 export const pointedAt = () => pointed;
@@ -41,16 +43,19 @@ export function beside(o: boolean): void {
 /** The panel gone, its menus with it. */
 export function panelGone(): void {
   up = false;
-  power = 0.5;
+  power = STANDARD;
   subs = 0;
   clearTimeout(later);
   tell(false);
 }
 export const panelOpen = () => open;
 
-// The effort slider's level as it is moved (chat/effort.tsx), 0 to 1: the code flows the faster
-// and the figure stands the stronger for it. 0.5 with none moved.
-export function effortAt(f: number): void {
+// The effort slider's level (chat/effort.tsx), as it shows it and as it is moved: by the level's
+// name, high the flow's own speed, the levels over it faster, those under it slower; the figure
+// stands the stronger for it too. A level with a name not known here: by its place on the track.
+const LEVELS: Record<string, number> = { off: 0.1, none: 0.1, minimal: 0.15, low: 0.3, medium: 0.5, high: STANDARD, xhigh: 0.85, max: 1, ultra: 1 };
+export function effortAt(level: string, frac: number): void {
+  const f = LEVELS[level] ?? frac;
   if (power === f) return;
   power = f;
   heard.forEach((h) => h());

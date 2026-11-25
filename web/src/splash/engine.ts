@@ -6,7 +6,7 @@
 // change as it passes. Otherwise nothing is drawn again.
 import type { Agent } from "../api/types.gen";
 import { AGY_DATA_URI, CLAUDE, DSH, DSH_VIEWBOX, OPENAI, OPENAI_VIEWBOX, PI, PI_VIEWBOX } from "../logos";
-import type { Fig } from "./figure";
+import { STANDARD, type Fig } from "./figure";
 
 const FONT = 9; // px
 const ROW = 10; // px, a row's height
@@ -50,6 +50,10 @@ const CODE = [
   "useLayoutEffect(() => measure(ref.current), [])",
   "token := r.Header.Get(\"Authorization\")",
 ];
+
+/** The flow's speed for an effort (0 to 1), of its own: 1 at the standard one (high), up to
+ *  2.2 times at the most, down to half at the least. */
+const pace = (p: number) => (p <= STANDARD ? 0.45 + (p / STANDARD) * 0.55 : 1 + Math.pow((p - STANDARD) / (1 - STANDARD), 1.3) * 1.2);
 
 type RGB = [number, number, number];
 type Field = { a: Float32Array; r: Float32Array; g: Float32Array; b: Float32Array };
@@ -138,7 +142,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean): Splash {
   // The effort slider's level (0 to 1), and where the figure's middle is and how large it is:
   // each as asked (pwT; cx, most: -1 the band's own middle) and as drawn now (pw; px, ps), the
   // drawn gliding to the asked, never set over to it in one frame (kumo, 2026-11-25: it twitched).
-  let pw = 0.5, pwT = 0.5;
+  let pw = STANDARD, pwT = STANDARD;
   let cx = -1, most = 0, px = -1, ps = 0;
   let vel = 0, wasGliding = false, tick = 0, calm = false, odd = false;
   let leaving: (() => void) | null = null, left = false, spreadNow = SPREAD;
@@ -278,7 +282,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean): Splash {
     const want = still ? 0 : burst ? 1 : IDLE;
     vel += (want - vel) * (1 - Math.exp(-dt / (burst ? 0.4 : 0.7)));
     const flow = vel > 0.004 ? vel : 0;
-    if (flow > 0) for (let r = 0; r < rows; r++) off[r] = (off[r]! + speed[r]! * flow * (0.6 + 2.4 * pw * pw) * dt + len) % len;
+    if (flow > 0) for (let r = 0; r < rows; r++) off[r] = (off[r]! + speed[r]! * flow * pace(pw) * dt + len) % len;
     // The figure's place, size and strength glide to what is asked: the cells read anew each frame.
     const [gx, gs] = goal();
     const gliding = Math.abs(gx - px) > 0.4 || Math.abs(gs - ps) > 0.4 || Math.abs(pwT - pw) > 0.004;
@@ -414,7 +418,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean): Splash {
     for (let r = 0; r < rows; r++) {
       text.push(line(len));
       off[r] = Math.random() * len;
-      speed[r] = (r % 2 ? -1 : 1) * (1.5 + Math.random() * 3.5); // cells a second
+      speed[r] = (r % 2 ? -1 : 1) * (1.8 + Math.random() * 4.2); // cells a second
     }
     if (!grown && kept && kept.cols === cols && kept.rows === rows && performance.now() - kept.at < 2000) {
       ({ text, off, speed, cur } = kept);
