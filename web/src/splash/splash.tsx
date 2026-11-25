@@ -13,7 +13,7 @@ import { onPoint, panelIsUp, panelOpen, pointedAt, powerNow, stage, stagedNow, S
 // The + panel and the menu beside its rows, with the gaps about them: what the figure keeps left of.
 const PANEL = 660;
 
-const MASK = "linear-gradient(to bottom, transparent, #000 24%, #000 76%, transparent), linear-gradient(to right, transparent, #000 10%, #000 90%, transparent)";
+const MASK = "linear-gradient(to right, transparent, #000 10%, #000 90%, transparent)";
 
 /** show: false, it fades and is gone. fig: what it draws when no row of the + panel is pointed
  *  at; none: Iridium's letters. */
@@ -33,10 +33,6 @@ export function Splash({ show = true, fig = null, scene = "", className }: { sho
   const phone = useMedia(PHONE);
   const up = useSyncExternalStore(onPoint, panelIsUp);
   const low = phone && up && show;
-  // Under the + panel it is the same band, moved down and made smaller as one piece, slowly: not
-  // drawn anew there, not gone and come again (kumo, 2026-11-25). How far and how small, by the
-  // pane's height (fit).
-  const [down, setDown] = useState(0);
   const lowRef = useRef(low);
   lowRef.current = low;
   const fitRef = useRef(() => {});
@@ -53,23 +49,21 @@ export function Splash({ show = true, fig = null, scene = "", className }: { sho
     eng.current = e;
     e.figure(nowRef.current);
     e.resize();
-    // Left of the panel while it is open and there is room for a figure there; else the middle.
+    // The canvas is the whole pane; the band is the window of it that is seen (engine.ts): in the
+    // pane's middle, or, in the portrait layout with the + panel there, in what is left under
+    // the panel (half the pane) over the composer. The figure: left of the panel and its menu
+    // while one is open beside it and there is room; else in the window's middle, in the
+    // portrait layout as wide as the pane has room for, the window showing the middle of it.
     const fit = () => {
       e.resize();
-      const w = el.clientWidth, h = el.clientHeight, free = w - PANEL;
+      const w = el.clientWidth, pane = el.clientHeight, ph = phoneRef.current;
+      const under = ph && lowRef.current;
+      const h = under ? Math.max(120, pane / 2 - 128) : ph ? Math.min(460, Math.max(260, pane * 0.56)) : Math.min(420, Math.max(220, pane * 0.46));
+      e.window(under ? pane - 76 - h / 2 : pane / 2 - 24, h);
+      const free = w - PANEL;
       const left = asideRef.current && free >= 240;
-      // The portrait layout: as large as the band has room for. Under the + panel (lowRef) the
-      // band is moved down, its foot on the composer, its characters as they are and the band as
-      // wide (kumo, 2026-11-25: not made smaller); the figure goes to the part of it left under
-      // the panel, half the pane's height less the composer, as large as that part.
-      const pane = el.parentElement?.parentElement?.clientHeight ?? 0;
-      const room = Math.min(h, Math.max(120, pane / 2 - 128));
-      const under = phoneRef.current && lowRef.current;
-      const side = left ? Math.min(h * 0.92, free * 0.9) : under ? Math.min(room * 0.98, w * 0.94) : phoneRef.current ? Math.min(h * 0.98, w * 0.94) : Math.min(h * 0.92, w * 0.7);
-      const own = !left && !phoneRef.current;
-      e.place(own ? -1 : left ? free / 2 : w / 2, side, under ? h - room / 2 : -1);
-      const dy = Math.round(pane - 76 - (pane / 2 - 24 + h / 2));
-      setDown((d) => (d === dy ? d : dy));
+      const side = left ? Math.min(h * 0.92, free * 0.9) : ph ? Math.min(w * 0.94, h * 1.4) : Math.min(h * 0.92, w * 0.7);
+      e.place(left ? free / 2 : !ph ? -1 : w / 2, side);
     };
     fitRef.current = fit;
     fit();
@@ -77,9 +71,7 @@ export function Splash({ show = true, fig = null, scene = "", className }: { sho
     ro.observe(el);
     const move = (ev: PointerEvent) => {
       const r = el.getBoundingClientRect();
-      // As drawn it may be smaller than it is (moved under the panel): the pointer in its own px.
-      const z = r.width ? el.clientWidth / r.width : 1;
-      e.near((ev.clientX - r.left) * z, (ev.clientY - r.top) * z);
+      e.near(ev.clientX - r.left, ev.clientY - r.top);
     };
     window.addEventListener("pointermove", move, { passive: true });
     return () => {
@@ -105,8 +97,8 @@ export function Splash({ show = true, fig = null, scene = "", className }: { sho
   useEffect(() => eng.current?.power(show ? power : STANDARD), [power, show]);
   if (!there) return null;
   return (
-    <div aria-hidden={!now} style={{ transform: low ? `translateY(${down}px)` : undefined }} className={cn("pointer-events-none absolute inset-x-0 top-[calc(50%-24px)] z-1 -translate-y-1/2 transition-transform duration-700 ease-(--ease-out) motion-reduce:transition-none", phone ? "h-[clamp(260px,56%,460px)]" : "h-[clamp(220px,46%,420px)]", className)}>
-      <canvas ref={cv} aria-hidden className="absolute inset-0 size-full text-ink" style={{ maskImage: MASK, maskComposite: "intersect", WebkitMaskImage: MASK, WebkitMaskComposite: "source-in" }} />
+    <div aria-hidden={!now} className={cn("pointer-events-none absolute inset-0 z-1", className)}>
+      <canvas ref={cv} aria-hidden className="absolute inset-0 size-full text-ink" style={{ maskImage: MASK, WebkitMaskImage: MASK }} />
     </div>
   );
 }

@@ -121,7 +121,7 @@ export const ahead = (f: Fig) => void (f.src && picture(f.src));
 // anew (kumo, 2026-11-25: it blinked).
 let kept: { at: number; cols: number; rows: number; text: string[][]; off: Float32Array<ArrayBuffer>; speed: Float32Array<ArrayBuffer>; cur: Field; key: string } | null = null;
 
-export type Splash = { leave(done: () => void): void; enter(): void; figure(f: Fig | null): void; place(x: number, side: number, y?: number): void; power(f: number): void; resize(): void; near(x: number, y: number): void; stop(): void };
+export type Splash = { leave(done: () => void): void; enter(): void; figure(f: Fig | null): void; place(x: number, side: number, y?: number): void; window(middle: number, height: number): void; power(f: number): void; resize(): void; near(x: number, y: number): void; stop(): void };
 
 /** fine: smaller characters, more of them to a figure (the portrait layout, where the band is
  *  narrow and a figure of few cells is a blur: kumo, 2026-11-25). */
@@ -147,10 +147,24 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
   // drawn gliding to the asked, never set over to it in one frame (kumo, 2026-11-25: it twitched).
   let pw = STANDARD, pwT = STANDARD;
   let cx = -1, most = 0, px = -1, ps = 0;
-  let cy = -1, py = -1; // its middle's height in the band: asked (-1: the band's own) and drawn
+  let cy = -1, py = -1; // its middle's height: asked (-1: the window's own middle) and drawn
+  // The window (kumo, 2026-11-25): the code is over the whole canvas, each row where it is, and
+  // only the rows in the window are seen, fading out to its upper and lower edge. Moved, the
+  // window goes over the rows, those it leaves fading and those it comes to coming up: the
+  // characters do not move with it. Its middle and height, asked (-1: the canvas's own) and drawn.
+  let wcT = -1, whT = -1, wc = 0, wh = 0;
+  const winGoal = (): [number, number] => (wcT < 0 ? [H / 2, H] : [wcT, whT]);
+  /** How much of a row at height y is seen: all of it in the window's middle half, none at its edges. */
+  const seen = (y: number) => {
+    const d = Math.abs(y - wc) / (wh / 2 || 1);
+    if (d >= 1) return 0;
+    if (d <= 0.52) return 1;
+    const t = (1 - d) / 0.48;
+    return t * t * (3 - 2 * t);
+  };
   let vel = 0, wasGliding = false, tick = 0, calm = false, odd = false;
   let leaving: (() => void) | null = null, left = false, spreadNow = SPREAD;
-  const goal = (): [number, number] => (cx < 0 ? [W / 2, Math.min(H * 0.92, W * 0.7)] : [cx, most]);
+  const goal = (): [number, number] => (cx < 0 ? [W / 2, Math.min((whT < 0 ? H : whT) * 0.92, W * 0.7)] : [cx, most]);
   let fig: Fig | null = null, photo = false, drawnKey = "", asked = 0;
   let t0 = -1e9, flowTo = 0, last = 0, raf = 0, hot = false, first = true, dead = false;
 
@@ -247,6 +261,8 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
     g.textBaseline = "top";
     for (let r = 0; r < rows; r++) {
       const o = Math.floor(off[r]!), f = off[r]! - o, row = text[r]!, y = r * ROW + 0.5;
+      const env = seen(y + ROW / 2);
+      if (env < 0.01) continue;
       let run = "", at = 0, key = -1;
       const flush = () => {
         if (!run || !(key & 31)) return;
@@ -255,7 +271,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
       };
       for (let k = 0; k < cols; k++) {
         const i = r * cols + k;
-        const k2 = Math.min(24, Math.round(clamp(cur.a[i]! + heat[i]! * 0.34) * 24)) | ((cur.r[i]! >> 3) << 5) | ((cur.g[i]! >> 3) << 10) | ((cur.b[i]! >> 3) << 15);
+        const k2 = Math.min(24, Math.round(clamp(cur.a[i]! + heat[i]! * 0.34) * env * 24)) | ((cur.r[i]! >> 3) << 5) | ((cur.g[i]! >> 3) << 10) | ((cur.b[i]! >> 3) << 15);
         if (k2 !== key) {
           flush();
           run = "";
@@ -293,15 +309,18 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
     if (flow > 0) for (let r = 0; r < rows; r++) off[r] = (((off[r]! + speed[r]! * flow * pace(pw) * dt) % len) + len) % len;
     // The figure's place, size and strength glide to what is asked: the cells read anew each frame.
     const [gx, gs] = goal();
-    const gy = cy < 0 ? H / 2 : cy;
-    const gliding = Math.abs(gx - px) > 0.4 || Math.abs(gy - py) > 0.4 || Math.abs(gs - ps) > 0.4 || Math.abs(pwT - pw) > 0.004;
+    const [gc, gh] = winGoal();
+    const gy = cy < 0 ? gc : cy;
+    const gliding = Math.abs(gc - wc) > 0.4 || Math.abs(gh - wh) > 0.4 || Math.abs(gx - px) > 0.4 || Math.abs(gy - py) > 0.4 || Math.abs(gs - ps) > 0.4 || Math.abs(pwT - pw) > 0.004;
     if (gliding) {
-      const k = 1 - Math.exp(-dt / 0.16);
+      const k = 1 - Math.exp(-dt / 0.3);
+      wc += (gc - wc) * k;
+      wh += (gh - wh) * k;
       px += (gx - px) * k;
       py += (gy - py) * k;
       ps += (gs - ps) * k;
       pw += (pwT - pw) * k;
-    } else if (wasGliding) (px = gx), (py = gy), (ps = gs), (pw = pwT);
+    } else if (wasGliding) (wc = gc), (wh = gh), (px = gx), (py = gy), (ps = gs), (pw = pwT);
     if ((gliding || wasGliding) && !leaving) to = read();
     const span = now - t0;
     const turning = span < spreadNow + TURN + 400;
@@ -389,7 +408,8 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
   /** What is asked, at once (no motion wanted, or nothing drawn yet to move from). */
   const settle = () => {
     [px, ps] = goal();
-    py = cy < 0 ? H / 2 : cy;
+    [wc, wh] = winGoal();
+    py = cy < 0 ? wc : cy;
     pw = pwT;
     if (!cur.a.length || drawnKey !== (fig?.key ?? "")) return;
     to = read();
@@ -410,7 +430,8 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
     g.font = `${FONT}px ui-monospace, "SF Mono", Menlo, "JetBrains Mono", "Cascadia Mono", "DejaVu Sans Mono", monospace`;
     cw = g.measureText("M").width || 5.4;
     [px, ps] = goal();
-    py = cy < 0 ? H / 2 : cy;
+    [wc, wh] = winGoal();
+    py = cy < 0 ? wc : cy;
     pw = pwT;
     cols = Math.ceil(W / cw) + 1;
     rows = Math.floor(H / ROW);
@@ -480,6 +501,15 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
       if (!W) return void (pw = f);
       if (still) return settle();
       flowTo = performance.now() + 1400;
+      kick();
+    },
+    window(middle, height) {
+      if (Math.abs(middle - wcT) < 1 && Math.abs(height - whT) < 1) return;
+      const first = wcT < 0;
+      wcT = middle;
+      whT = height;
+      if (!W) return;
+      if (still || first) return settle();
       kick();
     },
     place(x, side, y = -1) {
