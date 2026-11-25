@@ -40,7 +40,7 @@ import { actsOf } from "./menu";
 import { subName, SubTag } from "../subwork";
 import { appAll, hasApp, hasLogin, loginOf, peopleOf, pressApp, pressLogin } from "./setup";
 
-const SUB = "no-bar max-h-[min(480px,var(--available-height))] min-w-60 max-w-[calc(100vw-16px)] overflow-y-auto p-1.5";
+const SUB = "no-bar max-h-[min(480px,var(--available-height))] min-w-52 max-w-[calc(100vw-16px)] overflow-y-auto p-1.5 pointer-coarse:min-w-60";
 const HEAD = "truncate px-2.5 pt-2 pb-0.5 text-xs text-ink-3 select-none first:pt-1";
 
 /** bare: no mark at the row's end (the + panel's rows: kumo, 2026-11-25). */
@@ -162,7 +162,7 @@ export function TopRight({ id }: { id: string }) {
           </Tip>
           <MenuPortal>
             <Menu.Positioner side="bottom" align="end" sideOffset={6} collisionPadding={8} className="z-50">
-              <Menu.Popup finalFocus={false} className={cn(POPUP, SUB, "w-[min(344px,calc(100vw-16px))]")}>
+              <Menu.Popup finalFocus={false} className={cn(POPUP, SUB, "w-[min(320px,calc(100vw-16px))] pointer-coarse:w-[min(344px,calc(100vw-16px))]")}>
                 <Invite id={id} />
               </Menu.Popup>
             </Menu.Positioner>

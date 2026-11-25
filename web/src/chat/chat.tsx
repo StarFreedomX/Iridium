@@ -276,7 +276,7 @@ const Bar = memo(function Bar({ s, onSheet, onMe, onBack, recordOnly }: { s?: Se
               </Tip>
               <MenuPortal>
                 <Menu.Positioner side="bottom" align="end" sideOffset={6} collisionPadding={8} className="z-50">
-                  <MenuItems lead={lead} items={acts} tags={sessionTags(s)} className="min-w-56">
+                  <MenuItems lead={lead} items={acts} tags={sessionTags(s)} className="pointer-coarse:min-w-56">
                     {!recordOnly && (
                       <Suspense fallback={null}>
                         <ChannelMenu id={s.id} from={lead.length} face={!!onSheet} />
