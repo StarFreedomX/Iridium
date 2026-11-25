@@ -17,7 +17,7 @@ import { cmdOfCall, isShell, type Cmd } from "./cmd";
 import { diffSum, foldLine, kindOf, runCmds, type Step } from "./fold";
 import { StopKey } from "./live";
 import { Pictures } from "./pictures";
-import { DiffStat, KindIcon, lasted, ROW, StepCard, StepLine, tookOf } from "./said";
+import { DiffStat, KindIcon, lasted, ROW, StepCard, StepLine, tookOf, wholeAhead } from "./said";
 import { allStepsOf, readSteps, spanBlocks, spanSub, stepsOf } from "./spans";
 
 export { allStepsOf, readSteps, stepsOf };
@@ -204,15 +204,17 @@ export function WorkLine({ channel, n, session, work, did, span, may, esc }: { c
           aria-expanded={one ? !!card?.open && card.key === one.at : opens ? open : undefined}
           data-step-row={one ? one.at : undefined}
           disabled={!opens}
-          onPointerEnter={read}
-          onFocus={read}
-          onPointerDown={read}
+          onPointerEnter={() => (read(), void (one && wholeAhead(session, one)))}
+          onFocus={() => (read(), void (one && wholeAhead(session, one)))}
+          onPointerDown={() => (read(), void (one && wholeAhead(session, one)))}
           onClick={(e) => {
             if (one) {
               const shut = (!!card?.open && card.key === one.at) || wasOn.current === one.at;
               wasOn.current = "";
               clearTimeout(wasOnTimer.current);
-              setCard(shut ? (card ? { ...card, open: false } : null) : { key: one.at, at: one.at, group: [one.at], el: e.currentTarget, open: true });
+              if (shut) return setCard(card ? { ...card, open: false } : null);
+              const el = e.currentTarget;
+              void Promise.race([wholeAhead(session, one), new Promise((r) => setTimeout(r, 400))]).then(() => setCard({ key: one.at, at: one.at, group: [one.at], el, open: true }));
               return;
             }
             toggle();
@@ -351,13 +353,21 @@ function StepList({ reveal, session, steps, only, rows, open, card, setCard, was
         aria-haspopup="dialog"
         aria-expanded={on}
         data-step-row={key}
+        onPointerEnter={() => void wholeAhead(session, group[0]!)}
+        onFocus={() => void wholeAhead(session, group[0]!)}
+        onPointerDown={() => void wholeAhead(session, group[0]!)}
         onClick={(e) => {
           // Pressed while its card was open: the card is put away (the press outside it did that
           // already), not opened again.
           const shut = on || wasOn.current === key;
           wasOn.current = "";
           clearWasOn();
-          setCard(shut ? (card ? { ...card, open: false } : null) : { key, at: group[0]!.at, group: group.map((s) => s.at), el: e.currentTarget, open: true });
+          if (shut) return setCard(card ? { ...card, open: false } : null);
+          // Whole as it opens: what it shows cut short is waited for, a moment at most (a finger
+          // points at nothing before it presses).
+          const el = e.currentTarget;
+          const open = () => setCard({ key, at: group[0]!.at, group: group.map((s) => s.at), el, open: true });
+          void Promise.race([wholeAhead(session, group[0]!), new Promise((r) => setTimeout(r, 400))]).then(open);
         }}
         className={cn(ROW, "w-full shrink-0 text-left outline-none select-none focus-visible:text-ink-2", on && "text-ink")}
       >

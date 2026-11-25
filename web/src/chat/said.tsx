@@ -1173,11 +1173,12 @@ function SubResult({ r, session, fold }: { r: Result; session: string; fold: boo
  *  fields: an input, shown field by field; cap: inline in the conversation, scrolled past 20 lines.
  *  asked: in a fold whose opening brings the whole (false till then): no key of its own. */
 function Clipped({ text, length, at, session, error, prose, fields, shell, cap, asked }: { text: string; length?: number; at: string; session: string; error?: boolean; prose?: boolean; fields?: boolean; shell?: boolean; cap?: boolean; asked?: boolean }) {
-  const [whole, setWhole] = useState<string>();
+  // Asked for ahead (wholeAhead: its row pointed at or pressed): had as it opens, or once it comes.
+  const [whole, setWhole] = useState<string | undefined>(() => wholes.get(wholeKey(session, at)));
   const [state, setState] = useState<"idle" | "busy" | "failed">("idle");
   const more = () => {
     setState("busy");
-    api.block(session, at).then(
+    wholeOf(session, at).then(
       (d) => (setWhole(d.text), setState("idle")),
       () => setState("failed"),
     );
@@ -1197,6 +1198,33 @@ function Clipped({ text, length, at, session, error, prose, fields, shell, cap, 
       {state === "failed" && <span className="text-xs text-err">{t("err.whole")}</span>}
     </div>
   );
+}
+
+// A block's whole text, kept once read; coming: being read.
+const wholes = new Map<string, string>();
+const coming = new Map<string, Promise<{ text: string }>>();
+const wholeKey = (session: string, at: string) => `${session} ${at}`;
+function wholeOf(session: string, at: string): Promise<{ text: string }> {
+  const k = wholeKey(session, at);
+  const had = wholes.get(k);
+  if (had !== undefined) return Promise.resolve({ text: had });
+  let p = coming.get(k);
+  if (!p) {
+    p = api.block(session, at).then((d) => (wholes.set(k, d.text), d));
+    coming.set(k, p);
+    void p.catch(() => {}).finally(() => coming.delete(k));
+  }
+  return p;
+}
+/** What step s's card shows cut short (a long command, a long output), read whole ahead of the
+ *  card: as its row is pointed at or pressed, so the card opens with it and is not drawn again
+ *  (kumo, 2026-11-25: 一打开内容变了). Settles once they are had, or could not be. */
+export function wholeAhead(session: string, s: Step): Promise<unknown> {
+  const parts: string[] = [];
+  if (s.length && s.at) parts.push(s.at);
+  const r = s.kind === "tool" ? s.result : undefined;
+  if (r?.length && r.at) parts.push(r.at);
+  return Promise.all(parts.map((at) => wholeOf(session, at).catch(() => {})));
 }
 
 /** JSON as an object's lines; any other text as it is. */
