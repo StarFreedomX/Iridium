@@ -69,6 +69,7 @@ export const en: Dict = {
   "voice.err.full": "Voice is full",
   "voice.err.failed": "Voice connection failed",
 
+  "menu.home": "Home",
   "menu.new": "New session",
   "menu.newHere": "New session here",
   "menu.copyPath": "Copy path",

@@ -249,7 +249,9 @@ export function App() {
   const [sheetFor, setSheetFor] = useState(`${open} ${phone}`);
   if (sheetFor !== `${open} ${phone}`) {
     setSheetFor(`${open} ${phone}`);
-    if (phone) setSheetOut(!open);
+    // A chat opened puts the sheet away; the home pane come to shows its splash, the sheet down as
+    // at the first screen (kumo, 2026-11-25).
+    if (phone) setSheetOut(false);
   }
   // Out by a swipe up from the left quarter (x), on the 终端 page; else on the sessions' (the user,
   // 2026-11-06). Put away, or brought to the sessions, the panel's route is left.
@@ -592,8 +594,9 @@ function Empty({ below, onSheet }: { below: number; onSheet?: () => void }) {
       <div data-app-drag className="absolute inset-x-0 top-0 z-2 flex h-12 items-center justify-end pr-2 pointer-coarse:h-13">
         {/* A phone's key to its sheet, where a chat's bar has it. */}
         {onSheet && (
-          <button type="button" aria-label={t("nav.sidebar")} onClick={onSheet} className="g-press mr-auto ml-2 grid place-items-center rounded-md p-2 hover:bg-fill">
+          <button type="button" aria-label={t("nav.sidebar")} onClick={onSheet} className="g-press mr-auto ml-2 flex items-center gap-2.5 rounded-md p-2 hover:bg-fill">
             <IrMark size={18} className="text-ink" />
+            <span className="text-base font-semibold">Iridium</span>
           </button>
         )}
         <AppKey />

@@ -72,6 +72,7 @@ export const zh = {
   "menu.rename": "改名",
   "menu.split": "按子文件夹拆开",
   "menu.syncDsh": "同步 DSH",
+  "menu.home": "回到主页",
   "menu.new": "新建会话",
   "menu.newHere": "在这里开新会话",
   "menu.copyPath": "复制路径",
