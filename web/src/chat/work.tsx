@@ -403,9 +403,12 @@ function StepList({ reveal, session, steps, only, rows, open, card, setCard, was
           )}
         </div>
       </div>
+      {/* One for each row: a still card's place is taken as it opens, and another row pressed
+          while the first one's card was still going away opened in that one, at its place
+          (kumo, 2026-11-25). */}
       {(ever || !!card) && (
-        <Popover.Root open={!!card?.open && !!chosen} onOpenChange={(o) => !o && card && setCard({ ...card, open: false })}>
-          <PopSurface anchor={card?.el && (phone ? atTop(card.el) : aside(card.el))} still sideOffset={4} className={cn("flex w-[min(620px,calc(100vw-16px))] flex-col overflow-hidden", phone ? "h-[min(56dvh,520px)]" : "max-h-[min(72dvh,620px,var(--available-height))]")}>
+        <Popover.Root key={card?.key} open={!!card?.open && !!chosen} onOpenChange={(o) => !o && card && setCard({ ...card, open: false })}>
+          <PopSurface anchor={card?.el && (phone ? atTop(card.el) : aside(card.el))} still scrim={phone} sideOffset={4} className={cn("flex w-[min(620px,calc(100vw-16px))] flex-col overflow-hidden", phone ? "h-[min(56dvh,520px)] bg-(--glass-thick-solid)!" : "max-h-[min(72dvh,620px,var(--available-height))]")}>
             {chosen && card && (
               <>
                 {among.length > 1 && (

@@ -368,6 +368,7 @@ export function PopSurface({
   finalFocus,
   anchor,
   still,
+  scrim,
   style,
 }: {
   children: ReactNode;
@@ -384,10 +385,14 @@ export function PopSurface({
    *  a frame behind each push, and flipped over the face as that neared an edge (kumo,
    *  2026-11-17). Needs anchor. */
   still?: boolean;
+  /** The page under it dimmed and blurred: where it opens away from what it is of, at one place
+   *  over everything (a step's card on the phone), so it stands apart from what it covers. */
+  scrim?: boolean;
   style?: CSSProperties;
 }) {
   return (
     <PopoverPortal>
+      {scrim && <Popover.Backdrop className="fixed inset-0 z-50 bg-[oklch(0_0_0/0.3)] backdrop-blur-[2px] transition-opacity duration-(--dur-2) data-ending-style:opacity-0 data-starting-style:opacity-0" />}
       <Placed side={side} align={align} sideOffset={sideOffset} anchor={anchor} still={still}>
         <Popover.Popup initialFocus={initialFocus ?? ((type) => type === "keyboard")} finalFocus={finalFocus} style={style} className={cn("g-unfold glass thick float rounded-lg text-ink outline-none", className)}>
           {children}
