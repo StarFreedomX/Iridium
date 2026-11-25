@@ -253,13 +253,15 @@ const Bar = memo(function Bar({ s, onSheet, onMe, onBack, recordOnly }: { s?: Se
               )}
             </>
           )}
+          {/* A phone's link, after the name (kumo, 2026-11-25): its round trip grows and shrinks
+              out of the name's room, the keys at the right staying where they are. */}
+          {onSheet && <LinkDot className="shrink-0" />}
         </div>
         {s && !recordOnly && (
           <Suspense fallback={null}>
             <TopRight id={s.id} />
           </Suspense>
         )}
-        {onSheet && <LinkDot />}
         {!s && <span aria-hidden className="size-8 shrink-0 pointer-coarse:size-10" />}
         {onSheet && <VoiceDock side="bottom" />}
         {s && (

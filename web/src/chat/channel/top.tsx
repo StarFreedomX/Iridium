@@ -265,6 +265,8 @@ function Invite({ id }: { id: string }) {
   // picked), only not drawn.
   const finger = useMedia("(pointer: coarse)");
   const [page, setPage] = useState<{ k: Agent; m?: Machine } | { app: string } | null>(null);
+  const stepped = useRef(false);
+  if (page) stepped.current = true;
   const loginRows = (app: string) => (
     <>
       <Menu.Item closeOnClick={false} disabled={members?.me === appAll(app)} onClick={() => setPeople(pressApp(people, ids, idsOf, app, members?.me))} className={ITEM}>
@@ -282,7 +284,8 @@ function Invite({ id }: { id: string }) {
   );
   return (
     <Tall>
-      <div className={cn("g-stagger flex flex-col", page && "hidden")}>
+      {/* Back from a page, the list comes in from the other side; as the panel opens it does not slide. */}
+      <div data-dir="back" className={cn("flex flex-col", stepped.current ? "g-slide" : "g-stagger", page && "hidden")}>
         <AddAgents id={id} onKind={finger ? (k, m) => setPage({ k, m }) : undefined} />
         {apps.length > 0 && <div role="separator" className="mx-2.5 my-1 border-t border-(--edge)" />}
         {apps.map((a) => {
