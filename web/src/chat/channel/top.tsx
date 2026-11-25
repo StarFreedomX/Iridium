@@ -7,13 +7,14 @@ import { Menu } from "@base-ui/react/menu";
 import { Popover } from "@base-ui/react/popover";
 import { useQueryClient } from "@tanstack/react-query";
 import { useQuery } from "../../api/query";
-import { Check, ChevronRight, PencilLine, UserPlus, Users } from "lucide-react";
+import { Check, ChevronRight, PencilLine, Plus, Users } from "lucide-react";
 import { useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { api } from "../../api/client";
 import type { Agent, ChannelMembers, Script, Viewer } from "../../api/types.gen";
 import { agentsQ, isComputer, useApps, useMachines } from "../../data";
 import { t, useLang } from "../../i18n";
 import { useMachine } from "../../machines";
+import { prefetchRoles } from "../../roles";
 import { openChat } from "../../route";
 import { useCarried, useList, useSession } from "../../store";
 import { working } from "../../tree";
@@ -23,7 +24,7 @@ import { openEdit } from "./editing";
 import { Face, MemberFace } from "./face";
 import { ContextMark } from "../meters";
 import { mayAct, useMembers } from "./gate";
-import { AgentKinds, ITEM, MachineKinds, POPUP } from "./invite";
+import { AddAgents, ITEM, POPUP } from "./invite";
 import { prefetchChoices } from "./pick";
 import { useAhead } from "../../prefetch";
 import { memberError } from "./key";
@@ -78,6 +79,7 @@ export function TopRight({ id }: { id: string }) {
   // The other computers' kinds too, where they would run (invite.tsx); its agents' own model
   // menus too (members.tsx MemberItems: at their machine, none: here).
   const ahead = () => {
+    prefetchRoles();
     prefetchChoices(qc, kinds, { channel: id });
     for (const m of members?.members ?? []) if (m.session && m.agent) prefetchChoices(qc, [m.agent as Agent], { machine: list?.find((x) => x.id === m.session)?.machine || undefined });
     for (const m of machines) if (m.online && m.id !== row?.machine) prefetchChoices(qc, m.agents.map((a) => a.agent as Agent), { machine: m.id });
@@ -147,6 +149,29 @@ export function TopRight({ id }: { id: string }) {
           </Menu.Positioner>
         </MenuPortal>
       </Menu.Root>
+      {/* 邀请, a key of its own (kumo, 2026-11-25): what it opens is the agents to add and the people. */}
+      {mayAct(members) && (
+        <Menu.Root onOpenChange={(open) => open && ahead()}>
+          <Tip label={t("channel.invite")} side="bottom">
+            <Menu.Trigger
+              render={
+                <button type="button" aria-label={t("channel.invite")} {...keyAhead} className="g-press grid size-8 place-items-center rounded-md text-ink-2 hover:bg-fill hover:text-ink data-popup-open:bg-fill pointer-coarse:size-10">
+                  <Plus size={16} />
+                </button>
+              }
+            />
+          </Tip>
+          <MenuPortal>
+            <Menu.Positioner side="bottom" align="end" sideOffset={6} collisionPadding={8} className="z-50">
+              <Menu.Popup finalFocus={false} className={cn(POPUP, SUB)}>
+                <div className="g-stagger flex flex-col">
+                  <Invite id={id} />
+                </div>
+              </Menu.Popup>
+            </Menu.Positioner>
+          </MenuPortal>
+        </Menu.Root>
+      )}
       <MemberAsks channel={id} anchor={key} asked={asked} done={() => setAsked(null)} />
       <ScriptPop channel={id} anchor={key} page={script} done={() => setScript(null)} align="end" />
     </span>
@@ -192,8 +217,7 @@ function MemberList({ id, ask, script }: { id: string; ask: (a: Ask) => void; sc
           card. What wakes an agent is not listed here (kumo, 2026-11-24): it is the agent's own,
           in its 唤醒 and its 编辑资料. */}
       <Commands id={id} scripts={scripts} script={script} />
-      {/* No 人 / 所有人 here (kumo, 2026-11-16): who the people are is 邀请's to show and set. */}
-      {may && <Invite id={id} />}
+      {/* No 人 / 所有人 here (kumo, 2026-11-16), no 邀请 (kumo, 2026-11-25): the + beside the key. */}
     </>
   );
 }
@@ -220,13 +244,10 @@ function Commands({ id, scripts, script }: { id: string; scripts: Script[]; scri
   );
 }
 
-/** 邀请, among the members (the user, 2026-11-13): agents (invite.tsx), people (an app a
- *  submenu of its logins). */
+/** What the + beside the members' key opens (kumo, 2026-11-25): the agents to add (invite.tsx),
+ *  then the people (an app a submenu of its logins). */
 function Invite({ id }: { id: string }) {
   const qc = useQueryClient();
-  const list = useList();
-  const row = useSession(id) ?? list?.find((x) => x.id === id);
-  const here = useMachine(row?.machine);
   const members = useMembers(id);
   const d = useApps().data;
   const set = (ms: ChannelMembers) => void qc.setQueryData<ChannelMembers>(["members", id], ms);
@@ -239,9 +260,9 @@ function Invite({ id }: { id: string }) {
   const idsOf = (app: string) => loginsOf(app).map((l) => l.id);
   const setPeople = (p: string[]) => run(() => api.setPeople(id, p));
   return (
-      <Sub icon={<UserPlus size={15} />} label={t("channel.invite")} i={0}>
-        <div className={HEAD}>{row?.machine ? here?.name : t("term.local")}</div>
-        <AgentKinds id={id} />
+    <>
+      <AddAgents id={id} />
+      {apps.length > 0 && <div role="separator" className="mx-2.5 my-1 border-t border-(--edge)" />}
         {apps.map((a) => {
           const name = a.web ? t("term.panel") : a.name;
           const logins = loginsOf(a.id);
@@ -261,9 +282,7 @@ function Invite({ id }: { id: string }) {
             </Sub>
           );
         })}
-        {/* The other computers' agents, last (kumo, 2026-11-18). */}
-        <MachineKinds id={id} />
-      </Sub>
+    </>
   );
 }
 

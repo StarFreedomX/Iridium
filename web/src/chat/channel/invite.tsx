@@ -1,15 +1,13 @@
-// Adding agents to a channel (docs/channels.md "邀请"; the user, 2026-11-13), under 邀请 among
-// the members at the bar's right (top.tsx): the kinds of agent, each row naming the model a press
-// of it uses ("Claude · Opus 5.5": never "default", the user, 2026-11-16) and opening the model
-// and effort menu the chat's own model key has (that model first; dsh's presets under it). A
+// Adding agents to a channel (docs/channels.md "邀请"; kumo, 2026-11-25), under the + beside the
+// members' key at the bar's right (top.tsx). At its top the computers, one picked (AddAgents);
+// under them the templates (roles: face and name, a press adds one as that role) and the kinds
+// of agent, each row naming the model a press of it uses ("Claude · Opus 5.5": never "default",
+// the user, 2026-11-16) and opening the model and effort menu the chat's own model key has. A
 // kind's row pressed adds it with that model; a model picked there adds it with that one (kumo,
 // 2026-11-15: no filled 添加 key). On a phone (no hover) a press opens the menu, a row there adds.
 // The agent joins the channel as a session of its own, ready. The same kind may be added again.
-// The roles come first (docs/channels.md "角色"; kumo, 2026-11-16): each by its face, name and
-// line, a press adds one as that role; its menu changes the model and effort for this once.
-// The other computers' (kumo, 2026-11-18) are 邀请's last rows (MachineKinds), a computer a row
-// that opens its kinds, as tall cut off as linked: one added runs there, in that computer's home
-// folder (docs/channels.md "别的电脑的 agent").
+// One of another computer runs there, in that computer's home folder (docs/channels.md "别的电脑
+// 的 agent").
 import { Menu } from "@base-ui/react/menu";
 import { useQueryClient } from "@tanstack/react-query";
 import { useQuery } from "../../api/query";
@@ -19,11 +17,11 @@ import { api } from "../../api/client";
 import type { Agent, ChannelMembers, Role } from "../../api/types.gen";
 import { agentsQ, useMachines } from "../../data";
 import { t, useLang } from "../../i18n";
-import { MachineFace, useMachine, type Machine } from "../../machines";
-import { picked, RoleFace, RoleLine, RoleModels, roleStart, useRoles, type RolePick } from "../../roles";
+import { MachineFace, type Machine } from "../../machines";
+import { RoleFace, roleStart, useRoles } from "../../roles";
 import { useList, useSession } from "../../store";
 import { toast } from "../../toast";
-import { AGENTS, cn, Logo, MenuPortal } from "../../ui";
+import { AGENTS, agentName, cn, Logo, MenuPortal } from "../../ui";
 import { memberError } from "./key";
 import { choicesQ, draftDefault, draftName } from "../choices";
 import { DraftModels } from "./pick";
@@ -54,102 +52,74 @@ export function useAdd(id: string) {
   return { busy, add };
 }
 
-/** The kinds of agent, inside a menu: each a row that adds it when pressed (with a mouse) with
- *  the model it names, its submenu the kind's models (one picked adds it), efforts and presets. */
-export function AgentKinds({ id, from = 0 }: { id: string; from?: number }) {
+/** The agents to add, inside a menu (kumo, 2026-11-25): the computers in one row at its top
+ *  (scrolled sideways, no bar; the channel's own picked as it opens), then the templates (roles)
+ *  and the kinds of agent of the one picked. Every template and every kind any computer has
+ *  keeps its row whichever is picked, one the picked computer lacks drawn faint and not pressed:
+ *  the menu is as tall for each computer. */
+export function AddAgents({ id }: { id: string }) {
   useLang();
   const row = useList()?.find((x) => x.id === id);
-  const machine = (useSession(id) ?? row)?.machine;
-  const here = useMachine(machine);
+  const own = (useSession(id) ?? row)?.machine ?? "";
+  const machines = useMachines(true);
+  const [picked, setPicked] = useState(own);
+  const m = machines.find((x) => x.id === picked);
   const info = useQuery(agentsQ).data;
-  // At another computer, that computer's kinds; on Iridium, those installed here.
-  const kinds = machine ? (here?.agents.map((a) => a.agent as Agent) ?? []) : (info?.filter((a) => !a.missing).map((a) => a.agent) ?? AGENTS);
+  const local = info?.filter((a) => !a.missing).map((a) => a.agent) ?? [];
+  const kindsOf = (x?: Machine): Agent[] => (!x || !x.id ? local : x.online ? x.agents.map((a) => a.agent as Agent) : []);
+  const has = kindsOf(m);
+  // The rows: the kinds any computer has, in the kinds' own order.
+  const every = new Set<Agent>([...local, ...machines.flatMap((x) => (x.id ? x.agents.map((a) => a.agent as Agent) : []))]);
+  const kinds = AGENTS.filter((k) => every.has(k));
+  const roles = useRoles();
   const { busy, add } = useAdd(id);
   const full = (row?.agents?.length ?? 1) >= MAX_AGENTS;
-  const off = full || busy !== null || (!!machine && !here?.online);
-  // The roles of the kinds it can add, first.
-  const roles = useRoles().filter((r) => kinds.includes(r.agent));
+  const off = full || busy !== null;
+  // Where one added runs when not at the channel's own computer: the one picked, its home folder.
+  const to = m && picked !== own ? m : undefined;
   return (
     <>
+      {machines.length > 1 && (
+        // As wide as the menu is without it: the row scrolls, it does not widen the menu.
+        <div className="no-bar mb-1 flex w-0 min-w-full gap-1 overflow-x-auto">
+          {machines.map((x) => (
+            <button key={x.id} type="button" disabled={!!x.id && !x.online} aria-pressed={x.id === picked} onClick={() => setPicked(x.id)} className={cn("g-press flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-sm text-ink-2 outline-none select-none hover:bg-fill disabled:opacity-40 disabled:grayscale aria-pressed:bg-fill aria-pressed:text-ink pointer-coarse:h-9")}>
+              <MachineFace m={x} size={14} />
+              <span className="max-w-32 truncate">{x.id ? x.name : t("term.local")}</span>
+            </button>
+          ))}
+        </div>
+      )}
       {roles.map((r, i) => (
-        <RoleRow key={r.id} id={id} role={r} i={from + i} off={off} busy={busy === `role:${r.id}`} add={add} />
+        <RoleRow key={r.id} role={r} i={i} off={off || !has.includes(r.agent) || (!!r.machine && r.machine !== picked)} busy={busy === `role:${r.id}`} add={() => void add(r.agent, "", "", "", roleStart(r), to)} />
       ))}
       {roles.length > 0 && <div role="separator" className="mx-2.5 my-1 border-t border-(--edge)" />}
       {kinds.map((k, i) => (
-        <Kind key={k} id={id} k={k} i={from + roles.length + i} off={off} busy={busy === k} add={add} />
+        <Kind key={`${picked}/${k}`} id={id} k={k} m={to} lacks={!has.includes(k)} i={roles.length + i} off={off || !has.includes(k)} busy={busy === (to ? `${to.id}/${k}` : k)} add={add} />
       ))}
     </>
   );
 }
 
-/** The other computers with agents (not the one the channel is at: its kinds are AgentKinds'),
- *  each a row of the menu: its face and name, opening its kinds (Kind). One cut off: the same
- *  row, 已断开 at its end, not opened. */
-export function MachineKinds({ id, from = 0 }: { id: string; from?: number }) {
-  useLang();
-  const row = useList()?.find((x) => x.id === id);
-  const machine = (useSession(id) ?? row)?.machine;
-  const others = useMachines(!!machine).filter((m) => m.id !== machine && m.agents.length > 0);
-  const { busy, add } = useAdd(id);
-  const full = (row?.agents?.length ?? 1) >= MAX_AGENTS;
+/** One template's row: its face and name alone (kumo, 2026-11-25: a template, no model to pick
+ *  as it is added; its model and effort are changed on the member afterwards). Pressed, it adds
+ *  one as the role. */
+function RoleRow({ role, i, off, busy, add }: { role: Role; i: number; off: boolean; busy: boolean; add: () => void }) {
   return (
-    <>
-      {others.map((m, i) => (
-        <Menu.SubmenuRoot key={m.id}>
-          <Menu.SubmenuTrigger disabled={!m.online} style={{ "--i": from + i } as CSSProperties} className={cn(ITEM, "data-disabled:text-ink-3")}>
-            <MachineFace m={m} size={16} className={cn(!m.online && "opacity-50 grayscale")} />
-            <span className="min-w-0 flex-1 truncate">{m.name}</span>
-            {!m.online && <span className="shrink-0 text-xs text-ink-3">{t("status.offline")}</span>}
-            <ChevronRight size={14} className={cn("shrink-0 text-ink-4", !m.online && "invisible")} />
-          </Menu.SubmenuTrigger>
-          <MenuPortal>
-            <Menu.Positioner className="z-50" sideOffset={4} collisionPadding={8}>
-              <Menu.Popup className={cn(POPUP, "no-bar max-h-[min(480px,var(--available-height))] max-w-[calc(100vw-16px)] min-w-48 overflow-y-auto p-1.5")}>
-                <div className="g-stagger flex flex-col">
-                  {m.agents.map(({ agent }, j) => (
-                    <Kind key={agent} id={id} k={agent as Agent} m={m} i={j} off={full || busy !== null} busy={busy === `${m.id}/${agent}`} add={add} />
-                  ))}
-                </div>
-              </Menu.Popup>
-            </Menu.Positioner>
-          </MenuPortal>
-        </Menu.SubmenuRoot>
-      ))}
-    </>
+    <Menu.Item closeOnClick={false} disabled={off} onClick={add} style={{ "--i": i } as CSSProperties} className={cn(ITEM, "data-disabled:opacity-40")}>
+      {busy ? <LoaderCircle size={16} className="animate-spin text-ink-3" /> : <RoleFace role={role} size={16} />}
+      <span className="min-w-0 flex-1 truncate">{role.name}</span>
+    </Menu.Item>
   );
 }
 
-/** One role's row: its face, name and line. Pressed (with a mouse) it adds one as the role;
- *  its submenu changes the model (a pick adds it with that one) and the effort for this once. */
-function RoleRow({ id, role, i, off, busy, add }: { id: string; role: Role; i: number; off: boolean; busy: boolean; add: ReturnType<typeof useAdd>["add"] }) {
-  const [p, setP] = useState<RolePick>({});
-  const as = (pick: RolePick) => void add(role.agent, "", "", "", roleStart(role, pick));
-  const press = () => !matchMedia("(pointer: coarse)").matches && as(p);
-  return (
-    <Menu.SubmenuRoot>
-      <Menu.SubmenuTrigger disabled={off} onClick={press} style={{ "--i": i } as CSSProperties} className={cn(ITEM, "data-disabled:opacity-40")}>
-        {busy ? <LoaderCircle size={16} className="animate-spin text-ink-3" /> : <RoleFace role={role} size={16} />}
-        <span className="max-w-[50%] shrink-0 truncate">{role.name}</span>
-        <RoleLine role={picked(role, p)} at={{ channel: id }} logo className="min-w-0 flex-1 text-xs text-ink-3" />
-        <ChevronRight size={14} className="shrink-0 text-ink-4" />
-      </Menu.SubmenuTrigger>
-      <MenuPortal>
-        <Menu.Positioner className="z-50" sideOffset={4} collisionPadding={8}>
-          <Menu.Popup className={cn(POPUP, "flex max-h-[min(560px,var(--available-height))] w-[min(300px,calc(100vw-16px))] flex-col p-1.5")}>
-            <RoleModels role={role} at={{ channel: id }} pick={p} set={(x) => (x.model !== p.model ? as(x) : setP(x))} />
-          </Menu.Popup>
-        </Menu.Positioner>
-      </MenuPortal>
-    </Menu.SubmenuRoot>
-  );
-}
-
-/** One kind's row: its name and the model a press of it uses (not known yet: the name alone). */
-function Kind({ id, k, m, i, off, busy, add }: { id: string; k: Agent; m?: Machine; i: number; off: boolean; busy: boolean; add: ReturnType<typeof useAdd>["add"] }) {
+/** One kind's row: its name and the model a press of it uses (not known yet: the name alone).
+ *  lacks: the computer picked has no such agent; its name alone, nothing asked of it. */
+function Kind({ id, k, m, lacks, i, off, busy, add }: { id: string; k: Agent; m?: Machine; lacks?: boolean; i: number; off: boolean; busy: boolean; add: ReturnType<typeof useAdd>["add"] }) {
   // Where its models are asked: the channel's own place, or the computer it would run at.
   const at = m ? { machine: m.id } : { channel: id };
   const [p, setP] = useState<{ model: string; effort: string; preset?: string }>({ model: "", effort: "" });
-  const asked = useQuery(choicesQ(k, at)).data;
+  const asked = useQuery({ ...choicesQ(k, at), enabled: !lacks }).data;
   const { send } = draftDefault(asked);
   // A mouse's press adds it as it is; a finger's opens its menu (no hover to open it by).
   const press = () => !matchMedia("(pointer: coarse)").matches && void add(k, p.model || send, p.effort, p.preset, undefined, m);
@@ -157,7 +127,7 @@ function Kind({ id, k, m, i, off, busy, add }: { id: string; k: Agent; m?: Machi
     <Menu.SubmenuRoot>
       <Menu.SubmenuTrigger disabled={off} onClick={press} style={{ "--i": i } as CSSProperties} className={cn(ITEM, "data-disabled:opacity-40")}>
         {busy ? <LoaderCircle size={16} className="animate-spin text-ink-3" /> : <Logo agent={k} size={16} />}
-        <span className="min-w-0 flex-1 truncate">{draftName(k, asked)}</span>
+        <span className="min-w-0 flex-1 truncate">{lacks ? agentName(k) : draftName(k, asked)}</span>
         <ChevronRight size={14} className="shrink-0 text-ink-4" />
       </Menu.SubmenuTrigger>
       <MenuPortal>
