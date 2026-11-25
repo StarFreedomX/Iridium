@@ -90,6 +90,9 @@ export function Splash({ show = true, fig = null, scene = "", className }: { sho
       if (t?.closest?.("button, a, input, textarea, [role=menu], [role=dialog], [role=listbox], [data-sheet-pull], nav, aside")) return;
       const r = el.getBoundingClientRect();
       if (ev.clientX < r.left || ev.clientX > r.right || ev.clientY < r.top || ev.clientY > r.bottom) return;
+      // A finger at the pane's top is the page's own (pulled down, it is loaded again): no stars
+      // there, the drag not taken (kumo, 2026-11-26).
+      if (ev.pointerType === "touch" && ev.clientY - r.top < Math.max(120, r.height * 0.2)) return;
       touching = ev.pointerType === "touch";
       e.tap(ev.clientX - r.left, ev.clientY - r.top);
       e.hold(true);
