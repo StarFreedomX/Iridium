@@ -1,29 +1,34 @@
-// A menu's next level (kumo, 2026-11-25): with a mouse, a submenu out of its row; with a finger,
-// inside a Paged menu, the menu's next page, its row pressed, 返回 at its head. The + panel's way
-// (top.tsx Invite), for every menu at the bar's right.
+// A menu's next level (kumo, 2026-11-25): inside a Paged menu (every menu at the bar's right) in
+// the phone's layout (PHONE: a window tall and narrow, a computer's too; never by the device), the
+// menu's next page, its row pressed, 返回 at its head: no menu beside it. Elsewhere, a submenu out
+// of its row.
 import { Menu } from "@base-ui/react/menu";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { createContext, useContext, useId, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Tall } from "../../create";
-import { cn, MenuPortal, useMedia } from "../../ui";
+import { cn, MenuPortal, PHONE, useMedia } from "../../ui";
 import { ITEM } from "./invite";
 
 type Page = { id: string; title: string };
 type Pages = { stack: Page[]; push: (p: Page) => void; slot: HTMLElement | null; back: boolean };
 const Ctx = createContext<Pages | null>(null);
 
-/** A menu whose next levels are its pages on a finger's screen; as it is with a mouse. The list
+/** Whether a menu's next levels are its pages: the phone's layout, whatever the device (kumo,
+ *  2026-11-25: a computer's window as tall and narrow is it, an unfolded phone is not). */
+export const usePaged = () => useMedia(PHONE);
+
+/** A menu whose next levels are its pages in the phone's layout. The list
  *  and every page under the one shown stay drawn, only hidden: what they were left at is kept.
  *  One place the pages are put in, never made anew: a page's own rows (its next level's) keep
  *  who they are. Each slides in as it is shown (g-slide from display none). */
 export function Paged({ children }: { children: ReactNode }) {
-  const finger = useMedia("(pointer: coarse)");
+  const paged = usePaged();
   const [stack, setStack] = useState<Page[]>([]);
   const [slot, setSlot] = useState<HTMLDivElement | null>(null);
   // Back from a page, what was under it comes in from the other side; as the menu opens nothing slides.
   const went = useRef<"" | "on" | "back">("");
-  if (!finger) return <>{children}</>;
+  if (!paged) return <>{children}</>;
   const top = stack.at(-1);
   const push = (p: Page) => ((went.current = "on"), setStack((s) => [...s, p]));
   const pop = () => ((went.current = "back"), setStack((s) => s.slice(0, -1)));

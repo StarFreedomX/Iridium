@@ -18,13 +18,13 @@ import { openChat } from "../../route";
 import { useCarried, useList, useSession } from "../../store";
 import { working } from "../../tree";
 import { toast } from "../../toast";
-import { agentName, Avatar, cn, Lamp, Tip, MenuPortal, useMedia } from "../../ui";
+import { agentName, Avatar, cn, Lamp, Tip, MenuPortal } from "../../ui";
 import { openEdit } from "./editing";
 import { Face, MemberFace } from "./face";
 import { ContextMark } from "../meters";
 import { mayAct, useMembers } from "./gate";
 import { AddAgents, ITEM, KindPage, POPUP } from "./invite";
-import { Deeper, Paged } from "./pages";
+import { Deeper, Paged, usePaged } from "./pages";
 import { Tall } from "../../create";
 import { onAskAdd, takeAdd } from "./adding";
 import type { Machine } from "../../machines";
@@ -40,7 +40,7 @@ import { actsOf } from "./menu";
 import { subName, SubTag } from "../subwork";
 import { appAll, hasApp, hasLogin, loginOf, peopleOf, pressApp, pressLogin } from "./setup";
 
-const SUB = "no-bar max-h-[min(480px,var(--available-height))] min-w-52 max-w-[calc(100vw-16px)] overflow-y-auto p-1.5 pointer-coarse:min-w-60";
+const SUB = "no-bar max-h-[min(480px,var(--available-height))] min-w-60 max-w-[calc(100vw-16px)] overflow-y-auto p-1.5";
 const HEAD = "truncate px-2.5 pt-2 pb-0.5 text-xs text-ink-3 select-none first:pt-1";
 
 /** bare: no mark at the row's end (the + panel's rows: kumo, 2026-11-25). */
@@ -138,7 +138,7 @@ export function TopRight({ id }: { id: string }) {
         </Tip>
         <MenuPortal>
           <Menu.Positioner side="bottom" align="end" sideOffset={6} collisionPadding={8} className="z-50">
-            <Menu.Popup finalFocus={false} className={cn(POPUP, SUB, "pointer-coarse:w-[min(344px,calc(100vw-16px))]")}>
+            <Menu.Popup finalFocus={false} className={cn(POPUP, SUB, "w-[min(344px,calc(100vw-16px))]")}>
               <Paged>
                 <div className="g-stagger flex flex-col">
                   <MemberList id={id} viewers={viewers} ask={setAsked} script={(p) => requestAnimationFrame(() => setScript(p))} />
@@ -162,7 +162,7 @@ export function TopRight({ id }: { id: string }) {
           </Tip>
           <MenuPortal>
             <Menu.Positioner side="bottom" align="end" sideOffset={6} collisionPadding={8} className="z-50">
-              <Menu.Popup finalFocus={false} className={cn(POPUP, SUB, "w-[min(320px,calc(100vw-16px))] pointer-coarse:w-[min(344px,calc(100vw-16px))]")}>
+              <Menu.Popup finalFocus={false} className={cn(POPUP, SUB, "w-[min(344px,calc(100vw-16px))]")}>
                 <Invite id={id} />
               </Menu.Popup>
             </Menu.Positioner>
@@ -267,10 +267,10 @@ function Invite({ id }: { id: string }) {
   const loginsOf = (app: string) => (d?.logins ?? []).filter((l) => l.app === app);
   const idsOf = (app: string) => loginsOf(app).map((l) => l.id);
   const setPeople = (p: string[]) => run(() => api.setPeople(id, p));
-  // A finger's (kumo, 2026-11-25): no menu beside a row; pressed, what it would open is the
-  // panel's next page, 返回 at its head. The list stays as it was left under it (the computer
-  // picked), only not drawn.
-  const finger = useMedia("(pointer: coarse)");
+  // In the phone's layout no menu beside a row (kumo, 2026-11-25): pressed, what
+  // it would open is the panel's next page, 返回 at its head. The list stays as it was left under
+  // it (the computer picked), only not drawn.
+  const paged = usePaged();
   const [page, setPage] = useState<{ k: Agent; m?: Machine } | { app: string } | null>(null);
   const stepped = useRef(false);
   if (page) stepped.current = true;
@@ -293,13 +293,13 @@ function Invite({ id }: { id: string }) {
     <Tall>
       {/* Back from a page, the list comes in from the other side; as the panel opens it does not slide. */}
       <div data-dir="back" className={cn("flex flex-col", stepped.current ? "g-slide" : "g-stagger", page && "hidden")}>
-        <AddAgents id={id} onKind={finger ? (k, m) => setPage({ k, m }) : undefined} />
+        <AddAgents id={id} onKind={paged ? (k, m) => setPage({ k, m }) : undefined} />
         {apps.length > 0 && <div role="separator" className="mx-2.5 my-1 border-t border-(--edge)" />}
         {apps.map((a) => {
           const name = a.web ? t("term.panel") : a.name;
           const now = hasApp(people, a.id) ? t("channel.everyone") : String(loginsOf(a.id).filter((l) => hasLogin(people, a.id, l.id)).length || "");
           const icon = <Avatar src={a.avatar} name={a.name} size={16} type={a.type} host={!!a.host} />;
-          return finger ? (
+          return paged ? (
             <Menu.Item key={a.id} closeOnClick={false} onClick={() => setPage({ app: a.id })} className={ITEM}>
               <span className="text-ink-2">{icon}</span>
               <span className="min-w-0 flex-1 truncate">{name}</span>
