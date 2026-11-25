@@ -131,7 +131,7 @@ func TestRecord(t *testing.T) {
 	for _, p := range in.Parts() {
 		sources = append(sources, p.Source)
 	}
-	want := "prompts:host.intro irhelp:agent irhelp:layers prompts:host.secrets-files prompts:names prompts:title prompts:lang"
+	want := "prompts:host.intro irhelp:agent irhelp:layers prompts:host.secrets-files prompts:shell.ir prompts:names prompts:title prompts:lang"
 	if got := strings.Join(sources, " "); got != want {
 		t.Errorf("parts %s", got)
 	}
@@ -195,11 +195,11 @@ func TestPolicy(t *testing.T) {
 		return strings.Join(s, " ")
 	}
 	for w, want := range map[Where]string{
-		{}:                                   "host.intro agent layers host.secrets-files names title",
-		{IR: true, Lang: "en"}:               "host.intro agent layers host.secrets-files names title lang",
-		{Remote: true, IR: true}:             "remote.intro remote layers names title",
+		{}:                                   "host.intro agent layers host.secrets-files shell.ir names title",
+		{IR: true, Lang: "en"}:               "host.intro agent layers host.secrets-files shell.ir names title lang",
+		{Remote: true, IR: true}:             "remote.intro remote layers shell.ir names title",
 		{Remote: true, Lang: "zh"}:           "remote.intro-bare names title lang",
-		{Remote: true, IR: true, Lang: "xx"}: "remote.intro remote layers names title",
+		{Remote: true, IR: true, Lang: "xx"}: "remote.intro remote layers shell.ir names title",
 	} {
 		if got := ids(w); got != want {
 			t.Errorf("%+v: %s", w, got)

@@ -6,6 +6,7 @@ const (
 	idHostIntro        = "host.intro"         // a session hosted here: what its ir reaches
 	idHostSecretsFiles = "host.secrets-files" // how to ask for a secret, how to hand over a file
 	idHostManual       = "host.manual"        // Claude: how to ask for manual approval, auto mode having denied a step
+	idShellIR          = "shell.ir"           // a command line at a computer reaches the Iridium there, with its host's rights
 	idNames            = "names"              // how words name a session or a folder
 	idTitle            = "title"              // title the session
 	idLang             = "lang"               // the user's language: {{language}}

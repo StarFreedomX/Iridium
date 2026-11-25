@@ -48,7 +48,8 @@ func wherePieces(w Where) []piece {
 var langs = map[string]string{"zh": idLangZh, "en": idLangEn}
 
 // systemPieces is the system prompt of a session at w. Here: ir's agent commands, how to ask
-// for a secret, hand over a file, name and title; Claude's, how to ask for manual approval. At another machine: with ir the commands it
+// for a secret, hand over a file, name and title; with ir, that a command line at a computer reaches
+// the Iridium there (the user, 2026-11-25); Claude's, how to ask for manual approval. At another machine: with ir the commands it
 // has there, without none; where it runs (wherePieces); no file links (its files are that machine's, which ir attach there
 // does not reach). Then the user's language, if known.
 func systemPieces(w Where) []piece {
@@ -60,6 +61,9 @@ func systemPieces(w Where) []piece {
 		ps = append(ps, text(idRemoteIntro), help("remote"), help("layers"))
 	default:
 		ps = append(ps, text(idRemoteIntroBare))
+	}
+	if !w.Remote || w.IR {
+		ps = append(ps, text(idShellIR))
 	}
 	if w.Auto && (!w.Remote || w.IR) {
 		ps = append(ps, text(idHostManual))
