@@ -88,18 +88,16 @@ function mark(g: CanvasRenderingContext2D, agent: Agent, ink: string): boolean {
   return true;
 }
 
-/** Iridium's letters (ui.tsx IrMark's, with no square about them), in a gradient of colours. */
+/** Iridium's letters (ui.tsx IrMark's, with no square about them), in a rainbow. */
 function letters(g: CanvasRenderingContext2D, ink: string) {
   const k = (SRC * 0.78) / 28;
   g.save();
   g.translate(SRC / 2 - 32 * k, SRC / 2 - 32 * k);
   g.scale(k, k);
-  // In the effort's paints, a gradient across them (kumo, 2026-11-25), not the text's ink.
+  // A rainbow across them (kumo, 2026-11-25: RGB, every colour), not the text's ink.
   void ink;
   const paint = g.createLinearGradient(20, 18, 44, 46);
-  paint.addColorStop(0, "#e9822f");
-  paint.addColorStop(0.45, "#ff4a17");
-  paint.addColorStop(1, "#ff2f82");
+  ["#ff3b30", "#ff9500", "#ffcc00", "#34c759", "#32ade6", "#007aff", "#af52de"].forEach((c, i, all) => paint.addColorStop(i / (all.length - 1), c));
   g.fillStyle = paint;
   g.fill(new Path2D("M20 18h6v28h-6zM32 28h5.6v3.2c1.4-2.4 3.6-3.6 6.4-3.6v5.8c-3.8 0-6.2 1.6-6.2 6V46H32z"));
   g.restore();
@@ -250,6 +248,12 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
       fm[i] = m;
       if (m > fr[(i / cols) | 0]!) fr[(i / cols) | 0] = m;
       let a = BASE, c: RGB = ink;
+      // A picture (a face): the code about it goes out from its rim to none, the face alone
+      // (kumo, 2026-11-25); about letters or a mark the code is as everywhere.
+      if (photo && m <= 0.5) {
+        const d = Math.hypot(((i % cols) + 0.5) * cw - mid, (((i / cols) | 0) + 0.5) * ROW - py) - side * 0.47;
+        a = BASE * clamp(1 - d / (side * 0.22));
+      }
       if (photo && m > 0.5) {
         const lum = (0.3 * sharp[o]! + 0.59 * sharp[o + 1]! + 0.11 * sharp[o + 2]!) / 255;
         a = (0.3 + 0.7 * Math.pow(dark ? lum : 1 - lum, 0.75)) * (0.7 + 0.3 * pw);
