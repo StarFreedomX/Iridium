@@ -179,6 +179,7 @@ func TestFileBrowserScope(t *testing.T) {
 	escape := filepath.Join(there, "escape")
 	if err := os.Symlink(sibling, escape); err == nil {
 		mkdir(escape, "blocked", http.StatusForbidden)
+		mkdir(there, "escape", http.StatusForbidden)
 	}
 	req(t, "", "", there, http.StatusForbidden)
 	req(t, "/content", "", filepath.Join(there, name), http.StatusForbidden)
@@ -234,11 +235,12 @@ func TestFileBrowserScope(t *testing.T) {
 			t.Fatalf("ordinary executor read: %v", err)
 		}
 	})
-	t.Run("starting folder through a remote alias", func(t *testing.T) {
-		alias := filepath.Join(l.work, "shared-alias")
-		if err := os.Symlink(there, alias); err != nil {
-			t.Skipf("no directory links: %v", err)
-		}
+	alias := filepath.Join(l.work, "shared-alias")
+	if err := os.Symlink(there, alias); err != nil {
+		t.Logf("skipping directory alias checks: %v", err)
+	} else {
+		mkdir(alias, "via-alias", http.StatusOK)
+		mkdir(alias, "via-alias", http.StatusConflict)
 		l.want(http.StatusOK, "socket", http.MethodPut, "/v1/internal/apps/"+gate.WebApp+"/logins/"+login.ID+"/perms",
 			api.Perms{Scope: []string{"pc:" + alias}}, nil)
 		w := req(t, "", "pc", "", http.StatusOK)
@@ -246,7 +248,13 @@ func TestFileBrowserScope(t *testing.T) {
 		if err := json.Unmarshal(w.Body.Bytes(), &list); err != nil || !list.Open || filepath.FromSlash(list.Path) != alias {
 			t.Fatalf("remote alias default: %s (%v)", w.Body, err)
 		}
-	})
+		mkdir(there, "via-canonical", http.StatusOK)
+		for _, name := range []string{"via-alias", "via-canonical"} {
+			if st, err := os.Stat(filepath.Join(there, name)); err != nil || !st.IsDir() {
+				t.Fatalf("expected directory %s in canonical path: %v", name, err)
+			}
+		}
+	}
 
 }
 

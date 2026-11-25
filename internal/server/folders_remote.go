@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kumoSleeping/iridium/internal/access"
 	"github.com/kumoSleeping/iridium/internal/api"
 	"github.com/kumoSleeping/iridium/internal/remote"
 	"github.com/kumoSleeping/iridium/internal/remote/wire"
@@ -143,17 +142,10 @@ func (s *Server) remoteMkdir(w http.ResponseWriter, r *http.Request, req api.New
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
 	if len(scope) > 0 {
-		// Unlike remoteScope for the picker, the expanded parent must be inside the login's
-		// scope, not just an ancestor. Compare using the target's path conventions.
-		key := remotePathKey(hi, dir)
-		inScope := false
+		// Let the executor authorize the resolved parent so a grant and a request
+		// may use different names for the same directory.
 		for i, root := range scope {
 			scope[i] = nativePath(hi, root)
-			inScope = inScope || pathKeyWithin(key, remotePathKey(hi, scope[i]))
-		}
-		if !inScope {
-			s.error(w, &access.Denied{Reason: "parent folder is out of this login's scope"})
-			return
 		}
 		// Ordinary stat honors scope without treating dot directories as browser-hidden.
 		var st wire.Stat
@@ -177,8 +169,16 @@ func (s *Server) remoteMkdir(w http.ResponseWriter, r *http.Request, req api.New
 			return
 		}
 	}
-	if _, err := mc.Stat(ctx, p); err == nil {
+	// The target is checked within scope too: only "not found" goes on to mkdir, so a symlink
+	// named like the new folder that points out of scope is refused (403), not reported as there.
+	var target wire.Stat
+	err = mc.Call(ctx, "fs.stat", wire.StatParams{Path: p, Scope: scope}, &target)
+	if err == nil {
 		fail(w, http.StatusConflict, "already there")
+		return
+	}
+	if !wire.IsCode(err, wire.CodeNotFound) {
+		s.remoteError(w, err)
 		return
 	}
 	if err := mc.Call(ctx, "fs.mkdir", wire.PathParams{Path: p, Scope: scope}, nil); err != nil {
