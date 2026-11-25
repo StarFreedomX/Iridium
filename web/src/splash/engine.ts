@@ -197,14 +197,6 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
     const top = Math.max(-H * 0.3, c - h / 2 - up), bot = Math.min(H * 1.3, c + h / 2 + down);
     return [(top + bot) / 2, Math.max(h, bot - top)];
   };
-  /** A press or hold at height y, above or below the band's middle: the band let out that way. */
-  const outTo = (y: number, by: number) => {
-    if (wcT < 0) return;
-    if (y < wc - wh * 0.28) up = Math.min(up + by, H * 1.5);
-    else if (y > wc + wh * 0.28) down = Math.min(down + by, H * 1.5);
-    else return;
-    kick();
-  };
   /** How much of a row at height y is seen: all of it in the window's middle half, none at its edges. */
   const seen = (y: number) => {
     const d = Math.abs(y - wc) / (wh / 2 || 1);
@@ -443,7 +435,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
   }
   // The same band as a star of five points, drawn in one line as the figure of eight is, on the
   // front of the ball (kumo, 2026-11-26: the star and the figure one thing): the band goes over
-  // from one to the other, point by point, as the pane is now and then of itself.
+  // from one to the other, point by point, now and then of itself.
   const SX = new Float32Array(RN), SY = new Float32Array(RN), SZ = new Float32Array(RN), SA = new Float32Array(RN * 3);
   {
     const at = (p: number): [number, number, number] => {
@@ -631,7 +623,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
   const STOP = 0, FLY = 850;
   let rk: Rocket | null = null;
   let path: { x: number; y: number; t: number }[] = [];
-  let looked = 0, held = false, heldAt = 0, lastHeld = 0;
+  let looked = 0, held = false;
   /** The pointer's way, its corners only (Ramer–Douglas–Peucker, eps px). */
   const corners = (pts: { x: number; y: number }[], eps: number): [number, number][] => {
     const keep = new Uint8Array(pts.length);
@@ -726,13 +718,6 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
       }
     }
     // Held down (kumo, 2026-11-25): more of them all the while, and the band let out that way.
-    if (held && lensOn && now - heldAt > 280) {
-      if (now - lastHeld > 130) {
-        lastHeld = now;
-        for (let j = 0; j < 2; j++) pop(lx, ly, false, 90 + Math.random() * 130, 28 + Math.random() * 18);
-      }
-      outTo(ly, 220 * dt);
-    }
     if (flow > 0 && !frozen) for (let r = 0; r < rows; r++) off[r] = (((off[r]! + speed[r]! * flow * pace(pw) * dt) % len) + len) % len;
     // The figure's place, size and strength glide to what is asked: the cells read anew each frame.
     const [gx, gs] = goal();
@@ -1000,15 +985,13 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
     tap(x, y) {
       if (still || !W) return;
       (lx = x), (ly = y), (lensOn = true);
-      outTo(y, 90);
-      // Stars alone (kumo, 2026-11-26: no rings).
-      for (let j = 0; j < 5; j++) pop(x, y, false, 120 + Math.random() * 140, 36 + Math.random() * 20);
+      // Nothing comes of a press alone any more (kumo, 2026-11-26): stars are left by a pointer's
+      // way, and by a zigzag drawn pressed.
       kick();
     },
     hold(on) {
       held = on && !still;
       path = [];
-      heldAt = performance.now();
       if (held) kick();
     },
     edge(on) {
