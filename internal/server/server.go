@@ -46,6 +46,9 @@ type Server struct {
 	// personas: the agents' hosts' personas, kept a while (personas.go).
 	personas      personasCache
 	browserRanges browserRangeLog // recently logged 206 range reads (file_browser.go)
+	// choosing: the kinds whose choices are being asked for behind a reply (agentChoices), by
+	// choicesKey.
+	choosing sync.Map
 
 	cfg config.Config
 	m   *session.Manager
@@ -172,7 +175,7 @@ func New(cfg config.Config, m *session.Manager, h *hub.Hub, logf func(string, ..
 	m.SetInChannel(s.multi)
 	m.SetChannelOf(s.channelOf)
 	m.SetSpawned(s.spawnedOf)
-	m.SetBare(s.bareChannels)
+	m.SetBare(s.bareChannels, s.bareChannel)
 	m.SetChannelLast(s.channelLast)
 	s.ch.OnAdded(s.channelAdded)
 	m.SetCleared(s.cleared)

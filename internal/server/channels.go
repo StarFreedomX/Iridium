@@ -903,16 +903,29 @@ func (s *Server) cleared(old, next string) {
 func (s *Server) bareChannels() []api.Session {
 	var out []api.Session
 	for _, c := range s.ch.Owns() {
-		row := api.Session{ID: c.ID, Cwd: c.Cwd, Machine: c.Machine, Title: c.Name, Status: api.StatusIdle, Bare: true,
-			UpdatedAt: max(c.Created, s.st.ChannelTouched(c.ID))}
-		// Its last words under its name in the list, as a session's are (kumo, 2026-11-16: an
-		// agent's reply there was not shown): who said them, what.
-		if m, ok := s.ch.Latest(c.ID); ok {
-			row.Last = s.lastSaid(m)
-		}
-		out = append(out, row)
+		out = append(out, s.bareRow(c))
 	}
 	return out
+}
+
+// bareChannel is the channel that is no session's of id, as bareChannels has it.
+func (s *Server) bareChannel(id string) (api.Session, bool) {
+	c, ok := s.ch.Own(id)
+	if !ok {
+		return api.Session{}, false
+	}
+	return s.bareRow(c), true
+}
+
+func (s *Server) bareRow(c store.Channel) api.Session {
+	row := api.Session{ID: c.ID, Cwd: c.Cwd, Machine: c.Machine, Title: c.Name, Status: api.StatusIdle, Bare: true,
+		UpdatedAt: max(c.Created, s.st.ChannelTouched(c.ID))}
+	// Its last words under its name in the list, as a session's are (kumo, 2026-11-16: an
+	// agent's reply there was not shown): who said them, what.
+	if m, ok := s.ch.Latest(c.ID); ok {
+		row.Last = s.lastSaid(m)
+	}
+	return row
 }
 
 // lastSaid is message m as a row of the list shows it under its name: who said it, what.
@@ -1216,7 +1229,13 @@ func (s *Server) agentChoices(w http.ResponseWriter, r *http.Request) {
 		out.Presets = s.presetsAt(r.Context(), kind, machine)
 		s.nameChoices(&out, kind, machine)
 		reply(w, http.StatusOK, out)
+		// One asking of a kind at a place at a time: each makes the whole list, and a menu's
+		// kinds, every page's, ask at once (otae, 2026-11-25: 57 of them at a time).
+		if _, running := s.choosing.LoadOrStore(choicesKey(kind, machine), true); running {
+			return
+		}
 		go func() {
+			defer s.choosing.Delete(choicesKey(kind, machine))
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 			_, _ = s.askChoices(ctx, c, kind, machine)
@@ -2150,13 +2169,10 @@ func (s *Server) sendChannelAs(ctx context.Context, c caller, from, ch string, r
 	return out, nil
 }
 
-// channelName is what channel ch goes by: its name, else its title.
+// channelName is what channel ch goes by: its name, else its title. Asked for a block of a page
+// at a time, so its name alone is read, not its whole state (otae, 2026-11-25).
 func (s *Server) channelName(ch string) string {
-	st, err := s.m.State(ch)
-	if err != nil {
-		return ""
-	}
-	return s.MaskText(cmp.Or(st.Name, st.Title))
+	return s.MaskText(s.m.Called(ch))
 }
 
 // channelPlace is the folder of channel ch: its session's, or its own where it is no session's.

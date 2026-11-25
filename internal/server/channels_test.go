@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -9,8 +10,10 @@ import (
 	pngpkg "image/png"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1277,4 +1280,70 @@ func onFrom(from ...string) []api.Trigger {
 // isEveryone: on is the words of every person, alone.
 func isEveryone(on []api.Trigger) bool {
 	return len(on) == 1 && on[0].Message != nil && fmt.Sprint(on[0].Message.From) == "[*]" && len(on[0].Message.Words) == 0
+}
+
+// The list reads the channels that are no session's once, however many sessions it hosts, and
+// one's name reads none of them but itself (otae, 2026-11-25: each hosted session of a list and
+// each block of a page listed them all again, two queries a channel; the daemon at 350% CPU).
+func TestBareChannelsReadOnce(t *testing.T) {
+	t.Parallel()
+	l := start(t)
+	var rooms []string
+	for i := range 3 {
+		var made satori.Channel
+		l.wantSat(200, "web", "channel.create", map[string]any{"data": map[string]any{"name": fmt.Sprintf("room %d", i)}, "_data": map[string]any{"cwd": l.work}}, &made)
+		rooms = append(rooms, made.ID)
+	}
+	var hosted []string
+	for range 4 {
+		id := l.create(200, "web", api.NewSession{Agent: api.AgentClaude, Cwd: l.work})
+		// Its agent not running: what the list asks of, whether another process runs it.
+		l.want(200, "web", "POST", "/v1/internal/sessions/"+id+"/stop", nil, nil)
+		hosted = append(hosted, id)
+	}
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		if !slices.ContainsFunc(l.sessions("web"), func(ss api.Session) bool { return slices.Contains(hosted, ss.ID) && ss.Live }) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the agents run still")
+		}
+	}
+	// What else runs meanwhile (a list pushed, a face drawn) reads them too, as it may: counted
+	// are all of them read to find one, and one asked for that is a hosted session.
+	var all, one atomic.Int64
+	l.s.m.SetBare(func() []api.Session {
+		if buf := make([]byte, 16<<10); bytes.Contains(buf[:runtime.Stack(buf, false)], []byte("(*Manager).found(")) {
+			all.Add(1)
+		}
+		return l.s.bareChannels()
+	}, func(id string) (api.Session, bool) {
+		if slices.Contains(hosted, id) {
+			one.Add(1)
+		}
+		return l.s.bareChannel(id)
+	})
+	list, err := l.s.m.List(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) < len(rooms)+len(hosted) {
+		t.Fatalf("listed %d", len(list))
+	}
+	if got := l.s.channelName(rooms[1]); got != "room 1" {
+		t.Fatalf("a channel's name: %q", got)
+	}
+	if all.Load() != 0 || one.Load() != 0 {
+		t.Fatalf("a list of %d hosted sessions and a name: the channels all read to find one %d times, a hosted session asked for among them %d times", len(hosted), all.Load(), one.Load())
+	}
+	// Named as its state names it.
+	for _, id := range append(rooms, hosted...) {
+		st, err := l.s.m.State(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := cmp.Or(st.Name, st.Title); l.s.channelName(id) != l.s.MaskText(want) {
+			t.Fatalf("%s: called %q, its state %q", id, l.s.channelName(id), want)
+		}
+	}
 }

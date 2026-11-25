@@ -578,6 +578,13 @@ func (s *Store) Overlays() (map[string]Overlay, error) {
 	return out, rows.Err()
 }
 
+// Named is the name session was given (the user's or its agent's); "" for none.
+func (s *Store) Named(session string) string {
+	var name string
+	_ = s.db.QueryRow(`SELECT name FROM names WHERE session = ?`, session).Scan(&name)
+	return name
+}
+
 // SetName renames a session as the user does; "" takes the name off.
 func (s *Store) SetName(session, name string) error {
 	if name == "" {

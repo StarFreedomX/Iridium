@@ -1,6 +1,7 @@
 package session
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -34,19 +35,44 @@ func (m *Manager) finder() Finder {
 	return f
 }
 
-// found is session id as discovery found it, if Iridium does not host it.
+// found is session id as discovery found it, if Iridium does not host it; else the channel that
+// is no session's of that id. That one is asked for alone: listing them all to find it cost two
+// queries a channel, for every session of a list and every block of a page (otae, 2026-11-25:
+// the daemon at 350% CPU, no list in 150 s).
 func (m *Manager) found(id string) (api.Session, *transcript.File, bool) {
-	if f := m.finder(); f != nil {
-		if s, tf, ok := f.Found(id); ok {
-			return s, tf, true
-		}
+	if s, tf, ok := m.discovered(id); ok {
+		return s, tf, true
 	}
-	for _, s := range m.bares() {
-		if s.ID == id {
+	if b := m.bare.Load(); b != nil && b.one != nil {
+		if s, ok := b.one(id); ok {
 			return s, nil, true
 		}
 	}
 	return api.Session{}, nil, false
+}
+
+// discovered is session id as discovery found it on disk.
+func (m *Manager) discovered(id string) (api.Session, *transcript.File, bool) {
+	if f := m.finder(); f != nil {
+		return f.Found(id)
+	}
+	return api.Session{}, nil, false
+}
+
+// Called is what session id goes by: the name it was given, else its title; "" for one not known.
+// What State says of it, without making its state.
+func (m *Manager) Called(id string) string {
+	var title string
+	if h, err := m.get(id); err == nil {
+		h.mu.Lock()
+		title = h.said.title
+		h.mu.Unlock()
+	} else if s, _, ok := m.found(id); ok {
+		title = s.Title
+	} else {
+		return ""
+	}
+	return cmp.Or(m.o.Store.Named(id), title)
 }
 
 // HasIR: session id's agent has an ir that reaches Iridium: here always; at another machine,
@@ -64,9 +90,18 @@ func (m *Manager) HasIR(id string) bool {
 	return hi != nil && hi.IRClient
 }
 
-// SetBare has f list the channels that are no session's (docs/channels.md), each as a session
-// with no agent: listed, named, pinned, grouped and archived as the sessions found on disk are.
-func (m *Manager) SetBare(f func() []api.Session) { m.bare.Store(&f) }
+// SetBare has all list the channels that are no session's (docs/channels.md), each as a session
+// with no agent: listed, named, pinned, grouped and archived as the sessions found on disk are;
+// one is the one of an id, if there is one.
+func (m *Manager) SetBare(all func() []api.Session, one func(id string) (api.Session, bool)) {
+	m.bare.Store(&bareChannels{all: all, one: one})
+}
+
+// bareChannels is how the channels that are no session's are read (SetBare).
+type bareChannels struct {
+	all func() []api.Session
+	one func(id string) (api.Session, bool)
+}
 
 // SetChannelLast has f give the last words a session is listed with when its channel says them
 // rather than its record (record: the record's): one with other agents in it, where people and
@@ -93,8 +128,8 @@ func (m *Manager) channelLast(s *api.Session) {
 }
 
 func (m *Manager) bares() []api.Session {
-	if f := m.bare.Load(); f != nil {
-		return (*f)()
+	if b := m.bare.Load(); b != nil && b.all != nil {
+		return b.all()
 	}
 	return nil
 }
@@ -194,12 +229,13 @@ func (m *Manager) take(ctx context.Context, id string) (*Hosted, error) {
 }
 
 // elsewhere marks a hosted session whose agent Iridium is not running but another process is;
-// as: the id discovery finds it under.
+// as: the id discovery finds it under. Discovery alone is asked: a channel that is no session's
+// is no hosted session, and runs nowhere.
 func (m *Manager) elsewhere(s api.Session, as string) api.Session {
 	if s.Live {
 		return s
 	}
-	if f, _, ok := m.found(as); ok && f.Status == api.StatusElsewhere {
+	if f, _, ok := m.discovered(as); ok && f.Status == api.StatusElsewhere {
 		s.Status, s.Live, s.Needs = api.StatusElsewhere, true, f.Needs
 	}
 	return s

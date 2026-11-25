@@ -102,7 +102,7 @@ type Manager struct {
 	cleared  atomic.Pointer[func(old, next string)]
 	created  atomic.Pointer[func(ctx context.Context, id string, req api.NewSession) error]
 	selfOf   atomic.Pointer[func(id string) *assemble.Self]
-	bare     atomic.Pointer[func() []api.Session]
+	bare     atomic.Pointer[bareChannels]
 	chanLast atomic.Pointer[func(string, *api.LastSaid) (*api.LastSaid, bool)]
 	speaksIn atomic.Pointer[func(session, channel string) bool]
 }
