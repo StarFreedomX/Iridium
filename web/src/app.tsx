@@ -28,7 +28,7 @@ import { prefetchRoles } from "./roles";
 import { quotaQ } from "./quota";
 import { close, go, onTurn, openChat, over, quietDialog, route, setUsageMachine, usagePoint, useRoute, type Route } from "./route";
 import { Pager, TABS_H } from "./pager";
-import { atLeft, GRIP, Grip, Sheet } from "./sheet";
+import { atLeft, GRIP, Sheet } from "./sheet";
 import { HeadKeys, Sidebar } from "./sidebar";
 import { useConfirms, useList } from "./store";
 import { follow } from "./stream";
@@ -509,7 +509,7 @@ export function App() {
               <Pager
                 // The tabs' bar is px-3, the list's rows end 4px further right: its "+" in line with
                 // theirs (the user, 2026-11-08).
-                ends={[<Grip key="g" />, <Grip key="g" />, <span key="s" className="-mr-1 flex items-center"><HeadKeys filesKey={filesKey} /><Grip /></span>]}
+                ends={[null, null, <span key="s" className="-mr-1 flex"><HeadKeys filesKey={filesKey} /></span>]}
                 page={sheetPage}
                 still={turnStill}
                 onPage={toPage}

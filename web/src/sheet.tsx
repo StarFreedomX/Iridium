@@ -4,7 +4,7 @@
 // the sheet away, as picking a session does. The chat bar's Ir or ⋯ menu brings it out, the Ir
 // pressed again puts it away; Esc does too. No swipe brings it or puts it away (kumo, 2026-11-25).
 // With no chat open it stays out, the whole window. While searching it stands taller, for the
-// keyboard. Its head, the tabs' row with its grip at the right end, dragged up or down sizes it at
+// keyboard. Its head, the tabs' row (no grip drawn, kumo 2026-11-25), dragged up or down sizes it at
 // once, no hold first, from LOW up to the window's top, what it holds scrolling, with no bar; it
 // stays so on this device. Let go near its first height, it goes back to that.
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
@@ -13,20 +13,11 @@ import { cn, keep, kept } from "./ui";
 
 /** Where a swipe up brings the sheet: the chat's bottom stack (chat.tsx), the composer in it. */
 export const PULL = "data-sheet-pull";
-/** Its grip's height, px: none now, the grip at its head's end (Grip). */
+/** Its grip's height, px: none (kumo, 2026-11-25: no grip drawn; its head dragged sizes it). */
 export const GRIP = 0;
 /** How short it may be made, px. */
 const LOW = 200;
 
-/** Its grip, at the end of its head's row, right of the keys there (kumo, 2026-11-25: no row of its
- *  own over the head). The head, this with it, dragged up or down sizes the sheet; it lights then. */
-export function Grip() {
-  return (
-    <span aria-hidden className="grid h-8 w-5 shrink-0 cursor-ns-resize place-items-center pointer-coarse:h-10">
-      <span className="h-5 w-1 rounded-full bg-fill-2 transition-[height,background-color] duration-(--dur-2) ease-(--ease-out) group-data-sizing/sheet:h-7 group-data-sizing/sheet:bg-ink-3" />
-    </span>
-  );
-}
 const HEAD = 64; // px from the sheet's top where a swipe down or a hold may begin: the grip and the head
 const KEPT = "sheetH."; // + its name: how tall the user left it, a share of the window
 // The sheets sized as one, by name: the sessions' and the 终端 panel share a height (the user,
