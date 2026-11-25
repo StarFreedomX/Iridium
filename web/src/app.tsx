@@ -8,9 +8,10 @@
 // they are opened, or the page is idle: the first screen stays light.
 import { AppKey, AppTell, WinKeys } from "./appkey";
 import { Dialog } from "@base-ui/react/dialog";
+import { Menu } from "@base-ui/react/menu";
 import { Toast } from "@base-ui/react/toast";
 import { Tooltip } from "@base-ui/react/tooltip";
-import { ChevronUp, FolderOpen } from "lucide-react";
+import { BarChart3, Ellipsis, FolderOpen, ListTree, Settings } from "lucide-react";
 import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType, type CSSProperties, type ReactNode } from "react";
 import { api, queryClient } from "./api/client";
 import { InPopup } from "./api/query";
@@ -27,17 +28,18 @@ import { motion, movesAhead, pageTurn, usePaced } from "./motion";
 import { prefetch, settled } from "./prefetch";
 import { prefetchRoles } from "./roles";
 import { quotaQ } from "./quota";
-import { back as stepBack, close, go, onTurn, openChat, over, quietDialog, route, useRoute, type Route } from "./route";
+import { back as stepBack, close, go, onTurn, openChat, openUsage, over, quietDialog, route, useRoute, type Route } from "./route";
 import { Pager, TABS_H } from "./pager";
 import { atLeft, GRIP, PULL, Sheet } from "./sheet";
-import { HeadKeys, Sidebar } from "./sidebar";
+import { LinkDot } from "./link";
+import { HeadKeys, MenuItems, Sidebar } from "./sidebar";
 import { useConfirms, useList } from "./store";
 import { follow, opened } from "./stream";
 import { ToastList, toasts } from "./toast";
 import { buildTree, flat, FOLD_STEP } from "./tree";
 import { usePlaces } from "./reorder";
 import { reloadAgain } from "./upgrade";
-import { cn, IrMark, kept, keep, params, PHONE, useMedia, useMinute, DialogPortal } from "./ui";
+import { cn, IrMark, kept, keep, params, PHONE, useMedia, useMinute, DialogPortal, MenuPortal } from "./ui";
 import { watchUnread } from "./unread";
 import { warmUp } from "./warm";
 
@@ -413,7 +415,7 @@ export function App() {
           {under.name === "chat" ? (
             <ChatPage key={`${under.id}:${under.record ? "r" : "c"}`} id={under.id} record={under.record} sheet={below} onSheet={phone ? onSheet : undefined} onMe={phone ? onMe : undefined} />
           ) : (
-            <Empty below={below} onSheet={phone ? onSheet : undefined} />
+            <Empty below={below} onSheet={phone ? onSheet : undefined} onMe={phone ? onMe : undefined} />
           )}
         </Suspense>
       </FileBrowserHandle.Provider>
@@ -572,7 +574,9 @@ const PICK_KEY = "grid size-8 shrink-0 place-items-center text-ink-3 pointer-coa
 const PICK_WORDS = "min-w-0 flex-1 self-center truncate px-0.5 py-1 text-md leading-[21px] text-ink-4";
 
 /** The main pane with nothing open: the splash in its middle, a box where a chat's composer is. */
-function Empty({ below, onSheet }: { below: number; onSheet?: () => void }) {
+function Empty({ below, onSheet, onMe }: { below: number; onSheet?: () => void; onMe?: () => void }) {
+  // What ⋯ has with no chat open (kumo, 2026-11-25): the list, the settings, the usage.
+  const lead = [...(onSheet ? [{ icon: <ListTree size={15} />, label: t("nav.sidebar"), run: onSheet }] : []), ...(onMe ? [{ icon: <Settings size={15} />, label: t("nav.me"), run: onMe }] : []), { icon: <BarChart3 size={15} />, label: t("usage.title"), run: () => openUsage() }];
   return (
     <div className="relative grid h-full place-items-center transition-[padding] duration-(--dur-3) ease-(--ease-out)" style={{ paddingBottom: below }}>
       {/* Where a chat's composer is, its look: pressed, the file browser, a channel made in the
@@ -583,12 +587,15 @@ function Empty({ below, onSheet }: { below: number; onSheet?: () => void }) {
         {/* A phone's: what a swipe up from here brings, the sheet of the groups; pressed, the same. */}
         <div className="relative mx-auto max-w-(--chat-w)">
         {onSheet ? (
-          <button type="button" onClick={onSheet} className={PICK}>
-            <span className={PICK_KEY}>
-              <ChevronUp size={17} />
-            </span>
-            <span className={PICK_WORDS}>{t("empty.swipe")}</span>
-          </button>
+          <div className={PICK}>
+            {/* Where the attach key is: the file browser (kumo, 2026-11-25). The words: the sheet. */}
+            <FileBrowserTrigger place={{ machine: "", path: "" }} aria-label={t("browse.title")} className={cn(PICK_KEY, "g-press rounded-md hover:bg-fill hover:text-ink")}>
+              <FolderOpen size={17} />
+            </FileBrowserTrigger>
+            <button type="button" onClick={onSheet} className={cn(PICK_WORDS, "cursor-text text-left")}>
+              {t("empty.swipe")}
+            </button>
+          </div>
         ) : (
           <FileBrowserTrigger place={{ machine: "", path: "" }} className={PICK}>
             <span className={PICK_KEY}>
@@ -604,10 +611,24 @@ function Empty({ below, onSheet }: { below: number; onSheet?: () => void }) {
       <div data-app-drag className="absolute inset-x-0 top-0 z-2 flex h-12 items-center justify-end pr-2 pointer-coarse:h-13">
         {/* A phone's key to its sheet, where a chat's bar has it. */}
         {onSheet && (
-          <button type="button" aria-label={t("nav.sidebar")} onClick={onSheet} className="g-press mr-auto ml-2 flex items-center gap-2.5 rounded-md p-2 hover:bg-fill">
+          <button type="button" aria-label={t("nav.sidebar")} onClick={onSheet} className="g-press ml-2 flex items-center gap-2.5 rounded-md p-2 hover:bg-fill">
             <IrMark size={18} className="text-ink" />
             <span className="text-base font-semibold">Iridium</span>
           </button>
+        )}
+        {/* The link, as after a chat's name; ⋯ where a chat's bar has it. */}
+        {onSheet && <LinkDot className="mr-auto shrink-0" />}
+        {onSheet && (
+          <Menu.Root>
+            <Menu.Trigger render={<button type="button" aria-label={t("top.more")} className="g-press grid size-8 place-items-center rounded-md text-ink-2 hover:bg-fill hover:text-ink data-popup-open:bg-fill pointer-coarse:size-10" />}>
+              <Ellipsis size={17} />
+            </Menu.Trigger>
+            <MenuPortal>
+              <Menu.Positioner side="bottom" align="end" sideOffset={6} collisionPadding={8} className="z-50">
+                <MenuItems lead={lead} items={[]} className="min-w-56" />
+              </Menu.Positioner>
+            </MenuPortal>
+          </Menu.Root>
         )}
         <AppKey />
         <WinKeys />
