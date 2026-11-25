@@ -503,7 +503,7 @@ export function App() {
           {!phone && sidebar}
           {main}
           {phone && (
-            <Sheet open={sheetIsOut} setOpen={setSheet} size={!open ? "full" : "half"} raised={jumping && !setsOut} name="phone" head={GRIP + TABS_H} from={() => true} onPull={(x) => setPulled(atLeft(x) ? "me" : "sessions")} label={setsOut ? t("nav.me") : t("nav.sessions")} onHeight={setSheetH}>
+            <Sheet open={sheetIsOut} setOpen={setSheet} size="half" raised={jumping && !setsOut} name="phone" head={GRIP + TABS_H} from={() => true} onPull={(x) => setPulled(atLeft(x) ? "me" : "sessions")} label={setsOut ? t("nav.me") : t("nav.sessions")} onHeight={setSheetH}>
               <Pager
                 // The tabs' bar is px-3, the list's rows end 4px further right: its "+" in line with
                 // theirs (the user, 2026-11-08).
