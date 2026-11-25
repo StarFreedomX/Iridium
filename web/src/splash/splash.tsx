@@ -5,10 +5,15 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { Agent } from "../api/types.gen";
 import { useFaceSrc } from "../chat/channel/face";
+import { useRoles } from "../roles";
 import { cn, PHONE, useMedia } from "../ui";
 import { splash, type Splash as Engine } from "./engine";
+import type { Cast } from "./slice";
 import { justMade } from "../chat/channel/adding";
 import { onPoint, pointedAt, powerNow, stage, stagedNow, STANDARD, type Fig } from "./figure";
+
+// What the little game throws up (slice.ts): the roles kept, by their faces, and each agent's mark.
+const MARKS: Cast[] = (["claude", "codex", "pi", "dsh", "agy"] as const).map((agent) => ({ agent }));
 
 /** show: false, it fades and is gone. fig: what it draws when no row of the + panel is pointed
  *  at; none: Iridium's letters. */
@@ -37,6 +42,8 @@ export function Splash({ show = true, fig = null, scene = "", className }: { sho
   const faceRef = useRef(face);
   faceRef.current = face;
   useEffect(() => fitRef.current(), [face]);
+  const roles = useRoles();
+  useEffect(() => eng.current?.cast([...roles.filter((r) => r.avatar).slice(0, 6).map((r) => ({ src: r.avatar!, agent: r.agent })), ...MARKS]), [roles, there, still, phone]);
   // Before the frame it is first in: one band going as another comes (the empty pane's, a new
   // channel's) is the same characters with no frame between them.
   useLayoutEffect(() => {
@@ -70,6 +77,7 @@ export function Splash({ show = true, fig = null, scene = "", className }: { sho
       e.place(ph ? w / 2 : -1, ph ? Math.min(w * 0.94, h * 0.98) : Math.min(h * 0.92, w * 0.7) * (face ? 0.82 : 1), ph ? -1 : (48 + top) / 2);
       e.foot(ph ? top - 6 : -1);
       e.edge(ph || !face);
+      e.bounds(56, top - 6);
     };
     fitRef.current = fit;
     fit();
