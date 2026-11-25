@@ -36,7 +36,7 @@ import { ToastList, toasts } from "./toast";
 import { buildTree, flat, FOLD_STEP } from "./tree";
 import { usePlaces } from "./reorder";
 import { reloadAgain } from "./upgrade";
-import { cn, IrMark, kept, keep, params, PHONE, useMedia, useMinute, DialogPortal } from "./ui";
+import { cn, kept, keep, params, PHONE, useMedia, useMinute, DialogPortal } from "./ui";
 import { watchUnread } from "./unread";
 import { warmUp } from "./warm";
 
@@ -77,6 +77,7 @@ const SecretsPage = part(() => import("./credentials").then((m) => m.SecretsPage
 const RolesPage = part(() => import("./rolespage").then((m) => m.RolesPage));
 const CachePage = part(() => import("./device/page").then((m) => m.CachePage));
 const UsagePage = part(() => import("./usage").then((m) => m.UsagePage));
+const Splash = lazy(() => import("./splash/splash").then((m) => ({ default: m.Splash })));
 const FileBrowserKey = part(() => import("./filebrowser-key").then((m) => m.FileBrowserKey));
 const FileBrowser = part(() => loadFileBrowser().then((m) => m.default));
 /** The page of the settings' dialog a route is: the settings, or one of their own pages. */
@@ -551,7 +552,9 @@ const back = () => (history.state?.depth > 1 ? history.back() : go({ name: "sett
 function Empty({ below }: { below: number }) {
   return (
     <div className="relative grid h-full place-items-center transition-[padding] duration-(--dur-3) ease-(--ease-out)" style={{ paddingBottom: below }}>
-      <IrMark size={44} className="text-fill-2" aria-hidden />
+      <Suspense fallback={null}>
+        <Splash />
+      </Suspense>
       {/* The desktop app's keys where a chat's top bar has them (appkey.tsx); nothing in a browser.
           The strip they are in drags the window. */}
       <div data-app-drag className="absolute inset-x-0 top-0 flex h-12 items-center justify-end pr-2">

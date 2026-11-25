@@ -33,6 +33,7 @@ import { fromSatori, PLACE_DRAG, SESSION_DRAG, sourceOf, withDevice, yours, type
 import { Assistant, Attached, Compaction, Letter, Line, MsgRow, Pending, When, YouBubble } from "../said";
 import { ShellRuns } from "../shell";
 import { Stick, toEnd } from "../stick";
+import { ChannelSplash } from "../../splash/splash";
 import { WorkLine } from "../work";
 import { askQueue, quoteAt, watchExtra, type AgentRow, type Did, type Msg, type Work, eventParts, personName, type EventWords } from "./lib";
 import { channelLog } from "./log";
@@ -504,6 +505,8 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
   return (
     <Nicks.Provider value={nicks}>
       <div className="relative h-full" onDragOver={(e) => files(e) || session(e) || place(e)} onDrop={drop}>
+        {/* Nothing said yet: the splash in its middle, behind the rest (splash/splash.tsx). */}
+        <ChannelSplash id={id} show={!hold && log.loaded && !log.msgs.length && !sent.length} last={agents.at(-1)} />
         <Stick key={hold ? "hold" : "whole"} scroller={scroller} tail={grew} older={() => log.older()} draw={changed} place={entry.place} bottom={stackH} quiet={asking} style={{ paddingTop: padTop, paddingBottom: stackH + 20 }}>
           <div data-column className="mx-auto flex max-w-(--chat-w) flex-col gap-5 px-4 [--depart-gap:1.25rem] sm:px-6">
             {!hold &&

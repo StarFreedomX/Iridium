@@ -12,7 +12,7 @@ import { Menu } from "@base-ui/react/menu";
 import { useQueryClient } from "@tanstack/react-query";
 import { useQuery } from "../../api/query";
 import { LoaderCircle, Mail, Plus } from "lucide-react";
-import { useState, type CSSProperties } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { api } from "../../api/client";
 import type { Agent, ChannelMembers, Role, Trigger } from "../../api/types.gen";
 import { agentsQ, useMachines } from "../../data";
@@ -28,6 +28,11 @@ import { Deeper, usePages } from "./pages";
 import { choicesQ, draftDefault, draftName, type At } from "../choices";
 import { CARD_POP, ProfileCard } from "./profilecard";
 import { DraftModels } from "./pick";
+import { ahead as figAhead } from "../../splash/engine";
+import { point, type Fig } from "../../splash/figure";
+
+/** A row pointed at or come to by the keys: the splash draws what it would add (splash/). */
+const pointing = (f: Fig) => ({ onPointerEnter: () => point(f), onFocus: () => point(f) });
 
 export const ITEM = "flex h-8 cursor-default items-center gap-2.5 rounded-md px-2.5 text-base outline-none select-none data-highlighted:bg-fill data-popup-open:bg-fill pointer-coarse:h-11";
 export const POPUP = "g-unfold glass thick float rounded-lg text-ink outline-none";
@@ -88,6 +93,10 @@ export function AddAgents({ id, wake, setWake }: { id: string; wake: Wake; setWa
   const off = full || busy !== null;
   // Where one added runs when not at the channel's own computer: the one picked, its home folder.
   const to = m && picked !== own ? m : undefined;
+  // The panel gone: the splash is the channel's own again. The templates' faces asked for as it
+  // is drawn: one pointed at is there to be drawn.
+  useEffect(() => () => point(null), []);
+  useEffect(() => roles.forEach((r) => r.avatar && figAhead({ key: r.id, src: r.avatar })), [roles]);
   return (
     <>
       {/* What wakes the one added, at the head (kumo, 2026-11-25): a press goes on to the next. */}
@@ -131,6 +140,7 @@ function RoleRow({ role, at, i, off, busy, add }: { role: Role; at: At; i: numbe
   const pages = usePages();
   const style = { "--i": i } as CSSProperties;
   const cls = cn(ITEM, "data-disabled:opacity-40");
+  const fig = pointing({ key: `role:${role.id}:${role.avatar ?? ""}`, src: role.avatar || undefined, agent: role.agent });
   const row = (
     <>
       {busy ? <LoaderCircle size={16} className="animate-spin text-ink-3" /> : <RoleFace role={role} size={16} />}
@@ -148,7 +158,7 @@ function RoleRow({ role, at, i, off, busy, add }: { role: Role; at: At; i: numbe
     );
   return (
     <Menu.SubmenuRoot>
-      <Menu.SubmenuTrigger disabled={off} onClick={add} style={style} className={cls}>
+      <Menu.SubmenuTrigger disabled={off} onClick={add} style={style} className={cls} {...fig}>
         {row}
       </Menu.SubmenuTrigger>
       <MenuPortal>
@@ -197,6 +207,7 @@ function Kind({ id, k, m, lacks, i, off, busy, add }: { id: string; k: Agent; m?
   const style = { "--i": i } as CSSProperties;
   const cls = cn(ITEM, "data-disabled:opacity-40");
   const plain = () => void add(k, p.model || send, p.effort, p.preset, undefined, m);
+  const fig = pointing({ key: `kind:${k}`, agent: k });
   if (pages && asked?.models.length)
     return (
       <Deeper row={row} title={agentName(k)} i={i} popup="" disabled={off}>
@@ -205,13 +216,13 @@ function Kind({ id, k, m, lacks, i, off, busy, add }: { id: string; k: Agent; m?
     );
   if (!asked?.models.length)
     return (
-      <Menu.Item closeOnClick={false} disabled={off} onClick={plain} style={style} className={cls}>
+      <Menu.Item closeOnClick={false} disabled={off} onClick={plain} style={style} className={cls} {...fig}>
         {row}
       </Menu.Item>
     );
   return (
     <Menu.SubmenuRoot>
-      <Menu.SubmenuTrigger disabled={off} onClick={plain} style={style} className={cls}>
+      <Menu.SubmenuTrigger disabled={off} onClick={plain} style={style} className={cls} {...fig}>
         {row}
       </Menu.SubmenuTrigger>
       <MenuPortal>
