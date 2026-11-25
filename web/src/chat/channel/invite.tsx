@@ -11,10 +11,10 @@
 import { Menu } from "@base-ui/react/menu";
 import { useQueryClient } from "@tanstack/react-query";
 import { useQuery } from "../../api/query";
-import { LoaderCircle, Plus } from "lucide-react";
+import { LoaderCircle, Mail, Plus } from "lucide-react";
 import { useState, type CSSProperties } from "react";
 import { api } from "../../api/client";
-import type { Agent, ChannelMembers, Role } from "../../api/types.gen";
+import type { Agent, ChannelMembers, Role, Trigger } from "../../api/types.gen";
 import { agentsQ, useMachines } from "../../data";
 import { t, useLang } from "../../i18n";
 import { MachineFace, type Machine } from "../../machines";
@@ -22,6 +22,7 @@ import { RoleFace, RoleLine, roleStart, useRoles } from "../../roles";
 import { useList, useSession } from "../../store";
 import { toast } from "../../toast";
 import { AGENTS, agentName, cn, Logo, MenuPortal } from "../../ui";
+import { useMembers } from "./gate";
 import { memberError } from "./key";
 import { choicesQ, draftDefault, draftName, type At } from "../choices";
 import { CARD_POP, ProfileCard } from "./profilecard";
@@ -33,17 +34,24 @@ export const POPUP = "g-unfold glass thick float rounded-lg text-ink outline-non
 /** How many agents a channel holds (internal/server MaxAgents). */
 export const MAX_AGENTS = 8;
 
+/** What wakes one added beside its @ (kumo, 2026-11-25): only the one adding it (self, the
+ *  first: a press goes on to the next), only an @ (at), or every member's words (all). */
+export type Wake = "self" | "at" | "all";
+export const WAKES: Wake[] = ["self", "at", "all"];
+const wakeOn = (w: Wake, me?: string): Trigger[] => (w === "all" ? [{ message: { from: ["*"] } }] : w === "self" && me ? [{ message: { from: [me] } }] : []);
+
 /** Adds an agent to channel id and keeps the members it answers with; it says hello as it
  *  joins (greet; kumo, 2026-11-16). as: as a role (what
  *  roleStart gives; busy is then "role:<id>"). m: at that computer, in its home folder (busy:
- *  "<machine>/<agent>"). */
-export function useAdd(id: string) {
+ *  "<machine>/<agent>"). wake: what wakes it beside its @ (Wake; none given, only its @). */
+export function useAdd(id: string, wake?: Wake) {
   const qc = useQueryClient();
+  const me = useMembers(id)?.me;
   const [busy, setBusy] = useState<string | null>(null);
   const add = async (agent: Agent, model: string, effort: string, preset = "", as?: ReturnType<typeof roleStart>, m?: Machine) => {
     setBusy(as ? `role:${as.role}` : m ? `${m.id}/${agent}` : agent);
     try {
-      qc.setQueryData<ChannelMembers>(["members", id], await api.addMember(id, { ...(as ?? { agent, ...(model ? { model } : {}), ...(effort ? { effort } : {}), ...(preset ? { preset } : {}) }), ...(m ? { machine: m.id, cwd: m.home } : {}), greet: true }));
+      qc.setQueryData<ChannelMembers>(["members", id], await api.addMember(id, { ...(as ?? { agent, ...(model ? { model } : {}), ...(effort ? { effort } : {}), ...(preset ? { preset } : {}) }), ...(m ? { machine: m.id, cwd: m.home } : {}), ...(wake ? { on: wakeOn(wake, me) } : {}), greet: true }));
     } catch (e) {
       toast(memberError(e), { error: true });
     } finally {
@@ -58,7 +66,7 @@ export function useAdd(id: string) {
  *  and the kinds of agent of the one picked. Every template and every kind any computer has
  *  keeps its row whichever is picked, one the picked computer lacks drawn faint and not pressed:
  *  the menu is as tall for each computer. */
-export function AddAgents({ id, onKind, onRole }: { id: string; onKind?: (k: Agent, m?: Machine) => void; onRole?: (r: Role, m?: Machine) => void }) {
+export function AddAgents({ id, wake, setWake, onKind, onRole }: { id: string; wake: Wake; setWake: (w: Wake) => void; onKind?: (k: Agent, m?: Machine) => void; onRole?: (r: Role, m?: Machine) => void }) {
   useLang();
   const row = useList()?.find((x) => x.id === id);
   const own = (useSession(id) ?? row)?.machine ?? "";
@@ -73,13 +81,24 @@ export function AddAgents({ id, onKind, onRole }: { id: string; onKind?: (k: Age
   const every = new Set<Agent>([...local, ...machines.flatMap((x) => (x.id ? x.agents.map((a) => a.agent as Agent) : []))]);
   const kinds = AGENTS.filter((k) => every.has(k));
   const roles = useRoles();
-  const { busy, add } = useAdd(id);
+  const { busy, add } = useAdd(id, wake);
   const full = (row?.agents?.length ?? 1) >= MAX_AGENTS;
   const off = full || busy !== null;
   // Where one added runs when not at the channel's own computer: the one picked, its home folder.
   const to = m && picked !== own ? m : undefined;
   return (
     <>
+      {/* What wakes the one added, at the head (kumo, 2026-11-25): a press goes on to the next. */}
+      <Menu.Item closeOnClick={false} onClick={() => setWake(WAKES[(WAKES.indexOf(wake) + 1) % WAKES.length]!)} className={ITEM}>
+        <span className="text-ink-2">
+          <Mail size={15} />
+        </span>
+        <span className="min-w-0 flex-1 truncate">{t("channel.recv")}</span>
+        <span key={wake} className="g-fade shrink-0 text-sm text-ink-2">
+          {t(`wake.${wake}`)}
+        </span>
+      </Menu.Item>
+      <div role="separator" className="mx-2.5 my-1 border-t border-(--edge)" />
       {machines.length > 1 && (
         // As wide as the menu is without it: the row scrolls, it does not widen the menu.
         <div className="no-bar mb-1 flex w-0 min-w-full gap-1 overflow-x-auto">
@@ -195,9 +214,9 @@ function Kind({ id, k, m, lacks, onPage, i, off, busy, add }: { id: string; k: A
 
 /** A kind's models as the panel's page (a finger's: no menu beside the row): one picked adds it
  *  with that one and the page is done. */
-export function KindPage({ id, k, m, done }: { id: string; k: Agent; m?: Machine; done: () => void }) {
+export function KindPage({ id, k, m, wake, done }: { id: string; k: Agent; m?: Machine; wake: Wake; done: () => void }) {
   const at = m ? { machine: m.id } : { channel: id };
   const [p, setP] = useState<{ model: string; effort: string; preset?: string }>({ model: "", effort: "" });
-  const { add } = useAdd(id);
+  const { add } = useAdd(id, wake);
   return <DraftModels agent={k} at={at} model={p.model} effort={p.effort} preset={p.preset} set={(x) => (x.model !== undefined ? (void add(k, x.model, p.effort, p.preset, undefined, m), done()) : setP({ ...p, ...x }))} />;
 }

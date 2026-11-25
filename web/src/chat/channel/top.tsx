@@ -23,7 +23,7 @@ import { openEdit } from "./editing";
 import { Face, MemberFace } from "./face";
 import { ContextMark } from "../meters";
 import { mayAct, useMembers } from "./gate";
-import { AddAgents, ITEM, KindPage, POPUP, RolePreview, useAdd } from "./invite";
+import { AddAgents, ITEM, KindPage, POPUP, RolePreview, useAdd, type Wake } from "./invite";
 import { Deeper, Paged, usePaged } from "./pages";
 import { Tall } from "../../create";
 import { onAskAdd, takeAdd } from "./adding";
@@ -272,7 +272,9 @@ function Invite({ id }: { id: string }) {
   // it (the computer picked), only not drawn.
   const paged = usePaged();
   const [page, setPage] = useState<{ k: Agent; m?: Machine } | { role: Role; m?: Machine } | { app: string } | null>(null);
-  const { busy, add } = useAdd(id);
+  // What wakes the one added: only the one adding it, as the panel opens (kumo, 2026-11-25).
+  const [wake, setWake] = useState<Wake>("self");
+  const { busy, add } = useAdd(id, wake);
   const stepped = useRef(false);
   if (page) stepped.current = true;
   const loginRows = (app: string) => (
@@ -294,7 +296,7 @@ function Invite({ id }: { id: string }) {
     <Tall>
       {/* Back from a page, the list comes in from the other side; as the panel opens it does not slide. */}
       <div data-dir="back" className={cn("flex flex-col", stepped.current ? "g-slide" : "g-stagger", page && "hidden")}>
-        <AddAgents id={id} onKind={paged ? (k, m) => setPage({ k, m }) : undefined} onRole={paged ? (role, m) => setPage({ role, m }) : undefined} />
+        <AddAgents id={id} wake={wake} setWake={setWake} onKind={paged ? (k, m) => setPage({ k, m }) : undefined} onRole={paged ? (role, m) => setPage({ role, m }) : undefined} />
         {apps.length > 0 && <div role="separator" className="mx-2.5 my-1 border-t border-(--edge)" />}
         {apps.map((a) => {
           const name = a.web ? t("term.panel") : a.name;
@@ -327,7 +329,7 @@ function Invite({ id }: { id: string }) {
               <RolePreview role={page.role} at={page.m ? { machine: page.m.id } : { channel: id }} off={busy !== null} busy={busy === `role:${page.role.id}`} add={() => void add(page.role.agent, "", "", "", roleStart(page.role), page.m).then(() => setPage(null))} />
             </div>
           ) : (
-            <KindPage id={id} k={page.k} m={page.m} done={() => setPage(null)} />
+            <KindPage id={id} k={page.k} m={page.m} wake={wake} done={() => setPage(null)} />
           )}
         </div>
       )}
