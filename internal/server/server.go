@@ -196,6 +196,7 @@ func New(cfg config.Config, m *session.Manager, h *hub.Hub, logf func(string, ..
 	s.stopList = lstop
 	go s.watchList(lctx)
 	go s.cronLoop(lctx)
+	go s.missedLoop(lctx)
 	s.wireNeeds()
 	if err := s.openGate(); err != nil {
 		s.initErr = err
