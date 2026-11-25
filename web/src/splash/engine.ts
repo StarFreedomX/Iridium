@@ -424,7 +424,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
   // band (RN along it, a few across), each on the cell it falls in, the nearest kept; no cell asked
   // anything. A star over a part of it (draw) stirs that part (stir): another run of colours there,
   // going out along the band both ways and dying away.
-  const RN = 512;
+  const RN = 1024;
   // Along it, for a half length of one: its middle line (x, y, z) and two directions across it.
   // Its two loops are not in one plane (kumo, 2026-11-26: as two orbits): each leans its own way, the
   // plane turning from one to the other along it.
@@ -465,16 +465,19 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
     for (let j = 0; j < RN; j++) stir2[j] = Math.max(stir[j]!, (stir[(j + 1) % RN]! + stir[(j + RN - 1) % RN]!) * 0.49) * dec;
     [stir, stir2] = [stir2, stir];
     const top = footT >= 0 ? footT : H, t = still ? 5000 : now;
-    const A = Math.min(W * 0.33, top * 0.29, 230) * (1 + 0.03 * Math.sin(t / 1700)), wv = A * 0.1, xc = W / 2, yc = cy >= 0 ? cy : top * 0.5;
+    // Over the whole pane (kumo, 2026-11-26: the dragon swims the page): from its upper left to its
+    // lower right, its two ends past the pane's edges; as tall as the pane has room for.
+    const lie = Math.atan2(top * 0.36, W), A = Math.hypot(W, top * 0.36) * 0.56 * (1 + 0.02 * Math.sin(t / 1700));
+    const ys = Math.min(1, (top * 0.56) / A), wv = Math.max(12, Math.min(34, A * 0.05)), xc = W / 2, yc = top * 0.5;
     // It sways: about its length, about its height, and a little in the pane.
-    const a1 = 0.1 + 0.3 * Math.sin(t / 2300), a2 = 0.32 * Math.sin(t / 3100 + 1), a3 = 0.47 + 0.07 * Math.sin(t / 4100);
+    const a1 = 0.1 + 0.22 * Math.sin(t / 2300), a2 = 0.16 * Math.sin(t / 3100 + 1), a3 = lie + 0.04 * Math.sin(t / 4100);
     const c1 = Math.cos(a1), s1 = Math.sin(a1), c2 = Math.cos(a2), s2 = Math.sin(a2), c3 = Math.cos(a3), s3 = Math.sin(a3);
     /** A point of it on the cell it falls in, if none nearer is there: how strong, its hue, and
      *  where along the body it is (-1: not of the body). */
     const put = (x: number, y: number, z: number, a: number, hue: number, iu: number) => {
       const y1 = y * c1 - z * s1, z1 = y * s1 + z * c1;
       const x2 = x * c2 + z1 * s2, z2 = z1 * c2 - x * s2;
-      const k = 1 + z2 / (A * 3.2);
+      const k = 1 + z2 / (A * 5);
       const row = ((yc + (x2 * s3 + y1 * c3) * k) / ROW) | 0;
       if (row < 0 || row >= rows) return;
       const col = Math.round((xc + (x2 * c3 - y1 * s3) * k) / cw - 0.5 + off[row]! - Math.floor(off[row]!));
@@ -491,27 +494,31 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
     // A dragon along the figure (kumo, 2026-11-26: more alive, broken here and there, not a mark):
     // its head goes round, the body behind it thinner to the tail, waving as it swims, whole near
     // the head and in pieces towards the tail, a few pieces after it.
-    const head = (t / 9000) % 1, flow = t * 0.07, wag = t / 260;
+    const head = (t / 14000) % 1, flow = t * 0.07, wag = t / 260;
     for (let iu = 0; iu < RN; iu++) {
       // How far behind the head, 0 to 1 round the figure.
       let sb = head - iu / RN;
       if (sb < 0) sb += 1;
       let wide: number, lum: number;
       const e = stir[iu]!;
-      if (sb < 0.74) {
-        // Gaps in it, wider and oftener towards the tail.
-        if (sb > 0.3) {
-          const ph = sb * 7;
-          // (what a star has stirred is whole for the while)
-          if (e < 0.25 && ph - Math.floor(ph) < (sb - 0.3) * 0.5) continue;
+      // A third of the way round there is nothing at all (kumo, 2026-11-26: too whole, too much a
+      // sign): the figure is never all there, and what a star stirs there stays empty.
+      if (sb > 0.66) continue;
+      if (sb < 0.5) {
+        // Gaps in it from near the head on, wider and oftener towards the tail (what a star has
+        // stirred is whole for the while).
+        if (sb > 0.12) {
+          const ph = sb * 16 + 0.3 * Math.sin(sb * 23);
+          if (e < 0.25 && ph - Math.floor(ph) < 0.18 + (sb - 0.12) * 1.1) continue;
         }
-        wide = wv * (sb < 0.035 ? 0.45 + sb / 0.035 * 0.55 : Math.pow(1 - sb / 0.74, 0.55) * 0.9 + 0.1);
-        lum = 1 - sb * 0.4;
+        wide = wv * (sb < 0.02 ? 0.45 + (sb / 0.02) * 0.55 : Math.pow(1 - sb / 0.5, 0.55) * 0.88 + 0.12);
+        lum = 1 - sb * 0.6;
       } else {
-        const ph = sb * 8;
-        if (e < 0.25 && ph - Math.floor(ph) < 0.6) continue;
-        wide = wv * 0.1;
-        lum = 0.55;
+        // After the tail a few pieces, short and far apart.
+        const ph = sb * 22;
+        if (e < 0.25 && ph - Math.floor(ph) < 0.7) continue;
+        wide = wv * 0.12;
+        lum = 0.6;
       }
       // Never whole (kumo, 2026-11-26): where the two strands cross, the one that goes under is not
       // there, thinner as it comes to the gap; the figure is two hooks, never closed.
@@ -525,7 +532,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
       wide = wide * (1 + 0.45 * e) + wv * 0.12 * e;
       // The swimming: the body's middle line to one side and the other, more towards the tail.
       const sw = A * (0.02 + 0.05 * sb) * Math.sin(sb * 20 - wag) + A * 0.028 * e * Math.sin(iu * 0.35 - t / 55);
-      const hue0 = sb * 520 - flow + e * 150, mx = KX[iu]! * A + ax * sw, my = KY[iu]! * A + ay * sw, mz = KZ[iu]! * A + az * sw;
+      const hue0 = sb * 520 - flow + e * 150, mx = KX[iu]! * A + ax * sw, my = KY[iu]! * A * ys + ay * sw, mz = KZ[iu]! * A + az * sw;
       const RM = Math.max(2, Math.ceil((wide * 2.5) / cw) + 1);
       for (let iv = 0; iv < RM; iv++) {
         const vn = (iv / (RM - 1)) * 2 - 1, v = vn * wide;
