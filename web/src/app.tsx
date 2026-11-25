@@ -202,6 +202,9 @@ export function App() {
   // The panel's page drawn once the sheet has been out: the finger may drag it into sight.
   const [seen, setSeen] = useState(false);
   if (phone && sheetIsOut && !seen) setSeen(true);
+  // And once the page is idle, before it is ever pulled: drawn first at the finger's first move,
+  // that move stuttered (kumo, 2026-11-25).
+  useEffect(() => void (phone && settled().then(() => setSeen(true))), [phone]);
   const list = useList();
   const ws = useWorkspaces();
   const update = useUpdate();
@@ -397,7 +400,7 @@ export function App() {
   const main = (
     // On a phone a tap on the chat puts the sheet away, the composer back (the user, 2026-11-06);
     // not one on its top bar: its ⋯ opens over the sheet (the user, 2026-11-06).
-    <main className={cn("relative h-full min-w-0 flex-1 bg-paper", !phone && "g-turn")} onClickCapture={phone && ((sheetOut && open) || setsOut) ? (e) => !(e.target as Element).closest?.("header") && setSheet(false) : undefined}>
+    <main className={cn("relative h-full min-w-0 flex-1 bg-paper", !phone && "g-turn")} onClickCapture={phone && (sheetOut || setsOut) ? (e) => !(e.target as Element).closest?.("header") && setSheet(false) : undefined}>
       {/* The pane's one splash, under whichever page is in it: not drawn anew from the empty pane
           to a channel made there (kumo, 2026-11-25). */}
       <Suspense fallback={null}>

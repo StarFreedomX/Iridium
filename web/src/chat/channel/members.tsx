@@ -34,7 +34,7 @@ import { memberMenu, type MenuKey } from "./menu";
 import { recvWords, useRecvName, useRecvOptions } from "./recv";
 import { fromOf, hasMore, recvLabel, toggle, withFrom } from "./scripts";
 import { CARD_POP, ProfileCard, type CardKey } from "./profilecard";
-import { Deeper } from "./pages";
+import { Deeper, Paged } from "./pages";
 
 const ITEM = "flex h-8 cursor-default items-center gap-2.5 rounded-md px-2.5 text-base outline-none select-none data-highlighted:bg-fill data-popup-open:bg-fill pointer-coarse:h-11";
 const POPUP = "g-unfold glass thick float rounded-lg text-ink outline-none";
@@ -257,10 +257,13 @@ function MemberMenu({ at, close, ...items }: { at: { x: number; y: number } | nu
     <Menu.Root open={at !== null} onOpenChange={(o) => !o && close()}>
       <MenuPortal>
         <Menu.Positioner anchor={anchor} side="bottom" align="start" sideOffset={4} collisionPadding={8} className="z-50">
-          <Menu.Popup finalFocus={false} className={cn(POPUP, "min-w-52 p-1.5")}>
-            <div className="g-stagger flex flex-col">
-              <MemberItems {...items} />
-            </div>
+          <Menu.Popup finalFocus={false} className={cn(POPUP, "no-bar min-w-52 overflow-x-hidden p-1.5")}>
+            {/* In the phone's layout its next levels are its pages, no menu beside a row (kumo, 2026-11-25). */}
+            <Paged>
+              <div className="g-stagger flex flex-col">
+                <MemberItems {...items} />
+              </div>
+            </Paged>
           </Menu.Popup>
         </Menu.Positioner>
       </MenuPortal>

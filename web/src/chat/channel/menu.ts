@@ -9,7 +9,8 @@ export type MenuKey = "call" | "compact" | "clear" | "model" | "mode" | "stop" |
  *  only what reads); own: the agent is the session the channel is (移出 shown, not offered);
  *  call: the page has a composer to put "@nick" in; models, modes: how many it may pick from (its
  *  effort is the model menu's track, as the composer's: kumo, 2026-11-16); busy: it is at work;
- *  session: its session may be opened from here. */
+ *  session: its session may be opened from here. No 审批模式 and no 查看会话 in it (kumo,
+ *  2026-11-25: the mode is hardly ever changed; the session is its face's own press). */
 export function memberMenu(x: { may: boolean; own: boolean; call: boolean; models: number; modes: number; busy: boolean; session: boolean }): { key: MenuKey; disabled?: boolean }[] {
   const out: { key: MenuKey; disabled?: boolean }[] = [];
   const add = (on: boolean, key: MenuKey, disabled?: boolean) => void (on && out.push(disabled ? { key, disabled } : { key }));
@@ -17,11 +18,9 @@ export function memberMenu(x: { may: boolean; own: boolean; call: boolean; model
   add(x.may, "compact");
   add(x.may, "clear");
   add(x.may && x.models > 0, "model");
-  add(x.may && x.modes > 1, "mode");
   add(x.may && x.busy, "stop");
   add(x.may, "recv");
   add(x.may, "edit");
-  add(x.session, "session");
   add(true, "given");
   add(x.may, "remove", x.own);
   return out;
