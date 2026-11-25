@@ -230,7 +230,7 @@ function channelPatch(id: string, p: SessionPatch) {
  *  its channel's members; with another agent in the channel, how far each has read, the log as
  *  far back as the record's page, the others' states, and the work under their words (where in
  *  whose record, the blocks there). A part the server could not give is absent. */
-export type First = { session: SessionState; page?: MessagePage; members?: ChannelMembers; reads?: ChannelReads; log?: ChannelPage; sessions?: Record<string, SessionState>; work?: { session: string; block?: string; from?: number; to?: number; blocks: Block[] }[] };
+export type First = { session: SessionState; page?: MessagePage; members?: ChannelMembers; reads?: ChannelReads; log?: ChannelPage; sessions?: Record<string, SessionState>; work?: { session: string; block?: string; from?: number; to?: number; brief?: boolean; blocks: Block[] }[] };
 type RawPage<T> = { data: T[]; _data?: { start: number; end: number; more: boolean } };
 
 export const api = {
@@ -239,7 +239,7 @@ export const api = {
   /** record: true asks for the session's raw transcript alone (TranscriptView). */
   first: async (id: string, q: { record?: boolean } = {}, init?: RequestInit): Promise<First> => {
     const args = q.record ? "?record=1" : "";
-    const f = await get<{ session: SessionState; page?: RawPage<SatoriMessage>; members?: ChannelMembers; reads?: ChannelReads; log?: RawPage<ChannelMessage>; sessions?: Record<string, SessionState>; work?: { session: string; block?: string; from?: number; to?: number; data: SatoriMessage[] }[] }>(`${S(id)}/first${args}`, init);
+    const f = await get<{ session: SessionState; page?: RawPage<SatoriMessage>; members?: ChannelMembers; reads?: ChannelReads; log?: RawPage<ChannelMessage>; sessions?: Record<string, SessionState>; work?: { session: string; block?: string; from?: number; to?: number; brief?: boolean; blocks?: Block[]; data?: SatoriMessage[] }[] }>(`${S(id)}/first${args}`, init);
     const at = (p: RawPage<unknown>) => ({ start: p._data?.start ?? 0, end: p._data?.end ?? 0, more: p._data?.more ?? false });
     if (f.page) for (const fn of seenBlocks) fn(id, f.page.data);
     if (f.log) for (const fn of seenLog) fn(id, f.log.data);
@@ -250,7 +250,7 @@ export const api = {
       ...(f.reads ? { reads: f.reads } : {}),
       ...(f.log ? { log: { data: f.log.data, ...at(f.log) } } : {}),
       ...(f.sessions ? { sessions: f.sessions } : {}),
-      ...(f.work ? { work: f.work.map(({ data, ...w }) => ({ ...w, blocks: data.map(blockOf) })) } : {}),
+      ...(f.work ? { work: f.work.map(({ data, blocks, ...w }) => ({ ...w, blocks: blocks ?? (data ?? []).map(blockOf) })) } : {}),
     };
   },
   /** A page of session id's transcript: the newest, the one before line before, or what came after

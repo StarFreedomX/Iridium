@@ -236,13 +236,24 @@ func TestSatori(t *testing.T) {
 	if code, e := l.satoriCall(app, "alice", "internal/button", map[string]string{"id": ask.Message.ID + "#allow"}, nil); code != 200 {
 		t.Fatalf("press: %d %+v", code, e)
 	}
-	w.event(func(ev satori.Event) bool {
-		return ev.Type == "interaction/button" && ev.Button.ID == ask.Message.ID+"#allow"
-	})
-	w.event(func(ev satori.Event) bool { return ev.Type == "message-updated" && ev.Message.ID == ask.Message.ID })
-	w.event(func(ev satori.Event) bool {
-		return ev.XData != nil && ev.XData.Kind == "reply" && ev.Message.Content == "ok: please ASK"
-	})
+	var gotBtn, gotUpd, gotReply bool
+	for !(gotBtn && gotUpd && gotReply) {
+		w.event(func(ev satori.Event) bool {
+			if ev.Type == "interaction/button" && ev.Button != nil && ev.Button.ID == ask.Message.ID+"#allow" {
+				gotBtn = true
+				return true
+			}
+			if ev.Type == "message-updated" && ev.Message != nil && ev.Message.ID == ask.Message.ID {
+				gotUpd = true
+				return true
+			}
+			if ev.XData != nil && ev.XData.Kind == "reply" && ev.Message != nil && ev.Message.Content == "ok: please ASK" {
+				gotReply = true
+				return true
+			}
+			return false
+		})
+	}
 
 	// Two questions, one of many choices: the presses add up, submit answers.
 	l.satoriCall(app, "alice", "message.create", map[string]string{"channel_id": id, "content": "QUESTION"}, nil)

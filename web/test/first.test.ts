@@ -3,6 +3,7 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { queryClient, speakAs } from "../src/api/client";
 import { heldLog } from "../src/chat/channel/log";
+import { resetSpans, spanBlocks } from "../src/chat/spans";
 import { chatOf, firstScreen, fresh, freshState, isWhole, stateAhead } from "../src/chats";
 import { getCarried } from "../src/store";
 
@@ -19,7 +20,10 @@ beforeEach(() => {
     return new Response(JSON.stringify(body ?? { message: "none" }), { status: body ? 200 : 422, headers: { "content-type": "application/json" } });
   });
 });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  resetSpans();
+});
 
 test("one answer brings the state, members, reads, channel log and agent states; nothing is asked twice", async () => {
   answer = () => ({
@@ -48,6 +52,8 @@ test("one answer brings the state, members, reads, channel log and agent states;
   const log = heldLog("s1")!;
   expect(log.msgs.map((m) => m.n)).toEqual([1, 2]);
   expect(fresh(log.came)).toBe(true);
+  // /first seeds work spans into memory so WorkLine draws without eager block.list calls.
+  expect(spanBlocks("s2", 4)?.length).toBe(1);
 });
 
 test("record mode asks for ?record=1 and populates the session transcript; failures stay safe", async () => {

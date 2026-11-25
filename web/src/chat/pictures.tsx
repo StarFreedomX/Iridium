@@ -9,7 +9,7 @@ import { api } from "../api/client";
 import type { Image as Picture } from "../api/types.gen";
 import { t } from "../i18n";
 import { cn, Tip } from "../ui";
-import { Zoom } from "./files";
+import { pictureBox, Zoom } from "./files";
 import { pictureName, type Step } from "./fold";
 
 /** The pictures of step s's result. */
@@ -60,9 +60,10 @@ function One({ url, p, name }: { url: string; p: Picture; name: string }) {
       },
       () => setFate("offline"),
     );
-  // Its size on the page, where the record tells: at most MAX_W × MAX_H, and the column's width.
-  const k = p.w && p.h ? Math.min(1, MAX_W / p.w, MAX_H / p.h) : 0;
-  const sized = k ? { width: Math.round(p.w! * k), aspectRatio: `${p.w} / ${p.h}` } : undefined;
+  // Its size on the page, where the record tells: at most MAX_W × MAX_H, clamping extreme strips.
+  const box = pictureBox(p.w, p.h, MAX_W, MAX_H, 120, 72);
+  const sized = box ? { width: box.w, aspectRatio: `${box.w} / ${box.h}` } : undefined;
+  const pos = box?.crop === "top" ? "object-top" : "object-center";
   if (fate === "none") return null;
   if (fate === "unreadable" || fate === "offline") {
     const why = fate === "offline" ? t("status.offline") : t("msg.unreadable");
@@ -93,7 +94,7 @@ function One({ url, p, name }: { url: string; p: Picture; name: string }) {
             style={sized}
             onLoad={() => setFate("here")}
             onError={lost}
-            className={cn("block max-w-full transition-opacity duration-(--dur-2) ease-(--ease-out)", sized ? "h-auto" : "h-auto max-h-[300px] w-auto sm:max-w-[420px]", fate === "here" ? (p.unsent ? "opacity-50" : "opacity-100") : "opacity-0")}
+            className={cn("block max-w-full object-cover transition-opacity duration-(--dur-2) ease-(--ease-out)", pos, sized ? "h-auto" : "h-auto max-h-[300px] w-auto sm:max-w-[420px]", fate === "here" ? (p.unsent ? "opacity-50" : "opacity-100") : "opacity-0")}
           />
         </button>
       </Zoom>

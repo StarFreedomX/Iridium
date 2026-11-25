@@ -30,7 +30,7 @@ const near = (el: HTMLElement) => Math.max(600, el.clientHeight * 2);
  *  anchoring: Chromium, Firefox, Safari 27 on). ?noanchor=1 tries the page's own way. */
 const anchors = () => typeof CSS !== "undefined" && CSS.supports("overflow-anchor", "auto") && !/[?&]noanchor=1/.test(location.search);
 
-type Chat = { toEnd(): void; letGo(): void; rests(): boolean };
+type Chat = { toEnd(): void; letGo(): void; rests(): boolean; prepend(apply: () => void): void };
 const chats = new WeakMap<HTMLElement, Chat>();
 /** A message sent from here: the chat follows again, to its end. */
 export const toEnd = (el: HTMLElement | null) => el && chats.get(el)?.toEnd();
@@ -38,6 +38,12 @@ export const toEnd = (el: HTMLElement | null) => el && chats.get(el)?.toEnd();
 export const letGo = (el: HTMLElement | null) => el && chats.get(el)?.letGo();
 /** At its very newest and still: the phone's sheet may be swiped on from it (sheet.tsx). */
 export const restsAtEnd = (el: HTMLElement) => chats.get(el)?.rests() ?? false;
+/** Prepends rows above the currently visible window without shifting what is on screen. */
+export const prepend = (el: HTMLElement | null, apply: () => void) => {
+  const c = el && chats.get(el);
+  if (c) c.prepend(apply);
+  else apply();
+};
 
 /** Whether something of the list (or the list itself) is changing its own height now, by a
  *  transition or an animation of its own. */
@@ -91,12 +97,12 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
   const [, redraw] = useState(0);
   // following: the reader's; left: px to the end as this last put it; ours: where this put the
   // scroll (to the part of a px); mark: without the browser's anchoring, the top row and its place.
-  const s = useRef({ following: place.top === null, frame: 0, last: 0, ours: -1, left: 0, pane: 0, drawn: false, tail: undefined as unknown, paging: false, drag: false, native: true, mark: null as Mark | null, hand: -Infinity }).current;
+  const s = useRef({ following: place.top === null, frame: 0, pinFrame: 0, sizingUntil: 0, last: 0, ours: -1, left: 0, pane: 0, drawn: false, tail: undefined as unknown, paging: false, drag: false, native: true, mark: null as Mark | null, hand: -Infinity }).current;
 
   const maxOf = (el: HTMLElement) => el.scrollHeight - el.clientHeight;
   const hands = () => s.drag || performance.now() - s.hand < HAND;
   const atFoot = (el: HTMLElement) => maxOf(el) - el.scrollTop < 2;
-  const put = (el: HTMLElement, top: number) => ((el.scrollTop = top), (s.ours = top));
+  const put = (el: HTMLElement, top: number) => ((el.scrollTop = top), (s.ours = el.scrollTop));
   /** Px still to go to the end: from where this put it, unless something else moved it since. */
   const leftOf = (el: HTMLElement) => maxOf(el) - (Math.abs(el.scrollTop - s.ours) <= 1 ? s.ours : el.scrollTop);
   const mark = (el: HTMLElement) => void (s.mark = s.native || !el.firstElementChild ? null : topRow(el, el.firstElementChild));
@@ -109,8 +115,8 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     put(el, el.scrollTop + now - m.off);
     m.off = now;
   };
-  const stop = () => (cancelAnimationFrame(s.frame), (s.frame = s.left = 0));
-  const pin = (el: HTMLElement, why: string) => (Math.abs(leftOf(el)) > 0.5 && moveLog("stick.pin", why, { dy: -Math.round(leftOf(el)) }), stop(), put(el, maxOf(el)));
+  const stop = () => (cancelAnimationFrame(s.frame), cancelAnimationFrame(s.pinFrame), (s.frame = s.pinFrame = s.left = 0));
+  const pin = (el: HTMLElement, why: string) => (Math.abs(leftOf(el)) > 0.5 && moveLog("stick.pin", why, { dy: -Math.round(leftOf(el)) }), stop(), put(el, el.scrollHeight));
   // The follow, a frame at a time while there are px left to the end.
   const step = () => {
     s.frame = 0;
@@ -195,21 +201,65 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     mark(el);
     // What changed height, after the layout, before it is drawn: kept in place, or followed; the
     // pane itself another height (the keyboard, the window): at the end at once.
+    // Pin synchronously on every frame while an internal size transition (g-reveal, g-room) runs
+    // so the bottom never lags a frame behind layout or falls back to slow easing on its final frame.
+    const pinSizing = () => {
+      s.pinFrame = 0;
+      if (!s.following || !el.isConnected) return;
+      put(el, el.scrollHeight);
+      mark(el);
+      if (sizing(el) || performance.now() < s.sizingUntil) s.pinFrame = requestAnimationFrame(pinSizing);
+    };
+    const startPinSizing = (ms: number) => {
+      s.sizingUntil = Math.max(s.sizingUntil, performance.now() + ms);
+      if (!s.following) return;
+      cancelAnimationFrame(s.frame);
+      s.frame = s.left = 0;
+      put(el, el.scrollHeight);
+      mark(el);
+      if (!s.pinFrame) s.pinFrame = requestAnimationFrame(pinSizing);
+    };
+    const onTransitionRun = (e: TransitionEvent) => {
+      if (!SIZES.includes(e.propertyName)) return;
+      startPinSizing(320);
+    };
+    const onTransitionEnd = (e: TransitionEvent) => {
+      if (!SIZES.includes(e.propertyName)) return;
+      s.sizingUntil = performance.now() + 50;
+      if (s.following) pin(el, "own");
+      mark(el);
+    };
     const ro = new ResizeObserver(() => {
       keep(el);
-        const pane = el.clientHeight !== s.pane;
+      const pane = el.clientHeight !== s.pane;
       s.pane = el.clientHeight;
+      const ownSizing = sizing(el) || performance.now() < s.sizingUntil;
       // Something in it draws its own change of height (a list of steps opening, words folding,
       // the room under it for the composer): the end stays where it is each frame, so what is under
       // the change does not move and what is over it does, both ways alike (kumo, 2026-11-24).
       // Not held off by a person's scrolling: a trackpad's glide still sends wheels after it, and
       // the end went down and came back (kumo, 2026-11-25: 贴底时直接往上).
-      if (s.following) pane ? pin(el, "pane") : sizing(el) ? pin(el, "own") : run();
+      if (s.following) pane ? pin(el, "pane") : ownSizing ? startPinSizing(80) : run();
       mark(el);
     });
     ro.observe(el);
     if (el.firstElementChild) ro.observe(el.firstElementChild);
-    chats.set(el, { toEnd: () => goDown("send"), letGo: leave, rests: () => s.following && !s.frame && atFoot(el) });
+    const prependApply = (apply: () => void) => {
+      const col = el.firstElementChild;
+      if (!col) return apply();
+      const wasAtFoot = s.following && atFoot(el);
+      const m = topRow(el, col);
+      const way = el.style.overflowAnchor;
+      el.style.overflowAnchor = "none";
+      flushSync(apply);
+      const now = m && offNow(m, col);
+      const d = m && now != null ? now - m.off : 0;
+      if (d) put(el, el.scrollTop + d);
+      else if (wasAtFoot) put(el, maxOf(el));
+      el.style.overflowAnchor = way;
+      mark(el);
+    };
+    chats.set(el, { toEnd: () => goDown("send"), letGo: leave, rests: () => s.following && !s.frame && atFoot(el), prepend: prependApply });
     // The reader's way up, seen before the scroll comes; down at the very end, where none comes.
     const wheel = (e: WheelEvent) => {
       s.hand = performance.now();
@@ -230,7 +280,7 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     // The scrollbar: pressed on the list itself, not on what is in it.
     const press = (e: Event) => void (s.drag = e.target === el);
     const lift = () => void (s.drag = false);
-    const on: [EventTarget, string, (e: never) => void][] = [[el, "wheel", wheel], [el, "touchstart", touch], [el, "touchmove", touch], [el, "keydown", key], [el, "pointerdown", press], [window, "pointerup", lift], [window, "pointercancel", lift]];
+    const on: [EventTarget, string, (e: never) => void][] = [[el, "wheel", wheel], [el, "touchstart", touch], [el, "touchmove", touch], [el, "keydown", key], [el, "pointerdown", press], [el, "transitionrun", onTransitionRun], [el, "transitionend", onTransitionEnd], [window, "pointerup", lift], [window, "pointercancel", lift]];
     for (const [at, k, f] of on) at.addEventListener(k, f as EventListener, { passive: true, capture: at === window });
     return () => {
       ro.disconnect();

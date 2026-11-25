@@ -94,6 +94,10 @@ type Manager struct {
 	wmu      sync.Mutex
 	watchers []func(Notice)
 
+	listMu      sync.Mutex
+	listRunning bool
+	listAgain   bool
+
 	tune     atomic.Pointer[Tunables] // tune.go
 	annotate atomic.Pointer[Annotate] // carry.go
 	inChan   atomic.Pointer[func(string) bool]
@@ -317,7 +321,7 @@ func (m *Manager) create(ctx context.Context, req api.NewSession, from, name str
 	if _, err := m.o.Store.Workspace(req.Workspace); req.Workspace != 0 && err != nil {
 		return "", err
 	}
-	mt := meta{ID: newUUID(), Agent: req.Agent, Cwd: cwd, Created: time.Now().UnixMilli(), Model: req.Model, Mode: req.Mode, Launcher: req.Caller, Machine: machine}
+	mt := meta{ID: newUUID(), Agent: req.Agent, Cwd: cwd, Created: time.Now().UnixMilli(), Model: req.Model, Mode: req.Mode, Launcher: req.Caller, Machine: machine, ForChannel: req.ForChannel || (req.Members != nil && len(req.Members.Agents) > 0)}
 	if h := m.byAgentID(req.Caller); req.Caller != "" && h != nil {
 		mt.Launcher = h.id // a hosted Codex session calls itself by its thread
 	}
@@ -666,19 +670,41 @@ func (m *Manager) provide(key string) (any, bool) {
 // PublishList sends every stream the list again (a chat moved to another session).
 func (m *Manager) PublishList() { m.publishList() }
 
+// publishList rebuilds and publishes the session list, serialized so a slower earlier build
+// cannot overwrite a newer list in the hub, coalescing concurrent callers into one trailing run.
 func (m *Manager) publishList() {
-	// Closed: no list to make (a timer that fires after, its store gone).
 	if m.ctx.Err() != nil {
 		return
 	}
-	l, err := m.List(m.ctx)
-	if err != nil {
-		if m.ctx.Err() == nil {
-			m.o.Logf("session: list: %v", err)
-		}
+	m.listMu.Lock()
+	if m.listRunning {
+		m.listAgain = true
+		m.listMu.Unlock()
 		return
 	}
-	m.o.Hub.Set("list", l)
+	m.listRunning = true
+	m.listMu.Unlock()
+	for {
+		if m.ctx.Err() == nil {
+			l, err := m.List(m.ctx)
+			if err != nil {
+				if m.ctx.Err() == nil {
+					m.o.Logf("session: list: %v", err)
+				}
+			} else {
+				m.o.Hub.Set("list", l)
+			}
+		}
+		m.listMu.Lock()
+		if !m.listAgain || m.ctx.Err() != nil {
+			m.listAgain = false
+			m.listRunning = false
+			m.listMu.Unlock()
+			return
+		}
+		m.listAgain = false
+		m.listMu.Unlock()
+	}
 }
 
 // reap stops agents idle for longer than their session's idle reap, or the config's: no turn,

@@ -2,7 +2,7 @@
 import { describe, expect, test } from "vitest";
 import type { ChannelMessage, ChannelPage } from "../src/api/client";
 import type { Session } from "../src/api/types.gen";
-import { askQueue, eventParts, personName, type EventWords, channelLamp, givenParts, givenTurn, insertNick, isMulti, linkNicks, matchAgents, mayDM, msgOf, ownAgent, nickOfURL, nickParts, nickSpans, userOf, validNick, watchExtra, type Msg } from "../src/chat/channel/lib";
+import { askQueue, describeGivenParts, eventParts, personName, type EventWords, channelLamp, givenParts, givenTurn, insertNick, isMulti, linkNicks, matchAgents, mayDM, msgOf, ownAgent, nickOfURL, nickParts, nickSpans, userOf, validNick, watchExtra, type Msg } from "../src/chat/channel/lib";
 import { ChannelLog } from "../src/chat/channel/log";
 import { grouped, ordered, readMarks, upsert } from "../src/chat/channel/rows";
 import { buildTree, standing } from "../src/tree";
@@ -234,6 +234,55 @@ describe("the list", () => {
     ]);
     expect(givenParts(null)).toEqual([]);
     expect(givenParts({ parts: "x" })).toEqual([]);
+  });
+  test("describeGivenParts groups compound parts, hides glue, and formats zh/en labels", () => {
+    const sys = {
+      kind: "system",
+      parts: [
+        { source: "prompts:host.intro" },
+        { source: "irhelp:agent" },
+        { source: "irhelp:layers" },
+        { source: "prompts:host.secrets-files" },
+        { source: "prompts:where.host", values: { folder: "/home/otae/ir", os: "Linux" } },
+        { source: "prompts:lang", values: { language: "Chinese" } },
+        { source: "prompts:self.who", values: { nick: "Neon-a13e" } },
+        { source: "prompts:self.memory" },
+        { source: "prompts:self.memory-line", values: { date: "2026-11-24", from: ", 调研 Afterglow-Frame 仓库 #39" } },
+        { source: "input" },
+        { source: "prompts:nl" },
+      ],
+    };
+    expect(describeGivenParts(sys, "zh")).toEqual([
+      { label: "Iridium CLI 说明", raw: "prompts:host.intro, irhelp:agent, irhelp:layers" },
+      { label: "密钥与文件规则", raw: "prompts:host.secrets-files" },
+      { label: "运行环境", detail: "Linux · /home/otae/ir", raw: "prompts:where.host" },
+      { label: "语言偏好", detail: "Chinese", raw: "prompts:lang" },
+      { label: "当前身份", detail: "Neon-a13e", raw: "prompts:self.who" },
+      { label: "记忆", detail: "1 条", values: [["2026-11-24", "调研 Afterglow-Frame 仓库 #39"]], raw: "prompts:self.memory, prompts:self.memory-line" },
+    ]);
+    expect(describeGivenParts(sys, "en")[0]).toEqual({ label: "Iridium CLI guide", raw: "prompts:host.intro, irhelp:agent, irhelp:layers" });
+
+    const turn = {
+      kind: "turn-prefix",
+      parts: [
+        { source: "prompts:channel.message", values: { seq: "10" } },
+        { source: "prompts:channel.quote", values: { seq: "5", who: "kumo" } },
+        { source: "input", refs: [{ kind: "message", id: "5" }] },
+        { source: "prompts:channel.quote-end" },
+        { source: "input", refs: [{ kind: "message", id: "10" }] },
+        { source: "prompts:channel.context.open" },
+        { source: "prompts:channel.context.full" },
+        { source: "prompts:channel.context.line", values: { seq: "8", who: "claude", time: "11-25 03:36" } },
+        { source: "prompts:channel.context.line-end" },
+        { source: "input", refs: [{ kind: "message", id: "8" }] },
+        { source: "prompts:nl" },
+        { source: "prompts:channel.context.close" },
+      ],
+    };
+    expect(describeGivenParts(turn, "zh")).toEqual([
+      { label: "触发消息", refs: ["#10"], values: [["引用", "#5 kumo"]], raw: "prompts:channel.message, prompts:channel.quote" },
+      { label: "未读消息", refs: ["#8"], raw: "prompts:channel.context.full, prompts:channel.context.line" },
+    ]);
   });
 });
 

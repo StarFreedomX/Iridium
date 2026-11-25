@@ -22,6 +22,7 @@ import (
 	"github.com/kumoSleeping/iridium/internal/gate"
 	"github.com/kumoSleeping/iridium/internal/satori"
 	"github.com/kumoSleeping/iridium/internal/session"
+	"github.com/kumoSleeping/iridium/internal/store"
 )
 
 // said are channel id's messages as as sees them: "<n> <who> <words>" each.
@@ -829,12 +830,21 @@ func TestChannelQuoteAndAll(t *testing.T) {
 	l.waitSaid("web", second, "@claude2 ", fmt.Sprintf("#%d: @全体Agent roll call", r.Seq))
 	l.waitSaid("web", ch, "@claude ", fmt.Sprintf("#%d: @全体Agent roll call", r.Seq))
 
-	// Given again, the standing words are not: a line in their place (docs/channels.md "增量").
-	var ins []api.Injection
-	l.want(200, "web", "GET", "/v1/internal/sessions/"+second+"/injections", nil, &ins)
-	ins = turnsOf(ins)
+	// Given again in the same channel, neither the standing words nor "In the channel ..., as
+	// before." is repeated (docs/channels.md "增量").
+	var allIns []api.Injection
+	l.want(200, "web", "GET", "/v1/internal/sessions/"+second+"/injections", nil, &allIns)
+	// Spawned for a shared channel: system prompt uses channel.system rather than title.md.
+	for _, x := range allIns {
+		if strings.Contains(string(x.Record), `"kind":"system"`) {
+			if strings.Contains(string(x.Record), "prompts:title") || !strings.Contains(string(x.Record), "prompts:channel.system") {
+				t.Errorf("spawned channel agent system prompt: %s", x.Record)
+			}
+		}
+	}
+	ins := turnsOf(allIns)
 	if len(ins) < 2 || !strings.Contains(string(ins[0].Record), `"static":"`) || strings.Contains(string(ins[0].Record), `"full":true`) || !strings.Contains(string(ins[len(ins)-1].Record), `"full":true`) ||
-		strings.Contains(string(ins[0].Record), "prompts:channel.context.guest\"") || !strings.Contains(string(ins[0].Record), "prompts:channel.context.again") {
+		strings.Contains(string(ins[0].Record), "prompts:channel.context.guest\"") || strings.Contains(string(ins[0].Record), "prompts:channel.context.again") {
 		t.Errorf("injections: %+v", ins)
 	}
 	p := l.page("web", second)
@@ -865,8 +875,54 @@ func TestChannelQuoteAndAll(t *testing.T) {
 		again == "" || strings.Contains(again, " full>") || !strings.HasSuffix(again, "@全体Agent roll call</message></message>") {
 		t.Errorf("forwards:\n%s", strings.Join(fwds, "\n"))
 	}
-	if !strings.Contains(given, `In the channel "`) || strings.Contains(given, "You are claude2") {
-		t.Errorf("given again with its standing words:\n%s\n%+v", given, p.Blocks)
+	if strings.Contains(given, `In the channel "`) || strings.Contains(given, "You are claude2") {
+		t.Errorf("given again in same channel with redundant header:\n%s\n%+v", given, p.Blocks)
+	}
+}
+
+// Consecutive calls in the same channel omit "In the channel ..., as before." (and omit
+// <channel-context> altogether when nothing else changed), while returning to the channel after a
+// turn elsewhere emits the brief channel reminder without repeating full standing words.
+func TestChannelBriefAndSwitch(t *testing.T) {
+	t.Parallel()
+	l := start(t)
+	ch := l.create(200, "web", api.NewSession{Agent: api.AgentClaude, Cwd: l.work, Text: "first"})
+	l.waitReply("web", ch, "ok: first")
+	var ms api.ChannelMembers
+	l.want(200, "web", "POST", "/v1/internal/channels/"+ch+"/members", api.NewMember{Agent: api.AgentClaude}, &ms)
+	second := ms.Members[len(ms.Members)-1].Session
+
+	// First call in ch: full standing words.
+	code, r1 := l.send("web", ch, api.Send{Text: "@claude2 one"})
+	if code != 200 {
+		t.Fatalf("send 1: %d", code)
+	}
+	l.waitSaid("web", ch, "@claude2 ", fmt.Sprintf("ok: #%d: @claude2 one", r1.Seq))
+
+	// Direct message in second's own channel (switches active channel context away from ch).
+	if code, _ := l.send("web", second, api.Send{Text: "direct check"}); code != 200 {
+		t.Fatalf("direct send: %d", code)
+	}
+	l.waitReply("web", second, "ok: direct check")
+
+	// Back in ch: brief reminder ("In the channel ..."), not full standing words.
+	code, r2 := l.send("web", ch, api.Send{Text: "@claude2 two"})
+	if code != 200 {
+		t.Fatalf("send 2: %d", code)
+	}
+	l.waitSaid("web", ch, "@claude2 ", fmt.Sprintf("ok: #%d: @claude2 two", r2.Seq))
+
+	var allIns []api.Injection
+	l.want(200, "web", "GET", "/v1/internal/sessions/"+second+"/injections", nil, &allIns)
+	var rec2 *api.Injection
+	for i := range allIns {
+		if allIns[i].Seq == r2.Seq {
+			rec2 = &allIns[i]
+			break
+		}
+	}
+	if rec2 == nil || strings.Contains(string(rec2.Record), `"full":true`) || !strings.Contains(string(rec2.Record), "prompts:channel.context.again") {
+		t.Errorf("returned after direct turn (seq %d): %+v", r2.Seq, turnsOf(allIns))
 	}
 }
 
@@ -1269,6 +1325,179 @@ func TestMemberSeesItsChannel(t *testing.T) {
 	}
 	if _, err := l.s.using(in, near); err == nil {
 		t.Error("it may use a session out of its scope")
+	}
+}
+
+// When answer() creates a channel message before liveSaid attaches work to the agent's own
+// message (e.g., NoticeTool flush followed by step when no twin existed yet), liveSaid updates
+// that message in place instead of creating a duplicate twin.
+func TestAnswerRegistersTwinNoDuplicate(t *testing.T) {
+	t.Parallel()
+	l := start(t)
+	ch := l.create(200, "web", api.NewSession{Agent: api.AgentClaude, Cwd: l.work, Text: "start"})
+	l.waitReply("web", ch, "ok: start")
+	var ms api.ChannelMembers
+	l.want(200, "web", "POST", "/v1/internal/channels/"+ch+"/members", api.NewMember{Agent: api.AgentClaude, Nick: "helper"}, &ms)
+	helper := ""
+	for _, m := range ms.Members {
+		if m.Nick == "helper" {
+			helper = m.Session
+		}
+	}
+	if helper == "" {
+		t.Fatalf("no helper: %+v", ms)
+	}
+	// Simulate helper having been called in ch (call open, input taken) and saying a message in its
+	// own channel without a twin yet, then answer() sending it and liveSaid() updating its work.
+	inID := "in-dup-1"
+	l.s.answers.took(helper, inID)
+	l.s.calls.add(helper, called{Channel: ch, Seq: 1, From: 0, Input: inID})
+	own, _, err := l.s.ch.Say(channel.Message{
+		ChannelMessage: store.ChannelMessage{Channel: helper, Author: store.AgentMember(helper), Kind: channel.KindSaid, Text: "v0.2.69 shipped"},
+		D:              channel.Data{Session: helper},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	l.s.answer(helper, own)
+	ownWithWork, ok := l.s.ch.SetWork(helper, own.Seq, func(w *channel.Work) {
+		w.Steps, w.Tool, w.Running, w.From = 1, "Bash", true, 5
+	})
+	if !ok {
+		t.Fatal("SetWork failed")
+	}
+	l.s.liveSaid(ownWithWork, false)
+	// Wait for the serialized answers queue to drain by appending a barrier.
+	done := make(chan struct{})
+	l.s.answers.add(helper, func() { close(done) })
+	<-done
+	rows, err := l.s.ch.List(ch, 0, -1, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var hits []channel.Message
+	for _, m := range rows {
+		if m.Text == "v0.2.69 shipped" {
+			hits = append(hits, m)
+		}
+	}
+	if len(hits) != 1 {
+		t.Fatalf("expected 1 message in channel, got %d: %+v", len(hits), hits)
+	}
+	if hits[0].D.Work == nil || hits[0].D.Work.Steps != 1 || hits[0].D.Work.From != 5 {
+		t.Fatalf("expected work attached to the single message, got %+v", hits[0].D)
+	}
+}
+
+// In a bare/shared channel (where agent session != channel id), when the user steers mid-turn,
+// tools executed before NoticeUserRecorded stay on the old twin above the user's message; once
+// NoticeUserRecorded fires (the agent truly accepted the steer into its transcript), the old twin
+// settles strictly before the user block and a new twin opens directly below the user's message.
+func TestSharedChannelMidTurnSteerSplitsTwinBelowUserMessage(t *testing.T) {
+	t.Parallel()
+	l := start(t)
+	ch := l.create(200, "web", api.NewSession{
+		Cwd: l.work,
+		Members: &api.ChannelSetup{
+			Agents: []api.NewMember{{Agent: api.AgentClaude, Nick: "worker", On: onFrom("*")}},
+		},
+	})
+	var ms api.ChannelMembers
+	l.want(200, "web", "GET", "/v1/internal/channels/"+ch+"/members", nil, &ms)
+	var worker string
+	for _, m := range ms.Members {
+		if m.Session != "" {
+			worker = m.Session
+		}
+	}
+	if worker == "" || worker == ch {
+		t.Fatalf("expected bare channel worker != ch, got %+v", ms)
+	}
+	// Open a call for worker in shared channel ch and begin a live turn.
+	in1 := "in-turn-1"
+	l.s.answers.took(worker, in1)
+	l.s.calls.add(worker, called{Channel: ch, Seq: 1, From: 0, Input: in1})
+	l.s.sat.Notice(session.Notice{Session: worker, Kind: session.NoticeTurnStart})
+	l.s.sat.Notice(session.Notice{Session: worker, Kind: session.NoticeWriting, Text: "Working on it."})
+	l.s.sat.Notice(session.Notice{Session: worker, Kind: session.NoticeMessage, Text: "Working on it."})
+	l.s.sat.Notice(session.Notice{Session: worker, Kind: session.NoticeTool, Tool: "Read"})
+	// Drain satori + answers queues by waiting until twin 1 appears with steps=1.
+	waitCond := func(desc string, fn func() bool) {
+		t.Helper()
+		deadline := time.Now().Add(3 * time.Second)
+		for time.Now().Before(deadline) {
+			if fn() {
+				return
+			}
+			time.Sleep(15 * time.Millisecond)
+		}
+		t.Fatalf("timed out waiting for %s", desc)
+	}
+	var firstTwinSeq, firstOwnSeq int64
+	waitCond("first twin created and worker has step 1", func() bool {
+		ownRows, _ := l.s.ch.List(worker, 0, -1, 50)
+		for _, m := range ownRows {
+			if m.Text == "Working on it." && m.D.Work != nil && m.D.Work.Steps == 1 {
+				firstOwnSeq = m.Seq
+			}
+		}
+		if firstOwnSeq == 0 {
+			return false
+		}
+		rows, _ := l.s.ch.List(ch, 0, -1, 50)
+		for _, m := range rows {
+			if m.Text == "Working on it." {
+				firstTwinSeq = m.Seq
+				return true
+			}
+		}
+		return false
+	})
+
+	// User posts a steer message into shared channel ch.
+	steerMsg, _, err := l.s.ch.Say(channel.Message{
+		ChannelMessage: store.ChannelMessage{Channel: ch, Author: "ir_web/kumo", Kind: channel.KindUser, Text: "status?"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	in2 := "in-steer-2"
+	l.s.answers.took(worker, in2)
+	l.s.calls.add(worker, called{Channel: ch, Seq: steerMsg.Seq, From: 0, Input: in2})
+
+	// Tool call BEFORE NoticeUserRecorded stays on firstOwnSeq (above steerMsg, no second twin yet).
+	l.s.sat.Notice(session.Notice{Session: worker, Kind: session.NoticeTool, Tool: "Bash"})
+	waitCond("step 2 still on first carrier", func() bool {
+		m, ok := l.s.ch.Get(worker, firstOwnSeq)
+		return ok && m.D.Work != nil && m.D.Work.Steps == 2 && m.D.Work.Running
+	})
+	if rows, _ := l.s.ch.List(ch, 0, -1, 50); rows[len(rows)-1].Seq != steerMsg.Seq {
+		t.Fatalf("expected no message after steer before NoticeUserRecorded, got %+v", rows[len(rows)-1])
+	}
+
+	// Now the agent genuinely records steerMsg into its transcript at [400, 480).
+	l.s.sat.Notice(session.Notice{Session: worker, Kind: session.NoticeUserRecorded, Text: in2, Before: 400, After: 480})
+	l.s.sat.Notice(session.Notice{Session: worker, Kind: session.NoticeTool, Tool: "Edit"})
+	// End the turn so the second twin's work settles into DB too.
+	l.s.sat.Notice(session.Notice{Session: worker, Kind: session.NoticeTurnEnd})
+
+	var secondTwin channel.Message
+	waitCond("old twin settled before user block and new twin created below user steer", func() bool {
+		first, ok := l.s.ch.Get(ch, firstTwinSeq)
+		if !ok || first.D.Work == nil || first.D.Work.Running || first.D.Work.Steps != 2 || first.D.Work.To != 400 {
+			return false
+		}
+		rows, _ := l.s.ch.List(ch, 0, -1, 50)
+		for _, m := range rows {
+			if m.Seq > steerMsg.Seq && m.Author == store.AgentMember(worker) && m.D.Work != nil && m.D.Work.Steps == 1 && m.D.Work.From == 480 {
+				secondTwin = m
+				return true
+			}
+		}
+		return false
+	})
+	if secondTwin.Seq <= steerMsg.Seq {
+		t.Fatalf("expected new twin seq > user steer seq (%d), got %d", steerMsg.Seq, secondTwin.Seq)
 	}
 }
 

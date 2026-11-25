@@ -18,8 +18,6 @@ export function Viewer({ src, name, close, corner }: { src: string; name: string
   // Moved by hand now (a drag, two fingers, the wheel): no easing, it follows.
   const [live, setLive] = useState(false);
   const [fit, setFit] = useState(0); // the fit's share of the picture's own pixels
-  // The picture fit (w×h) and the window (vw×vh), as last laid out.
-  const [box, setBox] = useState({ w: 0, h: 0, vw: 0, vh: 0 });
   const now = useRef({ scale: 1, offset: ORIGIN });
   now.current = { scale, offset };
   const pointers = useRef(new Map<number, Pointer>());
@@ -57,9 +55,7 @@ export function Viewer({ src, name, close, corner }: { src: string; name: string
   );
   const measure = () => {
     const el = img.current;
-    const st = stage.current;
     if (el?.naturalWidth) setFit(el.offsetWidth / el.naturalWidth);
-    if (el && st) setBox({ w: el.offsetWidth, h: el.offsetHeight, vw: st.clientWidth, vh: st.clientHeight });
   };
 
   // The wheel is taken from the page (not passive): Ctrl (a pinch) zooms, otherwise, zoomed, moves.
@@ -198,16 +194,9 @@ export function Viewer({ src, name, close, corner }: { src: string; name: string
         draggable={false}
         onLoad={measure}
         style={{ transform: zoomed ? `translate(${offset.x}px, ${offset.y}px) scale(${scale})` : undefined }}
-        className={cn("block max-h-[calc(100dvh-32px)] max-w-[calc(100vw-32px)] rounded-xl object-contain shadow-(--shadow-float) [will-change:transform]", !live && "transition-transform duration-150 ease-out")}
+        className={cn("block max-h-[calc(100dvh-96px)] max-w-[calc(100vw-64px)] object-contain shadow-(--shadow-float) [will-change:transform] sm:max-h-[calc(100dvh-128px)] sm:max-w-[calc(100vw-128px)]", !live && "transition-transform duration-150 ease-out")}
       />
-      {corner && box.w > 0 && (
-        <div
-          className={cn("absolute z-10 flex -translate-x-full gap-1.5", !live && "transition-[left,top] duration-150 ease-out")}
-          style={{ left: Math.min(box.vw / 2 + offset.x + (box.w * scale) / 2, box.vw) - 8, top: Math.max(box.vh / 2 + offset.y - (box.h * scale) / 2, 0) + 8 }}
-        >
-          {corner}
-        </div>
-      )}
+      {corner && <div className="absolute top-4 right-4 z-10 flex gap-1.5">{corner}</div>}
       {zoomed && fit > 0 && (
         <button type="button" onClick={() => set(1, ORIGIN)} className="glass g-pop absolute bottom-4 left-1/2 h-8 -translate-x-1/2 rounded-full px-3 text-sm text-ink-2 tabular-nums hover:text-ink">
           {Math.round(fit * scale * 100)}%

@@ -1019,7 +1019,7 @@ function CpArg({ from, to }: { from: CpSide; to: CpSide }) {
  *  what came back under it after a "⎿", lighter; one font, no rule between. */
 const Lead = ({ mark, dim, children }: { mark: string; dim?: boolean; children: ReactNode }) => (
   <div className={cn("flex min-w-0 items-start", dim && "[&_pre]:text-ink-3")}>
-    <span aria-hidden className="shrink-0 py-1 font-mono text-xs leading-[18px] text-ink-4 select-none">{mark}</span>
+    <span aria-hidden className="w-3.5 shrink-0 py-1 text-center font-mono text-xs leading-[18px] text-ink-4 select-none">{mark}</span>
     <div className="min-w-0 flex-1">{children}</div>
   </div>
 );
@@ -1075,7 +1075,7 @@ function Fields({ text }: { text: string }) {
     v = part;
   }
   if (!v || typeof v !== "object" || Array.isArray(v)) return <Pre text={pretty(text)} />;
-  const rows = Object.entries(v as Record<string, unknown>);
+  const rows = Object.entries(v as Record<string, unknown>).filter(([k]) => k !== "_diff");
   const file = rows.find(([k, x]) => FILE.has(k) && typeof x === "string")?.[1] as string | undefined;
   const oldRow = rows.find(([k, x]) => OLD.has(k) && typeof x === "string");
   const newRow = rows.find(([k, x]) => EDIT_NEW.has(k) && typeof x === "string");

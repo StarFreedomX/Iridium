@@ -383,6 +383,40 @@ func TestNoEcho(t *testing.T) {
 	}
 }
 
+// A prompt sent while the agent is mid-sentence streaming does not split the assistant message
+// in half: subsequent chunks append to the same message until the running prompt ends or calls
+// a tool.
+func TestSteerMidSentenceDoesNotSplitMessage(t *testing.T) {
+	r := newRig(t)
+	r.open("")
+	r.take()
+	send(t, r.d, "in-1", "read docs")
+	r.next("session/prompt")
+	r.take()
+	r.feed(upd(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"reading docs/前端设计"}}`))
+	send(t, r.d, "in-2", "push to test")
+	r.next("session/prompt")
+	// More chunks of the same sentence arrive before agy finishes in-1 or calls a tool.
+	r.feed(
+		upd(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"规范.md。"}}`),
+		`{"jsonrpc":"2.0","result":{"stopReason":"end_turn"},"id":"in-1"}`,
+		upd(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"got it"}}`),
+		`{"jsonrpc":"2.0","result":{"stopReason":"end_turn","usage":{"inputTokens":5,"outputTokens":2}},"id":"in-2"}`,
+	)
+	evs := r.take()
+	md := find[agent.MessageDone](evs)
+	if len(md) != 2 || md[0].Text != "reading docs/前端设计规范.md。" || md[1].Text != "got it" {
+		t.Fatalf("MessageDone split: %+v", md)
+	}
+	var kinds []string
+	for _, e := range records(evs) {
+		kinds = append(kinds, e.Kind+":"+e.Text)
+	}
+	if want := []string{"assistant:reading docs/前端设计规范.md。", "user:push to test", "assistant:got it"}; !slices.Equal(kinds, want) {
+		t.Fatalf("records %v, want %v", kinds, want)
+	}
+}
+
 // In default mode a permission is put to you; allowed, agy is told so.
 func TestAskAndAnswer(t *testing.T) {
 	r := newRig(t)
@@ -738,5 +772,95 @@ func TestPictureOfRead(t *testing.T) {
 	}{png})
 	if d.pictureOf(u) == nil {
 		t.Errorf("by its location: none")
+	}
+}
+
+func TestReadTextOf(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "sample.go")
+	os.WriteFile(src, []byte("package main\n\nfunc main() {\n\tprintln(\"hi\")\n}\n"), 0o600)
+	bin := filepath.Join(dir, "bin.dat")
+	os.WriteFile(bin, []byte{0x00, 0x01, 0x02}, 0o600)
+	d := &Driver{readFile: os.ReadFile}
+
+	// Sliced read with StartLine/EndLine (as agy read_file passes).
+	u := &update{Status: "completed", ToolKind: "read", RawInput: json.RawMessage(`{"Path":"` + src + `","StartLine":3,"EndLine":4}`)}
+	got := d.readTextOf(u, tool{name: "read"})
+	want := "3: func main() {\n4: \tprintln(\"hi\")"
+	if got != want {
+		t.Fatalf("readTextOf slice = %q, want %q", got, want)
+	}
+
+	// Whole read using location fallback when RawInput omits Path.
+	u2 := &update{Status: "completed", ToolKind: "read"}
+	u2.Locations = append(u2.Locations, struct {
+		Path string `json:"path"`
+	}{src})
+	if full := d.readTextOf(u2, tool{name: "read"}); !strings.HasPrefix(full, "1: package main\n") || !strings.HasSuffix(full, "5: }") {
+		t.Fatalf("readTextOf full = %q", full)
+	}
+
+	// Binary or failed read returns empty.
+	if b := d.readTextOf(&update{Status: "completed", ToolKind: "read", RawInput: json.RawMessage(`{"Path":"` + bin + `"}`)}, tool{name: "read"}); b != "" {
+		t.Fatalf("binary file should return empty, got %q", b)
+	}
+	if f := d.readTextOf(&update{Status: "failed", ToolKind: "read", RawInput: json.RawMessage(`{"Path":"` + src + `"}`)}, tool{name: "read"}); f != "" {
+		t.Fatalf("failed read should return empty, got %q", f)
+	}
+}
+
+// In auto mode, a mid-turn prompt sent right as agy asks for permission waits for the auto-allow
+// reply and retries once if agy momentarily rejects it with "waiting for a permission".
+func TestAutoPermissionMidTurnPromptRetry(t *testing.T) {
+	r := newRig(t)
+	r.open("auto")
+	r.take()
+	send(t, r.d, "in-1", "run tool")
+	r.next("session/prompt")
+
+	// Reject the first attempt of in-2 with agy's transient permission-wait error, then accept the retry.
+	var mu sync.Mutex
+	attempts := 0
+	r.wrote = func(m map[string]any) {
+		if m["method"] == "session/prompt" && m["id"] == "in-2" {
+			mu.Lock()
+			attempts++
+			n := attempts
+			mu.Unlock()
+			if n == 1 {
+				r.feed(`{"jsonrpc":"2.0","id":"in-2","error":{"code":-32000,"message":"Can't add this prompt while the running prompt is waiting for a permission or question answer."}}`)
+			}
+		}
+	}
+
+	r.feed(`{"jsonrpc":"2.0","method":"session/request_permission","params":{"sessionId":"` + sid + `","toolCall":{"toolCallId":"c1","name":"run_command","status":"pending","kind":"execute","title":"echo hi","rawInput":{"CommandLine":"echo hi"}},"options":[{"optionId":"allow","name":"Allow","kind":"allow_once"}]},"id":"perm-1"}`)
+	send(t, r.d, "in-2", "follow up")
+
+	// Expect the auto-allow response and two prompt attempts for in-2.
+	seenAllow, seenPrompt := 0, 0
+	deadline := time.After(3 * time.Second)
+	for seenAllow < 1 || seenPrompt < 2 {
+		select {
+		case m := <-r.out:
+			if m["id"] == "perm-1" {
+				seenAllow++
+			}
+			if m["method"] == "session/prompt" && m["id"] == "in-2" {
+				seenPrompt++
+			}
+		case <-deadline:
+			t.Fatalf("timed out waiting for auto-allow (%d) and retried prompt (%d)", seenAllow, seenPrompt)
+		}
+	}
+	r.feed(
+		`{"jsonrpc":"2.0","result":{"stopReason":"end_turn"},"id":"in-1"}`,
+		upd(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"done"}}`),
+		`{"jsonrpc":"2.0","result":{"stopReason":"end_turn","usage":{"inputTokens":5,"outputTokens":2}},"id":"in-2"}`,
+	)
+	if r.d.State() != agent.Idle {
+		t.Errorf("state = %s, want idle", r.d.State())
+	}
+	if errs := find[agent.TurnEnd](r.take()); len(errs) != 1 || errs[0].Reply != "done" {
+		t.Errorf("unexpected TurnEnd: %+v", errs)
 	}
 }

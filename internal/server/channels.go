@@ -754,7 +754,7 @@ func (s *Server) addAgent(ctx context.Context, c caller, ch string, st *api.Sess
 		}
 	} else {
 		ns := api.NewSession{Agent: req.Agent, Cwd: cmp.Or(req.Cwd, st.Cwd), Machine: st.Machine, Model: req.Model, Mode: req.Mode,
-			Effort: req.Effort, Preset: req.Preset, Role: req.Role, Avatar: req.Avatar, Background: req.Background}
+			Effort: req.Effort, Preset: req.Preset, Role: req.Role, Avatar: req.Avatar, Background: req.Background, ForChannel: true}
 		if req.Cwd != "" {
 			ns.Machine = req.Machine
 		} else if req.Machine != "" && req.Machine != st.Machine {
@@ -962,15 +962,25 @@ func (s *Server) listsChannel(ch string) bool {
 	return len(s.ch.Agents(ch)) > 1
 }
 
+// inSharedChannel reports whether session id belongs to a multi-agent or bare channel (or was
+// spawned for one), so its system prompt describes shared-channel rules instead of asking it to
+// rename channel_id=self.
+func (s *Server) inSharedChannel(id string) bool {
+	return s.multi(id) || len(s.ch.In(id)) > 0 || s.spawnedOf(id) != nil
+}
+
 // channelLast are the last words said in session id's channel, if it is listed with them
 // (listsChannel) and a session's (a bare one's row is made whole by bareChannels), unless its
 // record's (rec) are later: its agent's own may not be read into the channel yet. A session alone
-// in its channel: its record's, unless they were taken back (recordLast).
+// in its channel: its record's, unless a held message is newer or the last words were taken back.
 func (s *Server) channelLast(id string, rec *api.LastSaid) (*api.LastSaid, bool) {
 	if _, bare := s.ch.Own(id); bare {
 		return nil, false
 	}
 	if !s.listsChannel(id) {
+		if m, ok := s.ch.Latest(id); ok && m.D.Held && (rec == nil || m.At > rec.At) {
+			return s.lastSaid(m), true
+		}
 		return s.recordLast(id, rec)
 	}
 	m, ok := s.ch.Latest(id)
@@ -984,12 +994,18 @@ func (s *Server) channelLast(id string, rec *api.LastSaid) (*api.LastSaid, bool)
 	return last, true
 }
 
+// channelListChanged: message m was added, promoted from KindWork, finalized, revised, or edited
+// in its channel. Refresh the sidebar list when the message can affect the row's preview.
+func (s *Server) channelListChanged(m channel.Message) {
+	if (m.Kind == channel.KindUser || m.Kind == channel.KindSaid) && (s.listsChannel(m.Channel) || m.D.Held) {
+		s.listSoon()
+	}
+}
+
 // channelAdded: message m was just written to its channel. Someone's words in a channel listed
 // with them make the list again, shortly: m's writer may hold a session's lock.
 func (s *Server) channelAdded(m channel.Message) {
-	if (m.Kind == channel.KindUser || m.Kind == channel.KindSaid) && s.listsChannel(m.Channel) {
-		s.listSoon()
-	}
+	s.channelListChanged(m)
 	// A line of the channel's own, an agent's error or ask: the subscriptions waiting for it
 	// (subscribe.go).
 	switch {
@@ -2216,26 +2232,31 @@ func quoted(text string) string {
 }
 
 // lastInjection is the record of the last message channel ch gave session's agent, if it is
-// kept (not what its ir was answered with there).
-func (s *Server) lastInjection(session, ch string) (assemble.Record, bool) {
+// kept (not what its ir was answered with there). sameChannel reports whether the agent's
+// immediately preceding message/turn injection across all channels was already in ch.
+func (s *Server) lastInjection(session, ch string) (rec assemble.Record, sameChannel bool, ok bool) {
 	rows, err := s.st.Injections(session, 0)
 	if err != nil {
-		return assemble.Record{}, false
+		return assemble.Record{}, false, false
 	}
+	seenLast, lastCh := false, ""
 	for _, in := range rows {
-		if in.Channel != ch {
-			continue
-		}
 		var r assemble.Record
 		if json.Unmarshal([]byte(in.Record), &r) != nil {
-			return assemble.Record{}, false
-		}
-		if r.Kind != assemble.KindTurnPrefix {
+			if in.Channel == ch {
+				return assemble.Record{}, false, false
+			}
 			continue
 		}
-		return r, true
+		if !seenLast && (r.Kind == assemble.KindTurnPrefix || r.Kind == assemble.KindMessage) {
+			seenLast, lastCh = true, in.Channel
+		}
+		if in.Channel != ch || r.Kind != assemble.KindTurnPrefix {
+			continue
+		}
+		return r, seenLast && lastCh == ch, true
 	}
-	return assemble.Record{}, false
+	return assemble.Record{}, false, false
 }
 
 // irGiven keeps what session's ir was answered with in channel ch (what was said there since it
@@ -2403,8 +2424,9 @@ func (s *Server) deliverAs(ctx context.Context, ch, to string, seq int64, said, 
 	// The standing words again only when they changed, were never given here, or may be gone
 	// from the agent's context since (a compaction): docs/channels.md "增量".
 	static := assemble.ChannelStaticKey(cc)
-	if last, ok := s.lastInjection(to, ch); ok && last.Static == static && !s.compactedSince(to, last.Line) {
+	if last, sameCh, ok := s.lastInjection(to, ch); ok && last.Static == static && !s.compactedSince(to, last.Line) {
 		cc.Brief = true
+		cc.SameChannel = sameCh
 	}
 	var in assemble.Injection
 	if react != nil {
@@ -2597,8 +2619,12 @@ func (s *Server) answer(id string, m channel.Message) {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
-		if _, err := s.sendChannelAs(ctx, caller{Identity: localIdentity, socket: true, agent: true, session: id}, session.From(gate.HostID, "@"+nick), c.Channel, api.Send{Text: text}, w); err != nil {
+		if rep, err := s.sendChannelAs(ctx, caller{Identity: localIdentity, socket: true, agent: true, session: id}, session.From(gate.HostID, "@"+nick), c.Channel, api.Send{Text: text}, w); err != nil {
 			s.logf("server: channel %s: saying what %s wrote: %v", c.Channel, id, err)
+		} else if rep.Seq != 0 && (!has || tw.channel != c.Channel) {
+			// Record the message made here as m's twin so any work added to m after this updates
+			// this message instead of making a second one.
+			s.twins.put(id, m.Seq, twin{c.Channel, rep.Seq})
 		}
 	})
 }
@@ -2727,7 +2753,7 @@ var relayHead = regexp.MustCompile(`^#(\d+)(?:: | \[)`)
 func (s *Server) relayOf(session string, b api.Block) (satori.Relay, bool) {
 	m := relayHead.FindStringSubmatch(b.Text)
 	ctxAt := strings.Index(b.Text, "\n\n<channel-context>\n")
-	if m == nil || ctxAt < 0 {
+	if m == nil {
 		return satori.Relay{}, false
 	}
 	seq, _ := strconv.ParseInt(m[1], 10, 64)
@@ -2741,7 +2767,7 @@ func (s *Server) relayOf(session string, b api.Block) (satori.Relay, bool) {
 		if in.Seq != seq || (b.ID != "" && in.Input != b.ID) {
 			continue
 		}
-		if json.Unmarshal([]byte(in.Record), &rec) == nil {
+		if json.Unmarshal([]byte(in.Record), &rec) == nil && (ctxAt >= 0 || rec.Kind == assemble.KindTurnPrefix) {
 			ch, found = in.Channel, true
 			break
 		}
@@ -2786,7 +2812,7 @@ func (s *Server) relayOf(session string, b api.Block) (satori.Relay, bool) {
 	if rm, ok := msg(seq); ok {
 		out.Msgs = append(out.Msgs, rm)
 	}
-	if out.Full {
+	if out.Full && ctxAt >= 0 {
 		out.Context = strings.TrimSuffix(strings.TrimSpace(b.Text[ctxAt+len("\n\n<channel-context>\n"):]), "</channel-context>")
 	}
 	return out, true
