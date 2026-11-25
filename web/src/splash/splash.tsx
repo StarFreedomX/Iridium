@@ -43,18 +43,29 @@ export function Splash({ show = true, fig = null, scene = "", className }: { sho
     // The canvas is the whole pane; the band is the window of it that is seen (engine.ts), over the
     // composer, and stays there whatever opens over it (kumo, 2026-11-25: it is not to move about). The figure in its middle, whole: in the portrait
     // layout as large as the band has room for.
+    // The composer's top (a chat's, or the empty pane's box), as far down the canvas as it is.
+    const composer = () => el.parentElement?.parentElement?.querySelector<HTMLElement>("[data-sheet-pull]") ?? document.querySelector<HTMLElement>("main [data-sheet-pull]");
     const fit = () => {
       e.resize();
       const w = el.clientWidth, pane = el.clientHeight, ph = phoneRef.current;
       const h = ph ? Math.min(460, Math.max(260, pane * 0.56)) : Math.min(420, Math.max(220, pane * 0.46));
-      // Low in the pane, its foot on the composer (kumo, 2026-11-25: not in the middle).
-      e.window(pane - 76 - h / 2, h);
+      const box = composer()?.firstElementChild ?? composer();
+      const top = box ? box.getBoundingClientRect().top - el.getBoundingClientRect().top : pane - 76;
+      // Low in the pane, the figure standing on the composer: the lowest edge of what it draws
+      // (Ir's letters' foot) just over the composer's top (kumo, 2026-11-25: as on a line).
+      e.window(top - h / 2 + 28, h);
       e.place(ph ? w / 2 : -1, ph ? Math.min(w * 0.94, h * 0.98) : Math.min(h * 0.92, w * 0.7));
+      e.foot(top - 6);
     };
     fitRef.current = fit;
     fit();
     const ro = new ResizeObserver(fit);
     ro.observe(el);
+    const stack = composer();
+    if (stack) ro.observe(stack);
+    // Day and night: drawn again in the page's ink as it changes.
+    const tone = new MutationObserver(() => requestAnimationFrame(() => e.recolor()));
+    tone.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "class", "style"] });
     const move = (ev: PointerEvent) => {
       const r = el.getBoundingClientRect();
       e.near(ev.clientX - r.left, ev.clientY - r.top);
@@ -62,6 +73,7 @@ export function Splash({ show = true, fig = null, scene = "", className }: { sho
     window.addEventListener("pointermove", move, { passive: true });
     return () => {
       ro.disconnect();
+      tone.disconnect();
       window.removeEventListener("pointermove", move);
       e.stop();
       eng.current = null;

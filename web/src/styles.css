@@ -10,7 +10,7 @@
   color-scheme: light;
   /* The conversation's column and its composer: wide enough not to leave the sides empty on a
      wide screen (the user, 2026-11-13; it was 760px). */
-  --chat-w: 960px;
+  --chat-w: 1280px;
   --paper: oklch(0.993 0 0);
   --ink: oklch(0.22 0 0);
   --ink-2: oklch(0.46 0 0);

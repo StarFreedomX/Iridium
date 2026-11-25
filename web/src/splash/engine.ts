@@ -121,7 +121,7 @@ export const ahead = (f: Fig) => void (f.src && picture(f.src));
 // anew (kumo, 2026-11-25: it blinked).
 let kept: { at: number; cols: number; rows: number; text: string[][]; off: Float32Array<ArrayBuffer>; speed: Float32Array<ArrayBuffer>; cur: Field; key: string } | null = null;
 
-export type Splash = { leave(done: () => void): void; enter(): void; figure(f: Fig | null): void; place(x: number, side: number, y?: number): void; window(middle: number, height: number): void; power(f: number): void; resize(): void; near(x: number, y: number): void; stop(): void };
+export type Splash = { leave(done: () => void): void; enter(): void; figure(f: Fig | null): void; place(x: number, side: number, y?: number): void; foot(y: number): void; window(middle: number, height: number): void; recolor(): void; power(f: number): void; resize(): void; near(x: number, y: number): void; stop(): void };
 
 /** fine: smaller characters, more of them to a figure (the portrait layout, where the band is
  *  narrow and a figure of few cells is a blur: kumo, 2026-11-25). */
@@ -148,6 +148,15 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
   let pw = STANDARD, pwT = STANDARD;
   let cx = -1, most = 0, px = -1, ps = 0;
   let cy = -1, py = -1; // its middle's height: asked (-1: the window's own middle) and drawn
+  // Where the figure's lowest edge is to stand (-1: none asked): on the composer (kumo, 2026-11-25:
+  // Ir's letters stand on its top, as on a line). below: how far under the square's middle what
+  // is drawn in it ends, a share of its side (the letters 0.39, a face 0.47, a mark 0.4).
+  let footT = -1, below = 0.39;
+  const yGoal = (gc: number, gs: number) => (footT >= 0 ? footT - below * gs : cy < 0 ? gc : cy);
+  // As the page is laid out (its first second), what is asked of the place is there at once, not
+  // glided to: it moved about as the page settled (kumo, 2026-11-25).
+  const born = performance.now();
+  const settling = () => performance.now() - born < 1200;
   // The window (kumo, 2026-11-25): the code is over the whole canvas, each row where it is, and
   // only the rows in the window are seen, fading out to its upper and lower edge. Moved, the
   // window goes over the rows, those it leaves fading and those it comes to coming up: the
@@ -197,10 +206,12 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
       sg.clip();
       sg.drawImage(img, (img.naturalWidth - s) / 2, (img.naturalHeight - s) / 2, s, s, SRC * 0.03, SRC * 0.03, SRC * 0.94, SRC * 0.94);
       sg.restore();
+      below = 0.47;
       return true;
     }
+    below = 0.4;
     if (img) sg.drawImage(img, SRC * 0.1, SRC * 0.1, SRC * 0.8, SRC * 0.8);
-    else if (!f?.agent || !mark(sg, f.agent, css)) letters(sg, css);
+    else if (!f?.agent || !mark(sg, f.agent, css)) (letters(sg, css), (below = 0.39));
     return false;
   };
 
@@ -319,7 +330,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
     // The figure's place, size and strength glide to what is asked: the cells read anew each frame.
     const [gx, gs] = goal();
     const [gc, gh] = winGoal();
-    const gy = cy < 0 ? gc : cy;
+    const gy = yGoal(gc, gs);
     const gliding = Math.abs(gc - wc) > 0.4 || Math.abs(gh - wh) > 0.4 || Math.abs(gx - px) > 0.4 || Math.abs(gy - py) > 0.4 || Math.abs(gs - ps) > 0.4 || Math.abs(pwT - pw) > 0.004;
     if (gliding) {
       const k = 1 - Math.exp(-dt / 0.3);
@@ -418,7 +429,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
   const settle = () => {
     [px, ps] = goal();
     [wc, wh] = winGoal();
-    py = cy < 0 ? wc : cy;
+    py = yGoal(wc, ps);
     pw = pwT;
     if (!cur.a.length || drawnKey !== (fig?.key ?? "")) return;
     to = read();
@@ -431,6 +442,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
     const w = cv.clientWidth, h = cv.clientHeight;
     if (!w || !h || (w === W && h === H)) return;
     const grown = W > 0;
+    const was = grown ? { cols, rows, text, off, speed, cur } : null;
     W = w;
     H = h;
     dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -440,7 +452,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
     cw = g.measureText("M").width || 5.4;
     [px, ps] = goal();
     [wc, wh] = winGoal();
-    py = cy < 0 ? wc : cy;
+    py = yGoal(wc, ps);
     pw = pwT;
     cols = Math.ceil(W / cw) + 1;
     rows = Math.floor(H / ROW);
@@ -458,10 +470,20 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
     speed = new Float32Array(rows);
     text = [];
     for (let r = 0; r < rows; r++) {
-      text.push(line(len));
-      off[r] = Math.random() * len;
-      speed[r] = (r % 2 ? -1 : 1) * (1.8 + Math.random() * 4.2); // cells a second
+      // Made another size (the page laid out, the window sized): the rows it had go on as they
+      // were, each where it was; only new ones are made (kumo, 2026-11-25: all of it was made anew
+      // each time, and it jumped about as the page came).
+      const old = was && r < was.rows ? was.text[r]! : null;
+      text.push(old ? (old.length >= len ? old.slice(0, len) : [...old, ...line(len - old.length)]) : line(len));
+      off[r] = old ? was!.off[r]! % len : Math.random() * len;
+      speed[r] = old ? was!.speed[r]! : (r % 2 ? -1 : 1) * (1.8 + Math.random() * 4.2); // cells a second
     }
+    if (was)
+      for (let r = 0; r < Math.min(rows, was.rows); r++)
+        for (let k = 0; k < Math.min(cols, was.cols); k++) {
+          const i = r * cols + k, j = r * was.cols + k;
+          (cur.a[i] = was.cur.a[j]!), (cur.r[i] = was.cur.r[j]!), (cur.g[i] = was.cur.g[j]!), (cur.b[i] = was.cur.b[j]!);
+        }
     if (!grown && kept && kept.cols === cols && kept.rows === rows && performance.now() - kept.at < 2000) {
       ({ text, off, speed, cur } = kept);
       from = cur;
@@ -518,7 +540,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
       wcT = middle;
       whT = height;
       if (!W) return;
-      if (still || first) return settle();
+      if (still || first || settling()) return settle();
       kick();
     },
     place(x, side, y = -1) {
@@ -527,8 +549,21 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
       cx = x;
       most = side;
       if (!W) return;
-      if (still || px < 0) return settle();
+      if (still || px < 0 || settling()) return settle();
       kick();
+    },
+    foot(y) {
+      if (Math.abs(y - footT) < 1) return;
+      footT = y;
+      if (!W) return;
+      if (still || px < 0 || settling()) return settle();
+      kick();
+    },
+    // The page's colours changed (day and night): the figure and the code drawn again in the ink
+    // now, at once (kumo, 2026-11-25: Ir kept the old one).
+    recolor() {
+      if (!W || leaving || left) return;
+      show(fig, true);
     },
     near(x, y) {
       if (still || !W || x < -NEAR || y < -NEAR || x > W + NEAR || y > H + NEAR) return;
