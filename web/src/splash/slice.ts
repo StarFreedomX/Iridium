@@ -113,8 +113,20 @@ export function slicer(E: Env) {
     const from = marks.length && Math.random() < 0.22 ? marks : faces;
     const s = isBomb ? bomb! : from[(Math.random() * from.length) | 0];
     if (!s) return;
-    const x = W * (0.14 + Math.random() * 0.72), rise = (bot - top) * (0.55 + Math.random() * 0.3);
-    things.push({ s, bomb: isBomb, x, y: bot + size() * 0.7, vx: (W / 2 - x) * (0.25 + Math.random() * 0.5), vy: -Math.sqrt(2 * FALL * (rise + size())), cut: 0, dx: 0, up: false, ux: 1, uy: 0 });
+    // Each in a way of its own (kumo, 2026-11-26: one over another, in characters, they cannot be
+    // told apart): thrown where it is farthest from those in the air, and nearly straight up.
+    const half = (s.w * E.cw()) / 2, lo = half + 6, hi = Math.max(lo + 1, W - half - 6);
+    let x = W / 2, best = -1;
+    for (let n = 0; n < 9; n++) {
+      const c = lo + Math.random() * (hi - lo);
+      let near = 1e9;
+      for (const q of things) if (!q.cut) near = Math.min(near, Math.abs(q.x - c) - (q.s.w * E.cw()) / 2 - half);
+      if (near > best) (best = near), (x = c);
+    }
+    // No room for one more beside the others: not thrown now.
+    if (things.length && best < 4) return;
+    const rise = (bot - top) * (0.55 + Math.random() * 0.3);
+    things.push({ s, bomb: isBomb, x, y: bot + size() * 0.7, vx: (Math.random() - 0.5) * 36, vy: -Math.sqrt(2 * FALL * (rise + size())), cut: 0, dx: 0, up: false, ux: 1, uy: 0 });
   };
   const end = () => {
     if (endAt) return;
