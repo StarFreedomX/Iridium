@@ -29,7 +29,7 @@ import { Face } from "./face";
 import { prefetchEdit, useMembers } from "./gate";
 import { useAhead } from "../../prefetch";
 import { memberError } from "./key";
-import { givenKind, givenParts, givenText, ownAgent, type AgentRow, type GivenKind } from "./lib";
+import { describeGivenParts, givenKind, givenText, ownAgent, type AgentRow, type DescribedPart, type GivenKind } from "./lib";
 import { memberMenu, type MenuKey } from "./menu";
 import { recvWords, useRecvName, useRecvOptions } from "./recv";
 import { fromOf, hasMore, recvLabel, toggle, withFrom } from "./scripts";
@@ -478,7 +478,7 @@ function Given({ a }: { a: AgentRow }) {
                     </LongWords>
                   </div>
                 )}
-                <Sources parts={givenParts(g.record)} open={!text} />
+                <Sources parts={describeGivenParts(g.record, lang === "en" ? "en" : "zh")} open={!text} />
               </li>
             );
           })}
@@ -488,9 +488,10 @@ function Given({ a }: { a: AgentRow }) {
   );
 }
 
-/** Where an injection's parts came from: each part's source, the values its slots took, the
- *  messages it cites; folded under 来源 when the text is shown (open: it is all there is). */
-function Sources({ parts, open: first }: { parts: ReturnType<typeof givenParts>; open: boolean }) {
+/** Composition of an injection: grouped human-readable items, key values, cited message numbers;
+ *  folded under 组成 when the full text is shown (open: it is all there is). Raw template ids
+ *  stay available via hover tooltip. */
+function Sources({ parts, open: first }: { parts: DescribedPart[]; open: boolean }) {
   const [open, setOpen] = useState(first);
   if (!parts.length) return null;
   return (
@@ -505,17 +506,18 @@ function Sources({ parts, open: first }: { parts: ReturnType<typeof givenParts>;
         <div className="min-h-0 overflow-hidden">
           <ul className="m-0 mt-1 flex list-none flex-col gap-1 p-0">
             {parts.map((p, i) => (
-              <li key={i} className="rounded-md bg-fill px-2.5 py-1.5">
+              <li key={i} title={p.raw} className="rounded-md bg-fill px-2.5 py-1.5">
                 <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                  <span className="font-mono text-xs break-all text-ink">{p.source}</span>
-                  {p.refs.map((r) => (
+                  <span className="text-xs font-medium text-ink">{p.label}</span>
+                  {p.detail && <span className="min-w-0 break-words text-xs text-ink-2">{p.detail}</span>}
+                  {p.refs?.map((r) => (
                     <span key={r} className="text-xs text-ink-2 tabular-nums">
                       {r}
                     </span>
                   ))}
                 </div>
-                {p.values.map(([k, val]) => (
-                  <div key={k} className="mt-0.5 flex gap-2 text-xs">
+                {p.values?.map(([k, val], j) => (
+                  <div key={`${k}-${j}`} className="mt-0.5 flex gap-2 text-xs">
                     <span className="shrink-0 text-ink-3">{k}</span>
                     <span className="min-w-0 break-words whitespace-pre-wrap text-ink-2">{val}</span>
                   </div>

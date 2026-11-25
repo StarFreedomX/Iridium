@@ -808,3 +808,59 @@ func TestReadTextOf(t *testing.T) {
 		t.Fatalf("failed read should return empty, got %q", f)
 	}
 }
+
+// In auto mode, a mid-turn prompt sent right as agy asks for permission waits for the auto-allow
+// reply and retries once if agy momentarily rejects it with "waiting for a permission".
+func TestAutoPermissionMidTurnPromptRetry(t *testing.T) {
+	r := newRig(t)
+	r.open("auto")
+	r.take()
+	send(t, r.d, "in-1", "run tool")
+	r.next("session/prompt")
+
+	// Reject the first attempt of in-2 with agy's transient permission-wait error, then accept the retry.
+	var mu sync.Mutex
+	attempts := 0
+	r.wrote = func(m map[string]any) {
+		if m["method"] == "session/prompt" && m["id"] == "in-2" {
+			mu.Lock()
+			attempts++
+			n := attempts
+			mu.Unlock()
+			if n == 1 {
+				r.feed(`{"jsonrpc":"2.0","id":"in-2","error":{"code":-32000,"message":"Can't add this prompt while the running prompt is waiting for a permission or question answer."}}`)
+			}
+		}
+	}
+
+	r.feed(`{"jsonrpc":"2.0","method":"session/request_permission","params":{"sessionId":"` + sid + `","toolCall":{"toolCallId":"c1","name":"run_command","status":"pending","kind":"execute","title":"echo hi","rawInput":{"CommandLine":"echo hi"}},"options":[{"optionId":"allow","name":"Allow","kind":"allow_once"}]},"id":"perm-1"}`)
+	send(t, r.d, "in-2", "follow up")
+
+	// Expect the auto-allow response and two prompt attempts for in-2.
+	seenAllow, seenPrompt := 0, 0
+	deadline := time.After(3 * time.Second)
+	for seenAllow < 1 || seenPrompt < 2 {
+		select {
+		case m := <-r.out:
+			if m["id"] == "perm-1" {
+				seenAllow++
+			}
+			if m["method"] == "session/prompt" && m["id"] == "in-2" {
+				seenPrompt++
+			}
+		case <-deadline:
+			t.Fatalf("timed out waiting for auto-allow (%d) and retried prompt (%d)", seenAllow, seenPrompt)
+		}
+	}
+	r.feed(
+		`{"jsonrpc":"2.0","result":{"stopReason":"end_turn"},"id":"in-1"}`,
+		upd(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"done"}}`),
+		`{"jsonrpc":"2.0","result":{"stopReason":"end_turn","usage":{"inputTokens":5,"outputTokens":2}},"id":"in-2"}`,
+	)
+	if r.d.State() != agent.Idle {
+		t.Errorf("state = %s, want idle", r.d.State())
+	}
+	if errs := find[agent.TurnEnd](r.take()); len(errs) != 1 || errs[0].Reply != "done" {
+		t.Errorf("unexpected TurnEnd: %+v", errs)
+	}
+}

@@ -458,6 +458,8 @@ type NewSession struct {
 	// Name: the name channel.create gives it (its data.name), for one an agent starts to be
 	// called by in its channel when it gives no Nick. Not of the JSON: set by the Satori side.
 	Name string `json:"-"`
+	// ForChannel: started directly for a shared channel (not of the JSON; set by the server).
+	ForChannel bool `json:"-"`
 }
 
 // Send gives the session a message: a new turn when idle; while a turn runs it joins that turn

@@ -60,6 +60,46 @@ React to a message rather than answer it in words: ir api reaction.create channe
 	}
 }
 
+func TestChannelBriefSameChannel(t *testing.T) {
+	// Consecutive turn in the same channel with nothing new: omit <channel-context> completely.
+	in, err := ChannelTurn(Channel{ID: "ch-1", Name: "Room", You: "a", Brief: true, SameChannel: true}, 4, "hello", "in4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := in.String(); got != "#4: hello" {
+		t.Errorf("same channel nothing new: got %q, want %q", got, "#4: hello")
+	}
+
+	// Same channel with something new (recalled): keep <channel-context> without repeating "In the channel ...".
+	in, err = ChannelTurn(Channel{ID: "ch-1", Name: "Room", You: "a", Brief: true, SameChannel: true, Recalled: []int64{2}}, 5, "next", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := in.String(); strings.Contains(got, "In the channel") || strings.Contains(got, "In channel") || !strings.Contains(got, "<channel-context>\nTaken back") {
+		t.Errorf("same channel with recalled: %q", got)
+	}
+
+	// Switching back to a named channel: include "In the channel \"Room\" (ch-1), as before."
+	in, err = ChannelTurn(Channel{ID: "ch-1", Name: "Room", You: "a", Brief: true, SameChannel: false}, 6, "back", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := in.String(); !strings.Contains(got, `In the channel "Room" (ch-1), as before.`) {
+		t.Errorf("switched named channel: %q", got)
+	}
+
+	// Switching back to an unnamed channel (Name empty or == ID): do not repeat the UUID twice.
+	for _, name := range []string{"", "ch-1"} {
+		in, err = ChannelTurn(Channel{ID: "ch-1", Name: name, You: "a", Brief: true, SameChannel: false}, 7, "back", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := in.String(); !strings.Contains(got, "In channel ch-1, as before.") || strings.Contains(got, "(ch-1)") {
+			t.Errorf("switched unnamed channel (%q): %q", name, got)
+		}
+	}
+}
+
 // A reaction (docs/channels.md "表情"): its line, the message's words cut to a line, then the
 // channel's context, the messages taken back since in it; alone, the line only.
 func TestChannelReaction(t *testing.T) {

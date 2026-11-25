@@ -57,6 +57,10 @@ type Channel struct {
 	// more) were given before and hold still (docs/channels.md "增量"): not again, a line in
 	// their place.
 	Brief bool
+	// SameChannel: the agent's immediately preceding turn-prefix or message injection was
+	// already in this same channel, so Brief does not need to repeat "In the channel ..., as
+	// before." when nothing else changed.
+	SameChannel bool
 	// Key: what the standing words are of beside their text: the channel's agents (their
 	// sessions). The names in them are not part of it: when those change, the agent is
 	// told what changed (Changes), not everything again.
@@ -320,39 +324,44 @@ func Reacted(r Reaction) (Injection, error) {
 	return build(KindMessage, reactionPieces(r)...)
 }
 
-// contextPieces are the channel's context after the words that call the agent.
+// contextPieces are the channel's context after the words that call the agent. Empty (nil) when
+// Brief holds in the same channel and there is nothing new to report, saving tokens each turn.
 func contextPieces(c Channel) []piece {
 	// The channel as ir takes it: the agent's own is "self".
 	self := cmp.Or(c.ID, "self")
-	ps := []piece{text(idChannelOpen)}
+	var body []piece
 	if c.Rename {
-		ps = append(ps, text(idChannelRename, "you", c.You))
+		body = append(body, text(idChannelRename, "you", c.You))
 	}
 	static := staticPieces(c)
 	switch {
 	case !c.Brief:
-		ps = append(ps, static[0])
-	case c.ID != "":
-		ps = append(ps, text(idChannelAgain, "name", cmp.Or(c.Name, c.ID), "channel", c.ID))
+		body = append(body, static[0])
+	case c.ID != "" && !c.SameChannel:
+		if c.Name != "" && c.Name != c.ID {
+			body = append(body, text(idChannelAgain, "name", c.Name, "channel", c.ID))
+		} else {
+			body = append(body, text(idChannelAgainID, "channel", c.ID))
+		}
 	}
-	ps = append(ps, changePieces(c)...)
+	body = append(body, changePieces(c)...)
 	if len(c.Recalled) > 0 {
 		var seqs []string
 		for _, r := range c.Recalled {
 			seqs = append(seqs, "#"+n(r))
 		}
-		ps = append(ps, text(idChannelRecalled, "seqs", strings.Join(seqs, ", ")))
+		body = append(body, text(idChannelRecalled, "seqs", strings.Join(seqs, ", ")))
 	}
-	ps = append(ps, unseenPieces(c, self)...)
+	body = append(body, unseenPieces(c, self)...)
 	work := false
 	for _, w := range c.Work {
 		if w.Did.Empty() {
 			continue
 		}
 		if !work {
-			ps, work = append(ps, text(idChannelWork)), true
+			body, work = append(body, text(idChannelWork)), true
 		}
-		ps = append(append(ps, text(idChannelWorkLine, "who", w.Who)), didPieces(w.Did)...)
+		body = append(append(body, text(idChannelWorkLine, "who", w.Who)), didPieces(w.Did)...)
 		if len(w.Did.Files) > 0 {
 			var paths []string
 			for i, f := range w.Did.Files {
@@ -362,13 +371,19 @@ func contextPieces(c Channel) []piece {
 				}
 				paths = append(paths, f.Path)
 			}
-			ps = append(ps, text(idChannelWorkFile, "files", strings.Join(paths, ", ")))
+			body = append(body, text(idChannelWorkFile, "files", strings.Join(paths, ", ")))
 		}
-		ps = append(ps, text(idNL))
+		body = append(body, text(idNL))
 	}
 	if !c.Brief && len(static) > 1 {
-		ps = append(ps, static[1])
+		body = append(body, static[1])
 	}
+	if len(body) == 0 {
+		return nil
+	}
+	ps := make([]piece, 0, len(body)+2)
+	ps = append(ps, text(idChannelOpen))
+	ps = append(ps, body...)
 	return append(ps, text(idChannelClose))
 }
 

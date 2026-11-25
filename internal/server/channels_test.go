@@ -830,12 +830,21 @@ func TestChannelQuoteAndAll(t *testing.T) {
 	l.waitSaid("web", second, "@claude2 ", fmt.Sprintf("#%d: @全体Agent roll call", r.Seq))
 	l.waitSaid("web", ch, "@claude ", fmt.Sprintf("#%d: @全体Agent roll call", r.Seq))
 
-	// Given again, the standing words are not: a line in their place (docs/channels.md "增量").
-	var ins []api.Injection
-	l.want(200, "web", "GET", "/v1/internal/sessions/"+second+"/injections", nil, &ins)
-	ins = turnsOf(ins)
+	// Given again in the same channel, neither the standing words nor "In the channel ..., as
+	// before." is repeated (docs/channels.md "增量").
+	var allIns []api.Injection
+	l.want(200, "web", "GET", "/v1/internal/sessions/"+second+"/injections", nil, &allIns)
+	// Spawned for a shared channel: system prompt uses channel.system rather than title.md.
+	for _, x := range allIns {
+		if strings.Contains(string(x.Record), `"kind":"system"`) {
+			if strings.Contains(string(x.Record), "prompts:title") || !strings.Contains(string(x.Record), "prompts:channel.system") {
+				t.Errorf("spawned channel agent system prompt: %s", x.Record)
+			}
+		}
+	}
+	ins := turnsOf(allIns)
 	if len(ins) < 2 || !strings.Contains(string(ins[0].Record), `"static":"`) || strings.Contains(string(ins[0].Record), `"full":true`) || !strings.Contains(string(ins[len(ins)-1].Record), `"full":true`) ||
-		strings.Contains(string(ins[0].Record), "prompts:channel.context.guest\"") || !strings.Contains(string(ins[0].Record), "prompts:channel.context.again") {
+		strings.Contains(string(ins[0].Record), "prompts:channel.context.guest\"") || strings.Contains(string(ins[0].Record), "prompts:channel.context.again") {
 		t.Errorf("injections: %+v", ins)
 	}
 	p := l.page("web", second)
@@ -866,8 +875,54 @@ func TestChannelQuoteAndAll(t *testing.T) {
 		again == "" || strings.Contains(again, " full>") || !strings.HasSuffix(again, "@全体Agent roll call</message></message>") {
 		t.Errorf("forwards:\n%s", strings.Join(fwds, "\n"))
 	}
-	if !strings.Contains(given, `In the channel "`) || strings.Contains(given, "You are claude2") {
-		t.Errorf("given again with its standing words:\n%s\n%+v", given, p.Blocks)
+	if strings.Contains(given, `In the channel "`) || strings.Contains(given, "You are claude2") {
+		t.Errorf("given again in same channel with redundant header:\n%s\n%+v", given, p.Blocks)
+	}
+}
+
+// Consecutive calls in the same channel omit "In the channel ..., as before." (and omit
+// <channel-context> altogether when nothing else changed), while returning to the channel after a
+// turn elsewhere emits the brief channel reminder without repeating full standing words.
+func TestChannelBriefAndSwitch(t *testing.T) {
+	t.Parallel()
+	l := start(t)
+	ch := l.create(200, "web", api.NewSession{Agent: api.AgentClaude, Cwd: l.work, Text: "first"})
+	l.waitReply("web", ch, "ok: first")
+	var ms api.ChannelMembers
+	l.want(200, "web", "POST", "/v1/internal/channels/"+ch+"/members", api.NewMember{Agent: api.AgentClaude}, &ms)
+	second := ms.Members[len(ms.Members)-1].Session
+
+	// First call in ch: full standing words.
+	code, r1 := l.send("web", ch, api.Send{Text: "@claude2 one"})
+	if code != 200 {
+		t.Fatalf("send 1: %d", code)
+	}
+	l.waitSaid("web", ch, "@claude2 ", fmt.Sprintf("ok: #%d: @claude2 one", r1.Seq))
+
+	// Direct message in second's own channel (switches active channel context away from ch).
+	if code, _ := l.send("web", second, api.Send{Text: "direct check"}); code != 200 {
+		t.Fatalf("direct send: %d", code)
+	}
+	l.waitReply("web", second, "ok: direct check")
+
+	// Back in ch: brief reminder ("In the channel ..."), not full standing words.
+	code, r2 := l.send("web", ch, api.Send{Text: "@claude2 two"})
+	if code != 200 {
+		t.Fatalf("send 2: %d", code)
+	}
+	l.waitSaid("web", ch, "@claude2 ", fmt.Sprintf("ok: #%d: @claude2 two", r2.Seq))
+
+	var allIns []api.Injection
+	l.want(200, "web", "GET", "/v1/internal/sessions/"+second+"/injections", nil, &allIns)
+	var rec2 *api.Injection
+	for i := range allIns {
+		if allIns[i].Seq == r2.Seq {
+			rec2 = &allIns[i]
+			break
+		}
+	}
+	if rec2 == nil || strings.Contains(string(rec2.Record), `"full":true`) || !strings.Contains(string(rec2.Record), "prompts:channel.context.again") {
+		t.Errorf("returned after direct turn (seq %d): %+v", r2.Seq, turnsOf(allIns))
 	}
 }
 

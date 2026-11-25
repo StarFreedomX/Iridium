@@ -162,6 +162,12 @@ type Driver struct {
 	// joined: prompts sent while a turn was already running, held until the running prompt ends
 	// or their echo arrives so we do not cut a message being streamed in half.
 	joined []joinedPrompt
+	// autoAllow: in-flight auto-permission response writes; Send waits for them before writing
+	// session/prompt so agy does not refuse a mid-turn prompt while waiting for a permission.
+	autoAllow []chan struct{}
+	// inFlight: prompt payloads currently outstanding, kept so a mid-turn prompt refused solely
+	// because agy is still processing an auto-allowed permission can be retried once.
+	inFlight map[string]inflightPrompt
 	// sent: a prompt that begins a turn, being written: agy says nothing of a turn before it has
 	// it, so whatever it says next finds it in the conversation first (its answer may come before
 	// Send has the lock again).
@@ -181,6 +187,12 @@ type Driver struct {
 
 type joinedPrompt struct {
 	id, text string
+}
+
+type inflightPrompt struct {
+	session string
+	blocks  []map[string]any
+	retries int
 }
 
 func New(o Options) *Driver {
@@ -211,7 +223,8 @@ func (d *Driver) reset() {
 	d.tools = map[string]tool{}
 	d.state = agent.Idle
 	d.starting, d.loading = false, false
-	d.waiting, d.outstanding, d.asks, d.echoes, d.joined = nil, nil, nil, nil, nil
+	d.waiting, d.outstanding, d.asks, d.echoes, d.joined, d.autoAllow = nil, nil, nil, nil, nil, nil
+	d.inFlight = map[string]inflightPrompt{}
 	d.sent.id, d.sent.text = "", ""
 	d.text.Reset()
 	d.thought.Reset()
@@ -586,6 +599,24 @@ func (d *Driver) Send(ctx context.Context, m agent.Message) error {
 	for _, im := range m.Images {
 		blocks = append(blocks, map[string]any{"type": "image", "data": base64.StdEncoding.EncodeToString(im.Data), "mimeType": im.MediaType})
 	}
+	// Wait for any in-flight auto-permission answers to be written to agy before sending a
+	// prompt, avoiding agy's "waiting for a permission or question answer" rejection.
+	for {
+		d.mu.Lock()
+		var wait chan struct{}
+		if len(d.autoAllow) > 0 {
+			wait = d.autoAllow[0]
+		}
+		d.mu.Unlock()
+		if wait == nil {
+			break
+		}
+		select {
+		case <-wait:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
 	d.mu.Lock()
 	if d.w == nil {
 		d.mu.Unlock()
@@ -600,6 +631,7 @@ func (d *Driver) Send(ctx context.Context, m agent.Message) error {
 	ch := make(chan reply, 1)
 	d.pending[m.ID] = ch
 	session := d.session
+	d.inFlight[m.ID] = inflightPrompt{session: session, blocks: blocks}
 	d.mu.Unlock()
 	if err := d.write(request(m.ID, "session/prompt", map[string]any{"sessionId": session, "prompt": blocks})); err != nil {
 		d.mu.Lock()
@@ -607,6 +639,7 @@ func (d *Driver) Send(ctx context.Context, m agent.Message) error {
 			d.sent.id, d.sent.text = "", ""
 		}
 		delete(d.pending, m.ID)
+		delete(d.inFlight, m.ID)
 		d.waiting = slices.DeleteFunc(d.waiting, func(id string) bool { return id == m.ID })
 		d.outstanding = slices.DeleteFunc(d.outstanding, func(id string) bool { return id == m.ID })
 		if d.state == agent.Idle {
@@ -968,9 +1001,22 @@ func (d *Driver) Feed(line []byte, replay bool) {
 	d.mu.Lock()
 	answer := d.feed(line, replay)
 	w := d.w
+	var done chan struct{}
+	if answer != nil && w != nil {
+		done = make(chan struct{})
+		d.autoAllow = append(d.autoAllow, done)
+	}
 	d.drainLocked()
 	if answer != nil && w != nil {
-		go func() { _ = w(answer) }()
+		go func() {
+			defer func() {
+				d.mu.Lock()
+				d.autoAllow = slices.DeleteFunc(d.autoAllow, func(c chan struct{}) bool { return c == done })
+				d.mu.Unlock()
+				close(done)
+			}()
+			_ = w(answer)
+		}()
 	}
 }
 
@@ -1034,6 +1080,29 @@ func (d *Driver) response(f *frame, replay bool) {
 	}
 	if f.Error != nil {
 		if i := slices.Index(d.outstanding, id); i >= 0 {
+			// In auto mode, a mid-turn prompt may arrive right before agy processes our
+			// auto-allow response to session/request_permission. Retry it shortly instead of
+			// dropping the user's message.
+			if !replay && d.mode == "auto" && strings.Contains(f.Error.Message, "waiting for a permission") {
+				if p, ok := d.inFlight[id]; ok && p.retries < 3 {
+					p.retries++
+					d.inFlight[id] = p
+					proc := d.proc
+					go func() {
+						time.Sleep(150 * time.Millisecond)
+						d.mu.Lock()
+						if d.proc != proc || d.w == nil || !slices.Contains(d.outstanding, id) {
+							d.mu.Unlock()
+							return
+						}
+						d.pending[id] = make(chan reply, 1)
+						d.mu.Unlock()
+						_ = d.write(request(id, "session/prompt", map[string]any{"sessionId": p.session, "prompt": p.blocks}))
+					}()
+					return
+				}
+			}
+			delete(d.inFlight, id)
 			// A prompt refused: it never joins the conversation.
 			d.outstanding = slices.Delete(d.outstanding, i, i+1)
 			d.take1(id)
@@ -1044,6 +1113,7 @@ func (d *Driver) response(f *frame, replay bool) {
 		}
 		return
 	}
+	delete(d.inFlight, id)
 	var s stopped
 	if json.Unmarshal(f.Result, &s) != nil || s.StopReason == "" {
 		// Opening the session, as fed again: what it says comes back.

@@ -132,6 +132,14 @@ func (s *Service) Twin(ch string, m channel.Message, origin string) int64 {
 	return t.Seq
 }
 
+// sameWork reports whether two Work values carry the same live progress.
+func sameWork(a, b *channel.Work) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}
+
 // TwinNow: message seq of ch, the twin of m, is as m is now: its work; and, while it is still
 // being written there, its words.
 func (s *Service) TwinNow(ch string, seq int64, m channel.Message, passing bool, origin string) {
@@ -140,7 +148,15 @@ func (s *Service) TwinNow(ch string, seq int64, m channel.Message, passing bool,
 		return
 	}
 	if passing && !(cur.Kind == channel.KindWork && m.Kind == channel.KindSaid) {
-		// Not kept: the next one is.
+		// Persist live work steps on the twin so an asynchronous Settle() or HTTP reload never
+		// rolls steps back to 0 ("Thinking") and later jumps straight to many tools at once.
+		if m.D.Work != nil && !sameWork(cur.D.Work, m.D.Work) {
+			if t, ok := s.log.SetWork(ch, seq, func(w *channel.Work) {
+				*w = *m.D.Work
+			}); ok {
+				cur = t
+			}
+		}
 		if cur.D.Writing {
 			cur.Text = m.Text
 		}

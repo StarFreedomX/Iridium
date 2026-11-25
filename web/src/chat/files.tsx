@@ -71,15 +71,35 @@ function Shown({ src, under, alt, className, style }: { src: string; under?: str
   );
 }
 
+/** Display dimensions and crop mode for an inline image preview. Normal aspect ratios keep their
+ *  exact proportion up to maxW × maxH without upscaling; extreme tall/wide strips clamp to a
+ *  readable box and crop the extreme ends (top for tall strips, centered for wide strips). */
+export function pictureBox(w?: number, h?: number, maxW = 340, maxH = 420, minW = 140, minH = 84): { w: number; h: number; crop: "none" | "top" | "center" } | undefined {
+  if (!w || !h || w <= 0 || h <= 0) return undefined;
+  const k = Math.min(1, maxW / w, maxH / h);
+  const fitW = Math.max(1, Math.round(w * k));
+  const fitH = Math.max(1, Math.round(h * k));
+  if (h / w > 2.8) {
+    return { w: Math.min(maxW, Math.max(minW, fitW)), h: Math.min(maxH, Math.max(fitH, Math.min(h, maxH))), crop: "top" };
+  }
+  if (w / h > 3.2) {
+    return { w: Math.min(maxW, Math.max(fitW, Math.min(w, maxW))), h: Math.min(maxH, Math.max(minH, fitH)), crop: "center" };
+  }
+  return { w: fitW, h: fitH, crop: "none" };
+}
+
 /** A picture: its thumbnail, opening the original over the page; small, in a row of files, as high
  *  as the composer's and its own shape, as it was there. under: what shows till it has come.
  *  w, h: its size as the server read it: its place is kept as it loads, the conversation does not
  *  move (a chat opened the first time, its pictures not yet in the cache). */
 export function Picture({ src, full, name, under, w, h }: { src: string; full: string; name: string; under?: string; w?: number; h?: number }) {
+  const box = pictureBox(w, h);
+  const style: CSSProperties | undefined = box ? { width: box.w, aspectRatio: `${box.w} / ${box.h}` } : undefined;
+  const pos = box?.crop === "top" ? "object-top" : "object-center";
   return (
     <Zoom full={full} name={name}>
-      <button type="button" aria-label={`${name} · ${t("msg.openImage")}`} className="g-press relative block w-full max-w-[340px] overflow-hidden rounded-lg bg-fill shadow-[0_0_0_0.5px_var(--edge)]">
-        <Shown src={src} under={under} alt={name} style={w && h ? { aspectRatio: `${w} / ${h}` } : undefined} className="block max-h-[420px] w-full object-cover" />
+      <button type="button" aria-label={`${name} · ${t("msg.openImage")}`} style={box ? { width: box.w } : undefined} className={cn("g-press relative block max-w-full overflow-hidden rounded-lg bg-fill shadow-[0_0_0_0.5px_var(--edge)]", !box && "w-fit")}>
+        <Shown src={src} under={under} alt={name} style={style} className={cn("block max-w-full object-cover", pos, box ? "w-full" : "max-h-[420px] max-w-[340px] min-h-[56px] min-w-[80px] h-auto w-auto")} />
       </button>
     </Zoom>
   );

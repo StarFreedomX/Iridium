@@ -320,7 +320,7 @@ export const en: Dict = {
   "channel.givenSystem": "System prompt",
   "channel.givenMessage": "Message",
   "channel.givenIr": "ir's answer",
-  "channel.givenSources": "Sources",
+  "channel.givenSources": "Composition",
   "channel.remove": "Remove",
   "channel.removeTitle": "Remove {nick}",
   "channel.removeHint": "Its session stays",

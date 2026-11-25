@@ -320,7 +320,7 @@ export const zh = {
   "channel.givenSystem": "系统提示",
   "channel.givenMessage": "消息",
   "channel.givenIr": "ir 回执",
-  "channel.givenSources": "来源",
+  "channel.givenSources": "组成",
   "channel.remove": "移出",
   "channel.removeTitle": "移出 {nick}",
   "channel.removeHint": "会话保留",

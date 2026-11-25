@@ -230,3 +230,31 @@ func TestLiveUserRecordedSplitsCarrierAndBoundsWork(t *testing.T) {
 		t.Fatalf("tool on new carrier: %+v %+v", ev3, ev3.Message)
 	}
 }
+
+// TwinNow with passing=true persists live work steps on the shared-channel twin so an HTTP
+// reload or asynchronous Settle never rolls steps back to 0 ("Thinking").
+func TestLiveTwinPersistsSteps(t *testing.T) {
+	r := newRig(t)
+	r.f.addSession("ch", 1)
+	r.f.addSession("a2", 1)
+	src := channel.Message{
+		ChannelMessage: store.ChannelMessage{Channel: "a2", Seq: 2, Author: "agent:a2", Kind: channel.KindWork},
+		D:              channel.Data{Session: "a2", Work: &channel.Work{Steps: 0, Running: true, At: 1000, From: 10}},
+	}
+	seq := r.s.Twin("ch", src, "")
+	if seq == 0 {
+		t.Fatal("Twin returned seq 0")
+	}
+	updated := src
+	updated.D.Work = &channel.Work{Steps: 3, Running: true, Tool: "Read", At: 1000, From: 10}
+	r.s.TwinNow("ch", seq, updated, true, "")
+
+	var l List[Message]
+	if status, e := r.as("u1", "message.list", map[string]any{"channel_id": "ch"}, &l); status != 200 {
+		t.Fatal(status, e)
+	}
+	got := l.Data[len(l.Data)-1]
+	if !strings.Contains(got.Content, `steps="3"`) || !strings.Contains(got.Content, `tool="Read"`) {
+		t.Fatalf("twin steps not persisted: %q", got.Content)
+	}
+}

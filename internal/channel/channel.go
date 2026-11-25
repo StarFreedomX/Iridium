@@ -349,8 +349,20 @@ type Service struct {
 	imu   sync.Mutex
 	index *index
 
-	added   atomic.Pointer[func(Message)] // OnAdded
-	changes atomic.Pointer[func(Message)] // OnChanged
+	added      atomic.Pointer[func(Message)] // OnAdded
+	changes    atomic.Pointer[func(Message)] // OnChanged
+	listNotify atomic.Pointer[func(Message)] // OnList
+}
+
+// OnList has f told whenever a channel's visible message text is created or updated (words
+// promoted from KindWork, finalized by Wrote, settled by Revise, or edited) so the sidebar's
+// last-message preview stays current.
+func (s *Service) OnList(f func(Message)) { s.listNotify.Store(&f) }
+
+func (s *Service) notifyList(m Message) {
+	if f := s.listNotify.Load(); f != nil {
+		(*f)(m)
+	}
 }
 
 // OnChanged has f told a message found in its agent's record after it was said live (its
@@ -727,7 +739,7 @@ func (s *Service) syncUser(ch, session string, b api.Block, alone, first bool) (
 		return Message{}, false, nil
 	}
 	// What the agent was given of another channel it is in: said there, not here.
-	if ours && Given(text) {
+	if ours && (Given(text) || s.isOtherChannelInput(session, b.ID, text)) {
 		return Message{}, false, nil
 	}
 	ref := b.ID
@@ -764,6 +776,33 @@ func (s *Service) syncUser(ch, session string, b api.Block, alone, first bool) (
 // their number, then the channel's context.
 func Given(text string) bool {
 	return strings.HasPrefix(text, "#") && strings.Contains(text, "\n<channel-context")
+}
+
+// isOtherChannelInput reports whether a user block in session's own transcript was actually
+// delivered from another channel (e.g. a brief same-channel turn with no <channel-context> block).
+func (s *Service) isOtherChannelInput(session, input, text string) bool {
+	if input != "" {
+		if in, ok := s.st.InjectionOf(session, input); ok && in.Channel != "" && in.Channel != session {
+			return true
+		}
+	}
+	if !strings.HasPrefix(text, "#") {
+		return false
+	}
+	rows, err := s.st.Injections(session, 20)
+	if err != nil {
+		return false
+	}
+	for _, in := range rows {
+		if in.Channel == "" || in.Channel == session || in.Seq <= 0 {
+			continue
+		}
+		prefix := "#" + strconv.FormatInt(in.Seq, 10)
+		if strings.HasPrefix(text, prefix+": ") || strings.HasPrefix(text, prefix+" [") {
+			return true
+		}
+	}
+	return false
 }
 
 // HostTerminal is the author of what was typed to an agent in its own terminal, outside Iridium.
@@ -897,7 +936,13 @@ func (s *Service) End(channel string) int64 {
 
 // Edit changes the words of message seq; Drop takes it back.
 func (s *Service) Edit(channel string, seq int64, text string) error {
-	return s.st.EditChannelMessage(channel, seq, text)
+	if err := s.st.EditChannelMessage(channel, seq, text); err != nil {
+		return err
+	}
+	if m, ok := s.Get(channel, seq); ok {
+		s.notifyList(m)
+	}
+	return nil
 }
 
 func (s *Service) Drop(channel string, seq int64) error {
@@ -1086,6 +1131,7 @@ func (s *Service) words(ch string, seq int64, text string, writing bool) (Messag
 	if err := s.st.SetChannelMessageData(ch, seq, m.D.encode()); err != nil {
 		s.logf("channel %s: message %d: %v", ch, seq, err)
 	}
+	s.notifyList(m)
 	return m, true
 }
 
@@ -1122,6 +1168,7 @@ func (s *Service) Wrote(ch string, seq int64, text string) (Message, bool) {
 			s.logf("channel %s: message %d: %v", ch, seq, err)
 		}
 	}
+	s.notifyList(m)
 	return m, true
 }
 
@@ -1197,6 +1244,9 @@ func (s *Service) Revise(ch string, seq int64, text *string, f func(*Data), ref 
 	}
 	if err != nil {
 		s.logf("channel %s: message %d: %v", ch, seq, err)
+	}
+	if text != nil {
+		s.notifyList(m)
 	}
 	return m, true
 }
