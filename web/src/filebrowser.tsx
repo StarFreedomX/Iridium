@@ -163,7 +163,10 @@ export default function FileBrowser({ machine: initialMachine, path: initialPath
     <>
       <header className="flex h-12 shrink-0 items-center gap-2 border-b border-edge px-3 pointer-coarse:h-13">
         {file && <IconKey label={t("browse.toFolder")} className="@min-[620px]:hidden" onClick={() => setSelected(null)}><ArrowLeft size={17} /></IconKey>}
-        <Dialog.Title className="min-w-0 flex-1 text-sm font-semibold">{t(within ? "new.subFolder" : "browse.title")}</Dialog.Title>
+        {/* Its name an icon, the one of the key that opens it (kumo, 2026-11-25); said to a reader. */}
+        <Dialog.Title className="flex min-w-0 flex-1 items-center text-sm font-semibold">
+          {within ? t("new.subFolder") : <><FolderOpen size={17} aria-hidden className="text-ink-2" /><span className="sr-only">{t("browse.title")}</span></>}
+        </Dialog.Title>
         {!within && <Choose
           label={t("device.computer")}
           options={computers}
