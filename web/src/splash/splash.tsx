@@ -89,10 +89,20 @@ export function Splash({ show = true, fig = null, scene = "", className }: { sho
       e.near(ev.clientX - r.left, ev.clientY - r.top);
     };
     window.addEventListener("pointermove", move, { passive: true });
+    // A press on the pane itself (not a key, a box, a menu): rings come out about it.
+    const press = (ev: PointerEvent) => {
+      const t = ev.target as Element | null;
+      if (t?.closest?.("button, a, input, textarea, [role=menu], [role=dialog], [role=listbox], [data-sheet-pull], nav, aside")) return;
+      const r = el.getBoundingClientRect();
+      if (ev.clientX < r.left || ev.clientX > r.right || ev.clientY < r.top || ev.clientY > r.bottom) return;
+      e.tap(ev.clientX - r.left, ev.clientY - r.top);
+    };
+    window.addEventListener("pointerdown", press, { passive: true });
     return () => {
       ro.disconnect();
       tone.disconnect();
       window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerdown", press);
       e.stop();
       eng.current = null;
     };

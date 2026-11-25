@@ -14,7 +14,7 @@ const SRC = 256; // px, the figure as it is drawn before the cells are read from
 const BASE = 0.12; // a cell's opacity with no figure on it
 const TURN = 700; // ms, one cell going over
 const SPREAD = 650; // ms, from the middle's first cell to the rim's
-const NEAR = 60; // px about the pointer
+const LENS = 72; // the lens's reach about the pointer, px
 const IDLE = 0.4; // the flow's speed with nothing happening, of its speed as something does
 const GLYPHS = "abcdefghijklmnopqrstuvwxyz0123456789{}[]()<>=+-*/&|!?:;.,_#$%@~^";
 const WORDS = ["mygo", "satori", "iridium"];
@@ -134,7 +134,7 @@ export const ahead = (f: Fig) => void (f.src && picture(f.src));
 // anew (kumo, 2026-11-25: it blinked).
 let kept: { at: number; cols: number; rows: number; text: string[][]; off: Float32Array<ArrayBuffer>; speed: Float32Array<ArrayBuffer>; cur: Field; key: string } | null = null;
 
-export type Splash = { leave(done: () => void): void; enter(): void; figure(f: Fig | null): void; place(x: number, side: number, y?: number): void; foot(y: number): void; window(middle: number, height: number): void; recolor(): void; power(f: number): void; resize(): void; near(x: number, y: number): void; stop(): void };
+export type Splash = { leave(done: () => void): void; enter(): void; figure(f: Fig | null): void; place(x: number, side: number, y?: number): void; foot(y: number): void; window(middle: number, height: number): void; recolor(): void; power(f: number): void; resize(): void; near(x: number, y: number): void; tap(x: number, y: number): void; stop(): void };
 
 /** fine: smaller characters, more of them to a figure (the portrait layout, where the band is
  *  narrow and a figure of few cells is a blur: kumo, 2026-11-25). */
@@ -283,50 +283,64 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
     return out;
   };
 
+  const FONTS = (z: number) => `${FONT * z}px ui-monospace, "SF Mono", Menlo, "JetBrains Mono", "Cascadia Mono", "DejaVu Sans Mono", monospace`;
   const draw = () => {
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.clearRect(0, 0, W, H);
-    g.font = `${FONT}px ui-monospace, "SF Mono", Menlo, "JetBrains Mono", "Cascadia Mono", "DejaVu Sans Mono", monospace`;
+    g.font = FONTS(1);
     g.textBaseline = "top";
+    const now = performance.now();
     // The rainbow's place now: across the figure, moving on as time goes.
-    const shift = still ? 0 : performance.now() * 0.06, fx0 = px - ps / 2, span = ps || 1;
+    const shift = still ? 0 : now * 0.06, fx0 = px - ps / 2, span = ps || 1;
+    const hueAt = (x: number, yy: number) => ((((x - fx0) / span) * 300 + (yy - py) * 0.4 - shift) % 360) + 360;
+    // A face at rest: only the rows and columns about it are drawn, the code beyond its rim being
+    // none (kumo, 2026-11-25: the whole pane was gone over each frame for it, and it lagged).
+    const rim = photo && !leaving && now - t0 > spreadNow + TURN + 400 ? ps * 0.6 : 0;
+    const lensR = lensOn ? LENS : 0;
     for (let r = 0; r < rows; r++) {
-      const o = Math.floor(off[r]!), f = off[r]! - o, row = text[r]!, y = r * ROW + 0.5;
-      const env = seen(y + ROW / 2);
-      let warm = false;
-      for (let k = 0; k < cols && !warm; k++) warm = heat[r * cols + k]! > 0.02;
-      if (env < 0.01 && fr[r]! < 0.01 && !warm) continue;
+      const o = Math.floor(off[r]!), f = off[r]! - o, row = text[r]!, y = r * ROW + 0.5, ym = y + ROW / 2;
+      const env = seen(ym);
+      const inLens = lensR > 0 && Math.abs(ym - ly) < lensR;
+      if (!inLens && (env < 0.01 && fr[r]! < 0.01)) continue;
+      if (!inLens && rim && Math.abs(ym - py) > rim) continue;
+      const k0 = rim && !inLens ? Math.max(0, Math.floor((px - rim) / cw)) : 0;
+      const k1 = rim && !inLens ? Math.min(cols, Math.ceil((px + rim) / cw) + 1) : cols;
       let run = "", at = 0, key = -1;
       const flush = () => {
         if (!run || !(key & 31)) return;
         g.fillStyle = `rgba(${((key >> 5) & 31) << 3},${((key >> 10) & 31) << 3},${((key >> 15) & 31) << 3},${(key & 31) / 24})`;
         g.fillText(run, (at - f) * cw, y);
       };
-      for (let k = 0; k < cols; k++) {
+      for (let k = k0; k < k1; k++) {
         const i = r * cols + k;
         let cr = cur.r[i]!, cg = cur.g[i]!, cb = cur.b[i]!;
-        const fmi = rainbow ? (fm[i] ?? 0) : 0;
+        const xm = (k + 0.5 - f) * cw;
+        // A lens where the pointer is (kumo, 2026-11-25): the code under it larger, pushed out from
+        // its middle as much as it grows, so none lies over another; seen past the band's edges
+        // and a face's rim, in the rainbow.
+        let mz = 1;
+        if (inLens) {
+          const d = Math.hypot(xm - lx, ym - ly);
+          if (d < lensR) mz = 1 + 0.85 * (1 - d / lensR) ** 2;
+        }
+        const glow = (mz - 1) / 0.85;
+        const fmi = Math.max(rainbow ? (fm[i] ?? 0) : 0, glow > 0.02 ? Math.min(1, glow * 1.6) : 0);
         if (fmi > 0) {
-          const [hr, hg, hb] = rainbowAt(((((k + 0.5) * cw - fx0) / span) * 300 + (r * ROW - py) * 0.4 - shift) % 360 + 360);
+          const [hr, hg, hb] = rainbowAt(hueAt(xm, ym));
           (cr += (hr - cr) * fmi), (cg += (hg - cg) * fmi), (cb += (hb - cb) * fmi);
         }
-        // About the pointer a lens (kumo, 2026-11-25): the code there seen wherever it is, past the
-        // band's edges or a face's rim too, and drawn larger, one character at a time.
-        const hi = heat[i]!;
-        if (hi > 0.08) {
+        if (mz > 1.03) {
           flush();
           run = "";
           key = -1;
-          const ch = row[(k + o) % len] ?? " ";
-          const z = 1 + 0.9 * hi;
-          g.font = `${FONT * z}px ui-monospace, "SF Mono", Menlo, "JetBrains Mono", "Cascadia Mono", "DejaVu Sans Mono", monospace`;
-          g.fillStyle = `rgba(${cr | 0},${cg | 0},${cb | 0},${clamp(BASE + 0.15 + hi * 0.6)})`;
-          g.fillText(ch, (k - f) * cw - (cw * (z - 1)) / 2, y - (ROW * (z - 1)) / 2);
-          g.font = `${FONT}px ui-monospace, "SF Mono", Menlo, "JetBrains Mono", "Cascadia Mono", "DejaVu Sans Mono", monospace`;
+          g.font = FONTS(mz);
+          g.fillStyle = `rgba(${cr | 0},${cg | 0},${cb | 0},${clamp(Math.max(cur.a[i]! * env, BASE) + 0.55 * glow)})`;
+          g.fillText(row[(k + o) % len] ?? " ", lx + (xm - lx) * mz - (cw * mz) / 2, ly + (ym - ly) * mz - (ROW * mz) / 2);
+          g.font = FONTS(1);
           at = k + 1;
           continue;
         }
-        const k2 = Math.min(24, Math.round(clamp(cur.a[i]! + hi * 0.34) * (env + (1 - env) * Math.max(fm[i] ?? 0, hi)) * 24)) | ((cr >> 3) << 5) | ((cg >> 3) << 10) | ((cb >> 3) << 15);
+        const k2 = Math.min(24, Math.round(clamp(cur.a[i]!) * (env + (1 - env) * (fm[i] ?? 0)) * 24)) | ((cr >> 3) << 5) | ((cg >> 3) << 10) | ((cb >> 3) << 15);
         if (k2 !== key) {
           flush();
           run = "";
@@ -339,6 +353,47 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
         run += h % 4 === 0 ? GLYPHS[(h >>> 8) % GLYPHS.length]! : (row[(k + o) % len] ?? " ");
       }
       flush();
+    }
+    sparks(now);
+  };
+
+  // What the pointer leaves (kumo, 2026-11-25: not a tail of code): little stars and rings along its
+  // way, and a press sends rings out about it; each in the rainbow, rising and going.
+  type Spark = { x: number; y: number; vx: number; vy: number; at: number; life: number; ring: boolean; size: number; hue: number; spin: number };
+  let pops: Spark[] = [];
+  let lx = 0, ly = 0, lensOn = false, lastPop = 0;
+  const pop = (x: number, y: number, ring: boolean, speed: number, size: number) => {
+    const a = Math.random() * Math.PI * 2;
+    pops.push({ x, y, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed - (ring ? 0 : 12), at: performance.now(), life: ring ? 900 + Math.random() * 500 : 700 + Math.random() * 500, ring, size, hue: Math.random() * 360, spin: (Math.random() - 0.5) * 6 });
+    if (pops.length > 160) pops = pops.slice(-160);
+  };
+  const star = (x: number, y: number, rad: number, turn: number) => {
+    g.beginPath();
+    for (let j = 0; j < 10; j++) {
+      const a = turn + (j * Math.PI) / 5 - Math.PI / 2, d = j % 2 ? rad * 0.45 : rad;
+      j ? g.lineTo(x + Math.cos(a) * d, y + Math.sin(a) * d) : g.moveTo(x + Math.cos(a) * d, y + Math.sin(a) * d);
+    }
+    g.closePath();
+    g.fill();
+  };
+  const sparks = (now: number) => {
+    if (!pops.length) return;
+    pops = pops.filter((p) => now - p.at < p.life);
+    for (const p of pops) {
+      const t = (now - p.at) / p.life, s2 = (now - p.at) / 1000;
+      const x = p.x + p.vx * s2, y = p.y + p.vy * s2 + 18 * s2 * s2;
+      const [r2, g2, b2] = rainbowAt(p.hue + now * 0.12);
+      const fade = (1 - t) * (1 - t);
+      if (p.ring) {
+        g.strokeStyle = `rgba(${r2 | 0},${g2 | 0},${b2 | 0},${0.85 * fade})`;
+        g.lineWidth = 1.6 * (1 - t) + 0.4;
+        g.beginPath();
+        g.arc(x, y, p.size * (0.4 + t * 1.6), 0, Math.PI * 2);
+        g.stroke();
+      } else {
+        g.fillStyle = `rgba(${r2 | 0},${g2 | 0},${b2 | 0},${0.9 * fade})`;
+        star(x, y, p.size * (1 - t * 0.5), p.spin * s2);
+      }
     }
   };
 
@@ -421,8 +476,8 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
       heat[i] = h * 0.9;
     }
     draw();
-    calm = !burst && !turning && !hot && !gliding && Math.abs(vel - want) < 0.02;
-    if (flow > 0 || want || turning || hot || gliding) kick();
+    calm = !burst && !turning && !hot && !gliding && !pops.length && !lensOn && Math.abs(vel - want) < 0.02;
+    if (flow > 0 || want || turning || hot || gliding || pops.length) kick();
   };
   const kick = () => {
     if (!raf && !dead) raf = requestAnimationFrame(frame);
@@ -602,14 +657,27 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
       show(fig, true);
     },
     near(x, y) {
-      if (still || !W || x < -NEAR || y < -NEAR || x > W + NEAR || y > H + NEAR) return;
-      const c0 = Math.max(0, Math.floor((x - NEAR) / cw)), c1 = Math.min(cols - 1, Math.ceil((x + NEAR) / cw));
-      const r0 = Math.max(0, Math.floor((y - NEAR) / ROW)), r1 = Math.min(rows - 1, Math.ceil((y + NEAR) / ROW));
-      for (let r = r0; r <= r1; r++)
-        for (let k = c0; k <= c1; k++) {
-          const d = Math.hypot((k + 0.5) * cw - x, (r + 0.5) * ROW - y);
-          if (d < NEAR) heat[r * cols + k] = Math.max(heat[r * cols + k]!, (1 - d / NEAR) ** 1.5);
-        }
+      if (still || !W) return;
+      const inside = x >= 0 && y >= 0 && x <= W && y <= H;
+      if (!inside) {
+        if (lensOn) (lensOn = false), kick();
+        return;
+      }
+      const moved = Math.hypot(x - lx, y - ly);
+      lx = x;
+      ly = y;
+      lensOn = true;
+      const now = performance.now();
+      if (moved > 4 && now - lastPop > 45) {
+        lastPop = now;
+        pop(x, y, Math.random() < 0.3, 10 + Math.random() * 25, 2.5 + Math.random() * 3.5);
+      }
+      kick();
+    },
+    tap(x, y) {
+      if (still || !W) return;
+      for (let j = 0; j < 7; j++) pop(x, y, true, 30 + Math.random() * 70, 6 + Math.random() * 14);
+      for (let j = 0; j < 6; j++) pop(x, y, false, 60 + Math.random() * 90, 3 + Math.random() * 4);
       kick();
     },
     stop() {
