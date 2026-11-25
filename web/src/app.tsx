@@ -14,7 +14,8 @@ import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo,
 import { api, queryClient } from "./api/client";
 import { InPopup } from "./api/query";
 import { firstScreen, watchTurns } from "./chats";
-import { CreatePopover, WsPlus } from "./create";
+import { NewHere } from "./create";
+import { onCreateAt } from "./places";
 import { listFromDevice } from "./device/first";
 import { agentsQ, LOCAL_ME, pushQ, selfQ, useApps, useHome, useMe, useSettings, useUpdate, useWorkspaces } from "./data";
 import { FileWindow } from "./file-window";
@@ -326,6 +327,8 @@ export function App() {
   const [filesRound, setFilesRound] = useState(0);
   // Any host or web login sees the key; the file routes enforce the login's scope per request.
   const filesAllowed = meNow?.host || meNow?.web;
+  // A place no listed group holds, pressed (places.ts): the file browser there, 在此新建 in it.
+  useEffect(() => onCreateAt((p) => filesAllowed && filesHandle.openWithPayload(p)), [filesAllowed, filesHandle]);
   const filesKey = filesAllowed ? (
     <FileBrowserHandle.Provider value={filesHandle}>
       <Suspense fallback={<span className="size-8 pointer-coarse:size-10" />}>
@@ -372,9 +375,8 @@ export function App() {
       onConfirm={(c) => (c.session && list?.some((s) => s.id === c.session) ? openChat(c.session) : go({ name: c.kind.startsWith("secret_") ? "secrets" : "apps" }, over(r)))}
       chatCode={chatCode}
       panelsCode={loadPanels}
-      createKey={(trigger) => <CreatePopover trigger={trigger} />}
       filesKey={filesKey}
-      wsPlus={(w, trigger, o, setO) => <WsPlus key={w.key} w={{ id: w.id, name: w.name, path: w.root }} trigger={trigger} open={o} setOpen={setO} opened={(id) => openChat(id)} />}
+      wsPlus={(w, trigger, o, setO) => <NewHere key={w.key} w={{ id: w.id, name: w.name, path: w.root }} trigger={trigger} open={o} setOpen={setO} opened={(id) => openChat(id)} />}
       me={me}
       reveal={phone ? onSheet : undefined}
     />
@@ -507,7 +509,7 @@ export function App() {
               <Pager
                 // The tabs' bar is px-3, the list's rows end 4px further right: its "+" in line with
                 // theirs (the user, 2026-11-08).
-                ends={[null, null, <span key="s" className="-mr-1 flex"><HeadKeys filesKey={filesKey} createKey={(trigger) => <CreatePopover trigger={trigger} />} /></span>]}
+                ends={[null, null, <span key="s" className="-mr-1 flex"><HeadKeys filesKey={filesKey} /></span>]}
                 page={sheetPage}
                 still={turnStill}
                 onPage={toPage}

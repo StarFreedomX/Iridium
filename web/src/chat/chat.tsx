@@ -11,7 +11,7 @@ import type { Device, Session, SessionState as LiveSession } from "../api/types.
 import { queryClient } from "../api/client";
 import { AppKey, WinKeys } from "../appkey";
 import { chatOf, firstScreen, fresh, stateAhead, type Draft as Drafted } from "../chats";
-import { WsPlus } from "../create";
+import { newChannel } from "../create";
 import { LOCAL_ME, useMachines, useMe, useWhoList, useWorkspaces } from "../data";
 import { t, useLang } from "../i18n";
 import { LinkDot } from "../link";
@@ -207,10 +207,8 @@ const Bar = memo(function Bar({ s, onSheet, onMe, onBack, recordOnly }: { s?: Se
   const soloRow = s && of && of.bare && of.agents?.length === 1 ? of.agents[0] : undefined;
   const soloAgent = soloRow ? (list?.find((x) => x.id === soloRow.session)?.agent ?? soloRow.agent ?? s?.agent) : undefined;
   const solo = soloRow && soloAgent ? { id: soloRow.session, agent: soloAgent } : undefined;
-  const ws = useWorkspaces().data ?? [];
   const machines = useMachines();
   const [renaming, setRenaming] = useState(false);
-  const [making, setMaking] = useState(false);
   const [publicOpen, setPublicOpen] = useState(false);
   const late = useRef(!s).current ? "g-fade" : "";
   const more = useRef<HTMLButtonElement>(null);
@@ -221,7 +219,7 @@ const Bar = memo(function Bar({ s, onSheet, onMe, onBack, recordOnly }: { s?: Se
   };
   const folder = s ? (s.machine ? shownPath(groupPath(s), machines).real : tilde(s.cwd)) : "";
   const where = folder ? [{ icon: <FolderOpen size={15} />, label: folder, run: () => void navigator.clipboard.writeText(folder).then(() => toast(t("toast.copied")), () => {}) }] : [];
-  const lead = [...where, { icon: <Plus size={15} />, label: t("menu.new"), run: () => requestAnimationFrame(() => setMaking(true)) }, ...(onSheet ? [{ icon: <ListTree size={15} />, label: t("nav.sidebar"), run: onSheet }] : []), ...(onMe ? [{ icon: <Settings size={15} />, label: t("nav.me"), run: onMe }] : []), { icon: <BarChart3 size={15} />, label: t("usage.title"), run: usageHere }];
+  const lead = [...where, { icon: <Plus size={15} />, label: t("menu.new"), run: () => s && void newChannel(groupPath(s), machines, s.workspace ?? undefined).then((id) => id && openChat(id)) }, ...(onSheet ? [{ icon: <ListTree size={15} />, label: t("nav.sidebar"), run: onSheet }] : []), ...(onMe ? [{ icon: <Settings size={15} />, label: t("nav.me"), run: onMe }] : []), { icon: <BarChart3 size={15} />, label: t("usage.title"), run: usageHere }];
   const acts = s ? [...sessionActions(s, () => setRenaming(true)), { icon: <Globe size={15} />, label: t("public.menu"), run: () => void Promise.race([queryClient.prefetchQuery(publicLinkQ(s.id)), new Promise((r) => setTimeout(r, 300))]).then(() => setPublicOpen(true)) }] : [];
   return (
     <header data-app-drag className="g-turn-stay vt-bar glass absolute inset-x-0 top-0 z-20 shadow-[0_0.5px_0_var(--edge)]">
@@ -266,14 +264,6 @@ const Bar = memo(function Bar({ s, onSheet, onMe, onBack, recordOnly }: { s?: Se
         {onSheet && <VoiceDock side="bottom" />}
         {s && (
           <span className="relative grid">
-            <WsPlus
-              key={s.id}
-              w={{ id: s.workspace ?? 0, name: ws.find((w) => w.id === s.workspace)?.name ?? "", path: groupPath(s) }}
-              trigger={<span aria-hidden className="pointer-events-none absolute inset-0" />}
-              open={making}
-              setOpen={setMaking}
-              opened={(id) => openChat(id)}
-            />
             <Menu.Root>
               <Tip label={t("top.more")} side="bottom">
                 <Menu.Trigger

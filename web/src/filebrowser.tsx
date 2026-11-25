@@ -5,11 +5,13 @@ import { Dialog } from "@base-ui/react/dialog";
 import { Menu } from "@base-ui/react/menu";
 import { type UseQueryResult } from "@tanstack/react-query";
 import { useQuery } from "./api/query";
-import { ArrowLeft, ChevronRight, Copy, Download, ExternalLink, Eye, FileText, Folder, FolderOpen, House, Link2, LoaderCircle, RefreshCw } from "lucide-react";
+import { ArrowLeft, ChevronRight, Copy, Download, ExternalLink, Eye, FileText, Folder, FolderOpen, House, Link2, LoaderCircle, Plus, RefreshCw } from "lucide-react";
 import { lazy, Suspense, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { api, ApiError, queryClient } from "./api/client";
 import type { DirEntry, DirListing } from "./api/types.gen";
 import { nativeAt, placeMention } from "./chat/at";
+import { newChannelAt } from "./create";
+import { openChat } from "./route";
 import { size } from "./chat/files";
 import { previewKind } from "./chat/preview-lib";
 import { Choose } from "./choose";
@@ -151,7 +153,7 @@ export default function FileBrowser({ machine: initialMachine, path: initialPath
         <IconKey label={t("top.reload")} onClick={() => void folders.refetch()}><RefreshCw size={15} /></IconKey>
         <IconKey label={t("browse.copyChatLink")} disabled={!folders.data?.path} onClick={() => copyChatLink(dir)}><Link2 size={15} /></IconKey>
       </div>
-      <div className="flex min-h-0 flex-1">
+      <div className="relative flex min-h-0 flex-1">
         {/* Pull the focus ring inside the pane so the dialog's overflow-hidden rounded edge does not clip it. */}
         <div ref={list} tabIndex={-1} className={cn("min-w-0 flex-1 flex-col focus-visible:-outline-offset-6 @min-[620px]:flex @min-[620px]:w-72 @min-[620px]:flex-none @min-[620px]:border-r @min-[620px]:border-edge", file ? "hidden" : "flex")}>
           <div ref={scroll} className="min-h-0 flex-1 overflow-auto overscroll-contain p-1.5">
@@ -161,6 +163,18 @@ export default function FileBrowser({ machine: initialMachine, path: initialPath
         <div className={cn("min-w-0 flex-1 flex-col @min-[620px]:flex", file ? "flex" : "hidden")}>
           <FilePreview file={file} dir={dir} machine={machine} title={title} />
         </div>
+        {/* 在此新建 (kumo, 2026-11-25), at the window's lower right while no file is looked at: a
+            channel in the folder shown, at the computer shown; the folder is its group. */}
+        {!file && (
+          <Dialog.Close
+            disabled={!folders.data?.path || (!!machine && !computer?.online)}
+            onClick={() => void newChannelAt(nativeAt(computer, dir), machine || undefined).then((id) => id && openChat(id))}
+            className="g-press absolute right-3 bottom-3 flex h-9 items-center gap-1.5 rounded-full bg-ink pr-3.5 pl-2.5 text-sm font-medium text-on-ink shadow-lg disabled:opacity-40 pointer-coarse:h-11"
+          >
+            <Plus size={16} />
+            {t("browse.newHere")}
+          </Dialog.Close>
+        )}
       </div>
     </>
   );

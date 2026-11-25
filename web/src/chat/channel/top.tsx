@@ -8,7 +8,7 @@ import { Popover } from "@base-ui/react/popover";
 import { useQueryClient } from "@tanstack/react-query";
 import { useQuery } from "../../api/query";
 import { Check, ChevronLeft, ChevronRight, PencilLine, Plus, Users } from "lucide-react";
-import { useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { api } from "../../api/client";
 import type { Agent, ChannelMembers, Script, Viewer } from "../../api/types.gen";
 import { agentsQ, isComputer, useApps, useMachines } from "../../data";
@@ -26,6 +26,7 @@ import { ContextMark } from "../meters";
 import { mayAct, useMembers } from "./gate";
 import { AddAgents, ITEM, KindPage, POPUP } from "./invite";
 import { Tall } from "../../create";
+import { onAskAdd, takeAdd } from "./adding";
 import type { Machine } from "../../machines";
 import { prefetchChoices } from "./pick";
 import { useAhead } from "../../prefetch";
@@ -99,6 +100,16 @@ export function TopRight({ id }: { id: string }) {
   const [asked, setAsked] = useState<Ask | null>(null);
   // A script's card, or a new one, out of the members' key (script.tsx): its pages in one popover.
   const [script, setScript] = useState<ScriptPage | null>(null);
+  // The + open by itself on a channel just made with no agent (create.tsx), once it may be
+  // pressed (its members known).
+  const may = mayAct(members);
+  const [adding, setAdding] = useState(false);
+  useEffect(() => {
+    const take = () => may && takeAdd(id) && (ahead(), setAdding(true));
+    take();
+    return onAskAdd(take);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, may]);
   // Asked for as the bar is drawn: the list and each card open whole.
   useScripts(id);
   return (
@@ -153,8 +164,8 @@ export function TopRight({ id }: { id: string }) {
         </MenuPortal>
       </Menu.Root>
       {/* 邀请, a key of its own (kumo, 2026-11-25): what it opens is the agents to add and the people. */}
-      {mayAct(members) && (
-        <Menu.Root onOpenChange={(open) => open && ahead()}>
+      {may && (
+        <Menu.Root open={adding} onOpenChange={(open) => (setAdding(open), open && ahead())}>
           <Tip label={t("channel.invite")} side="bottom">
             <Menu.Trigger
               render={

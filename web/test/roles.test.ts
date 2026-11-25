@@ -1,7 +1,6 @@
 // Roles (src/roles.tsx): a role's line, and what starting as one sends.
 import { describe, expect, test } from "vitest";
 import type { Model, Role } from "../src/api/types.gen";
-import { startRequest } from "../src/create";
 import { setLang } from "../src/i18n";
 import { effortName, picked, roleLine, roleModel, roleStart } from "../src/roles";
 
@@ -51,12 +50,5 @@ describe("starting as a role", () => {
   });
   test("the role as it would start", () => {
     expect(picked(fish, { effort: "max", model: "" })).toMatchObject({ model: "deepseek/flash", effort: "max" });
-  });
-  test("a new session's request: the role's agent in the folder, with the role", () => {
-    expect(startRequest("dsh", "/home/x", 3, undefined, ["ir_web/*"], roleStart(fish, { effort: "low" }))).toEqual({ agent: "dsh", cwd: "/home/x", workspace: 3, members: { people: ["ir_web/*"] }, role: "r1", effort: "low" });
-    expect(startRequest("dsh", "C:\\Code", undefined, "m1", undefined, roleStart(fish))).toEqual({ agent: "dsh", cwd: "C:\\Code", machine: "m1", role: "r1" });
-  });
-  test("with no role, as before", () => {
-    expect(startRequest("claude", "~")).toEqual({ agent: "claude", cwd: "~" });
   });
 });
