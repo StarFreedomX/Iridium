@@ -160,8 +160,9 @@ export function TopRight({ id }: { id: string }) {
           </Tip>
           <MenuPortal>
             <Menu.Positioner side="bottom" align="end" sideOffset={6} collisionPadding={8} className="z-50">
-              {/* Half clear (kumo, 2026-11-25): the splash's code is seen through it. */}
-              <Menu.Popup finalFocus={false} className={cn(POPUP, SUB, "w-[min(344px,calc(100vw-16px))] [--glass-thick:color-mix(in_srgb,var(--glass-thick-tint)_58%,transparent)]")}>
+              {/* Clear (kumo, 2026-11-25): the splash's code is seen through it, where it is; a little of the
+                  glass's tint and blur left, for its rows to be read over the code. */}
+              <Menu.Popup finalFocus={false} className={cn(POPUP, SUB, "w-[min(344px,calc(100vw-16px))] [--glass-blur:6px] [--glass-thick:color-mix(in_srgb,var(--glass-thick-tint)_22%,transparent)]")}>
                 <Invite id={id} done={() => setAdding(false)} />
               </Menu.Popup>
             </Menu.Positioner>

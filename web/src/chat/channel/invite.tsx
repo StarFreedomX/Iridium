@@ -12,7 +12,7 @@ import { Menu } from "@base-ui/react/menu";
 import { useQueryClient } from "@tanstack/react-query";
 import { useQuery } from "../../api/query";
 import { LoaderCircle, Mail, Plus, UsersRound } from "lucide-react";
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { api } from "../../api/client";
 import type { Agent, ChannelMembers, Role, Trigger } from "../../api/types.gen";
 import { agentsQ, useMachines } from "../../data";
@@ -29,7 +29,7 @@ import { choicesQ, draftDefault, draftName, type At } from "../choices";
 import { CARD_POP, ProfileCard } from "./profilecard";
 import { DraftModels } from "./pick";
 import { ahead as figAhead } from "../../splash/engine";
-import { beside, panelGone, panelUp, point, unpoint, type Fig } from "../../splash/figure";
+import { panelGone, point, unpoint, type Fig } from "../../splash/figure";
 
 /** A row pointed at or come to by the keys: the splash draws what it would add (splash/). */
 const pointing = (f: Fig) => ({ onPointerEnter: () => point(f), onFocus: () => point(f) });
@@ -40,12 +40,7 @@ const pointing = (f: Fig) => ({ onPointerEnter: () => point(f), onFocus: () => p
  *  hold adds nothing. */
 function useHeld() {
   const [open, setOpen] = useState(false);
-  const was = useRef(false);
-  const set = (o: boolean) => {
-    if (was.current !== o) beside(o);
-    was.current = o;
-    setOpen(o);
-  };
+  const set = setOpen;
   const lp = useLongPress(() => set(true), { suppressTouchClick: true });
   return { open, set, keys: { ...lp, onContextMenu: (e: React.MouseEvent) => void (lp.onContextMenu(e) || (e.preventDefault(), set(true))) } };
 }
@@ -129,7 +124,7 @@ export function AddAgents({ id, wake, setWake, done, apps }: { id: string; wake:
   const to = m && picked !== own ? m : undefined;
   // The panel gone: the splash is the channel's own again. The templates' faces asked for as it
   // is drawn: one pointed at is there to be drawn.
-  useEffect(() => (panelUp(), () => (point(null), panelGone())), []);
+  useEffect(() => () => panelGone(), []);
   useEffect(() => roles.forEach((r) => r.avatar && figAhead({ key: r.id, src: r.avatar })), [roles]);
   return (
     <>

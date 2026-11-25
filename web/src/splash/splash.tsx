@@ -8,10 +8,8 @@ import { useFaceSrc } from "../chat/channel/face";
 import { cn, PHONE, useMedia } from "../ui";
 import { splash, type Splash as Engine } from "./engine";
 import { justMade } from "../chat/channel/adding";
-import { onPoint, panelIsUp, panelOpen, pointedAt, powerNow, stage, stagedNow, STANDARD, type Fig } from "./figure";
+import { onPoint, pointedAt, powerNow, stage, stagedNow, STANDARD, type Fig } from "./figure";
 
-// The + panel and the menu beside its rows, with the gaps about them: what the figure keeps left of.
-const PANEL = 660;
 
 const MASK = "linear-gradient(to right, transparent, #000 10%, #000 90%, transparent)";
 
@@ -25,16 +23,9 @@ export function Splash({ show = true, fig = null, scene = "", className }: { sho
   const cv = useRef<HTMLCanvasElement>(null);
   const eng = useRef<Engine | null>(null);
   const now = show ? (pointed ?? fig) : fig;
-  const aside = useSyncExternalStore(onPoint, panelOpen) && show;
-  const asideRef = useRef(aside);
-  asideRef.current = aside;
   const power = useSyncExternalStore(onPoint, powerNow);
   // The portrait layout with the + panel there: the band under the panel, over the composer.
   const phone = useMedia(PHONE);
-  const up = useSyncExternalStore(onPoint, panelIsUp);
-  const low = phone && up && show;
-  const lowRef = useRef(low);
-  lowRef.current = low;
   const fitRef = useRef(() => {});
   const phoneRef = useRef(phone);
   phoneRef.current = phone;
@@ -49,24 +40,16 @@ export function Splash({ show = true, fig = null, scene = "", className }: { sho
     eng.current = e;
     e.figure(nowRef.current);
     e.resize();
-    // The canvas is the whole pane; the band is the window of it that is seen (engine.ts): in the
-    // pane's middle, or, in the portrait layout with the + panel there, in what is left under
-    // the panel (half the pane) over the composer. The figure: left of the panel and its menu
-    // while one is open beside it and there is room; else in the window's middle, in the
-    // portrait layout as wide as the pane has room for, the window showing the middle of it.
+    // The canvas is the whole pane; the band is the window of it that is seen (engine.ts), in the
+    // pane's middle, and stays there whatever opens over it (kumo, 2026-11-25: it is not to move
+    // about; the + panel is clear over it). The figure in its middle, whole: in the portrait
+    // layout as large as the band has room for.
     const fit = () => {
       e.resize();
       const w = el.clientWidth, pane = el.clientHeight, ph = phoneRef.current;
-      const under = ph && lowRef.current;
-      const h = under ? Math.max(120, pane / 2 - 128) : ph ? Math.min(460, Math.max(260, pane * 0.56)) : Math.min(420, Math.max(220, pane * 0.46));
-      e.window(under ? pane - 76 - h / 2 : pane / 2 - 24, h);
-      const free = w - PANEL;
-      const left = asideRef.current && free >= 240;
-      // The figure is one size wherever the window is, and whole (kumo, 2026-11-25: not smaller
-      // under the panel, not cut by the window's edges): in the portrait layout, as large as what
-      // is left under a panel of half the pane, over the composer, has room for.
-      const side = left ? Math.min(h * 0.92, free * 0.9) : ph ? Math.min(w * 0.94, Math.max(120, pane / 2 - 128)) : Math.min(h * 0.92, w * 0.7);
-      e.place(left ? free / 2 : !ph ? -1 : w / 2, side);
+      const h = ph ? Math.min(460, Math.max(260, pane * 0.56)) : Math.min(420, Math.max(220, pane * 0.46));
+      e.window(pane / 2 - 24, h);
+      e.place(ph ? w / 2 : -1, ph ? Math.min(w * 0.94, h * 0.98) : Math.min(h * 0.92, w * 0.7));
     };
     fitRef.current = fit;
     fit();
@@ -96,7 +79,6 @@ export function Splash({ show = true, fig = null, scene = "", className }: { sho
     else if (shownAt.current !== scene || !eng.current) setThere(false);
     else eng.current.leave(() => setThere(false));
   }, [show, scene, there]);
-  useEffect(() => fitRef.current(), [aside, low]);
   useEffect(() => eng.current?.power(show ? power : STANDARD), [power, show]);
   if (!there) return null;
   return (

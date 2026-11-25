@@ -24,34 +24,12 @@ export const pointedAt = () => pointed;
 export const unpoint = (key: string) => void (pointed?.key === key && point(null));
 export const onPoint = (h: () => void) => (heard.add(h), () => void heard.delete(h));
 
-// A menu open beside a row of the + panel (a kind's models, a template's card): the figure stands
-// left of the two, not under them. The panel alone leaves the middle free (kumo, 2026-11-25).
-// One row's menu shut as the next one's opens is no return to the middle between them.
-let subs = 0, open = false, later = 0;
-const tell = (o: boolean) => {
-  if (open === o) return;
-  open = o;
-  heard.forEach((h) => h());
-};
-/** A row's menu opened or shut. */
-export function beside(o: boolean): void {
-  subs = Math.max(0, subs + (o ? 1 : -1));
-  clearTimeout(later);
-  if (subs) tell(true);
-  else later = window.setTimeout(() => tell(false), 250);
-}
-/** The panel gone, its menus with it. */
+/** The + panel gone: no row of it is pointed at, no effort of its menus is the flow's. The splash
+ *  stays where it is whatever is open over it (kumo, 2026-11-25: it is not to move about). */
 export function panelGone(): void {
-  up = false;
   power = STANDARD;
-  subs = 0;
-  clearTimeout(later);
-  // Told whether a menu was open beside it or not: the band is to go back to its middle (kumo,
-  // 2026-11-25: with none open nothing was told, and in the portrait layout it stayed down).
-  open = false;
-  heard.forEach((h) => h());
+  point(null);
 }
-export const panelOpen = () => open;
 
 // The effort slider's level (chat/effort.tsx), as it shows it and as it is moved: by the level's
 // name, high the flow's own speed, the levels over it faster, those under it slower; the figure
@@ -64,16 +42,6 @@ export function effortAt(level: string, frac: number): void {
   heard.forEach((h) => h());
 }
 export const powerNow = () => power;
-
-// The + panel there at all: in the portrait layout it takes the pane's upper part, and the band
-// goes down to what is left under it.
-let up = false;
-export function panelUp(): void {
-  if (up) return;
-  up = true;
-  heard.forEach((h) => h());
-}
-export const panelIsUp = () => up;
 
 // What the open channel says of itself (chat/channel/page.tsx): whether nothing is said in it
 // yet, and its own figure. The pane has one splash, the same one with no channel open and in a
