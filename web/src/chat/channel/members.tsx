@@ -34,6 +34,7 @@ import { memberMenu, type MenuKey } from "./menu";
 import { recvWords, useRecvName, useRecvOptions } from "./recv";
 import { fromOf, hasMore, recvLabel, toggle, withFrom } from "./scripts";
 import { CARD_POP, ProfileCard, useCard, type CardKey } from "./profilecard";
+import { Deeper } from "./pages";
 
 const ITEM = "flex h-8 cursor-default items-center gap-2.5 rounded-md px-2.5 text-base outline-none select-none data-highlighted:bg-fill data-popup-open:bg-fill pointer-coarse:h-11";
 const POPUP = "g-unfold glass thick float rounded-lg text-ink outline-none";
@@ -156,34 +157,33 @@ function CardOf({ channel, a, call, record, may, talk, done, edit }: Parameters<
 /** A submenu of a few to pick one of: its name, the one picked faint at the row's end. */
 function Pick({ icon, label, now, value, options, set, i }: { icon: ReactNode; label: string; now?: string; value: string; options: { value: string; label: string; mark?: ReactNode; group?: string }[]; set: (v: string) => void; i: number }) {
   return (
-    <Menu.SubmenuRoot>
-      <Menu.SubmenuTrigger style={{ "--i": i } as CSSProperties} className={ITEM}>
-        <span className="text-ink-2">{icon}</span>
-        <span className="flex-1">{label}</span>
-        {now && <span className="max-w-36 truncate text-xs text-ink-3">{now}</span>}
-        <ChevronRight size={14} className="text-ink-4" />
-      </Menu.SubmenuTrigger>
-      <MenuPortal>
-        <Menu.Positioner className="z-50" sideOffset={4} collisionPadding={8}>
-          <Menu.Popup className={cn(POPUP, "no-bar max-h-[min(480px,var(--available-height))] min-w-52 max-w-[calc(100vw-16px)] overflow-y-auto p-1.5")}>
-            <Menu.RadioGroup value={value} onValueChange={(v) => set(v as string)} className="g-stagger flex flex-col">
-              {options.map((o, j) => (
-                <div key={o.value} className="contents">
-                  {o.group && o.group !== options[j - 1]?.group && <div className="truncate px-2.5 pt-2 pb-0.5 text-xs text-ink-3 select-none first:pt-1">{o.group}</div>}
-                  <Menu.RadioItem value={o.value} closeOnClick style={{ "--i": j } as CSSProperties} className="flex min-h-8 cursor-default items-center gap-2.5 rounded-md pr-2 pl-2.5 text-base outline-none select-none data-highlighted:bg-fill pointer-coarse:min-h-11">
-                    {o.mark}
-                    <span className="min-w-0 flex-1 truncate py-1">{o.label}</span>
-                    <Menu.RadioItemIndicator className="text-ink">
-                      <Check size={14} />
-                    </Menu.RadioItemIndicator>
-                  </Menu.RadioItem>
-                </div>
-              ))}
-            </Menu.RadioGroup>
-          </Menu.Popup>
-        </Menu.Positioner>
-      </MenuPortal>
-    </Menu.SubmenuRoot>
+    <Deeper
+      row={
+        <>
+          <span className="text-ink-2">{icon}</span>
+          <span className="flex-1">{label}</span>
+          {now && <span className="max-w-36 truncate text-xs text-ink-3">{now}</span>}
+        </>
+      }
+      title={label}
+      i={i}
+      popup={cn(POPUP, "no-bar max-h-[min(480px,var(--available-height))] min-w-52 max-w-[calc(100vw-16px)] overflow-y-auto p-1.5")}
+    >
+      <Menu.RadioGroup value={value} onValueChange={(v) => set(v as string)} className="g-stagger flex flex-col">
+        {options.map((o, j) => (
+          <div key={o.value} className="contents">
+            {o.group && o.group !== options[j - 1]?.group && <div className="truncate px-2.5 pt-2 pb-0.5 text-xs text-ink-3 select-none first:pt-1">{o.group}</div>}
+            <Menu.RadioItem value={o.value} closeOnClick style={{ "--i": j } as CSSProperties} className="flex min-h-8 cursor-default items-center gap-2.5 rounded-md pr-2 pl-2.5 text-base outline-none select-none data-highlighted:bg-fill pointer-coarse:min-h-11">
+              {o.mark}
+              <span className="min-w-0 flex-1 truncate py-1">{o.label}</span>
+              <Menu.RadioItemIndicator className="text-ink">
+                <Check size={14} />
+              </Menu.RadioItemIndicator>
+            </Menu.RadioItem>
+          </div>
+        ))}
+      </Menu.RadioGroup>
+    </Deeper>
   );
 }
 
@@ -202,26 +202,25 @@ function WakePick({ channel, a, set, i }: { channel: string; a: AgentRow; set: (
     </Menu.Item>
   );
   return (
-    <Menu.SubmenuRoot>
-      <Menu.SubmenuTrigger style={{ "--i": i } as CSSProperties} className={ITEM}>
-        <span className="text-ink-2">
-          <Mail size={15} />
-        </span>
-        <span className="flex-1">{t("channel.recv")}</span>
-        <span className="max-w-36 truncate text-xs text-ink-3">{hasMore(a.on) ? t("on.more", { label: recvLabel(from, name, recvWords()) }) : recvLabel(from, name, recvWords())}</span>
-        <ChevronRight size={14} className="text-ink-4" />
-      </Menu.SubmenuTrigger>
-      <MenuPortal>
-        <Menu.Positioner className="z-50" sideOffset={4} collisionPadding={8}>
-          <Menu.Popup className={cn(POPUP, "no-bar max-h-[min(480px,var(--available-height))] min-w-52 max-w-[calc(100vw-16px)] overflow-y-auto p-1.5")}>
-            <div className="g-stagger flex flex-col">
-              {row("@", true, <AtSign size={15} className="shrink-0 text-ink-2" />, t("on.at"))}
-              {options.map((o, j) => row(o.entry, from.includes(o.entry), o.face, o.label, () => set(withFrom(a.on, toggle(from, o.entry))), j + 1))}
-            </div>
-          </Menu.Popup>
-        </Menu.Positioner>
-      </MenuPortal>
-    </Menu.SubmenuRoot>
+    <Deeper
+      row={
+        <>
+          <span className="text-ink-2">
+            <Mail size={15} />
+          </span>
+          <span className="flex-1">{t("channel.recv")}</span>
+          <span className="max-w-36 truncate text-xs text-ink-3">{hasMore(a.on) ? t("on.more", { label: recvLabel(from, name, recvWords()) }) : recvLabel(from, name, recvWords())}</span>
+        </>
+      }
+      title={t("channel.recv")}
+      i={i}
+      popup={cn(POPUP, "no-bar max-h-[min(480px,var(--available-height))] min-w-52 max-w-[calc(100vw-16px)] overflow-y-auto p-1.5")}
+    >
+      <div className="g-stagger flex flex-col">
+        {row("@", true, <AtSign size={15} className="shrink-0 text-ink-2" />, t("on.at"))}
+        {options.map((o, j) => row(o.entry, from.includes(o.entry), o.face, o.label, () => set(withFrom(a.on, toggle(from, o.entry))), j + 1))}
+      </div>
+    </Deeper>
   );
 }
 
@@ -332,23 +331,23 @@ function Items({ channel, a, s, may, call, record, ask }: Parameters<typeof Memb
         : item(i, <Eraser size={15} />, t("channel.clear"), () => setClearing(true), { key: "clear", keep: true }),
     // The composer's model menu itself (kumo, 2026-11-16): its models, the effort track, UltraCode.
     model: (i) => (
-      <Menu.SubmenuRoot key="model">
-        <Menu.SubmenuTrigger style={{ "--i": i } as CSSProperties} className={ITEM}>
-          <span className="text-ink-2">
-            <Box size={15} />
-          </span>
-          <span className="flex-1">{t("composer.model")}</span>
-          <span className="max-w-40 truncate text-xs text-ink-3">{[m.label, m.level && m.levels.length > 0 ? levelName(m.level) : ""].filter(Boolean).join(" · ")}</span>
-          <ChevronRight size={14} className="text-ink-4" />
-        </Menu.SubmenuTrigger>
-        <MenuPortal>
-          <Menu.Positioner className="z-50" sideOffset={4} collisionPadding={8}>
-            <Menu.Popup className={MODEL_POPUP}>
-              <SessionModels m={m} />
-            </Menu.Popup>
-          </Menu.Positioner>
-        </MenuPortal>
-      </Menu.SubmenuRoot>
+      <Deeper
+        key="model"
+        row={
+          <>
+            <span className="text-ink-2">
+              <Box size={15} />
+            </span>
+            <span className="flex-1">{t("composer.model")}</span>
+            <span className="max-w-40 truncate text-xs text-ink-3">{[m.label, m.level && m.levels.length > 0 ? levelName(m.level) : ""].filter(Boolean).join(" · ")}</span>
+          </>
+        }
+        title={t("composer.model")}
+        i={i}
+        popup={MODEL_POPUP}
+      >
+        <SessionModels m={m} />
+      </Deeper>
     ),
     mode: (i) => (
       <Pick

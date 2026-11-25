@@ -1249,7 +1249,7 @@ export type MenuItem = { icon: ReactNode; label: string } & (
 
 /** A menu's items; lead: before the children, at its top; foot: after the items, over the tags;
  *  label, finalFocus: on the popup itself (finalFocus defaults off). */
-export function MenuItems({ lead = [], items, tags, children, foot, label, finalFocus = false }: {
+export function MenuItems({ lead = [], items, tags, children, foot, label, finalFocus = false, className }: {
   lead?: MenuItem[];
   items: MenuItem[];
   tags?: Tags;
@@ -1257,6 +1257,8 @@ export function MenuItems({ lead = [], items, tags, children, foot, label, final
   foot?: ReactNode;
   label?: string;
   finalFocus?: Menu.Popup.Props["finalFocus"];
+  /** More of its surface's classes (the chat bar's ⋯: wider). */
+  className?: string;
 }) {
   // The item pressed once that asks to be pressed again; the popup gone, so is this.
   const [armed, setArmed] = useState<string>();
@@ -1283,7 +1285,7 @@ export function MenuItems({ lead = [], items, tags, children, foot, label, final
     );
   };
   return (
-    <Menu.Popup aria-label={label} finalFocus={finalFocus} className="g-unfold glass thick float no-bar max-h-(--available-height) max-w-[calc(100vw-16px)] min-w-48 overflow-y-auto rounded-lg p-1.5 text-ink outline-none">
+    <Menu.Popup aria-label={label} finalFocus={finalFocus} className={cn("g-unfold glass thick float no-bar max-h-(--available-height) max-w-[calc(100vw-16px)] min-w-48 overflow-y-auto rounded-lg p-1.5 text-ink outline-none", className)}>
       <div className="g-stagger flex flex-col">
         {lead.map(item)}
         {children}

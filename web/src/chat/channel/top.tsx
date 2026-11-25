@@ -6,7 +6,7 @@
 import { Menu } from "@base-ui/react/menu";
 import { useQueryClient } from "@tanstack/react-query";
 import { useQuery } from "../../api/query";
-import { Check, ChevronLeft, ChevronRight, PencilLine, Plus, Users } from "lucide-react";
+import { Check, ChevronLeft, PencilLine, Plus, Users } from "lucide-react";
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { api } from "../../api/client";
 import type { Agent, ChannelMembers, Script, Viewer } from "../../api/types.gen";
@@ -24,6 +24,7 @@ import { Face, MemberFace } from "./face";
 import { ContextMark } from "../meters";
 import { mayAct, useMembers } from "./gate";
 import { AddAgents, ITEM, KindPage, POPUP } from "./invite";
+import { Deeper, Paged } from "./pages";
 import { Tall } from "../../create";
 import { onAskAdd, takeAdd } from "./adding";
 import type { Machine } from "../../machines";
@@ -39,28 +40,28 @@ import { actsOf } from "./menu";
 import { subName, SubTag } from "../subwork";
 import { appAll, hasApp, hasLogin, loginOf, peopleOf, pressApp, pressLogin } from "./setup";
 
-const SUB = "no-bar max-h-[min(480px,var(--available-height))] min-w-52 max-w-[calc(100vw-16px)] overflow-y-auto p-1.5";
+const SUB = "no-bar max-h-[min(480px,var(--available-height))] min-w-60 max-w-[calc(100vw-16px)] overflow-y-auto p-1.5";
 const HEAD = "truncate px-2.5 pt-2 pb-0.5 text-xs text-ink-3 select-none first:pt-1";
 
 /** bare: no mark at the row's end (the + panel's rows: kumo, 2026-11-25). */
 function Sub({ icon, label, lead, now, i, bare, children }: { icon: ReactNode; label: string; lead?: ReactNode; now?: string; i: number; bare?: boolean; children: ReactNode }) {
   return (
-    <Menu.SubmenuRoot>
-      <Menu.SubmenuTrigger style={{ "--i": i } as CSSProperties} className={ITEM}>
-        <span className="text-ink-2">{icon}</span>
-        {lead}
-        <span className="min-w-0 flex-1 truncate">{label}</span>
-        {now && <span className="max-w-36 truncate text-xs text-ink-3">{now}</span>}
-        {!bare && <ChevronRight size={14} className="text-ink-4" />}
-      </Menu.SubmenuTrigger>
-      <MenuPortal>
-        <Menu.Positioner className="z-50" sideOffset={4} collisionPadding={8}>
-          <Menu.Popup className={cn(POPUP, SUB)}>
-            <div className="g-stagger flex flex-col">{children}</div>
-          </Menu.Popup>
-        </Menu.Positioner>
-      </MenuPortal>
-    </Menu.SubmenuRoot>
+    <Deeper
+      row={
+        <>
+          <span className="text-ink-2">{icon}</span>
+          {lead}
+          <span className="min-w-0 flex-1 truncate">{label}</span>
+          {now && <span className="max-w-36 truncate text-xs text-ink-3">{now}</span>}
+        </>
+      }
+      title={label}
+      i={i}
+      bare={bare}
+      popup={cn(POPUP, SUB)}
+    >
+      <div className="g-stagger flex flex-col">{children}</div>
+    </Deeper>
   );
 }
 
@@ -137,10 +138,12 @@ export function TopRight({ id }: { id: string }) {
         </Tip>
         <MenuPortal>
           <Menu.Positioner side="bottom" align="end" sideOffset={6} collisionPadding={8} className="z-50">
-            <Menu.Popup finalFocus={false} className={cn(POPUP, SUB)}>
-              <div className="g-stagger flex flex-col">
-                <MemberList id={id} viewers={viewers} ask={setAsked} script={(p) => requestAnimationFrame(() => setScript(p))} />
-              </div>
+            <Menu.Popup finalFocus={false} className={cn(POPUP, SUB, "pointer-coarse:w-[min(344px,calc(100vw-16px))]")}>
+              <Paged>
+                <div className="g-stagger flex flex-col">
+                  <MemberList id={id} viewers={viewers} ask={setAsked} script={(p) => requestAnimationFrame(() => setScript(p))} />
+                </div>
+              </Paged>
             </Menu.Popup>
           </Menu.Positioner>
         </MenuPortal>
@@ -159,7 +162,7 @@ export function TopRight({ id }: { id: string }) {
           </Tip>
           <MenuPortal>
             <Menu.Positioner side="bottom" align="end" sideOffset={6} collisionPadding={8} className="z-50">
-              <Menu.Popup finalFocus={false} className={cn(POPUP, SUB, "w-[min(320px,calc(100vw-16px))]")}>
+              <Menu.Popup finalFocus={false} className={cn(POPUP, SUB, "w-[min(344px,calc(100vw-16px))]")}>
                 <Invite id={id} />
               </Menu.Popup>
             </Menu.Positioner>
