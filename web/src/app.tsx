@@ -601,11 +601,13 @@ function useFit(el: HTMLElement | null, open: boolean) {
       // scrollHeight is never less than itself: no measure of a page shorter than the dialog).
       // In layout px: the dialog may be scaled as it unfolds.
       const last = sc.lastElementChild;
-      // The dialog's own scale, exact (a rect over offsetHeight, a whole number, was off by up to a
-      // pixel mid-unfold, and the height glided there and back as it settled).
+      // The dialog's scale as its rects show it, read at once with them: its width on screen over its
+      // layout width, unrounded (offsetHeight, rounded, was off by up to a pixel mid-unfold). Not the
+      // computed transform: as it opens that says the unfold's 0.96 while the rects are not scaled
+      // yet, and the dialog stood 4% too tall for a frame (kumo, 2026-11-25).
       const box = sc.getBoundingClientRect();
-      const m = getComputedStyle(el).transform;
-      const scale = (m && m !== "none" ? new DOMMatrixReadOnly(m).a : 1) || 1;
+      const lw = parseFloat(getComputedStyle(el).width);
+      const scale = lw > 0 ? el.getBoundingClientRect().width / lw : 1;
       const inner = last ? (last.getBoundingClientRect().bottom - box.top) / scale + sc.scrollTop + parseFloat(getComputedStyle(sc).paddingBottom) : 0;
       setH(Math.ceil(root.offsetHeight - sc.clientHeight + inner));
     };
