@@ -9,7 +9,8 @@ import { useFaceSrc } from "../chat/channel/face";
 import { t } from "../i18n";
 import { cn, PHONE, useMedia } from "../ui";
 import { splash, type Splash as Engine } from "./engine";
-import { onPoint, panelIsUp, panelOpen, point, pointedAt, powerNow, type Fig } from "./figure";
+import { justMade } from "../chat/channel/adding";
+import { onPoint, panelIsUp, panelOpen, point, pointedAt, powerNow, stage, stagedNow, type Fig } from "./figure";
 
 // The + panel and the menu beside its rows, with the gaps about them: what the figure keeps left of.
 const PANEL = 660;
@@ -18,7 +19,7 @@ const MASK = "linear-gradient(to bottom, transparent, #000 24%, #000 76%, transp
 
 /** show: false, it fades and is gone. fig: what it draws when no row of the + panel is pointed
  *  at; none: Iridium's letters. */
-export function Splash({ show = true, fig = null, className }: { show?: boolean; fig?: Fig | null; className?: string }) {
+export function Splash({ show = true, fig = null, scene = "", className }: { show?: boolean; fig?: Fig | null; scene?: string; className?: string }) {
   const [there, setThere] = useState(show);
   if (show && !there) setThere(true);
   const pointed = useSyncExternalStore(onPoint, pointedAt);
@@ -77,11 +78,22 @@ export function Splash({ show = true, fig = null, className }: { show?: boolean;
     };
   }, [there, still]);
   useEffect(() => eng.current?.figure(now), [now?.key]);
+  // Not to be shown any more: where it was shown (the same channel, its first agent in or its
+  // first words said), it goes by its own going, played whole; the page under it another one,
+  // it is gone with the page it was of.
+  const shownAt = useRef(scene);
+  if (show) shownAt.current = scene;
+  useLayoutEffect(() => {
+    if (!there) return;
+    if (show) eng.current?.enter();
+    else if (shownAt.current !== scene || !eng.current) setThere(false);
+    else eng.current.leave(() => setThere(false));
+  }, [show, scene, there]);
   useEffect(() => fitRef.current(), [aside]);
   useEffect(() => eng.current?.power(show ? power : 0.5), [power, show]);
   if (!there) return null;
   return (
-    <div aria-hidden={!now} onTransitionEnd={(e) => e.target === e.currentTarget && !show && setThere(false)} className={cn("pointer-events-none absolute inset-x-0 z-1 transition-[top,opacity] duration-(--dur-3) ease-(--ease-out)", low ? "top-[calc(100%-84px)] h-[clamp(200px,34%,300px)] -translate-y-full" : "top-[calc(50%-24px)] h-[clamp(220px,46%,420px)] -translate-y-1/2", !show && "opacity-0", className)}>
+    <div aria-hidden={!now} className={cn("pointer-events-none absolute inset-x-0 z-1 transition-[top] duration-(--dur-3) ease-(--ease-out)", low ? "top-[calc(100%-84px)] h-[clamp(200px,34%,300px)] -translate-y-full" : "top-[calc(50%-24px)] h-[clamp(220px,46%,420px)] -translate-y-1/2", className)}>
       <canvas ref={cv} aria-hidden className="absolute inset-0 size-full text-ink" style={{ maskImage: MASK, maskComposite: "intersect", WebkitMaskImage: MASK, WebkitMaskComposite: "source-in" }} />
       {now && show && at.side > 0 && (
         <button type="button" aria-label={t("nav.back")} onClick={() => (setLeft(now.key), point(null))} style={{ left: Math.max(8, Math.round(at.x - at.side / 2) - 44) }} className="g-fade g-press pointer-events-auto absolute top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-md text-ink-3 hover:bg-fill hover:text-ink pointer-coarse:size-10">
@@ -92,10 +104,33 @@ export function Splash({ show = true, fig = null, className }: { show?: boolean;
   );
 }
 
-/** A channel's: its own face, or its last agent's, or that one's mark; no agent yet: Iridium's
- *  letters. */
-export function ChannelSplash({ id, show, last }: { id: string; show: boolean; last?: { session: string; agent: Agent } }) {
+/** A channel says what the pane's splash is to show for it: whether nothing is said in it yet,
+ *  and its figure: its own face, or its last agent's, or that one's mark; no agent yet:
+ *  Iridium's letters. Draws nothing itself. */
+export function ChannelSplash({ id, show: blank, last, agents }: { id: string; show: boolean; last?: { session: string; agent: Agent }; agents: number }) {
   const own = useFaceSrc(id, true);
   const src = useFaceSrc(last?.session ?? id);
-  return <Splash show={show} fig={last ? { key: `c:${id}:${own}:${src}`, src: own || src || undefined, alt: own && src ? src : undefined, agent: last.agent } : null} />;
+  const key = last ? `c:${id}:${own}:${src}` : "";
+  // Its first agent come while it is looked at: the splash turns to that one's face, stays a
+  // moment, and goes (kumo, 2026-11-25: an agent takes its time to start; the going is played
+  // whole meanwhile). One come to with agents and nothing said keeps its splash till words come.
+  const none = useRef(agents === 0);
+  const [over, setOver] = useState(false);
+  useEffect(() => {
+    if (!none.current || agents === 0) return;
+    const timer = setTimeout(() => setOver(true), 2400);
+    return () => clearTimeout(timer);
+  }, [agents > 0]);
+  const show = blank && !over;
+  useLayoutEffect(() => stage({ id, show, fig: last ? { key, src: own || src || undefined, alt: own && src ? src : undefined, agent: last.agent } : null }), [id, show, key]);
+  return null;
+}
+
+/** The pane's one splash: there with no channel open (open: none) and in a channel that says
+ *  nothing is said in it yet; one just made is taken so before it says. off: a page that has
+ *  none (a session's record). */
+export function PaneSplash({ open, off }: { open?: string; off?: boolean }) {
+  const st = useSyncExternalStore(onPoint, stagedNow);
+  const mine = open && st?.id === open ? st : null;
+  return <Splash show={!off && (!open || (mine ? mine.show : justMade(open)))} fig={mine?.fig ?? null} scene={open ?? ""} />;
 }

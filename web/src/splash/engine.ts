@@ -54,7 +54,6 @@ type RGB = [number, number, number];
 type Field = { a: Float32Array; r: Float32Array; g: Float32Array; b: Float32Array };
 const field = (n: number): Field => ({ a: new Float32Array(n), r: new Float32Array(n), g: new Float32Array(n), b: new Float32Array(n) });
 const clamp = (x: number, lo = 0, hi = 1) => (x < lo ? lo : x > hi ? hi : x);
-const glyph = () => GLYPHS[(Math.random() * GLYPHS.length) | 0]!;
 
 /** One row's code: lines one after another, a word of ours among them now and then (seldom: to
  *  be come upon, not read). */
@@ -117,7 +116,7 @@ export const ahead = (f: Fig) => void (f.src && picture(f.src));
 // anew (kumo, 2026-11-25: it blinked).
 let kept: { at: number; cols: number; rows: number; text: string[][]; off: Float32Array<ArrayBuffer>; speed: Float32Array<ArrayBuffer>; cur: Field; key: string } | null = null;
 
-export type Splash = { figure(f: Fig | null): void; place(x: number, side: number): void; power(f: number): void; resize(): void; near(x: number, y: number): void; stop(): void };
+export type Splash = { leave(done: () => void): void; enter(): void; figure(f: Fig | null): void; place(x: number, side: number): void; power(f: number): void; resize(): void; near(x: number, y: number): void; stop(): void };
 
 export function splash(cv: HTMLCanvasElement, still: boolean): Splash {
   const g = cv.getContext("2d")!;
@@ -135,8 +134,14 @@ export function splash(cv: HTMLCanvasElement, still: boolean): Splash {
   let wait = new Float32Array(0), heat = new Float32Array(0), off = new Float32Array(0), speed = new Float32Array(0);
   let text: string[][] = [];
   let ink: RGB = [34, 34, 34], dark = false;
-  let pw = 0.5; // the effort slider's level, 0 to 1
-  let cx = -1, most = 0; // where the figure's middle is and how large it may be; -1: the band's own
+  // The effort slider's level (0 to 1), and where the figure's middle is and how large it is:
+  // each as asked (pwT; cx, most: -1 the band's own middle) and as drawn now (pw; px, ps), the
+  // drawn gliding to the asked, never set over to it in one frame (kumo, 2026-11-25: it twitched).
+  let pw = 0.5, pwT = 0.5;
+  let cx = -1, most = 0, px = -1, ps = 0;
+  let vel = 0, wasGliding = false, tick = 0;
+  let leaving: (() => void) | null = null, left = false, spreadNow = SPREAD;
+  const goal = (): [number, number] => (cx < 0 ? [W / 2, Math.min(H * 0.92, W * 0.7)] : [cx, most]);
   let fig: Fig | null = null, photo = false, drawnKey = "", asked = 0;
   let t0 = -1e9, flowTo = 0, last = 0, raf = 0, hot = false, first = true, dead = false;
 
@@ -176,7 +181,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean): Splash {
   const read = (): Field => {
     const n = cols * rows, out = field(n);
     if (!n) return out;
-    const mid = cx < 0 ? W / 2 : cx, side = cx < 0 ? Math.min(H * 0.92, W * 0.7) : most, fx = mid - side / 2, fy = (H - side) / 2;
+    const mid = px, side = ps, fx = mid - side / 2, fy = (H - side) / 2;
     small.width = cols;
     small.height = rows;
     mg.imageSmoothingQuality = "high";
@@ -248,7 +253,10 @@ export function splash(cv: HTMLCanvasElement, still: boolean): Splash {
           at = k;
           key = k2;
         }
-        run += busy[i] && Math.random() < 0.4 ? glyph() : row[(k + o) % len]!;
+        // On the way a cell is another character, one cell in four, changed eight times a second:
+        // not a new one each frame.
+        const h = busy[i] ? Math.imul(i ^ Math.imul(tick, 0x9e3779b1), 0x85ebca6b) >>> 0 : 1;
+        run += h % 4 === 0 ? GLYPHS[(h >>> 8) % GLYPHS.length]! : row[(k + o) % len]!;
       }
       flush();
     }
@@ -259,10 +267,26 @@ export function splash(cv: HTMLCanvasElement, still: boolean): Splash {
     if (dead) return;
     const dt = Math.min(50, now - last) / 1000;
     last = now;
-    const flow = clamp((flowTo - now) / 900);
+    tick = Math.floor(now / 125);
+    // The flow gathers and dies away: its speed goes to what is asked of it, by a part each frame.
+    const want = now < flowTo ? 1 : 0;
+    vel += (want - vel) * (1 - Math.exp(-dt / (want ? 0.4 : 0.7)));
+    const flow = vel > 0.004 ? vel : 0;
     if (flow > 0) for (let r = 0; r < rows; r++) off[r] = (off[r]! + speed[r]! * flow * (0.4 + 3.2 * pw * pw) * dt + len) % len;
+    // The figure's place, size and strength glide to what is asked: the cells read anew each frame.
+    const [gx, gs] = goal();
+    const gliding = Math.abs(gx - px) > 0.4 || Math.abs(gs - ps) > 0.4 || Math.abs(pwT - pw) > 0.004;
+    if (gliding) {
+      const k = 1 - Math.exp(-dt / 0.16);
+      px += (gx - px) * k;
+      ps += (gs - ps) * k;
+      pw += (pwT - pw) * k;
+    } else if (wasGliding) (px = gx), (ps = gs), (pw = pwT);
+    if ((gliding || wasGliding) && !leaving) to = read();
     const span = now - t0;
-    const turning = span < SPREAD + TURN + 400;
+    const turning = span < spreadNow + TURN + 400;
+    if (!turning && !leaving && (gliding || wasGliding)) (cur.a.set(to.a), cur.r.set(to.r), cur.g.set(to.g), cur.b.set(to.b));
+    wasGliding = gliding;
     if (turning) {
       for (let i = 0; i < cur.a.length; i++) {
         const p = clamp((span - wait[i]!) / TURN);
@@ -274,7 +298,17 @@ export function splash(cv: HTMLCanvasElement, still: boolean): Splash {
         // A cell the figure comes to or leaves is other characters on the way, its own again after.
         busy[i] = p > 0 && p < 1 && Math.abs(to.a[i]! - from.a[i]!) > 0.2 ? 1 : 0;
       }
-    } else if (wasTurning) busy.fill(0);
+    } else if (wasTurning) {
+      busy.fill(0);
+      // Gone to the last cell: told, once.
+      if (leaving) {
+        const done = leaving;
+        leaving = null;
+        left = true;
+        draw();
+        return done();
+      }
+    }
     wasTurning = turning;
     hot = false;
     for (let i = 0; i < heat.length; i++) {
@@ -285,7 +319,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean): Splash {
       }
       hot = true;
       // About the pointer the code is written over with other code, a row's cells from one line.
-      if (Math.random() < h * 0.25) {
+      if (Math.random() < h * 0.12) {
         const r = (i / cols) | 0, at = ((i % cols) + Math.floor(off[r]!)) % len;
         if (now - overAt[r]! > 600) (over[r] = CODE[(Math.random() * CODE.length) | 0]! + "  "), (overAt[r] = now);
         text[r]![at] = over[r]![at % over[r]!.length]!;
@@ -293,7 +327,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean): Splash {
       heat[i] = h * 0.9;
     }
     draw();
-    if (flow > 0 || turning || hot) kick();
+    if (flow > 0 || want || turning || hot || gliding) kick();
   };
   const kick = () => {
     if (!raf && !dead) raf = requestAnimationFrame(frame);
@@ -311,8 +345,9 @@ export function splash(cv: HTMLCanvasElement, still: boolean): Splash {
     }
     from = { a: cur.a.slice(), r: cur.r.slice(), g: cur.g.slice(), b: cur.b.slice() };
     const far = Math.hypot(W / 2, H / 2) || 1;
-    for (let i = 0; i < wait.length; i++) wait[i] = (Math.hypot(((i % cols) + 0.5) * cw - (cx < 0 ? W / 2 : cx), (((i / cols) | 0) + 0.5) * ROW - H / 2) / far) * SPREAD * (0.75 + Math.random() * 0.5);
+    for (let i = 0; i < wait.length; i++) wait[i] = (Math.hypot(((i % cols) + 0.5) * cw - px, (((i / cols) | 0) + 0.5) * ROW - H / 2) / far) * SPREAD * (0.92 + Math.random() * 0.16);
     last = t0 = performance.now();
+    spreadNow = SPREAD;
     flowTo = t0 + (first ? 2600 : 1700);
     first = false;
     kick();
@@ -321,11 +356,22 @@ export function splash(cv: HTMLCanvasElement, still: boolean): Splash {
   const show = (f: Fig | null, snap: boolean) => {
     const n = ++asked;
     void paint(f).then((isPhoto) => {
-      if (n !== asked || dead) return;
+      if (n !== asked || dead || leaving || left) return;
       photo = isPhoto;
       drawnKey = f?.key ?? "";
       turn(snap);
     });
+  };
+
+  /** What is asked, at once (no motion wanted, or nothing drawn yet to move from). */
+  const settle = () => {
+    [px, ps] = goal();
+    pw = pwT;
+    if (!cur.a.length || drawnKey !== (fig?.key ?? "")) return;
+    to = read();
+    cur = { a: to.a.slice(), r: to.r.slice(), g: to.g.slice(), b: to.b.slice() };
+    from = cur;
+    draw();
   };
 
   const resize = () => {
@@ -339,6 +385,8 @@ export function splash(cv: HTMLCanvasElement, still: boolean): Splash {
     cv.height = Math.round(H * dpr);
     g.font = `${FONT}px ui-monospace, "SF Mono", Menlo, "JetBrains Mono", "Cascadia Mono", "DejaVu Sans Mono", monospace`;
     cw = g.measureText("M").width || 5.4;
+    [px, ps] = goal();
+    pw = pwT;
     cols = Math.ceil(W / cw) + 1;
     rows = Math.floor(H / ROW);
     len = cols * 2 + 40;
@@ -378,17 +426,46 @@ export function splash(cv: HTMLCanvasElement, still: boolean): Splash {
       if (W) show(f, false);
     },
     resize,
+    // Going (kumo, 2026-11-25: played whole, not cut): the code flows off and the cells go out
+    // from the band's rim inwards, the figure's last; done as the last is out.
+    leave(done) {
+      if (leaving) return void (leaving = done);
+      if (still || !W || left) return done();
+      asked++;
+      from = { a: cur.a.slice(), r: cur.r.slice(), g: cur.g.slice(), b: cur.b.slice() };
+      to = { a: new Float32Array(cur.a.length), r: cur.r.slice(), g: cur.g.slice(), b: cur.b.slice() };
+      const far = Math.hypot(Math.max(px, W - px), H / 2) || 1;
+      for (let i = 0; i < wait.length; i++) wait[i] = (1 - Math.hypot(((i % cols) + 0.5) * cw - px, (((i / cols) | 0) + 0.5) * ROW - H / 2) / far) * SPREAD * 1.5 * (0.92 + Math.random() * 0.16);
+      leaving = done;
+      last = t0 = performance.now();
+      spreadNow = SPREAD * 1.5;
+      flowTo = t0 + 1500;
+      kick();
+    },
+    /** Asked for again while going, or after: there again, its figure coming as at first. */
+    enter() {
+      if (!leaving && !left) return;
+      leaving = null;
+      left = false;
+      if (W) show(fig, false);
+    },
     power(f) {
-      if (Math.abs(f - pw) < 0.01) return;
-      pw = f;
-      if (W && drawnKey === (fig?.key ?? "")) turn(false);
+      if (Math.abs(f - pwT) < 0.01) return;
+      pwT = f;
+      if (!W) return void (pw = f);
+      if (still) return settle();
+      last = performance.now();
+      flowTo = last + 1400;
+      kick();
     },
     place(x, side) {
       if (Math.abs(x - cx) < 1 && Math.abs(side - most) < 1) return;
-      const had = cx !== -1 || x !== -1;
       cx = x;
       most = side;
-      if (W && had && drawnKey === (fig?.key ?? "")) turn(false);
+      if (!W) return;
+      if (still || px < 0) return settle();
+      last = performance.now();
+      kick();
     },
     near(x, y) {
       if (still || !W || x < -NEAR || y < -NEAR || x > W + NEAR || y > H + NEAR) return;
@@ -403,7 +480,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean): Splash {
       kick();
     },
     stop() {
-      if (cols && rows) kept = { at: performance.now(), cols, rows, text, off, speed, cur, key: drawnKey };
+      if (cols && rows && !leaving && !left) kept = { at: performance.now(), cols, rows, text, off, speed, cur, key: drawnKey };
       dead = true;
       cancelAnimationFrame(raf);
     },

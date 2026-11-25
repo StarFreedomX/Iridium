@@ -65,3 +65,15 @@ export function panelUp(): void {
   heard.forEach((h) => h());
 }
 export const panelIsUp = () => up;
+
+// What the open channel says of itself (chat/channel/page.tsx): whether nothing is said in it
+// yet, and its own figure. The pane has one splash, the same one with no channel open and in a
+// channel with nothing said: going from one to the other it is not drawn anew (kumo, 2026-11-25).
+export type Staged = { id: string; show: boolean; fig: Fig | null };
+let staged: Staged | null = null;
+export function stage(v: Staged): void {
+  if (staged && staged.id === v.id && staged.show === v.show && (staged.fig?.key ?? "") === (v.fig?.key ?? "")) return;
+  staged = v;
+  heard.forEach((h) => h());
+}
+export const stagedNow = () => staged;

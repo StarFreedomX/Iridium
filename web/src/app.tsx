@@ -78,7 +78,7 @@ const SecretsPage = part(() => import("./credentials").then((m) => m.SecretsPage
 const RolesPage = part(() => import("./rolespage").then((m) => m.RolesPage));
 const CachePage = part(() => import("./device/page").then((m) => m.CachePage));
 const UsagePage = part(() => import("./usage").then((m) => m.UsagePage));
-const Splash = lazy(() => import("./splash/splash").then((m) => ({ default: m.Splash })));
+const PaneSplash = lazy(() => import("./splash/splash").then((m) => ({ default: m.PaneSplash })));
 const FileBrowserKey = part(() => import("./filebrowser-key").then((m) => m.FileBrowserKey));
 const FileBrowser = part(() => loadFileBrowser().then((m) => m.default));
 /** The page of the settings' dialog a route is: the settings, or one of their own pages. */
@@ -393,6 +393,11 @@ export function App() {
     // On a phone a tap on the chat puts the sheet away, the composer back (the user, 2026-11-06);
     // not one on its top bar: its ⋯ opens over the sheet (the user, 2026-11-06).
     <main className={cn("relative h-full min-w-0 flex-1 bg-paper", !phone && "g-turn")} onClickCapture={phone && ((sheetOut && open) || setsOut) ? (e) => !(e.target as Element).closest?.("header") && setSheet(false) : undefined}>
+      {/* The pane's one splash, under whichever page is in it: not drawn anew from the empty pane
+          to a channel made there (kumo, 2026-11-25). */}
+      <Suspense fallback={null}>
+        <PaneSplash open={under.name === "chat" ? under.id : undefined} off={under.name === "chat" && !!under.record} />
+      </Suspense>
       <FileBrowserHandle.Provider value={filesAllowed ? filesHandle : null}>
         <Suspense fallback={<Waiting />}>
           {under.name === "chat" ? (
@@ -556,9 +561,6 @@ const PICK = "glass float rest mx-auto flex h-12 w-full max-w-(--chat-w) cursor-
 function Empty({ below, onSheet }: { below: number; onSheet?: () => void }) {
   return (
     <div className="relative grid h-full place-items-center transition-[padding] duration-(--dur-3) ease-(--ease-out)" style={{ paddingBottom: below }}>
-      <Suspense fallback={null}>
-        <Splash />
-      </Suspense>
       {/* Where a chat's composer is, its look: pressed, the file browser, a channel made in the
           folder chosen there (kumo, 2026-11-25: the first screen, a phone's too). */}
       <div className="absolute inset-x-0 z-2 px-2.5 pb-[max(14px,calc(env(safe-area-inset-bottom)+6px))] transition-[bottom] duration-(--dur-3) ease-(--ease-out) sm:px-5" style={{ bottom: below }}>

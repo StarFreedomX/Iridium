@@ -498,8 +498,6 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
     const gone = lost && list !== undefined && !row;
     return (
       <div className="relative h-full">
-        {/* One just made, its state not come yet: the splash already, as the pane before it had it. */}
-        {justMade(id) && <ChannelSplash id={id} show />}
         {bar(row)}
         {gone && <p className="g-fade m-0 pt-24 text-center text-sm text-ink-3">{t("chat.gone")}</p>}
       </div>
@@ -508,8 +506,8 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
   return (
     <Nicks.Provider value={nicks}>
       <div className="relative h-full" onDragOver={(e) => files(e) || session(e) || place(e)} onDrop={drop}>
-        {/* Nothing said yet: the splash in its middle, behind the rest (splash/splash.tsx). */}
-        <ChannelSplash id={id} show={!hold && !sent.length && (log.loaded ? !log.msgs.length : justMade(id))} last={agents.at(-1)} />
+        {/* Nothing said yet: the pane's splash is told so (splash/splash.tsx). */}
+        <ChannelSplash id={id} show={!hold && !sent.length && (log.loaded ? !log.msgs.length : justMade(id))} last={agents.at(-1)} agents={agents.length} />
         <Stick key={hold ? "hold" : "whole"} scroller={scroller} tail={grew} older={() => log.older()} draw={changed} place={entry.place} bottom={stackH} quiet={asking} style={{ paddingTop: padTop, paddingBottom: stackH + 20 }}>
           <div data-column className="mx-auto flex max-w-(--chat-w) flex-col gap-5 px-4 [--depart-gap:1.25rem] sm:px-6">
             {!hold &&
