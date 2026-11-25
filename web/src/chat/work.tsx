@@ -10,7 +10,7 @@ import { ChevronRight, Plug } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode, type RefObject } from "react";
 import type { Block } from "../api/types.gen";
 import { t, useLang } from "../i18n";
-import { cn, keep, kept, PopSurface, useEver } from "../ui";
+import { cn, keep, kept, PHONE, PopSurface, useEver, useMedia } from "../ui";
 import { useAway, Where } from "./away";
 import type { Did, Work } from "./channel/lib";
 import { cmdOfCall, isShell, type Cmd } from "./cmd";
@@ -308,6 +308,16 @@ export function WorkLine({ channel, n, session, work, did, span, may, esc }: { c
  *  its left stay seen and pressed one after another (kumo, 2026-11-25); where the pane is too
  *  narrow, as far left as it must. A finger's screen: from the row's start. */
 const ASIDE = 176;
+/** On the phone every card opens at one place, one height: under the top bar, whichever row it
+ *  is of (kumo, 2026-11-25). */
+const atTop = (el: Element) => ({
+  getBoundingClientRect: () => {
+    const log = el.closest<HTMLElement>("[role=log]");
+    const top = log ? log.getBoundingClientRect().top + parseFloat(getComputedStyle(log).paddingTop || "0") : 8;
+    return new DOMRect(8, top, window.innerWidth - 16, 0);
+  },
+});
+
 const aside = (el: Element) => ({
   getBoundingClientRect: () => {
     const r = el.getBoundingClientRect();
@@ -319,6 +329,7 @@ const aside = (el: Element) => ({
 /** The steps under a line, opened in place: a row each, all of them, none scrolled in the list
  *  itself. A row pressed: its card out of the row; pressed again, or a press elsewhere, puts it away. */
 function StepList({ reveal, session, steps, only, rows, open, card, setCard, wasOn, clearWasOn, shut }: { reveal: RefObject<HTMLDivElement | null>; session: string; steps?: Step[]; only: Only | null; rows?: number; open: boolean; card: Card | null; setCard: (c: Card | null) => void; wasOn: RefObject<string>; clearWasOn: () => void; shut: () => void }) {
+  const phone = useMedia(PHONE);
   const list = useMemo(() => (steps ?? []).filter((s) => isOnly(s, only)), [steps, only]);
   // Made as it is first opened.
   const ever = useEver(open);
@@ -394,7 +405,7 @@ function StepList({ reveal, session, steps, only, rows, open, card, setCard, was
       </div>
       {(ever || !!card) && (
         <Popover.Root open={!!card?.open && !!chosen} onOpenChange={(o) => !o && card && setCard({ ...card, open: false })}>
-          <PopSurface anchor={card?.el && aside(card.el)} still sideOffset={4} className="flex max-h-[min(72dvh,620px,var(--available-height))] w-[min(620px,calc(100vw-16px))] flex-col overflow-hidden">
+          <PopSurface anchor={card?.el && (phone ? atTop(card.el) : aside(card.el))} still sideOffset={4} className={cn("flex w-[min(620px,calc(100vw-16px))] flex-col overflow-hidden", phone ? "h-[min(56dvh,520px)]" : "max-h-[min(72dvh,620px,var(--available-height))]")}>
             {chosen && card && (
               <>
                 {among.length > 1 && (
