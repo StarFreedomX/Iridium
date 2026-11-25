@@ -117,7 +117,7 @@ export default function FileBrowser({ machine: initialMachine, path: initialPath
   const dir = browserPath(here, computer?.sep);
   // "/" on Windows is the synthetic drive list (not a real path, so chat link is also disabled);
   // traversed ancestor directories are real paths but not open, so mkdir and new channel stay off.
-  const virtual = computer?.sep === "\\" && dir === "/";
+  const virtual = computer?.os === "windows" && dir === "/";
   const realFolder = !!folders.data?.path && !virtual;
   const open = folders.data?.open === true && !virtual;
   const list = useRef<HTMLDivElement>(null);
