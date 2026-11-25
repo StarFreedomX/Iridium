@@ -166,11 +166,11 @@ body,
 #root {
   height: 100%;
 }
+/* Nothing kept from scrolling down at the root: the browser's own pull to refresh needs the
+   root to be one it may pull (kumo, 2026-11-25: with overflow hidden, or overscroll-behavior none,
+   on html and body it was gone). Sideways alone is held. */
 html,
 body {
-  overflow: hidden;
-  /* Sideways alone: down, the browser's own pull to refresh stays (kumo, 2026-11-25: it was
-     gone with both). */
   overscroll-behavior-x: none;
 }
 /* A menu is never taller than the room it has (Base UI's --available-height, on its positioner):

@@ -9,7 +9,6 @@
 // stays so on this device. Let go near its first height, it goes back to that.
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { motion } from "./motion";
-import { restsAtEnd } from "./chat/stick";
 import { cn, keep, kept } from "./ui";
 
 /** Where a swipe up brings the sheet: the chat's bottom stack (chat.tsx), the composer in it. */
@@ -190,10 +189,10 @@ export function Sheet({ open, setOpen, size: want, raised, name, head = 0, from:
         // user, 2026-11-07); grown past its height, it scrolls its words.
         const box = el.closest("textarea");
         if (mouse || (box && box.scrollHeight > box.clientHeight + 1) || el.closest("input, [role=listbox], [role=dialog], [role=menu]") || !now.current.zone(x)) return;
-        // In the conversation: only at rest at its newest, no words chosen.
-        const log = el.closest<HTMLElement>("[role=log]");
-        if (log ? !restsAtEnd(log) || !getSelection()?.isCollapsed : !el.closest(`[${PULL}]`)) return;
-        from = { x, y, t, open, h: height(), log: !!log, box: !!box };
+        // From the composer's stack (and the empty pane's box) alone: not from the conversation,
+        // where a finger moving up is reading on (kumo, 2026-11-25: it came up from anywhere).
+        if (!el.closest(`[${PULL}]`)) return;
+        from = { x, y, t, open, h: height(), log: false, box: !!box };
         mine = false;
         held = false;
         last = { y, t, v: 0 };
