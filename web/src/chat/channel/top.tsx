@@ -4,7 +4,6 @@
 // logins. An agent's row opens the menu its face has (members.tsx MemberItems: one
 // implementation). The face is the title's key (chat.tsx): its card, 编辑资料 in it; on a phone in ⋯.
 import { Menu } from "@base-ui/react/menu";
-import { Popover } from "@base-ui/react/popover";
 import { useQueryClient } from "@tanstack/react-query";
 import { useQuery } from "../../api/query";
 import { Check, ChevronRight, PencilLine, UserPlus, Users } from "lucide-react";
@@ -18,7 +17,7 @@ import { openChat } from "../../route";
 import { useCarried, useList, useSession } from "../../store";
 import { working } from "../../tree";
 import { toast } from "../../toast";
-import { agentName, Avatar, cn, Lamp, PopSurface, Tip, MenuPortal } from "../../ui";
+import { agentName, Avatar, cn, Lamp, Tip, MenuPortal } from "../../ui";
 import { openEdit } from "./editing";
 import { Face, MemberFace } from "./face";
 import { ContextMark } from "../meters";
@@ -98,32 +97,6 @@ export function TopRight({ id }: { id: string }) {
   useScripts(id);
   return (
     <span className="g-fade flex shrink-0 items-center gap-0.5">
-      {viewers.length > 0 && (
-        // Pressed, not hovered (a phone has no hover): the names in a popover.
-        <Popover.Root>
-          <Popover.Trigger
-            render={
-              <button type="button" aria-label={t("channel.viewing")} className="g-press flex h-8 items-center rounded-md px-1.5 hover:bg-fill data-popup-open:bg-fill pointer-coarse:h-10">
-                {viewers.slice(0, 4).map((v, i) => (
-                  <span key={v.member} className="grid rounded-full ring-2 ring-paper" style={{ marginLeft: i ? -5 : 0, zIndex: 4 - i }}>
-                    <MemberFace member={v.member} name={v.name} size={18} />
-                  </span>
-                ))}
-                {viewers.length > 4 && <span className="ml-1 text-xs text-ink-3 tabular-nums">+{viewers.length - 4}</span>}
-              </button>
-            }
-          />
-          <PopSurface align="end" sideOffset={6} className="no-bar max-h-[min(480px,var(--available-height))] min-w-48 max-w-[calc(100vw-16px)] overflow-y-auto p-1.5">
-            <div className={HEAD}>{t("channel.viewing")}</div>
-            {viewers.map((v) => (
-              <div key={v.member} className="flex h-8 items-center gap-2.5 px-2.5 text-base pointer-coarse:h-11">
-                <MemberFace member={v.member} name={v.name} size={18} />
-                <span className="min-w-0 flex-1 truncate">{v.name}</span>
-              </div>
-            ))}
-          </PopSurface>
-        </Popover.Root>
-      )}
       {/* Each kind's models asked for once idle and as the key is pointed at, pressed or opened,
           for 邀请's menus to pop at once (pick.tsx). */}
       <Menu.Root onOpenChange={(open) => open && ahead()}>
@@ -131,7 +104,19 @@ export function TopRight({ id }: { id: string }) {
           <Menu.Trigger
             render={
               <button ref={key} type="button" aria-label={t("channel.members")} {...keyAhead} className="g-press flex h-8 items-center gap-1 rounded-md px-2 text-ink-2 hover:bg-fill hover:text-ink data-popup-open:bg-fill pointer-coarse:h-10">
-                <Users size={16} />
+                {/* Who is looking, their faces in place of the icon: one key, not two side by side
+                    (kumo, 2026-11-25); the names at the menu's head. */}
+                {viewers.length ? (
+                  <span className="flex items-center">
+                    {viewers.slice(0, 3).map((v, i) => (
+                      <span key={v.member} className="grid rounded-full ring-2 ring-paper" style={{ marginLeft: i ? -5 : 0, zIndex: 3 - i }}>
+                        <MemberFace member={v.member} name={v.name} size={18} />
+                      </span>
+                    ))}
+                  </span>
+                ) : (
+                  <Users size={16} />
+                )}
                 <span className="text-xs tabular-nums">{count}</span>
               </button>
             }
@@ -141,7 +126,7 @@ export function TopRight({ id }: { id: string }) {
           <Menu.Positioner side="bottom" align="end" sideOffset={6} collisionPadding={8} className="z-50">
             <Menu.Popup finalFocus={false} className={cn(POPUP, SUB)}>
               <div className="g-stagger flex flex-col">
-                <MemberList id={id} ask={setAsked} script={(p) => requestAnimationFrame(() => setScript(p))} />
+                <MemberList id={id} viewers={viewers} ask={setAsked} script={(p) => requestAnimationFrame(() => setScript(p))} />
               </div>
             </Menu.Popup>
           </Menu.Positioner>
@@ -153,10 +138,10 @@ export function TopRight({ id }: { id: string }) {
   );
 }
 
-/** The members: each agent a submenu, the menu its face has (members.tsx MemberItems; what it
+/** The members: who is looking first, if any; each agent a submenu, the menu its face has (members.tsx MemberItems; what it
  *  asks with, ask, drawn by the bar); the commands of its IR,
  *  each pressed its card (script), and 新建脚本; then 邀请. */
-function MemberList({ id, ask, script }: { id: string; ask: (a: Ask) => void; script: (p: ScriptPage) => void }) {
+function MemberList({ id, viewers, ask, script }: { id: string; viewers: Viewer[]; ask: (a: Ask) => void; script: (p: ScriptPage) => void }) {
   const list = useList();
   const scripts = useScripts(id) ?? [];
   const members = useMembers(id);
@@ -168,6 +153,17 @@ function MemberList({ id, ask, script }: { id: string; ask: (a: Ask) => void; sc
   const lent = actsOf(id);
   return (
     <>
+      {viewers.length > 0 && (
+        <>
+          <div className={HEAD}>{t("channel.viewing")}</div>
+          {viewers.map((v) => (
+            <div key={v.member} className="flex h-8 items-center gap-2.5 px-2.5 text-base pointer-coarse:h-11">
+              <MemberFace member={v.member} name={v.name} size={18} />
+              <span className="min-w-0 flex-1 truncate">{v.name}</span>
+            </div>
+          ))}
+        </>
+      )}
       <div className={HEAD}>{t("channel.agents")}</div>
       {agents.map((m) => {
         const row = list?.find((x) => x.id === m.session);
