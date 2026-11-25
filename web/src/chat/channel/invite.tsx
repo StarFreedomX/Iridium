@@ -12,7 +12,7 @@ import { Menu } from "@base-ui/react/menu";
 import { useQueryClient } from "@tanstack/react-query";
 import { useQuery } from "../../api/query";
 import { LoaderCircle, Mail, Plus } from "lucide-react";
-import { useState, type CSSProperties } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { api } from "../../api/client";
 import type { Agent, ChannelMembers, Role, Trigger } from "../../api/types.gen";
 import { agentsQ, useMachines } from "../../data";
@@ -28,6 +28,18 @@ import { Deeper, usePages } from "./pages";
 import { choicesQ, draftDefault, draftName, type At } from "../choices";
 import { CARD_POP, ProfileCard } from "./profilecard";
 import { DraftModels } from "./pick";
+import { ahead as figAhead } from "../../splash/engine";
+import { beside, panelGone, panelUp, point, unpoint, type Fig } from "../../splash/figure";
+
+/** A row pointed at or come to by the keys: the splash draws what it would add (splash/). */
+const pointing = (f: Fig) => ({ onPointerEnter: () => point(f), onFocus: () => point(f) });
+
+/** In a page of the panel (the portrait layout, where nothing is pointed at): while the page is
+ *  there the splash draws what it is of. */
+function Points({ fig }: { fig: Fig }) {
+  useEffect(() => (point(fig), () => unpoint(fig.key)), [fig.key]);
+  return null;
+}
 
 export const ITEM = "flex h-8 cursor-default items-center gap-2.5 rounded-md px-2.5 text-base outline-none select-none data-highlighted:bg-fill data-popup-open:bg-fill pointer-coarse:h-11";
 export const POPUP = "g-unfold glass thick float rounded-lg text-ink outline-none";
@@ -46,7 +58,7 @@ const wakeOn = (w: Wake, me?: string): Trigger[] => (w === "all" ? [{ message: {
  *  joins (greet; kumo, 2026-11-16). as: as a role (what
  *  roleStart gives; busy is then "role:<id>"). m: at that computer, in its home folder (busy:
  *  "<machine>/<agent>"). wake: what wakes it beside its @ (Wake; none given, only its @). */
-export function useAdd(id: string, wake?: Wake) {
+export function useAdd(id: string, wake?: Wake, done?: () => void) {
   const qc = useQueryClient();
   const me = useMembers(id)?.me;
   const [busy, setBusy] = useState<string | null>(null);
@@ -54,6 +66,8 @@ export function useAdd(id: string, wake?: Wake) {
     setBusy(as ? `role:${as.role}` : m ? `${m.id}/${agent}` : agent);
     try {
       qc.setQueryData<ChannelMembers>(["members", id], await api.addMember(id, { ...(as ?? { agent, ...(model ? { model } : {}), ...(effort ? { effort } : {}), ...(preset ? { preset } : {}) }), ...(m ? { machine: m.id, cwd: m.home } : {}), ...(wake ? { on: wakeOn(wake, me) } : {}), greet: true }));
+      // Added: the panel goes, its menus with it (kumo, 2026-11-25: it stayed over the channel).
+      done?.();
     } catch (e) {
       toast(memberError(e), { error: true });
     } finally {
@@ -68,7 +82,7 @@ export function useAdd(id: string, wake?: Wake) {
  *  and the kinds of agent of the one picked. Every template and every kind any computer has
  *  keeps its row whichever is picked, one the picked computer lacks drawn faint and not pressed:
  *  the menu is as tall for each computer. */
-export function AddAgents({ id, wake, setWake }: { id: string; wake: Wake; setWake: (w: Wake) => void }) {
+export function AddAgents({ id, wake, setWake, done }: { id: string; wake: Wake; setWake: (w: Wake) => void; done?: () => void }) {
   useLang();
   const row = useList()?.find((x) => x.id === id);
   const own = (useSession(id) ?? row)?.machine ?? "";
@@ -83,11 +97,15 @@ export function AddAgents({ id, wake, setWake }: { id: string; wake: Wake; setWa
   const every = new Set<Agent>([...local, ...machines.flatMap((x) => (x.id ? x.agents.map((a) => a.agent as Agent) : []))]);
   const kinds = AGENTS.filter((k) => every.has(k));
   const roles = useRoles();
-  const { busy, add } = useAdd(id, wake);
+  const { busy, add } = useAdd(id, wake, done);
   const full = (row?.agents?.length ?? 1) >= MAX_AGENTS;
   const off = full || busy !== null;
   // Where one added runs when not at the channel's own computer: the one picked, its home folder.
   const to = m && picked !== own ? m : undefined;
+  // The panel gone: the splash is the channel's own again. The templates' faces asked for as it
+  // is drawn: one pointed at is there to be drawn.
+  useEffect(() => (panelUp(), () => (point(null), panelGone())), []);
+  useEffect(() => roles.forEach((r) => r.avatar && figAhead({ key: r.id, src: r.avatar })), [roles]);
   return (
     <>
       {/* What wakes the one added, at the head (kumo, 2026-11-25): a press goes on to the next. */}
@@ -131,6 +149,8 @@ function RoleRow({ role, at, i, off, busy, add }: { role: Role; at: At; i: numbe
   const pages = usePages();
   const style = { "--i": i } as CSSProperties;
   const cls = cn(ITEM, "data-disabled:opacity-40");
+  const of: Fig = { key: `role:${role.id}:${role.avatar ?? ""}`, src: role.avatar || undefined, agent: role.agent };
+  const fig = pointing(of);
   const row = (
     <>
       {busy ? <LoaderCircle size={16} className="animate-spin text-ink-3" /> : <RoleFace role={role} size={16} />}
@@ -141,14 +161,15 @@ function RoleRow({ role, at, i, off, busy, add }: { role: Role; at: At; i: numbe
     return (
       <Deeper row={row} title={role.name} i={i} popup="">
         {/* Its card inside the panel's padding, its corners round as the panel's rows. */}
+        <Points fig={of} />
         <div className="overflow-hidden rounded-md">
           <RolePreview role={role} at={at} off={off} busy={busy} add={() => (add(), pages.pop())} />
         </div>
       </Deeper>
     );
   return (
-    <Menu.SubmenuRoot>
-      <Menu.SubmenuTrigger disabled={off} onClick={add} style={style} className={cls}>
+    <Menu.SubmenuRoot onOpenChange={beside}>
+      <Menu.SubmenuTrigger disabled={off} onClick={add} style={style} className={cls} {...fig}>
         {row}
       </Menu.SubmenuTrigger>
       <MenuPortal>
@@ -197,21 +218,24 @@ function Kind({ id, k, m, lacks, i, off, busy, add }: { id: string; k: Agent; m?
   const style = { "--i": i } as CSSProperties;
   const cls = cn(ITEM, "data-disabled:opacity-40");
   const plain = () => void add(k, p.model || send, p.effort, p.preset, undefined, m);
+  const of: Fig = { key: `kind:${k}`, agent: k };
+  const fig = pointing(of);
   if (pages && asked?.models.length)
     return (
       <Deeper row={row} title={agentName(k)} i={i} popup="" disabled={off}>
+        <Points fig={of} />
         <KindPage k={k} at={at} add={(model, effort, preset) => (void add(k, model, effort, preset, undefined, m), pages.pop())} />
       </Deeper>
     );
   if (!asked?.models.length)
     return (
-      <Menu.Item closeOnClick={false} disabled={off} onClick={plain} style={style} className={cls}>
+      <Menu.Item closeOnClick={false} disabled={off} onClick={plain} style={style} className={cls} {...fig}>
         {row}
       </Menu.Item>
     );
   return (
-    <Menu.SubmenuRoot>
-      <Menu.SubmenuTrigger disabled={off} onClick={plain} style={style} className={cls}>
+    <Menu.SubmenuRoot onOpenChange={beside}>
+      <Menu.SubmenuTrigger disabled={off} onClick={plain} style={style} className={cls} {...fig}>
         {row}
       </Menu.SubmenuTrigger>
       <MenuPortal>

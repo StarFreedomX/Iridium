@@ -150,6 +150,8 @@ export const en: Dict = {
   "msg.noPreview": "No preview",
   "msg.loading": "Loading",
   "msg.close": "Close",
+  "empty.swipe": "Swipe up for the groups",
+  "empty.pick": "Choose a folder",
   "browse.title": "Files",
   "browse.up": "Parent folder",
   "browse.start": "Starting folder",

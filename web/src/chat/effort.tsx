@@ -4,6 +4,7 @@
 // user, 2026-11-06). The knob pulls the liquid after it (chat/goo.ts): springs move the knob, the
 // fill's front and the blobs between, the blobs drawn through the goo filter, so they run together
 // under the liquid. The knob is frosted white balls run together through a goo of its own.
+import { effortAt } from "../splash/figure";
 import { Slider } from "@base-ui/react/slider";
 import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { t, useLang } from "../i18n";
@@ -93,6 +94,8 @@ export function EffortSlider({ levels, value, set, aside, tag }: { levels: strin
   const frac = n > 1 ? i / (n - 1) : 0;
   const fracNow = useRef(frac);
   fracNow.current = frac;
+  // The splash behind, where there is one, goes with the level (splash/).
+  useEffect(() => void (known && effortAt(levels[i] ?? "", frac)), [i, known]);
   const canvas = useRef<HTMLCanvasElement>(null);
   const root = useRef<HTMLDivElement>(null);
   const goo = `goo${useId().replace(/\W/g, "")}`;
