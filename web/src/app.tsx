@@ -420,11 +420,12 @@ export function App() {
   if (dialogPage === "settings" && fit.h !== undefined) settingsH.current = fit.h;
   const boxH = (dialogPage === "apps" || dialogPage === "secrets" || dialogPage === "roles" || dialogPage === "cache") && settingsH.current !== undefined ? settingsH.current : fit.h;
   const settingsStyle: CSSProperties | undefined = settingsAt && boxH !== undefined && room !== undefined ? { ...settingsAt, height: `min(${boxH}px, ${typeof room === "number" ? `${room}px` : room})` } : settingsAt;
-  // The usage: the file browser's window, over the whole page (kumo, 2026-11-25); a portrait
-  // layout's the whole screen. Closed, the step that opened it is gone back.
+  // The usage: the file browser's own window over the page (kumo, 2026-11-25), in a portrait
+  // layout as tall as it is there; with the sidebar as tall as what it holds. Closed, the step that
+  // opened it is gone back.
   const usageWindow = (
     <Dialog.Root open={usageOpen} onOpenChange={(o) => !o && route().name === "usage" && stepBack()}>
-      <FileWindow full={phone} className={cn("@container", !phone && "max-h-[min(760px,92dvh)]")}>
+      <FileWindow className={cn("@container", phone ? "h-[min(640px,86dvh)]" : "max-h-[min(760px,92dvh)]")}>
         <Suspense fallback={<Waiting />}>
           <UsagePage />
         </Suspense>
