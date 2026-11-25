@@ -3,7 +3,7 @@
 // agent pointed at in the + panel, or the channel's own once it has one (engine.ts). It is
 // behind everything and takes no press; it goes as the first message comes.
 import { ChevronLeft } from "lucide-react";
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { Agent } from "../api/types.gen";
 import { useFaceSrc } from "../chat/channel/face";
 import { t } from "../i18n";
@@ -42,7 +42,9 @@ export function Splash({ show = true, fig = null, className }: { show?: boolean;
   const fitRef = useRef(() => {});
   const nowRef = useRef(now);
   nowRef.current = now;
-  useEffect(() => {
+  // Before the frame it is first in: one band going as another comes (the empty pane's, a new
+  // channel's) is the same characters with no frame between them.
+  useLayoutEffect(() => {
     const el = cv.current;
     if (!el) return;
     const e = splash(el, still);

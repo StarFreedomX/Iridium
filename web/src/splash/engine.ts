@@ -112,6 +112,11 @@ function picture(src: string): Promise<HTMLImageElement | null> {
 /** A figure's picture asked for ahead (a row of the + panel as it is drawn). */
 export const ahead = (f: Fig) => void (f.src && picture(f.src));
 
+// The band as one left it, for the next one of its size within a moment: the empty pane's band
+// goes on in the channel made from it, the same characters where they were, nothing coming in
+// anew (kumo, 2026-11-25: it blinked).
+let kept: { at: number; cols: number; rows: number; text: string[][]; off: Float32Array<ArrayBuffer>; speed: Float32Array<ArrayBuffer>; cur: Field; key: string } | null = null;
+
 export type Splash = { figure(f: Fig | null): void; place(x: number, side: number): void; power(f: number): void; resize(): void; near(x: number, y: number): void; stop(): void };
 
 export function splash(cv: HTMLCanvasElement, still: boolean): Splash {
@@ -388,6 +393,15 @@ export function splash(cv: HTMLCanvasElement, still: boolean): Splash {
       off[r] = Math.random() * len;
       speed[r] = (r % 2 ? -1 : 1) * (1.5 + Math.random() * 3.5); // cells a second
     }
+    if (!grown && kept && kept.cols === cols && kept.rows === rows && performance.now() - kept.at < 2000) {
+      ({ text, off, speed, cur } = kept);
+      from = cur;
+      first = false;
+      draw();
+      const same = kept.key === (fig?.key ?? "");
+      kept = null;
+      return show(fig, same);
+    }
     show(fig, grown);
   };
 
@@ -423,6 +437,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean): Splash {
       kick();
     },
     stop() {
+      if (cols && rows) kept = { at: performance.now(), cols, rows, text, off, speed, cur, key: drawnKey };
       dead = true;
       cancelAnimationFrame(raf);
     },

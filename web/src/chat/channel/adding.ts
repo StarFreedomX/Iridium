@@ -5,6 +5,7 @@ const heard = new Set<() => void>();
 
 /** The + of channel id is to open once its bar is drawn. */
 export function askAdd(id: string): void {
+  made.add(id);
   asked = id;
   heard.forEach((f) => f());
 }
@@ -27,3 +28,8 @@ export function onAskAdd(fn: () => void): () => void {
 const still = new Set<string>();
 export const keepList = (id: string) => void still.add(id);
 export const listKept = (id: string) => still.has(id);
+
+// Made in this page: nothing is said in it yet, known before its log has come (the splash is
+// there from its first draw, the empty pane's own going on in it: splash/).
+const made = new Set<string>();
+export const justMade = (id: string) => made.has(id);
