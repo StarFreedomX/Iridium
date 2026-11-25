@@ -46,7 +46,10 @@ export function panelGone(): void {
   power = STANDARD;
   subs = 0;
   clearTimeout(later);
-  tell(false);
+  // Told whether a menu was open beside it or not: the band is to go back to its middle (kumo,
+  // 2026-11-25: with none open nothing was told, and in the portrait layout it stayed down).
+  open = false;
+  heard.forEach((h) => h());
 }
 export const panelOpen = () => open;
 

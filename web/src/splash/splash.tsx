@@ -33,6 +33,11 @@ export function Splash({ show = true, fig = null, scene = "", className }: { sho
   const phone = useMedia(PHONE);
   const up = useSyncExternalStore(onPoint, panelIsUp);
   const low = phone && up && show;
+  // Where it is drawn goes after where it is to be: the characters go out where they are, the
+  // band is put at its other place with none drawn, and they come in there (kumo, 2026-11-25: it
+  // was down in one frame as the + was pressed).
+  const [placed, setPlaced] = useState(low);
+  const comeIn = useRef(false);
   const fitRef = useRef(() => {});
   const nowRef = useRef(now);
   nowRef.current = now;
@@ -48,6 +53,7 @@ export function Splash({ show = true, fig = null, scene = "", className }: { sho
     // Left of the panel while it is open and there is room for a figure there; else the middle.
     const fit = () => {
       e.resize();
+      if (comeIn.current) (comeIn.current = false), e.enter();
       const w = el.clientWidth, h = el.clientHeight, free = w - PANEL;
       const left = asideRef.current && free >= 240;
       const side = left ? Math.min(h * 0.92, free * 0.9) : Math.min(h * 0.92, w * 0.7);
@@ -82,10 +88,21 @@ export function Splash({ show = true, fig = null, scene = "", className }: { sho
     else eng.current.leave(() => setThere(false));
   }, [show, scene, there]);
   useEffect(() => fitRef.current(), [aside]);
+  useEffect(() => {
+    if (low === placed) return;
+    const e = eng.current;
+    if (!e || still) return setPlaced(low);
+    e.leave(() => ((comeIn.current = true), setPlaced(low)));
+  }, [low, placed, still]);
+  // Put there: come in, once its size there is known (fit), or now if it is the same size.
+  useEffect(() => {
+    const id = requestAnimationFrame(() => comeIn.current && fitRef.current());
+    return () => cancelAnimationFrame(id);
+  }, [placed]);
   useEffect(() => eng.current?.power(show ? power : STANDARD), [power, show]);
   if (!there) return null;
   return (
-    <div aria-hidden={!now} className={cn("pointer-events-none absolute inset-x-0 z-1 transition-[top] duration-(--dur-3) ease-(--ease-out)", low ? "top-[calc(100%-84px)] h-[clamp(200px,34%,300px)] -translate-y-full" : "top-[calc(50%-24px)] h-[clamp(220px,46%,420px)] -translate-y-1/2", className)}>
+    <div aria-hidden={!now} className={cn("pointer-events-none absolute inset-x-0 z-1", placed ? "top-[calc(100%-84px)] h-[max(120px,calc(50%-150px))] -translate-y-full" : "top-[calc(50%-24px)] h-[clamp(220px,46%,420px)] -translate-y-1/2", className)}>
       <canvas ref={cv} aria-hidden className="absolute inset-0 size-full text-ink" style={{ maskImage: MASK, maskComposite: "intersect", WebkitMaskImage: MASK, WebkitMaskComposite: "source-in" }} />
     </div>
   );

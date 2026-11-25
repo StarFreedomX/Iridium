@@ -38,7 +38,7 @@ import { actsOf } from "./menu";
 import { subName, SubTag } from "../subwork";
 import { appAll, hasApp, hasLogin, loginOf, peopleOf, pressApp, pressLogin } from "./setup";
 
-const SUB = "no-bar max-h-[min(480px,var(--available-height))] min-w-60 max-w-[calc(100vw-16px)] overflow-y-auto p-1.5";
+const SUB = "no-bar max-h-[min(480px,50dvh,var(--available-height))] min-w-60 max-w-[calc(100vw-16px)] overflow-y-auto p-1.5";
 const HEAD = "truncate px-2.5 pt-2 pb-0.5 text-xs text-ink-3 select-none first:pt-1";
 
 /** bare: no mark at the row's end (the + panel's rows: kumo, 2026-11-25). */
@@ -290,18 +290,28 @@ function Invite({ id, done }: { id: string; done: () => void }) {
   return (
     <Paged>
       <div className="g-stagger flex flex-col">
-        <AddAgents id={id} wake={wake} setWake={setWake} done={done} />
-        {apps.length > 0 && <div role="separator" className="mx-2.5 my-1 border-t border-(--edge)" />}
-        {apps.map((a) => {
-          const name = a.web ? t("term.panel") : a.name;
-          const now = hasApp(people, a.id) ? t("channel.everyone") : String(loginsOf(a.id).filter((l) => hasLogin(people, a.id, l.id)).length || "");
-          const icon = <Avatar src={a.avatar} name={a.name} size={16} type={a.type} host={!!a.host} />;
-          return (
-            <Sub key={a.id} icon={icon} label={name} now={now} i={0} bare>
-              {loginRows(a.id)}
-            </Sub>
-          );
-        })}
+        <AddAgents
+          id={id}
+          wake={wake}
+          setWake={setWake}
+          done={done}
+          apps={
+            apps.length > 0 ? (
+              <>
+                {apps.map((a) => {
+                const name = a.web ? t("term.panel") : a.name;
+                const now = hasApp(people, a.id) ? t("channel.everyone") : String(loginsOf(a.id).filter((l) => hasLogin(people, a.id, l.id)).length || "");
+                const icon = <Avatar src={a.avatar} name={a.name} size={16} type={a.type} host={!!a.host} />;
+                return (
+                  <Sub key={a.id} icon={icon} label={name} now={now} i={0} bare>
+                    {loginRows(a.id)}
+                  </Sub>
+                );
+              })}
+              </>
+            ) : undefined
+          }
+        />
       </div>
     </Paged>
   );
