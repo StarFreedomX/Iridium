@@ -12,7 +12,7 @@ import { Menu } from "@base-ui/react/menu";
 import { useQueryClient } from "@tanstack/react-query";
 import { useQuery } from "../../api/query";
 import { LoaderCircle, Mail, Plus, UsersRound } from "lucide-react";
-import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { api } from "../../api/client";
 import type { Agent, ChannelMembers, Role, Trigger } from "../../api/types.gen";
 import { agentsQ, useMachines } from "../../data";
@@ -21,7 +21,7 @@ import { MachineFace, type Machine } from "../../machines";
 import { RoleFace, RoleLine, roleStart, useRoles } from "../../roles";
 import { useList, useSession } from "../../store";
 import { toast } from "../../toast";
-import { AGENTS, agentName, cn, Logo, MenuPortal } from "../../ui";
+import { AGENTS, agentName, cn, Logo, MenuPortal, useLongPress } from "../../ui";
 import { useMembers } from "./gate";
 import { memberError } from "./key";
 import { Deeper, usePages } from "./pages";
@@ -33,6 +33,22 @@ import { beside, panelGone, panelUp, point, unpoint, type Fig } from "../../spla
 
 /** A row pointed at or come to by the keys: the splash draws what it would add (splash/). */
 const pointing = (f: Fig) => ({ onPointerEnter: () => point(f), onFocus: () => point(f) });
+
+/** A row's menu beside it, opened by pointing at it as before, and by a finger held on the row
+ *  or the right button too (kumo, 2026-11-25: on a wide touch screen, an unfolded phone, there is
+ *  no pointing, and a press adds at once: there was no way to the models). The press that ends a
+ *  hold adds nothing. */
+function useHeld() {
+  const [open, setOpen] = useState(false);
+  const was = useRef(false);
+  const set = (o: boolean) => {
+    if (was.current !== o) beside(o);
+    was.current = o;
+    setOpen(o);
+  };
+  const lp = useLongPress(() => set(true), { suppressTouchClick: true });
+  return { open, set, keys: { ...lp, onContextMenu: (e: React.MouseEvent) => void (lp.onContextMenu(e) || (e.preventDefault(), set(true))) } };
+}
 
 /** In a page of the panel (the portrait layout, where nothing is pointed at): while the page is
  *  there the splash draws what it is of. */
@@ -168,6 +184,7 @@ export function AddAgents({ id, wake, setWake, done, apps }: { id: string; wake:
  *  layout (Paged): pressed, its card is the panel's next page, added from there. */
 function RoleRow({ role, at, i, off, busy, add, wake, setWake }: { role: Role; at: At; i: number; off: boolean; busy: boolean; add: () => void } & Waking) {
   const pages = usePages();
+  const held = useHeld();
   const style = { "--i": i } as CSSProperties;
   const cls = cn(ITEM, "data-disabled:opacity-40");
   const of: Fig = { key: `role:${role.id}:${role.avatar ?? ""}`, src: role.avatar || undefined, agent: role.agent };
@@ -189,8 +206,8 @@ function RoleRow({ role, at, i, off, busy, add, wake, setWake }: { role: Role; a
       </Deeper>
     );
   return (
-    <Menu.SubmenuRoot onOpenChange={beside}>
-      <Menu.SubmenuTrigger disabled={off} onClick={add} style={style} className={cls} {...fig}>
+    <Menu.SubmenuRoot open={held.open} onOpenChange={held.set}>
+      <Menu.SubmenuTrigger disabled={off} onClick={add} style={style} className={cls} {...fig} {...held.keys}>
         {row}
       </Menu.SubmenuTrigger>
       <MenuPortal>
@@ -225,6 +242,7 @@ export function RolePreview({ role, at, off, busy, add, wake, setWake }: { role:
  *  */
 function Kind({ id, k, m, lacks, i, off, busy, add, wake, setWake }: { id: string; k: Agent; m?: Machine; lacks?: boolean; i: number; off: boolean; busy: boolean; add: ReturnType<typeof useAdd>["add"] } & Waking) {
   const pages = usePages();
+  const held = useHeld();
   // Where its models are asked: the channel's own place, or the computer it would run at.
   const at = m ? { machine: m.id } : { channel: id };
   const [p, setP] = useState<{ model: string; effort: string; preset?: string }>({ model: "", effort: "" });
@@ -255,8 +273,8 @@ function Kind({ id, k, m, lacks, i, off, busy, add, wake, setWake }: { id: strin
       </Menu.Item>
     );
   return (
-    <Menu.SubmenuRoot onOpenChange={beside}>
-      <Menu.SubmenuTrigger disabled={off} onClick={plain} style={style} className={cls} {...fig}>
+    <Menu.SubmenuRoot open={held.open} onOpenChange={held.set}>
+      <Menu.SubmenuTrigger disabled={off} onClick={plain} style={style} className={cls} {...fig} {...held.keys}>
         {row}
       </Menu.SubmenuTrigger>
       <MenuPortal>
