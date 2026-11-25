@@ -73,7 +73,8 @@ export function slicer(E: Env) {
       if (made !== sig) return;
       if (m) small.push(m);
     }
-    const b = await E.sprite(null, px).catch(() => null);
+    // (smaller than the faces: easier to keep a stroke clear of, kumo 2026-11-26)
+    const b = await E.sprite(null, px * 0.6).catch(() => null);
     if (made !== sig) return;
     faces = got;
     marks = small;
