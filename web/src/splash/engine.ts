@@ -171,7 +171,10 @@ export function splash(cv: HTMLCanvasElement, still: boolean): Splash {
   const read = (): Field => {
     const n = cols * rows, out = field(n);
     if (!n) return out;
-    const mid = cx < 0 ? W / 2 : cx, side = cx < 0 ? Math.min(H * 0.92, W * 0.7) : most, fx = mid - side / 2, fy = (H - side) / 2;
+    // With a name to write beside it and the room for one, the figure stands left of the middle.
+    const name = fig?.name?.trim();
+    const own = Math.min(H * 0.92, W * 0.7), pair = !!name && W - own > 520;
+    const mid = cx >= 0 ? cx : pair ? Math.max(own / 2 + W * 0.08, W * 0.34) : W / 2, side = cx < 0 ? own : most, fx = mid - side / 2, fy = (H - side) / 2;
     small.width = cols;
     small.height = rows;
     mg.imageSmoothingQuality = "high";
@@ -196,6 +199,32 @@ export function splash(cv: HTMLCanvasElement, still: boolean): Splash {
       const m = (r + g + b) / 3;
       return [clamp((m + (r - m) * k) * gain, 0, 255), clamp((m + (g - m) * k) * gain, 0, 255), clamp((m + (b - m) * k) * gain, 0, 255)];
     };
+    // Its name in large letters, right of the figure and below the band's middle (kumo,
+    // 2026-11-25): as tall as its script needs to be read in cells this size, smaller to fit.
+    let named: Uint8ClampedArray | null = null;
+    const x0 = fx + side + 24, room = W * 0.93 - x0;
+    if (name && room > 200) {
+      const wide = /[^\u0000-\u024f]/.test(name);
+      const face = (px: number) => `700 ${px}px system-ui, -apple-system, "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif`;
+      let px = wide ? 150 : 130;
+      tiny.width = cols * 4;
+      tiny.height = rows * 4;
+      tg.setTransform(4 / cw, 0, 0, 4 / ROW, 0, 0);
+      tg.font = face(px);
+      const w = tg.measureText(name).width;
+      // Too long for its room: narrowed (a cell is narrower than it is tall: there is more to
+      // narrow by than to shorten), and past that smaller too.
+      const fit = room / w;
+      if (fit < 0.6) px = Math.max(wide ? 110 : 70, (px * fit) / 0.6);
+      tg.font = face(px);
+      tg.textBaseline = "middle";
+      tg.fillStyle = "#000";
+      tg.fillText(name, x0, Math.min(H * 0.66, H - px * 0.75), room);
+      tg.setTransform(1, 0, 0, 1, 0, 0);
+      mg.clearRect(0, 0, cols, rows);
+      mg.drawImage(tiny, 0, 0, cols, rows);
+      named = mg.getImageData(0, 0, cols, rows).data;
+    }
     for (let i = 0; i < n; i++) {
       const o = i * 4, m = sharp[o + 3]! / 255, h = halo[o + 3]! / 255;
       let a = BASE, c: RGB = ink;
@@ -212,6 +241,11 @@ export function splash(cv: HTMLCanvasElement, still: boolean): Splash {
           c = [c[0] + (sharp[o]! - c[0]) * m, c[1] + (sharp[o + 1]! - c[1]) * m, c[2] + (sharp[o + 2]! - c[2]) * m];
           a += m * (0.42 + 0.4 * pw);
         }
+      }
+      const nm = named ? named[o + 3]! / 255 : 0;
+      if (nm > 0) {
+        a = Math.max(a, BASE + nm * 0.7);
+        c = [c[0] + (ink[0] - c[0]) * nm, c[1] + (ink[1] - c[1]) * nm, c[2] + (ink[2] - c[2]) * nm];
       }
       out.a[i] = a;
       out.r[i] = c[0];

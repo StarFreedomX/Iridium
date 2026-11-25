@@ -3,8 +3,9 @@
 // before any is added.
 import type { Agent } from "../api/types.gen";
 
-/** src: its picture; alt: the one to draw when that is not to be had. */
-export type Fig = { key: string; src?: string; alt?: string; agent?: Agent };
+/** src: its picture; alt: the one to draw when that is not to be had; name: written in the
+ *  characters too, right of the figure and below its middle. */
+export type Fig = { key: string; src?: string; alt?: string; agent?: Agent; name?: string };
 
 let pointed: Fig | null = null;
 const heard = new Set<() => void>();
@@ -16,6 +17,8 @@ export function point(f: Fig | null): void {
   heard.forEach((h) => h());
 }
 export const pointedAt = () => pointed;
+/** No longer pointed at, if it still is the one (a page of the panel gone as another came). */
+export const unpoint = (key: string) => void (pointed?.key === key && point(null));
 export const onPoint = (h: () => void) => (heard.add(h), () => void heard.delete(h));
 
 // A menu open beside a row of the + panel (a kind's models, a template's card): the figure stands
@@ -36,6 +39,7 @@ export function beside(o: boolean): void {
 }
 /** The panel gone, its menus with it. */
 export function panelGone(): void {
+  up = false;
   power = 0.5;
   subs = 0;
   clearTimeout(later);
@@ -52,3 +56,13 @@ export function effortAt(f: number): void {
   heard.forEach((h) => h());
 }
 export const powerNow = () => power;
+
+// The + panel there at all: in the portrait layout it takes the pane's upper part, and the band
+// goes down to what is left under it.
+let up = false;
+export function panelUp(): void {
+  if (up) return;
+  up = true;
+  heard.forEach((h) => h());
+}
+export const panelIsUp = () => up;

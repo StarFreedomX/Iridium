@@ -29,10 +29,17 @@ import { choicesQ, draftDefault, draftName, type At } from "../choices";
 import { CARD_POP, ProfileCard } from "./profilecard";
 import { DraftModels } from "./pick";
 import { ahead as figAhead } from "../../splash/engine";
-import { beside, panelGone, point, type Fig } from "../../splash/figure";
+import { beside, panelGone, panelUp, point, unpoint, type Fig } from "../../splash/figure";
 
 /** A row pointed at or come to by the keys: the splash draws what it would add (splash/). */
 const pointing = (f: Fig) => ({ onPointerEnter: () => point(f), onFocus: () => point(f) });
+
+/** In a page of the panel (the portrait layout, where nothing is pointed at): while the page is
+ *  there the splash draws what it is of. */
+function Points({ fig }: { fig: Fig }) {
+  useEffect(() => (point(fig), () => unpoint(fig.key)), [fig.key]);
+  return null;
+}
 
 export const ITEM = "flex h-8 cursor-default items-center gap-2.5 rounded-md px-2.5 text-base outline-none select-none data-highlighted:bg-fill data-popup-open:bg-fill pointer-coarse:h-11";
 export const POPUP = "g-unfold glass thick float rounded-lg text-ink outline-none";
@@ -95,7 +102,7 @@ export function AddAgents({ id, wake, setWake }: { id: string; wake: Wake; setWa
   const to = m && picked !== own ? m : undefined;
   // The panel gone: the splash is the channel's own again. The templates' faces asked for as it
   // is drawn: one pointed at is there to be drawn.
-  useEffect(() => () => (point(null), panelGone()), []);
+  useEffect(() => (panelUp(), () => (point(null), panelGone())), []);
   useEffect(() => roles.forEach((r) => r.avatar && figAhead({ key: r.id, src: r.avatar })), [roles]);
   return (
     <>
@@ -140,7 +147,8 @@ function RoleRow({ role, at, i, off, busy, add }: { role: Role; at: At; i: numbe
   const pages = usePages();
   const style = { "--i": i } as CSSProperties;
   const cls = cn(ITEM, "data-disabled:opacity-40");
-  const fig = pointing({ key: `role:${role.id}:${role.avatar ?? ""}`, src: role.avatar || undefined, agent: role.agent });
+  const of: Fig = { key: `role:${role.id}:${role.avatar ?? ""}:${role.name}`, src: role.avatar || undefined, agent: role.agent, name: role.name };
+  const fig = pointing(of);
   const row = (
     <>
       {busy ? <LoaderCircle size={16} className="animate-spin text-ink-3" /> : <RoleFace role={role} size={16} />}
@@ -151,6 +159,7 @@ function RoleRow({ role, at, i, off, busy, add }: { role: Role; at: At; i: numbe
     return (
       <Deeper row={row} title={role.name} i={i} popup="">
         {/* Its card inside the panel's padding, its corners round as the panel's rows. */}
+        <Points fig={of} />
         <div className="overflow-hidden rounded-md">
           <RolePreview role={role} at={at} off={off} busy={busy} add={() => (add(), pages.pop())} />
         </div>
@@ -207,10 +216,12 @@ function Kind({ id, k, m, lacks, i, off, busy, add }: { id: string; k: Agent; m?
   const style = { "--i": i } as CSSProperties;
   const cls = cn(ITEM, "data-disabled:opacity-40");
   const plain = () => void add(k, p.model || send, p.effort, p.preset, undefined, m);
-  const fig = pointing({ key: `kind:${k}`, agent: k });
+  const of: Fig = { key: `kind:${k}`, agent: k, name: agentName(k) };
+  const fig = pointing(of);
   if (pages && asked?.models.length)
     return (
       <Deeper row={row} title={agentName(k)} i={i} popup="" disabled={off}>
+        <Points fig={of} />
         <KindPage k={k} at={at} add={(model, effort, preset) => (void add(k, model, effort, preset, undefined, m), pages.pop())} />
       </Deeper>
     );

@@ -10,7 +10,7 @@ import { AppKey, AppTell, WinKeys } from "./appkey";
 import { Dialog } from "@base-ui/react/dialog";
 import { Toast } from "@base-ui/react/toast";
 import { Tooltip } from "@base-ui/react/tooltip";
-import { FolderOpen } from "lucide-react";
+import { ChevronUp, FolderOpen } from "lucide-react";
 import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType, type CSSProperties, type ReactNode } from "react";
 import { api, queryClient } from "./api/client";
 import { InPopup } from "./api/query";
@@ -37,7 +37,7 @@ import { ToastList, toasts } from "./toast";
 import { buildTree, flat, FOLD_STEP } from "./tree";
 import { usePlaces } from "./reorder";
 import { reloadAgain } from "./upgrade";
-import { cn, kept, keep, params, PHONE, useMedia, useMinute, DialogPortal } from "./ui";
+import { cn, IrMark, kept, keep, params, PHONE, useMedia, useMinute, DialogPortal } from "./ui";
 import { watchUnread } from "./unread";
 import { warmUp } from "./warm";
 
@@ -169,7 +169,8 @@ export function App() {
   quietDialog(!phone);
   // On a phone, whether the sidebar's sheet is out, and how tall it is: the chat keeps its newest
   // above it while it is out.
-  const [sheetOut, setSheetOut] = useState(() => phone && route().name !== "chat");
+  // Come to with nothing open, a phone shows the splash first, the sheet down (kumo, 2026-11-25).
+  const [sheetOut, setSheetOut] = useState(false);
   const [sheetH, setSheetH] = useState(0);
   const systemDark = useMedia("(prefers-color-scheme: dark)");
   const [theme, setTheme] = useState<ThemePref>(initialTheme);
@@ -260,7 +261,7 @@ export function App() {
   const setSheet = (o: boolean, x?: number) => {
     setPulled(null);
     if (o && x !== undefined && atLeft(x)) return go({ name: "settings" });
-    setSheetOut(o || !open);
+    setSheetOut(o);
     if (inSets(route())) close(under);
   };
   // A tab, or a swipe across: the sheet stays out, the back key going back to the sessions.
@@ -397,7 +398,7 @@ export function App() {
           {under.name === "chat" ? (
             <ChatPage key={`${under.id}:${under.record ? "r" : "c"}`} id={under.id} record={under.record} sheet={below} onSheet={phone ? onSheet : undefined} onMe={phone ? onMe : undefined} />
           ) : (
-            <Empty below={below} />
+            <Empty below={below} onSheet={phone ? onSheet : undefined} />
           )}
         </Suspense>
       </FileBrowserHandle.Provider>
@@ -548,9 +549,11 @@ function SetsPages({ page, children }: { page: SetsPage; children: (slide: strin
 /** Back a step in the settings' dialog. */
 const back = () => (history.state?.depth > 1 ? history.back() : go({ name: "settings" }, true));
 
-/** The main pane with nothing open: the faint mark alone, in the middle of what the phone's sheet
- *  leaves free. */
-function Empty({ below }: { below: number }) {
+// The box at the empty pane's foot: a composer's look.
+const PICK = "glass float rest mx-auto flex h-12 w-full max-w-(--chat-w) cursor-text items-center gap-2.5 rounded-[20px] px-4 text-left text-base text-ink-3";
+
+/** The main pane with nothing open: the splash in its middle, a box where a chat's composer is. */
+function Empty({ below, onSheet }: { below: number; onSheet?: () => void }) {
   return (
     <div className="relative grid h-full place-items-center transition-[padding] duration-(--dur-3) ease-(--ease-out)" style={{ paddingBottom: below }}>
       <Suspense fallback={null}>
@@ -559,14 +562,28 @@ function Empty({ below }: { below: number }) {
       {/* Where a chat's composer is, its look: pressed, the file browser, a channel made in the
           folder chosen there (kumo, 2026-11-25: the first screen, a phone's too). */}
       <div className="absolute inset-x-0 z-2 px-2.5 pb-[max(14px,calc(env(safe-area-inset-bottom)+6px))] transition-[bottom] duration-(--dur-3) ease-(--ease-out) sm:px-5" style={{ bottom: below }}>
-        <FileBrowserTrigger place={{ machine: "", path: "" }} className="glass float rest mx-auto flex h-12 w-full max-w-(--chat-w) cursor-text items-center gap-2.5 rounded-[20px] px-4 text-left text-base text-ink-3">
-          <FolderOpen size={17} className="shrink-0" />
-          <span className="min-w-0 truncate">{t("empty.pick")}</span>
-        </FileBrowserTrigger>
+{/* A phone's: what a swipe up from here brings, the sheet of the groups; pressed, the same. */}
+        {onSheet ? (
+          <button type="button" onClick={onSheet} className={PICK}>
+            <ChevronUp size={17} className="shrink-0" />
+            <span className="min-w-0 truncate">{t("empty.swipe")}</span>
+          </button>
+        ) : (
+          <FileBrowserTrigger place={{ machine: "", path: "" }} className={PICK}>
+            <FolderOpen size={17} className="shrink-0" />
+            <span className="min-w-0 truncate">{t("empty.pick")}</span>
+          </FileBrowserTrigger>
+        )}
       </div>
       {/* The desktop app's keys where a chat's top bar has them (appkey.tsx); nothing in a browser.
           The strip they are in drags the window. */}
-      <div data-app-drag className="absolute inset-x-0 top-0 flex h-12 items-center justify-end pr-2">
+      <div data-app-drag className="absolute inset-x-0 top-0 z-2 flex h-12 items-center justify-end pr-2 pointer-coarse:h-13">
+        {/* A phone's key to its sheet, where a chat's bar has it. */}
+        {onSheet && (
+          <button type="button" aria-label={t("nav.sidebar")} onClick={onSheet} className="g-press mr-auto ml-2 grid place-items-center rounded-md p-2 hover:bg-fill">
+            <IrMark size={18} className="text-ink" />
+          </button>
+        )}
         <AppKey />
         <WinKeys />
       </div>

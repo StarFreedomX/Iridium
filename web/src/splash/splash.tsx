@@ -7,9 +7,9 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { Agent } from "../api/types.gen";
 import { useFaceSrc } from "../chat/channel/face";
 import { t } from "../i18n";
-import { cn, useMedia } from "../ui";
+import { cn, PHONE, useMedia } from "../ui";
 import { splash, type Splash as Engine } from "./engine";
-import { onPoint, panelOpen, point, pointedAt, powerNow, type Fig } from "./figure";
+import { onPoint, panelIsUp, panelOpen, point, pointedAt, powerNow, type Fig } from "./figure";
 
 // The + panel and the menu beside its rows, with the gaps about them: what the figure keeps left of.
 const PANEL = 660;
@@ -34,6 +34,10 @@ export function Splash({ show = true, fig = null, className }: { show?: boolean;
   const asideRef = useRef(aside);
   asideRef.current = aside;
   const power = useSyncExternalStore(onPoint, powerNow);
+  // The portrait layout with the + panel there: the band under the panel, over the composer.
+  const phone = useMedia(PHONE);
+  const up = useSyncExternalStore(onPoint, panelIsUp);
+  const low = phone && up && show;
   const [at, setAt] = useState({ x: 0, side: 0 });
   const fitRef = useRef(() => {});
   const nowRef = useRef(now);
@@ -75,7 +79,7 @@ export function Splash({ show = true, fig = null, className }: { show?: boolean;
   useEffect(() => eng.current?.power(show ? power : 0.5), [power, show]);
   if (!there) return null;
   return (
-    <div aria-hidden={!now} onTransitionEnd={(e) => e.target === e.currentTarget && !show && setThere(false)} className={cn("pointer-events-none absolute inset-x-0 top-[calc(50%-24px)] z-1 h-[clamp(220px,46%,420px)] -translate-y-1/2 transition-opacity duration-(--dur-3) ease-(--ease-out)", !show && "opacity-0", className)}>
+    <div aria-hidden={!now} onTransitionEnd={(e) => e.target === e.currentTarget && !show && setThere(false)} className={cn("pointer-events-none absolute inset-x-0 z-1 transition-[top,opacity] duration-(--dur-3) ease-(--ease-out)", low ? "top-[calc(100%-84px)] h-[clamp(200px,34%,300px)] -translate-y-full" : "top-[calc(50%-24px)] h-[clamp(220px,46%,420px)] -translate-y-1/2", !show && "opacity-0", className)}>
       <canvas ref={cv} aria-hidden className="absolute inset-0 size-full text-ink" style={{ maskImage: MASK, maskComposite: "intersect", WebkitMaskImage: MASK, WebkitMaskComposite: "source-in" }} />
       {now && show && at.side > 0 && (
         <button type="button" aria-label={t("nav.back")} onClick={() => (setLeft(now.key), point(null))} style={{ left: Math.max(8, Math.round(at.x - at.side / 2) - 44) }} className="g-fade g-press pointer-events-auto absolute top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-md text-ink-3 hover:bg-fill hover:text-ink pointer-coarse:size-10">
@@ -88,8 +92,8 @@ export function Splash({ show = true, fig = null, className }: { show?: boolean;
 
 /** A channel's: its own face, or its last agent's, or that one's mark; no agent yet: Iridium's
  *  letters. */
-export function ChannelSplash({ id, show, last }: { id: string; show: boolean; last?: { session: string; agent: Agent } }) {
+export function ChannelSplash({ id, show, last }: { id: string; show: boolean; last?: { session: string; agent: Agent; nick?: string; name?: string } }) {
   const own = useFaceSrc(id, true);
   const src = useFaceSrc(last?.session ?? id);
-  return <Splash show={show} fig={last ? { key: `c:${id}:${own}:${src}`, src: own || src || undefined, alt: own && src ? src : undefined, agent: last.agent } : null} />;
+  return <Splash show={show} fig={last ? { key: `c:${id}:${own}:${src}:${last.nick || last.name || ""}`, name: last.nick || last.name, src: own || src || undefined, alt: own && src ? src : undefined, agent: last.agent } : null} />;
 }
