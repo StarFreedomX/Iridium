@@ -197,13 +197,6 @@
     transform var(--dur-2) var(--ease-spring),
     opacity var(--dur-2) var(--ease-out) !important;
 }
-/* The usage asked for with the settings open, or back: another dialog in its place, fading in
-   (app.tsx). */
-@starting-style {
-  .g-dialog[data-swapped] {
-    transform: none;
-  }
-}
 @starting-style {
   .g-dialog {
     opacity: 0;

@@ -26,7 +26,7 @@ import { motion, movesAhead, pageTurn, usePaced } from "./motion";
 import { prefetch, settled } from "./prefetch";
 import { prefetchRoles } from "./roles";
 import { quotaQ } from "./quota";
-import { close, go, onTurn, openChat, over, quietDialog, route, setUsageMachine, usagePoint, useRoute, type Route } from "./route";
+import { back as stepBack, close, go, onTurn, openChat, over, quietDialog, route, useRoute, type Route } from "./route";
 import { Pager, TABS_H } from "./pager";
 import { atLeft, GRIP, Sheet } from "./sheet";
 import { HeadKeys, Sidebar } from "./sidebar";
@@ -36,7 +36,7 @@ import { ToastList, toasts } from "./toast";
 import { buildTree, flat, FOLD_STEP } from "./tree";
 import { usePlaces } from "./reorder";
 import { reloadAgain } from "./upgrade";
-import { cn, holdMenu, IrMark, kept, keep, params, PHONE, useMedia, useMinute, DialogPortal } from "./ui";
+import { cn, IrMark, kept, keep, params, PHONE, useMedia, useMinute, DialogPortal } from "./ui";
 import { watchUnread } from "./unread";
 import { warmUp } from "./warm";
 
@@ -80,8 +80,11 @@ const UsagePage = part(() => import("./usage").then((m) => m.UsagePage));
 const FileBrowserKey = part(() => import("./filebrowser-key").then((m) => m.FileBrowserKey));
 const FileBrowser = part(() => loadFileBrowser().then((m) => m.default));
 /** The page of the settings' dialog a route is: the settings, or one of their own pages. */
-type SetsPage = "settings" | "apps" | "secrets" | "roles" | "cache" | "usage";
-const setsPageOf = (r: Route): SetsPage => (r.name === "apps" || r.name === "secrets" || r.name === "roles" || r.name === "cache" || r.name === "usage" ? r.name : "settings");
+type SetsPage = "settings" | "apps" | "secrets" | "roles" | "cache";
+const setsPageOf = (r: Route): SetsPage => (r.name === "apps" || r.name === "secrets" || r.name === "roles" || r.name === "cache" ? r.name : "settings");
+/** The settings' dialog (the phone's 设置 page) is open: a route over the chat, but the usage,
+ *  a window of its own. */
+const inSets = (r: Route) => over(r) && r.name !== "usage";
 const Jump = part(() => import("./jump").then((m) => m.Jump));
 export const loadChat = ChatPage.load;
 // The address names a chat: its code and its first screen are asked for now, ahead of the first
@@ -176,12 +179,14 @@ export function App() {
   const open = under.name === "chat" ? under.id : null;
   // On a phone the 终端 panel is a sheet too (the user, 2026-11-06): its page drawn still as it goes
   // down, once it has been open.
-  const setsOut = phone && over(r);
+  // The usage is a window over the whole page (kumo, 2026-11-25): under it the sheet stays as it
+  // was, its 设置 page too when the usage was asked for over it (the chat's ⋯ above the sheet).
+  const usageOpen = r.name === "usage";
+  const setsWas = useRef(false);
+  if (!usageOpen) setsWas.current = phone && inSets(r);
+  const setsOut = usageOpen ? setsWas.current : phone && inSets(r);
   const [setsPage, setSetsPage] = useState<SetsPage | null>(null);
-  // On a phone the usage is a page of the sheet's own (the user, 2026-11-08): the 设置 page keeps
-  // the last of its own pages under it.
-  const ownPage = !phone || r.name !== "usage";
-  if (over(r) && ownPage && setsPage !== setsPageOf(r)) setSetsPage(setsPageOf(r));
+  if (inSets(r) && setsPage !== setsPageOf(r)) setSetsPage(setsPageOf(r));
   // One sheet on a phone, two pages in it: the sessions and the 终端 panel (the user, 2026-11-08),
   // the panel shown while its route is open.
   const sheetIsOut = sheetOut || setsOut;
@@ -243,8 +248,8 @@ export function App() {
   // Drawn as it is first pulled too: dragged up before it had ever been out, it came up empty.
   if (phone && pulled && !seen) setSeen(true);
   // Out, its page is the route's; going down, it stays as it was; coming up, the swipe's.
-  const lastPage = useRef(2);
-  const sheetPage = sheetIsOut ? (setsOut ? (r.name === "usage" ? 1 : 0) : 2) : pulled ? (pulled === "me" ? 0 : 2) : lastPage.current;
+  const lastPage = useRef(1);
+  const sheetPage = sheetIsOut ? (setsOut ? 0 : 1) : pulled ? (pulled === "me" ? 0 : 1) : lastPage.current;
   lastPage.current = sheetPage;
   // Just come out too: its page set at once, not slid to as it rises.
   const wasOut = useRef(sheetIsOut);
@@ -254,12 +259,11 @@ export function App() {
     setPulled(null);
     if (o && x !== undefined && atLeft(x)) return go({ name: "settings" });
     setSheetOut(o || !open);
-    if (over(route())) close(under);
+    if (inSets(route())) close(under);
   };
   // A tab, or a swipe across: the sheet stays out, the back key going back to the sessions.
-  // 终端 the left page, as a swipe up from the left brings it; the sessions the right (the user, 2026-11-08);
-  // the usage between them (the user, 2026-11-08).
-  const toPage = (i: number) => (setSheetOut(true), i === 0 ? go({ name: "settings" }, route().name === "usage") : i === 1 ? (setUsageMachine(), go({ name: "usage" }, over(route()))) : over(route()) && close(under));
+  // 终端 the left page, as a swipe up from the left brings it; the sessions the right (the user, 2026-11-08).
+  const toPage = (i: number) => (setSheetOut(true), i === 0 ? go({ name: "settings" }) : inSets(route()) && close(under));
   // Put away, the panel is drawn afresh once it is down: its first page, not renaming.
   const [setsRound, setSetsRound] = useState(0);
   useEffect(() => {
@@ -318,8 +322,8 @@ export function App() {
   const onSelect = useCallback((id: string) => (openChat(id), phoneNow.current && setSheetOut(false)), []);
   const chatCode = useCallback(() => void loadChat().catch(() => {}), []);
 
-  const onSettings = () => (over(r) ? close(under) : go({ name: "settings" }));
-  const me = <MeKey open={over(r)} onOpen={onSettings} dot={!!update.data?.available} code={loadPanels} />;
+  const onSettings = () => (inSets(r) ? close(under) : go({ name: "settings" }));
+  const me = <MeKey open={inSets(r)} onOpen={onSettings} dot={!!update.data?.available} code={loadPanels} />;
   const session = open ? list?.find((s) => s.id === open) : undefined;
   // Sidebar key and chat folder links share one dialog; bumping filesRound remounts a fresh
   // browser on each open, even if reopened mid-exit.
@@ -402,39 +406,31 @@ export function App() {
   // foot, its right edge on the key's, rising out of it (the user, 2026-11-06); the terminals its page.
   // As the me popover is (the user, 2026-11-06): no shade over the page, which stays live; a press
   // outside puts it away, but one on its own key, which does that itself.
-  const usageOut = !phone && r.name === "usage";
-  // The dialog keeps the page it showed while it goes (its route already left): the usage fading
-  // as itself, never as the settings (the user, 2026-11-08).
-  const dialogPage: SetsPage = over(r) ? setsPageOf(r) : (setsPage ?? "settings");
-  const usageLook = !phone && dialogPage === "usage";
-  const settingsAt = useSettingsAt(over(r) && !phone, usageLook);
-  // The usage asked for with the settings open (or back): another panel at another place, drawn
-  // anew fading in, not the same one gone there in one frame, wider.
-  const lookWas = useRef<{ open: boolean; usage: boolean }>({ open: false, usage: false });
-  const swapped = useRef(false);
-  const openNow = over(r) && !phone;
-  if (lookWas.current.open !== openNow || lookWas.current.usage !== usageLook) {
-    swapped.current = lookWas.current.open && openNow;
-    lookWas.current = { open: openNow, usage: usageLook };
-  }
-  // As tall as its page, up to that room (the user, 2026-11-08: no empty foot); the usage keeps its own.
+  // The dialog keeps the page it showed while it goes (its route already left).
+  const dialogPage: SetsPage = inSets(r) ? setsPageOf(r) : (setsPage ?? "settings");
+  const settingsAt = useSettingsAt(inSets(r) && !phone);
+  // As tall as its page, up to that room (the user, 2026-11-08: no empty foot).
   const [setsBox, setSetsBox] = useState<HTMLDivElement | null>(null);
-  const fit = useFit(setsBox, over(r) && !phone && !usageLook);
+  const fit = useFit(setsBox, inSets(r) && !phone);
   const room = settingsAt?.height;
   // The terminals and the credentials keep the settings' height, scrolling within (the user,
   // 2026-11-08: going in, the dialog neither grows nor shrinks); opened on them first, they fit.
   const settingsH = useRef<number | undefined>(undefined);
   if (dialogPage === "settings" && fit.h !== undefined) settingsH.current = fit.h;
   const boxH = (dialogPage === "apps" || dialogPage === "secrets" || dialogPage === "roles" || dialogPage === "cache") && settingsH.current !== undefined ? settingsH.current : fit.h;
-  const settingsStyle: CSSProperties | undefined = settingsAt && boxH !== undefined && !usageLook && room !== undefined ? { ...settingsAt, height: `min(${boxH}px, ${typeof room === "number" ? `${room}px` : room})` } : settingsAt;
-  // The usage panel floats as a row's menu does: one of them at a time (ui.tsx holdMenu).
-  const underNow = useRef(under);
-  underNow.current = under;
-  useEffect(() => (usageOut ? holdMenu(() => route().name === "usage" && close(underNow.current)) : undefined), [usageOut]);
-  const usagePage = () => (
-    <Suspense fallback={<Waiting />}>
-      <UsagePage />
-    </Suspense>
+  const settingsStyle: CSSProperties | undefined = settingsAt && boxH !== undefined && room !== undefined ? { ...settingsAt, height: `min(${boxH}px, ${typeof room === "number" ? `${room}px` : room})` } : settingsAt;
+  // The usage: the file browser's own window over the page (kumo, 2026-11-25), in a portrait
+  // layout as tall as it is there. One height whatever is chosen in it, room enough, more scrolling
+  // within (kumo, 2026-11-25: never taller or shorter for a choice). Closed, the step that opened it
+  // is gone back.
+  const usageWindow = (
+    <Dialog.Root open={usageOpen} onOpenChange={(o) => !o && route().name === "usage" && stepBack()}>
+      <FileWindow className={cn("@container", phone ? "h-[min(640px,86dvh)]" : "h-[min(720px,90dvh)]")}>
+        <Suspense fallback={<Waiting />}>
+          <UsagePage />
+        </Suspense>
+      </FileWindow>
+    </Dialog.Root>
   );
   const setsBody = (page: SetsPage) => (
     <Suspense fallback={<Waiting />}>
@@ -456,10 +452,6 @@ export function App() {
             <div key="cache" className={cn(slide, "h-full")}>
               <CachePage onBack={back} />
             </div>
-          ) : page === "usage" ? (
-            <div key="usage" className={cn(slide, "h-full")}>
-              {usagePage()}
-            </div>
           ) : (
             <div key="settings" className={cn(slide, "h-full")} data-dir="back">
               <SettingsPage key={setsRound} theme={theme} setTheme={setThemeKept} />
@@ -471,10 +463,10 @@ export function App() {
   );
   const settings = phone ? null : (
     <Dialog.Root
-      open={over(r)}
+      open={inSets(r)}
       modal={false}
       onOpenChange={(o, d) => {
-        if (o || !over(route())) return;
+        if (o || !inSets(route())) return;
         const e = d.event as (Event & { relatedTarget?: EventTarget | null }) | undefined;
         const key = (x?: EventTarget | null) => !!(x as Element | null)?.closest?.("[data-settings-key]");
         if ((d.reason === "outside-press" || d.reason === "focus-out") && (key(e?.target) || key(e?.relatedTarget))) return d.cancel();
@@ -483,13 +475,11 @@ export function App() {
     >
       <DialogPortal>
         <Dialog.Popup
-          key={usageLook ? "usage" : "settings"}
           ref={setSetsBox}
           data-settings-dialog
           aria-label={t("nav.me")}
           style={settingsStyle}
-          data-swapped={swapped.current || undefined}
-          className={cn("g-dialog glass thick float fixed z-50 overflow-hidden rounded-lg text-ink outline-none", usageLook ? "w-[min(360px,calc(100vw-16px))]" : "w-[min(288px,calc(100vw-16px))]")}
+          className={cn("g-dialog glass thick float fixed z-50 w-[min(288px,calc(100vw-16px))] overflow-hidden rounded-lg text-ink outline-none")}
         >
           {setsBody(dialogPage)}
         </Dialog.Popup>
@@ -505,24 +495,22 @@ export function App() {
           {!phone && sidebar}
           {main}
           {phone && (
-            <Sheet open={sheetIsOut} setOpen={setSheet} size={!open ? "full" : "half"} raised={jumping && !setsOut} name="phone" head={GRIP + TABS_H} from={() => true} onPull={(x) => setPulled(atLeft(x) ? "me" : "sessions")} label={setsOut ? (r.name === "usage" ? t("usage.title") : t("nav.me")) : t("nav.sessions")} onHeight={setSheetH}>
+            <Sheet open={sheetIsOut} setOpen={setSheet} size={!open ? "full" : "half"} raised={jumping && !setsOut} name="phone" head={GRIP + TABS_H} from={() => true} onPull={(x) => setPulled(atLeft(x) ? "me" : "sessions")} label={setsOut ? t("nav.me") : t("nav.sessions")} onHeight={setSheetH}>
               <Pager
                 // The tabs' bar is px-3, the list's rows end 4px further right: its "+" in line with
                 // theirs (the user, 2026-11-08).
-                ends={[null, null, <span key="s" className="-mr-1 flex"><HeadKeys filesKey={filesKey} /></span>]}
+                ends={[null, <span key="s" className="-mr-1 flex"><HeadKeys filesKey={filesKey} /></span>]}
                 page={sheetPage}
                 still={turnStill}
                 onPage={toPage}
                 tabs={[
                   { label: <>{t("nav.me")}{update.data?.available && <span className="size-1.5 rounded-full bg-err" aria-hidden />}</>, aria: update.data?.available ? `${t("nav.me")} · ${t("settings.updateReady")}` : t("nav.me") },
-                  { label: t("usage.title"), aria: t("usage.title") },
                   { label: t("nav.sessions"), aria: t("nav.sessions") },
                 ]}
               >
                 {[
                   // The sheet's own pages, drawn as it is first pulled: a popup's (api/query.ts).
                   <div key="me" className="absolute inset-0"><InPopup value>{seen && setsBody(setsPage ?? "settings")}</InPopup></div>,
-                  <div key="usage" className="absolute inset-0"><InPopup value>{seen && usagePage()}</InPopup></div>,
                   sidebar,
                 ]}
               </Pager>
@@ -531,6 +519,7 @@ export function App() {
         </div>
         {settings}
         {filesWindow}
+        {usageWindow}
         <Toast.Portal>
           <Toast.Viewport className={cn("fixed top-[60px] left-1/2 z-60 flex w-[min(400px,calc(100vw-24px))] -translate-x-1/2 flex-col items-center gap-2 outline-none")}>
             <ToastList onJump={(id) => openChat(id)} />
@@ -625,7 +614,7 @@ function useFit(el: HTMLElement | null, open: boolean) {
 /** Where the 终端 panel stands, open: above the me key (me.tsx data-settings-key), its left edge on
  *  the key's, as tall as fits there up to 600px; with too little room or no key in sight, at the
  *  window's bottom left. */
-function useSettingsAt(open: boolean, usage: boolean): CSSProperties | undefined {
+function useSettingsAt(open: boolean): CSSProperties | undefined {
   const [at, setAt] = useState<CSSProperties>();
   // The window made another size: placed again, not left where the key was.
   const [size, setSize] = useState(0);
@@ -637,17 +626,6 @@ function useSettingsAt(open: boolean, usage: boolean): CSSProperties | undefined
   }, [open]);
   useLayoutEffect(() => {
     if (!open) return;
-    // The usage: at the point it was asked from, as a menu is (the user, 2026-11-08), below it if
-    // it fits, else above; its right edge on it for end.
-    const p = usage && usagePoint();
-    if (p) {
-      const w = Math.min(360, innerWidth - 16);
-      const h = Math.min(560, innerHeight - 16);
-      const left = Math.max(8, Math.min(innerWidth - w - 8, p.end ? p.x - w : p.x));
-      const top = p.y + h + 8 <= innerHeight ? p.y : Math.max(8, p.y - h);
-      setAt({ left, top, height: h });
-      return;
-    }
     const w = Math.min(288, innerWidth - 16);
     const b = document.querySelector("[data-settings-key]")?.getBoundingClientRect();
     const seen = b && b.width > 0 && b.right > 0 && b.left < innerWidth && b.bottom <= innerHeight;
@@ -657,6 +635,6 @@ function useSettingsAt(open: boolean, usage: boolean): CSSProperties | undefined
       return;
     }
     setAt({ left: Math.max(8, Math.min(innerWidth - w - 8, b.left)), bottom: innerHeight - b.top + 8, height: Math.min(600, room) });
-  }, [open, usage, size]);
+  }, [open, size]);
   return at;
 }

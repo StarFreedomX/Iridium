@@ -250,14 +250,12 @@ export function QuotaBars({ agent, machine, live, using, open, onOpenChange, com
   useMinute(); // "read 5 min ago" and the fading, again each minute
   const quota = useQuota();
   // Held down (a finger), or the right button: the usage, at the bars (the user, 2026-11-08).
-  const key = useRef<HTMLButtonElement>(null);
-  const toUsage = (at?: { x: number; y: number }) => {
-    const b = key.current?.getBoundingClientRect();
+  const toUsage = () => {
     onOpenChange?.(false);
-    openUsage(at ?? (b && { x: b.left, y: b.top - 8 }), machine);
+    openUsage(machine);
   };
   const lp = useLongPress(() => toUsage());
-  const hold = { ...lp, onContextMenu: (e: MouseEvent) => (e.preventDefault(), toUsage({ x: e.clientX, y: e.clientY })) };
+  const hold = { ...lp, onContextMenu: (e: MouseEvent) => (e.preventDefault(), toUsage()) };
   const q: AgentQuota | undefined = quota?.agents.filter((a) => a.agent === agent && (a.machine ?? "") === (machine ?? "")).sort((a, b) => b.at - a.at)[0];
   const windows = (q?.windows ?? []).filter((w) => windowFor(w, using)); // all shown: no setting hides one (the user, 2026-11-06)
   // dsh has no windows but money: its balance where the bars would be (the user, 2026-11-08).
@@ -283,7 +281,7 @@ export function QuotaBars({ agent, machine, live, using, open, onOpenChange, com
       <Tip label={title}>
         <Popover.Trigger
           render={
-            <button ref={key} type="button" aria-label={label} {...hold} className={cn("g-press flex shrink-0 items-center rounded-md select-none hover:bg-fill data-popup-open:bg-fill [-webkit-touch-callout:none]", compact ? "-my-1 h-6 px-1 pointer-coarse:h-8" : "h-7 px-1.5 pointer-coarse:h-9")}>
+            <button type="button" aria-label={label} {...hold} className={cn("g-press flex shrink-0 items-center rounded-md select-none hover:bg-fill data-popup-open:bg-fill [-webkit-touch-callout:none]", compact ? "-my-1 h-6 px-1 pointer-coarse:h-8" : "h-7 px-1.5 pointer-coarse:h-9")}>
               {!windows.length ? (
                 <span className={cn("text-xs text-ink-3 tabular-nums transition-opacity", stale && "opacity-50")}>{balance.map((b) => money(b.currency, b.total)).join(" · ")}</span>
               ) : phone ? (
@@ -361,7 +359,7 @@ export function QuotaBars({ agent, machine, live, using, open, onOpenChange, com
             {t("quota.read", { ago: ago(q.at) })}
             {idle && ` · ${t("quota.idle")}`}
           </p>
-          <button type="button" onClick={(e) => toUsage({ x: e.clientX, y: e.clientY })} className="g-press -my-1 -mr-1.5 flex shrink-0 items-center gap-0.5 rounded-md px-1.5 py-1 text-xs text-ink-2 hover:bg-fill hover:text-ink">
+          <button type="button" onClick={() => toUsage()} className="g-press -my-1 -mr-1.5 flex shrink-0 items-center gap-0.5 rounded-md px-1.5 py-1 text-xs text-ink-2 hover:bg-fill hover:text-ink">
             {t("quota.stats")}
             <ChevronRight size={12} />
           </button>

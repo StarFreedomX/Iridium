@@ -1,4 +1,5 @@
-// On a phone the bottom sheet holds its pages side by side, 设置, 用量 and 会话 (the user, 2026-11-08):
+// On a phone the bottom sheet holds its pages side by side, 设置 and 会话 (the user, 2026-11-08; the
+// usage a window of its own, no tab: kumo, 2026-11-25):
 // tabs at its head's left say which is shown, their pill following the finger, the shown page's
 // keys at its right, one line under the grip, apart from it (the user, 2026-11-08); a swipe across
 // the page, following the finger too, goes to the next, as a press on its tab does. Not a swipe that began
