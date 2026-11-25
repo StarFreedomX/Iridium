@@ -88,13 +88,19 @@ function mark(g: CanvasRenderingContext2D, agent: Agent, ink: string): boolean {
   return true;
 }
 
-/** Iridium's letters (ui.tsx IrMark's, with no square about them). */
+/** Iridium's letters (ui.tsx IrMark's, with no square about them), in a gradient of colours. */
 function letters(g: CanvasRenderingContext2D, ink: string) {
   const k = (SRC * 0.78) / 28;
   g.save();
   g.translate(SRC / 2 - 32 * k, SRC / 2 - 32 * k);
   g.scale(k, k);
-  g.fillStyle = ink;
+  // In the effort's paints, a gradient across them (kumo, 2026-11-25), not the text's ink.
+  void ink;
+  const paint = g.createLinearGradient(20, 18, 44, 46);
+  paint.addColorStop(0, "#e9822f");
+  paint.addColorStop(0.45, "#ff4a17");
+  paint.addColorStop(1, "#ff2f82");
+  g.fillStyle = paint;
   g.fill(new Path2D("M20 18h6v28h-6zM32 28h5.6v3.2c1.4-2.4 3.6-3.6 6.4-3.6v5.8c-3.8 0-6.2 1.6-6.2 6V46H32z"));
   g.restore();
 }
@@ -230,16 +236,8 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
     tg.drawImage(src, (fx / cw) * 3, (fy / ROW) * 3, (side / cw) * 3, (side / ROW) * 3);
     mg.drawImage(tiny, 0, 0, cols, rows);
     const sharp = mg.getImageData(0, 0, cols, rows).data;
-    // The same, larger and out of focus (drawn small, then stretched): what the cells about the
-    // figure take of its colours, thinning outwards.
-    const tw = Math.max(2, Math.round(cols / 10)), th = Math.max(2, Math.round(rows / 5));
-    tiny.width = tw;
-    tiny.height = th;
-    const grow = 1.5, hs = side * grow, hx = mid - hs / 2, hy = py - hs / 2;
-    tg.drawImage(src, (hx / W) * tw, (hy / H) * th, (hs / W) * tw, (hs / H) * th);
-    mg.clearRect(0, 0, cols, rows);
-    mg.drawImage(tiny, 0, 0, cols, rows);
-    const halo = mg.getImageData(0, 0, cols, rows).data;
+    // No halo about the figure (kumo, 2026-11-25: the colours spread about it, and the code there
+    // lighter): the code about it as all the rest is.
     const vivid = (r: number, g: number, b: number, k: number, gain: number): RGB => {
       const m = (r + g + b) / 3;
       return [clamp((m + (r - m) * k) * gain, 0, 255), clamp((m + (g - m) * k) * gain, 0, 255), clamp((m + (b - m) * k) * gain, 0, 255)];
@@ -248,23 +246,17 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
     if (fr.length !== rows) fr = new Float32Array(rows);
     fr.fill(0);
     for (let i = 0; i < n; i++) {
-      const o = i * 4, m = sharp[o + 3]! / 255, h = halo[o + 3]! / 255;
+      const o = i * 4, m = sharp[o + 3]! / 255;
       fm[i] = m;
       if (m > fr[(i / cols) | 0]!) fr[(i / cols) | 0] = m;
       let a = BASE, c: RGB = ink;
-      const hc = vivid(halo[o]!, halo[o + 1]!, halo[o + 2]!, 1.5, dark ? 1.15 : 0.9);
       if (photo && m > 0.5) {
         const lum = (0.3 * sharp[o]! + 0.59 * sharp[o + 1]! + 0.11 * sharp[o + 2]!) / 255;
         a = (0.3 + 0.7 * Math.pow(dark ? lum : 1 - lum, 0.75)) * (0.7 + 0.3 * pw);
         c = vivid(sharp[o]!, sharp[o + 1]!, sharp[o + 2]!, 1.5, dark ? 1.2 : 0.85);
-      } else {
-        const w = clamp(h * (photo ? 1.25 : 0.9) * (0.5 + pw) * (1 - (photo ? 0 : m)));
-        c = [ink[0] + (hc[0] - ink[0]) * w, ink[1] + (hc[1] - ink[1]) * w, ink[2] + (hc[2] - ink[2]) * w];
-        a = BASE + w * (photo ? 0.3 : 0.12);
-        if (!photo && m > 0) {
-          c = [c[0] + (sharp[o]! - c[0]) * m, c[1] + (sharp[o + 1]! - c[1]) * m, c[2] + (sharp[o + 2]! - c[2]) * m];
-          a += m * (0.42 + 0.4 * pw);
-        }
+      } else if (!photo && m > 0) {
+        c = [ink[0] + (sharp[o]! - ink[0]) * m, ink[1] + (sharp[o + 1]! - ink[1]) * m, ink[2] + (sharp[o + 2]! - ink[2]) * m];
+        a = BASE + m * (0.42 + 0.4 * pw);
       }
       out.a[i] = a;
       out.r[i] = c[0];
