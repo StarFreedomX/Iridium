@@ -616,9 +616,10 @@ function Empty({ below, onSheet, onMe }: { below: number; onSheet?: () => void; 
             <span className="text-base font-semibold">Iridium</span>
           </button>
         )}
-        {/* The link, as after a chat's name; ⋯ where a chat's bar has it. */}
+        {/* The link, as after a chat's name; ⋯ where a chat's bar has it, a computer's too (kumo,
+            2026-11-25: its top bar's right was empty). */}
         {onSheet && <LinkDot className="mr-auto shrink-0" />}
-        {onSheet && (
+        {(
           <Menu.Root>
             <Menu.Trigger render={<button type="button" aria-label={t("top.more")} className="g-press grid size-8 place-items-center rounded-md text-ink-2 hover:bg-fill hover:text-ink data-popup-open:bg-fill pointer-coarse:size-10" />}>
               <Ellipsis size={17} />

@@ -468,7 +468,9 @@ const MODELS: Partial<Record<Agent, Model[]>> = {
 
 /** A list that scrolls inside a popup: its edges fade where there is more to see; opened, the
  *  checked item is brought into view. */
-function Scrolled({ className, children }: { className?: string; children: ReactNode }) {
+/** bar: its scrollbar seen, thin (the phone's layout: what may be scrolled said so, kumo
+ *  2026-11-25). */
+function Scrolled({ className, bar, children }: { className?: string; bar?: boolean; children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
   const [edge, setEdge] = useState({ top: false, bottom: false });
   const look = () => {
@@ -490,7 +492,7 @@ function Scrolled({ className, children }: { className?: string; children: React
   }, []);
   const mask = `linear-gradient(to bottom, ${edge.top ? "transparent" : "#000"}, #000 24px, #000 calc(100% - 24px), ${edge.bottom ? "transparent" : "#000"})`;
   return (
-    <div ref={ref} onScroll={look} className={cn("no-bar relative overflow-y-auto overscroll-contain", className)} style={{ maskImage: mask, WebkitMaskImage: mask }}>
+    <div ref={ref} onScroll={look} className={cn("relative overflow-y-auto overscroll-contain", bar ? "thin-bar" : "no-bar", className)} style={{ maskImage: mask, WebkitMaskImage: mask }}>
       {children}
     </div>
   );
@@ -753,18 +755,18 @@ export function ModelKey({ s, open, onOpenChange }: { s: LiveSession; open?: boo
  *  track's right (featKey) even with no levels. */
 export function ModelList({ models, value, pickModel, levels, level, setEffort, featKey, featTag, foot, name }: { models: Model[]; value: string; pickModel: (v: string) => void; levels: string[]; level: string; setEffort: (e: string) => Promise<boolean>; featKey?: ReactNode; featTag?: ReactNode; foot?: boolean; name?: string }) {
   const grouped = new Set(models.map((m) => m.group).filter(Boolean)).size > 1;
-  // The phone's layout (kumo, 2026-11-25): the effort over the models, staying as they scroll,
-  // and the models' list as high as it may be at most, scrolling itself: with no height of its
-  // own it did not scroll, and kept the panel around it from scrolling under a finger on it.
+  // The phone's layout (kumo, 2026-11-25): the models' list in the middle, as high as the panel
+  // (at most half the window) leaves it under its head and over the effort and 添加, scrolling itself, its bar seen; the effort under it as everywhere, a rule over it
+  // and no words (EffortSlider bare), as little room as it can.
   const phone = useMedia(PHONE);
   const effort = (
     <>
       {(levels.length > 1 || foot) && (
         // The foot: tuned in place, never closing the menu; the model's own levels drawn anew.
         // UltraCode a switch at the track's right, not a row of its own (the user, 2026-11-06).
-        <div className={cn("shrink-0", phone ? "mb-1 border-b border-(--edge) pb-0.5" : "mt-1 border-t border-(--edge) pt-0.5")}>
+        <div className="mt-1 shrink-0 border-t border-(--edge) pt-0.5">
           {levels.length > 1 ? (
-            <EffortSlider key={levels.join(" ")} levels={levels} value={level || undefined} set={setEffort} aside={featKey} tag={featTag} />
+            <EffortSlider key={levels.join(" ")} levels={levels} value={level || undefined} set={setEffort} aside={featKey} tag={featTag} bare={phone} />
           ) : (
             <div className="flex h-10 items-center justify-between gap-3 px-2.5">
               <span className="text-xs text-ink-3">{name}</span>
@@ -777,10 +779,9 @@ export function ModelList({ models, value, pickModel, levels, level, setEffort, 
   );
   return (
     <>
-      {phone && effort}
       {/* The models scroll inside, the foot stays; as high as there is room above, short of the
           top by 40px, at most 640px (the user, 2026-11-06). */}
-      <Scrolled className={cn("-mr-1 min-h-0 pr-1", phone && "max-h-[min(38dvh,320px)] touch-pan-y")}>
+      <Scrolled bar={phone} className={cn("-mr-1 min-h-0 pr-1", phone && "max-h-[calc(min(480px,50dvh)-9.5rem)] shrink-0 touch-pan-y")}>
         <Menu.RadioGroup value={value} onValueChange={(x) => pickModel(x as string)} className="g-stagger flex flex-col">
           {models.map((m, i) => (
             <Fragment key={m.value}>
@@ -801,7 +802,7 @@ export function ModelList({ models, value, pickModel, levels, level, setEffort, 
           ))}
         </Menu.RadioGroup>
       </Scrolled>
-      {!phone && effort}
+      {effort}
     </>
   );
 }

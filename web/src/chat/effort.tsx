@@ -82,7 +82,9 @@ const SLIDER_KEY = /^(Arrow|Page|Home$|End$)/;
  *  whether it was taken: till the session's state says so, the slider stays where it was let go.
  *  aside: what sits at the track's right (UltraCode's switch); tag: words before the level's name
  *  (UltraCode, when on). */
-export function EffortSlider({ levels, value, set, aside, tag }: { levels: string[]; value?: string; set: (level: string) => Promise<boolean>; aside?: ReactNode; tag?: ReactNode }) {
+/** bare: no line of words over the track (the phone's layout under a list of models: a rule over
+ *  it says what it is, kumo 2026-11-25). */
+export function EffortSlider({ levels, value, set, aside, tag, bare }: { levels: string[]; value?: string; set: (level: string) => Promise<boolean>; aside?: ReactNode; tag?: ReactNode; bare?: boolean }) {
   useLang();
   const [want, setWant] = useState<string | null>(null);
   const [drag, setDrag] = useState<number | null>(null);
@@ -135,19 +137,19 @@ export function EffortSlider({ levels, value, set, aside, tag }: { levels: strin
     </span>
   );
   return (
-    <div ref={root} className="effort-slider px-2.5 pt-1.5 pb-2 select-none [-webkit-touch-callout:none]" onKeyDown={(e) => SLIDER_KEY.test(e.key) && e.stopPropagation()} style={{ "--frac": frac } as CSSProperties}>
+    <div ref={root} className={cn("effort-slider px-2.5 select-none [-webkit-touch-callout:none]", bare ? "py-0.5" : "pt-1.5 pb-2")} onKeyDown={(e) => SLIDER_KEY.test(e.key) && e.stopPropagation()} style={{ "--frac": frac } as CSSProperties}>
       {/* With a key beside it (UltraCode), two columns: the track and that key, the level's name over
           the key, centred on it (the user, 2026-11-06). Without one, the track the whole width, the
           name at the end of the line over it: nothing left empty at its right (the user, 2026-11-06). */}
       <div className={cn("grid items-center gap-x-3", aside ? "grid-cols-[minmax(0,1fr)_auto]" : "grid-cols-1")}>
-        <div className="flex h-6 min-w-0 items-center justify-between gap-2 text-xs">
+        <div className={cn("flex h-6 min-w-0 items-center justify-between gap-2 text-xs", bare && !tag && "hidden")}>
           <span className="text-ink-3">{t("composer.effort")}</span>
           <span className="flex min-w-0 items-center gap-2">
             {tag}
             {!aside && name}
           </span>
         </div>
-        {aside && name}
+        {aside && !bare && name}
         <Slider.Root value={i} min={0} max={n - 1} step={1} onValueChange={(v) => (v !== i && buzz(), setDrag(v as number))} onValueCommitted={(v) => commit(v as number)} aria-label={t("composer.effort")} className="group/effort min-w-0">
           <Slider.Control data-track-control className="relative flex h-7 cursor-grab touch-none items-center data-dragging:cursor-grabbing pointer-coarse:h-10">
             <Slider.Track data-track className="relative h-6 w-full rounded-full bg-fill-2 shadow-[inset_0_1px_2px_oklch(0_0_0/0.12)]">

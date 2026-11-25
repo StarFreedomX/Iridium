@@ -12,7 +12,7 @@ import { Menu } from "@base-ui/react/menu";
 import { useQueryClient } from "@tanstack/react-query";
 import { useQuery } from "../../api/query";
 import { LoaderCircle, Mail, Plus, UsersRound } from "lucide-react";
-import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { api } from "../../api/client";
 import type { Agent, ChannelMembers, Role, Trigger } from "../../api/types.gen";
 import { agentsQ, useMachines } from "../../data";
@@ -42,7 +42,12 @@ function useHeld() {
   const [open, setOpen] = useState(false);
   const set = setOpen;
   const lp = useLongPress(() => set(true), { suppressTouchClick: true });
-  return { open, set, keys: { ...lp, onContextMenu: (e: React.MouseEvent) => void (lp.onContextMenu(e) || (e.preventDefault(), set(true))) } };
+  // Whether its menu was out as the row was pressed: then a press adds; with none out, a press
+  // brings it out, not adding at once (kumo, 2026-11-25: on an unfolded phone, wide but a finger,
+  // a tap added with no way to its models). A mouse's pointing brings it out before it presses.
+  const was = useRef(false);
+  const press = (add: () => void) => () => (was.current ? add() : set(true));
+  return { open, set, press, keys: { ...lp, onPointerDown: (e: React.PointerEvent) => ((was.current = open), lp.onPointerDown?.(e)), onContextMenu: (e: React.MouseEvent) => void (lp.onContextMenu(e) || (e.preventDefault(), set(true))) } };
 }
 
 /** In a page of the panel (the portrait layout, where nothing is pointed at): while the page is
@@ -202,7 +207,7 @@ function RoleRow({ role, at, i, off, busy, add, wake, setWake }: { role: Role; a
     );
   return (
     <Menu.SubmenuRoot open={held.open} onOpenChange={held.set}>
-      <Menu.SubmenuTrigger disabled={off} onClick={add} style={style} className={cls} {...fig} {...held.keys}>
+      <Menu.SubmenuTrigger disabled={off} onClick={held.press(add)} style={style} className={cls} {...fig} {...held.keys}>
         {row}
       </Menu.SubmenuTrigger>
       <MenuPortal>
@@ -225,7 +230,7 @@ export function RolePreview({ role, at, off, busy, add, wake, setWake }: { role:
       name={role.name}
       sub={<RoleLine role={role} at={at} />}
       more={role.persona ? <p className="m-0 line-clamp-6 pt-2 text-sm leading-5 whitespace-pre-wrap text-ink-2 [overflow-wrap:anywhere]">{role.persona}</p> : undefined}
-      keys={[{ icon: busy ? <LoaderCircle size={15} className="animate-spin" /> : <Plus size={15} />, label: t("role.add"), run: add, disabled: off }, ...(wake && setWake ? [{ key: "wake", icon: <Mail size={15} />, label: `${t("channel.recv")} ${t(`wake.${wake}`)}`, run: () => setWake(nextWake(wake)) }] : [])]}
+      keys={[...(wake && setWake ? [{ key: "wake", icon: <Mail size={15} />, label: wakeLabel(wake), run: () => setWake(nextWake(wake)) }] : []), { icon: busy ? <LoaderCircle size={15} className="animate-spin" /> : <Plus size={15} />, label: t("role.add"), run: add, disabled: off, solid: true }]}
     />
   );
 }
@@ -269,7 +274,7 @@ function Kind({ id, k, m, lacks, i, off, busy, add, wake, setWake }: { id: strin
     );
   return (
     <Menu.SubmenuRoot open={held.open} onOpenChange={held.set}>
-      <Menu.SubmenuTrigger disabled={off} onClick={plain} style={style} className={cls} {...fig} {...held.keys}>
+      <Menu.SubmenuTrigger disabled={off} onClick={held.press(plain)} style={style} className={cls} {...fig} {...held.keys}>
         {row}
       </Menu.SubmenuTrigger>
       <MenuPortal>
@@ -298,21 +303,23 @@ function KindPage({ k, at, add, off, wake, setWake }: { k: Agent; at: At; add: (
 
 type Waking = { wake: Wake; setWake: (w: Wake) => void };
 const nextWake = (w: Wake) => WAKES[(WAKES.indexOf(w) + 1) % WAKES.length]!;
+/** "唤醒：仅 @ 时" (kumo, 2026-11-25: a colon after 唤醒). */
+const wakeLabel = (w: Wake) => t("wake.label", { w: t(`wake.${w}`) });
 
-/** Under a kind's models (kumo, 2026-11-25): 添加, with the model it would use as it is, and at
- *  its right what wakes the one added, a press going on to the next. */
+/** Under a kind's models (kumo, 2026-11-25): what wakes the one added, a press going on to the
+ *  next, and at the right 添加, solid, with the model it would use as it is. */
 function AddFoot({ add, off, wake, setWake }: { add: () => void; off: boolean } & Waking) {
   return (
     <>
       <div role="separator" className="mx-2.5 my-1 shrink-0 border-t border-(--edge)" />
       <div className="flex shrink-0 gap-1">
-        <Menu.Item closeOnClick={false} disabled={off} onClick={add} className={cn(ITEM, "min-w-0 shrink-0 justify-center bg-fill px-3 data-disabled:opacity-40 data-highlighted:bg-fill-2")}>
-          <Plus size={15} className="text-ink-2" />
-          <span className="truncate">{t("role.add")}</span>
+        <Menu.Item closeOnClick={false} onClick={() => setWake(nextWake(wake))} aria-label={wakeLabel(wake)} className={cn(ITEM, "min-w-0 flex-1")}>
+          <Mail size={15} className="shrink-0 text-ink-2" />
+          <span key={wake} className="g-fade truncate">{wakeLabel(wake)}</span>
         </Menu.Item>
-        <Menu.Item closeOnClick={false} onClick={() => setWake(nextWake(wake))} aria-label={`${t("channel.recv")} ${t(`wake.${wake}`)}`} className={cn(ITEM, "min-w-0 flex-1 justify-center")}>
-          <Mail size={15} className="text-ink-2" />
-          <span key={wake} className="g-fade truncate">{`${t("channel.recv")} ${t(`wake.${wake}`)}`}</span>
+        <Menu.Item closeOnClick={false} disabled={off} onClick={add} className={cn(ITEM, "min-w-0 shrink-0 justify-center bg-ink px-3.5 text-paper data-disabled:opacity-40 data-highlighted:bg-ink/85 data-popup-open:bg-ink")}>
+          <Plus size={15} />
+          <span className="truncate">{t("role.add")}</span>
         </Menu.Item>
       </div>
     </>

@@ -284,6 +284,20 @@ body {
   scrollbar-color: var(--fill-2) transparent;
 }
 /* No bar at all, still scrolling: the session list, the model picker (the user, 2026-11-06). */
+/* A thin bar of its own, always seen where it may scroll (a phone's list of models: what may be
+   scrolled said so, kumo 2026-11-25). */
+.thin-bar {
+  scrollbar-width: thin;
+  scrollbar-color: var(--ink-4) transparent;
+}
+.thin-bar::-webkit-scrollbar {
+  display: block;
+  width: 3px;
+}
+.thin-bar::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+  background: var(--ink-4);
+}
 .no-bar {
   scrollbar-width: none;
 }
