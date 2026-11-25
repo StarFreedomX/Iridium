@@ -15,6 +15,7 @@ const BASE = 0.12; // a cell's opacity with no figure on it
 const TURN = 700; // ms, one cell going over
 const SPREAD = 650; // ms, from the middle's first cell to the rim's
 const NEAR = 60; // px about the pointer
+const IDLE = 0.4; // the flow's speed with nothing happening, of its speed as something does
 const GLYPHS = "abcdefghijklmnopqrstuvwxyz0123456789{}[]()<>=+-*/&|!?:;.,_#$%@~^";
 const WORDS = ["mygo", "satori", "iridium"];
 const CODE = [
@@ -139,7 +140,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean): Splash {
   // drawn gliding to the asked, never set over to it in one frame (kumo, 2026-11-25: it twitched).
   let pw = 0.5, pwT = 0.5;
   let cx = -1, most = 0, px = -1, ps = 0;
-  let vel = 0, wasGliding = false, tick = 0;
+  let vel = 0, wasGliding = false, tick = 0, calm = false, odd = false;
   let leaving: (() => void) | null = null, left = false, spreadNow = SPREAD;
   const goal = (): [number, number] => (cx < 0 ? [W / 2, Math.min(H * 0.92, W * 0.7)] : [cx, most]);
   let fig: Fig | null = null, photo = false, drawnKey = "", asked = 0;
@@ -265,12 +266,17 @@ export function splash(cv: HTMLCanvasElement, still: boolean): Splash {
   const frame = (now: number) => {
     raf = 0;
     if (dead) return;
+    // Only flowing: every other frame is enough, half the work.
+    if (calm && (odd = !odd)) return kick();
     const dt = Math.min(50, now - last) / 1000;
     last = now;
     tick = Math.floor(now / 125);
     // The flow gathers and dies away: its speed goes to what is asked of it, by a part each frame.
-    const want = now < flowTo ? 1 : 0;
-    vel += (want - vel) * (1 - Math.exp(-dt / (want ? 0.4 : 0.7)));
+    // It flows the whole time it is there (kumo, 2026-11-25), slowly; faster for a moment as it
+    // comes, as its figure changes, as the effort is moved.
+    const burst = now < flowTo;
+    const want = still ? 0 : burst ? 1 : IDLE;
+    vel += (want - vel) * (1 - Math.exp(-dt / (burst ? 0.4 : 0.7)));
     const flow = vel > 0.004 ? vel : 0;
     if (flow > 0) for (let r = 0; r < rows; r++) off[r] = (off[r]! + speed[r]! * flow * (0.4 + 3.2 * pw * pw) * dt + len) % len;
     // The figure's place, size and strength glide to what is asked: the cells read anew each frame.
@@ -327,6 +333,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean): Splash {
       heat[i] = h * 0.9;
     }
     draw();
+    calm = !burst && !turning && !hot && !gliding && Math.abs(vel - want) < 0.02;
     if (flow > 0 || want || turning || hot || gliding) kick();
   };
   const kick = () => {
@@ -341,6 +348,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean): Splash {
       from = cur;
       t0 = -1e9;
       draw();
+      if (!still) kick();
       return;
     }
     from = { a: cur.a.slice(), r: cur.r.slice(), g: cur.g.slice(), b: cur.b.slice() };
