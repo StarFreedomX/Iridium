@@ -40,15 +40,15 @@ export function Splash({ show = true, fig = null, scene = "", className }: { sho
     eng.current = e;
     e.figure(nowRef.current);
     e.resize();
-    // The canvas is the whole pane; the band is the window of it that is seen (engine.ts), in the
-    // pane's middle, and stays there whatever opens over it (kumo, 2026-11-25: it is not to move
-    // about; the + panel is clear over it). The figure in its middle, whole: in the portrait
+    // The canvas is the whole pane; the band is the window of it that is seen (engine.ts), over the
+    // composer, and stays there whatever opens over it (kumo, 2026-11-25: it is not to move about). The figure in its middle, whole: in the portrait
     // layout as large as the band has room for.
     const fit = () => {
       e.resize();
       const w = el.clientWidth, pane = el.clientHeight, ph = phoneRef.current;
       const h = ph ? Math.min(460, Math.max(260, pane * 0.56)) : Math.min(420, Math.max(220, pane * 0.46));
-      e.window(pane / 2 - 24, h);
+      // Low in the pane, its foot on the composer (kumo, 2026-11-25: not in the middle).
+      e.window(pane - 76 - h / 2, h);
       e.place(ph ? w / 2 : -1, ph ? Math.min(w * 0.94, h * 0.98) : Math.min(h * 0.92, w * 0.7));
     };
     fitRef.current = fit;
