@@ -8,15 +8,19 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/kumoSleeping/iridium/internal/api"
 	"github.com/kumoSleeping/iridium/internal/config"
+	"github.com/kumoSleeping/iridium/internal/files"
 	"github.com/kumoSleeping/iridium/internal/gate"
 	"github.com/kumoSleeping/iridium/internal/remote"
 	"github.com/kumoSleeping/iridium/internal/remote/executor"
+	"github.com/kumoSleeping/iridium/internal/remote/wire"
 )
 
 // Web file browsing: list a folder, read a Range slice, honor the host guard, refuse app tokens.
@@ -188,4 +192,120 @@ func TestFileBrowserScope(t *testing.T) {
 			t.Fatalf("ordinary executor read: %v", err)
 		}
 	})
+}
+
+// A Windows executor receives "/" verbatim for browser listings, with the login scope still
+// attached. File content never sends that virtual path to the executor.
+func TestFileBrowserWindowsRemoteRoot(t *testing.T) {
+	t.Parallel()
+	hub := &remote.Hub{}
+	l := startWith(t, func(s *Server, _ config.Config, _ string) { s.Remote = hub })
+	app := l.newApp("win-pc", false)
+	exec := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hub.Serve(w, r, app.App.ID, app.App.Name)
+	}))
+	defer exec.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	ws, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(exec.URL, "http"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn := wire.NewConn(ws)
+	defer conn.Close()
+	calls := make(chan testBrowserDriveCall, 2)
+	conn.OnRequest = func(_ context.Context, method string, raw json.RawMessage) (any, error) {
+		var p wire.PathParams
+		if err := json.Unmarshal(raw, &p); err != nil {
+			return nil, err
+		}
+		calls <- testBrowserDriveCall{method, p}
+		return wire.ListReply{Entries: []wire.Entry{{Name: "D:", Type: "dir"}}}, nil
+	}
+	go conn.Run(ctx)
+	hi := wire.Hello{Protocol: wire.Protocol, OS: "windows", Sep: `\`, Home: `C:\Users\example`}
+	if err := conn.Call(ctx, "hello", hi, &wire.HelloReply{}); err != nil {
+		t.Fatal(err)
+	}
+	for {
+		if _, ok := hub.Machine(app.App.ID).Hello(); ok {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatal("no executor")
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	login, err := l.s.gate().CreateWebLogin("win-guest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	l.want(http.StatusOK, "socket", http.MethodPut, "/v1/internal/apps/"+gate.WebApp+"/logins/"+login.ID+"/perms", api.Perms{
+		Scope: []string{app.App.ID + ":D:/project"},
+	}, nil)
+
+	q := "?" + url.Values{"machine": {app.App.ID}, "path": {"/"}}.Encode()
+	c := caller{Identity: gate.Identity{App: gate.WebApp, Login: login.ID}}
+	request := func(route string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(http.MethodGet, route+q, nil)
+		w := httptest.NewRecorder()
+		mux := http.NewServeMux()
+		l.s.fileRoutes(mux, false)
+		mux.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), callerKey{}, c)))
+		return w
+	}
+	w := request("/v1/internal/web/files")
+	var got api.DirListing
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil || w.Code != http.StatusOK ||
+		got.Path != "/" || len(got.Entries) != 1 || got.Entries[0].Name != "D:" || got.Entries[0].Type != "dir" {
+		t.Fatalf("listing: status %d, body %s, decode %v", w.Code, w.Body, err)
+	}
+	call := <-calls
+	if call.method != "fs.list.browser" || call.params.Path != "/" || !slices.Equal(call.params.Scope, []string{`D:\project`}) {
+		t.Fatalf("unexpected executor call: %+v", call)
+	}
+	if w := request("/v1/internal/web/files/content"); w.Code != http.StatusBadRequest {
+		t.Fatalf("virtual root content: %d %s", w.Code, w.Body)
+	}
+	select {
+	case call := <-calls:
+		t.Fatalf("virtual root content was forwarded: %+v", call)
+	default:
+	}
+}
+
+type testBrowserDriveCall struct {
+	method string
+	params wire.PathParams
+}
+
+func TestFileBrowserWindowsHostRoot(t *testing.T) {
+	if filepath.Separator != '\\' {
+		t.Skip("Windows host only")
+	}
+	s := &Server{files: &files.Service{}}
+	mux := http.NewServeMux()
+	s.fileRoutes(mux, false)
+	const route = "/v1/internal/web/files"
+	request := func(suffix string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(http.MethodGet, route+suffix+"?path=%2F", nil)
+		w := httptest.NewRecorder()
+		c := caller{Identity: gate.Identity{App: gate.HostID}}
+		mux.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), callerKey{}, c)))
+		return w
+	}
+	w := request("")
+	var got api.DirListing
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil || w.Code != http.StatusOK || got.Path != "/" || len(got.Entries) == 0 {
+		t.Fatalf("host listing: status %d, body %s, decode %v", w.Code, w.Body, err)
+	}
+	for _, entry := range got.Entries {
+		if entry.Type != "dir" || len(entry.Name) != 2 || entry.Name[0] < 'A' || entry.Name[0] > 'Z' || entry.Name[1] != ':' {
+			t.Errorf("expected a drive: %+v", entry)
+		}
+	}
+	if w := request("/content"); w.Code != http.StatusBadRequest {
+		t.Fatalf("virtual root content: %d %s", w.Code, w.Body)
+	}
 }

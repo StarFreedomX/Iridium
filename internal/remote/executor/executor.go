@@ -915,6 +915,19 @@ func (e *Executor) stat(path string, head int, read fileRead) (any, error) {
 }
 
 func (e *Executor) list(path string, read fileRead) (any, error) {
+	// Only the web file browser (fs.list.browser) uses "/" on Windows as a synthetic drive list;
+	// ordinary fs.list, stat, read and mkdir still require a real native absolute path.
+	if read.browser && filepath.Separator == '\\' && path == "/" {
+		drives, err := pathsafe.BrowserDrives(e.Roots(), read.scope)
+		if err != nil {
+			return nil, err
+		}
+		out := wire.ListReply{Entries: make([]wire.Entry, 0, len(drives))}
+		for _, name := range drives {
+			out.Entries = append(out.Entries, wire.Entry{Name: name, Type: "dir"})
+		}
+		return out, nil
+	}
 	p, err := e.readable(path, read)
 	if err != nil {
 		return nil, err

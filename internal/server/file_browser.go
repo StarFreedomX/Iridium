@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"slices"
 	"sync"
 	"time"
@@ -55,8 +56,10 @@ type browserLocation struct {
 }
 
 // browserAt resolves the request's computer, path (defaulting to the first allowed root, the
-// computer's first shared root, or home) and login scope; it has answered when nil.
-func (s *Server) browserAt(w http.ResponseWriter, r *http.Request) *browserLocation {
+// computer's first shared root, or home) and login scope; it has answered when nil. When listing
+// is true, "/" on a Windows host or executor is kept as the synthetic drive root; content reads
+// reject it so it never reaches file serving or remote stat/read calls.
+func (s *Server) browserAt(w http.ResponseWriter, r *http.Request, listing bool) *browserLocation {
 	q := r.URL.Query()
 	path := q.Get("path")
 	app, c := gate.HostID, callerOf(r)
@@ -83,20 +86,32 @@ func (s *Server) browserAt(w http.ResponseWriter, r *http.Request) *browserLocat
 	}
 	at.scope = scope
 	if at.machine == nil {
-		at.path, err = s.hostPath(c, path)
-		if err != nil {
-			s.error(w, err)
-			return nil
+		if filepath.Separator == '\\' && path == "/" {
+			if !listing {
+				fail(w, http.StatusBadRequest, "the drive list is not a filesystem path")
+				return nil
+			}
+			at.path = path
+		} else {
+			at.path, err = s.hostPath(c, path)
+			if err != nil {
+				s.error(w, err)
+				return nil
+			}
 		}
 		for i, root := range scope {
 			scope[i], _ = s.hostPath(c, root)
 		}
 		return at
 	}
-	at.path = nativePath(at.hello, path)
-	if !remote.IsAbs(at.hello.Sep, at.path) {
-		fail(w, http.StatusBadRequest, "not an absolute path")
-		return nil
+	if listing && at.hello.Sep == `\` && path == "/" {
+		at.path = path
+	} else {
+		at.path = nativePath(at.hello, path)
+		if !remote.IsAbs(at.hello.Sep, at.path) {
+			fail(w, http.StatusBadRequest, "not an absolute path")
+			return nil
+		}
 	}
 	for i, root := range scope {
 		scope[i] = nativePath(at.hello, root)
@@ -105,10 +120,10 @@ func (s *Server) browserAt(w http.ResponseWriter, r *http.Request) *browserLocat
 }
 
 // browseFiles is GET /v1/internal/web/files: one level of a folder on the host or a connected
-// computer. An empty path opens the first allowed root or home.
+// computer. An empty path opens the first allowed root or home; "/" on Windows lists drives.
 func (s *Server) browseFiles(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
-	at := s.browserAt(w, r)
+	at := s.browserAt(w, r, true)
 	if at == nil {
 		return
 	}
@@ -134,7 +149,7 @@ func (s *Server) browseFiles(w http.ResponseWriter, r *http.Request) {
 // browseFile is GET /v1/internal/web/files/content: one regular file on the host or a connected
 // computer, served with Range support for preview or download.
 func (s *Server) browseFile(w http.ResponseWriter, r *http.Request) {
-	at := s.browserAt(w, r)
+	at := s.browserAt(w, r, false)
 	if at == nil {
 		return
 	}

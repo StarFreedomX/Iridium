@@ -168,8 +168,20 @@ func (s *Service) List(path string, scope ...string) (api.DirListing, error) {
 }
 
 // Browse is List for the web file browser: it rejects dot-prefixed paths and omits dot entries
-// from the listing, leaving ordinary List untouched for ir and internal reads.
+// from the listing, leaving ordinary List untouched for ir and internal reads. On Windows, "/"
+// returns the synthetic drive-letter root filtered by scope rather than a real directory.
 func (s *Service) Browse(path string, scope ...string) (api.DirListing, error) {
+	if filepath.Separator == '\\' && path == "/" {
+		drives, err := pathsafe.BrowserDrives(nil, scope)
+		if err != nil {
+			return api.DirListing{}, err
+		}
+		out := api.DirListing{Path: "/", Entries: make([]api.DirEntry, 0, len(drives))}
+		for _, name := range drives {
+			out.Entries = append(out.Entries, api.DirEntry{Name: name, Type: "dir"})
+		}
+		return out, nil
+	}
 	return s.list(path, true, scope...)
 }
 

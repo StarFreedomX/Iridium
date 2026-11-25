@@ -33,8 +33,6 @@ const filesQ = (machine: string, path: string) => ({
 /** Prefetch the listing the browser will open at; an empty path asks for the starting folder. */
 export const prefetchDirectory = (machine: string, path: string) => queryClient.prefetchQuery(filesQ(machine, path));
 
-const join = (dir: string, name: string) => dir.endsWith("/") ? dir + name : `${dir}/${name}`;
-
 const fileDownload = (machine: string, path: string, name: string) => ({
   href: api.browseFileURL(path, machine, true),
   download: name,
@@ -49,17 +47,31 @@ async function copyText(text: string) {
   }
 }
 
-/** Parent of a slash-separated page path, "" at a filesystem, drive (C:/) or UNC share root. */
-function parent(dir: string) {
+/** Normalize native Windows paths, including local Windows paths without a machine record. */
+export function browserPath(path: string, sep?: string) {
+  return sep === "\\" || /^[A-Za-z]:[\\/]|^\\\\/.test(path) ? path.replaceAll("\\", "/") : path;
+}
+
+const join = (dir: string, name: string) => dir.endsWith("/") ? dir + name : `${dir}/${name}`;
+
+/** Target path for one listed row: drive entries under the Windows virtual root open as "C:/". */
+export function entryPath(dir: string, name: string, virtual: boolean) {
+  return virtual ? name + "/" : join(dir, name);
+}
+
+/** Parent of a slash-separated page path: Windows drive roots (C:/) climb to the virtual root "/",
+ *  while "/" and UNC share roots return "". */
+export function parent(dir: string) {
   if (!dir.startsWith("/") && !/^[A-Za-z]:\//.test(dir)) return "";
   const path = dir.replace(/\/+$/, "");
-  if (!path || /^[A-Za-z]:$/.test(path) || /^\/\/[^/]+\/[^/]+$/.test(path)) return "";
+  if (!path || /^\/\/[^/]+\/[^/]+$/.test(path)) return "";
+  if (/^[A-Za-z]:$/.test(path)) return "/";
   const up = path.slice(0, path.lastIndexOf("/")) || "/";
   return /^[A-Za-z]:$/.test(up) ? up + "/" : up;
 }
 
 /** Ancestor paths from root to dir for the breadcrumb buttons, stopping at parent()'s root. */
-function pathTrail(dir: string) {
+export function pathTrail(dir: string) {
   const parts: string[] = [];
   for (let folder = dir; folder; folder = parent(folder)) parts.push(folder);
   return parts.reverse();
@@ -102,7 +114,11 @@ export default function FileBrowser({ machine: initialMachine, path: initialPath
   const [naming, setNaming] = useState<string | null>(within ? "" : null);
   const [making, setMaking] = useState(false);
   // Normalize Windows separators to '/' so parent() and join() work uniformly.
-  const dir = computer?.sep === "\\" ? here.replaceAll("\\", "/") : here;
+  const dir = browserPath(here, computer?.sep);
+  // "/" on Windows is the synthetic drive list rather than a real directory, so folder-scoped
+  // actions (mkdir, chat link, new channel here) stay disabled there.
+  const virtual = computer?.sep === "\\" && dir === "/";
+  const realFolder = !!folders.data?.path && !virtual;
   const list = useRef<HTMLDivElement>(null);
   const scroll = useRef<HTMLDivElement>(null);
   const title = useRef<HTMLHeadingElement>(null);
@@ -119,7 +135,7 @@ export default function FileBrowser({ machine: initialMachine, path: initialPath
   };
   const make = () => {
     const name = naming?.trim();
-    if (!name || name === "." || name === ".." || /[/\\\0]/.test(name) || making) return;
+    if (virtual || !name || name === "." || name === ".." || /[/\\\0]/.test(name) || making) return;
     setMaking(true);
     void api
       .mkdir({ path: dir, name, ...(machine ? { machine } : {}) })
@@ -178,18 +194,18 @@ export default function FileBrowser({ machine: initialMachine, path: initialPath
       <div className={cn("shrink-0 items-center gap-1 border-b border-edge px-2 py-1", file ? "hidden @min-[620px]:flex" : "flex")}>
         <IconKey label={t("browse.start")} onClick={() => visit(root ?? "")}><House size={15} /></IconKey>
         <PathBar dir={dir} machine={machine} typed={typed} onType={setTyped} onVisit={visit} inside={inside} />
-        <IconKey label={t("pick.newFolder")} disabled={!folders.data?.path} onClick={() => setNaming((n) => (n === null ? "" : null))}><FolderPlus size={15} /></IconKey>
+        <IconKey label={t("pick.newFolder")} disabled={!realFolder} onClick={() => setNaming((n) => (n === null ? "" : null))}><FolderPlus size={15} /></IconKey>
         <IconKey label={t("top.reload")} onClick={() => void folders.refetch()}><RefreshCw size={15} /></IconKey>
-        <IconKey label={t("browse.copyChatLink")} disabled={!folders.data?.path} onClick={() => copyChatLink(dir)}><Link2 size={15} /></IconKey>
+        <IconKey label={t("browse.copyChatLink")} disabled={!realFolder} onClick={() => copyChatLink(dir)}><Link2 size={15} /></IconKey>
       </div>
       <div className="relative flex min-h-0 flex-1">
         {/* Pull the focus ring inside the pane so the dialog's overflow-hidden rounded edge does not clip it. */}
         <div ref={list} tabIndex={-1} className={cn("min-w-0 flex-1 flex-col focus-visible:-outline-offset-6 @min-[620px]:flex @min-[620px]:w-72 @min-[620px]:flex-none @min-[620px]:border-r @min-[620px]:border-edge", file ? "hidden" : "flex")}>
           <div ref={scroll} className="min-h-0 flex-1 overflow-auto overscroll-contain p-1.5">
             {/* 新建文件夹: a row at the list's head, its height glided; Enter makes it and goes in. */}
-            <div className={cn("grid transition-[grid-template-rows] duration-(--dur-3) ease-(--ease-out) motion-reduce:transition-none", naming !== null ? "grid-rows-[1fr]" : "grid-rows-[0fr]")}>
+            <div className={cn("grid transition-[grid-template-rows] duration-(--dur-3) ease-(--ease-out) motion-reduce:transition-none", !virtual && naming !== null ? "grid-rows-[1fr]" : "grid-rows-[0fr]")}>
               <div className="min-h-0 overflow-hidden">
-                {naming !== null && (
+                {!virtual && naming !== null && (
                   <form className={cn(folderRowClass, "bg-fill")} onSubmit={(e) => (e.preventDefault(), make())}>
                     {making ? <LoaderCircle size={17} className="shrink-0 animate-spin text-ink-3" /> : <FolderPlus size={17} className="shrink-0 text-ink-2" />}
                     <input
@@ -214,7 +230,7 @@ export default function FileBrowser({ machine: initialMachine, path: initialPath
                 )}
               </div>
             </div>
-            <FolderContents machine={machine} dir={dir} top={dir === root} folders={folders} selected={file?.name} onFolder={openFolder} onFile={openFile} copyActions={copyActions} />
+            <FolderContents machine={machine} dir={dir} virtual={virtual} top={dir === root} folders={folders} selected={file?.name} onFolder={openFolder} onFile={openFile} copyActions={copyActions} />
           </div>
         </div>
         <div className={cn("min-w-0 flex-1 flex-col @min-[620px]:flex", file ? "flex" : "hidden")}>
@@ -224,7 +240,7 @@ export default function FileBrowser({ machine: initialMachine, path: initialPath
             channel in the folder shown, at the computer shown; the folder is its group. */}
         {!file && (
           <Dialog.Close
-            disabled={!folders.data?.path || (!!machine && !computer?.online)}
+            disabled={!realFolder || (!!machine && !computer?.online)}
             onClick={() => void newChannelAt(nativeAt(computer, dir), machine || undefined, workspace).then((id) => id && openChat(id))}
             className="g-press absolute right-3 bottom-3 flex h-9 items-center gap-1.5 rounded-full bg-ink pr-3.5 pl-2.5 text-sm font-medium text-on-ink shadow-lg disabled:opacity-40 pointer-coarse:h-11"
           >
@@ -334,6 +350,8 @@ type FolderContentsProps = {
   dir: string;
   /** dir is the folder the browser is kept in: no .. above it. */
   top?: boolean;
+  /** dir is the synthetic Windows drive list at "/". */
+  virtual: boolean;
   folders: UseQueryResult<DirListing>;
   selected?: string;
   onFolder: (path: string, fromKeyboard: boolean) => void;
@@ -363,7 +381,7 @@ type BrowserEntry = Pick<DirEntry, "name" | "type"> & { path: string };
 
 /** The folder's rows and the one menu they share: .. stands first with the parent's real path so
  *  opening, copying and the menu all act on it, and stays usable while the rest loads or fails. */
-function FolderContents({ machine, dir, top, folders, selected, onFolder, onFile, copyActions }: FolderContentsProps) {
+function FolderContents({ machine, dir, virtual, top, folders, selected, onFolder, onFile, copyActions }: FolderContentsProps) {
   const { data, isSuccess } = folders;
   const entries = useMemo(() => {
     const up = top ? "" : parent(dir);
@@ -371,10 +389,10 @@ function FolderContents({ machine, dir, top, folders, selected, onFolder, onFile
     if (isSuccess) {
       const byName = new Intl.Collator(undefined, { numeric: true });
       const sorted = data.entries.slice().sort((a, b) => Number(b.type === "dir") - Number(a.type === "dir") || byName.compare(a.name, b.name));
-      for (const { name, type } of sorted) rows.push({ name, type, path: join(dir, name) });
+      for (const { name, type } of sorted) rows.push({ name, type, path: entryPath(dir, name, virtual) });
     }
     return rows;
-  }, [dir, top, data, isSuccess]);
+  }, [dir, virtual, top, data, isSuccess]);
   const [at, setAt] = useMenuAt();
   const [target, setTarget] = useState<{ entry: BrowserEntry; key: HTMLButtonElement } | null>(null);
   const anchor = usePointAnchor(at);
@@ -405,7 +423,8 @@ function FolderContents({ machine, dir, top, folders, selected, onFolder, onFile
         { icon: <Download size={15} />, label: t("msg.download"), ...fileDownload(machine, path, entry.name) },
       );
     }
-    items.push(...copyActions(path, directory));
+    // For a drive root, the .. row navigates to a virtual directory, with no real path to copy.
+    if (!(path === "/" && !dir.startsWith("/"))) items.push(...copyActions(path, directory));
   }
   return (
     <>
