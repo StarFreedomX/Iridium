@@ -77,7 +77,9 @@ export function Deeper({ row, title, i, popup, bare, disabled, children }: { row
   const style = { "--i": i } as CSSProperties;
   if (pages) {
     const at = pages.stack.findIndex((p) => p.id === id);
-    const place: Place | null = at === pages.stack.length - 1 ? "top" : at >= 0 ? "under" : pages.gone?.id === id ? "gone" : null;
+    // Not in the stack: no page drawn (with none open, at -1 is no top: every row's page was drawn
+    // at once, kumo 2026-11-25).
+    const place: Place | null = at < 0 ? (pages.gone?.id === id ? "gone" : null) : at === pages.stack.length - 1 ? "top" : "under";
     return (
       <>
         <Menu.Item closeOnClick={false} disabled={disabled} onClick={() => pages.push({ id, title })} style={style} className={cn(ITEM, "data-disabled:opacity-40")}>
