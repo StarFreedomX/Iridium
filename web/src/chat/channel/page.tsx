@@ -358,11 +358,23 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
     document.addEventListener("visibilitychange", look);
     return () => document.removeEventListener("visibilitychange", look);
   }, []);
+  // Read as far as it has been gone down to: what came under a view not at its end (scrolled up,
+  // or come all at once as the page opened) is not read by being there (kumo, 2026-11-26).
+  const [atEnd, setAtEnd] = useState(entry.place.top === null);
   useEffect(() => {
-    if (!end || !may || !seen) return;
+    if (!end || !may || !seen || !atEnd) return;
     const timer = setTimeout(() => void api.read(id, end).then((r) => setCarried(`reads:${id}`, r), () => {}), 600);
     return () => clearTimeout(timer);
-  }, [id, end, may, seen]);
+  }, [id, end, may, seen, atEnd]);
+  // Where this reader had read to, as the page opens with more than that: opened there (stick.tsx).
+  const readAt = members?.me ? reads?.readers.find((r) => r.member === members.me)?.seq : undefined;
+  const openAt = readAt !== undefined && log.loaded && readAt < log.end ? readAt : undefined;
+  // This device's copy goes on with the channel as messages come, not only as a turn ends: loaded
+  // again in the middle of one, the page is drawn as it was, not as it was a turn ago (kumo,
+  // 2026-11-26).
+  useEffect(() => {
+    if (end) void import("../../device/chats").then((m) => m.saveSoon(id)).catch(() => {});
+  }, [id, end]);
   const marks = useMemo(() => readMarks(groups, reads?.readers ?? [], members?.me), [groups, reads, members?.me]);
   // Long words read before the latest rounds fold of themselves (channel/folds.ts), as each is
   // first drawn once the place read to is known.
@@ -425,7 +437,7 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
       <div className="relative h-full" onDragOver={(e) => files(e) || session(e) || place(e)} onDrop={drop}>
         {/* Nothing said yet: the pane's splash is told so (splash/splash.tsx). */}
         <ChannelSplash id={id} show={!hold && !sent.length && (log.loaded ? !log.msgs.length : justMade(id))} last={agents.at(-1)} agents={agents.length} />
-        <Stick key={hold ? "hold" : "whole"} scroller={scroller} tail={grew} older={() => log.older()} draw={changed} place={entry.place} bottom={stackH} quiet={asking} style={{ paddingTop: padTop, paddingBottom: stackH + 20 }}>
+        <Stick key={hold ? "hold" : "whole"} scroller={scroller} tail={grew} older={() => log.older()} draw={changed} place={entry.place} openAt={openAt} late={log.late} onFollow={setAtEnd} bottom={stackH} quiet={asking} style={{ paddingTop: padTop, paddingBottom: stackH + 20 }}>
           <div data-column className="mx-auto flex max-w-(--chat-w) flex-col gap-5 px-4 [--depart-gap:1.25rem] sm:px-6">
             {!hold &&
               groups.map((g) => (

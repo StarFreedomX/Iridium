@@ -81,6 +81,9 @@ export class ChannelLog {
     this.put([]);
   }
 
+  /** How many times the server's page brought messages past this device's copy: said while the
+   *  page was away, come all at once as it is opened (the view does not go down to them: stick.tsx). */
+  late = 0;
   /** The messages put in from this device's copy (device/chats.ts), not yet the server's. */
   restored = false;
   /** This device's copy of the newest messages, before the server's. */
@@ -97,6 +100,7 @@ export class ChannelLog {
   take(p: ChannelPage, since = 0) {
     if (this.restored) {
       this.restored = false;
+      const was = this.end;
       this.more = p.more;
       const next = read(p.data);
       const theirs = new Map(next.map((m) => [m.n, JSON.stringify(m)]));
@@ -105,6 +109,7 @@ export class ChannelLog {
       const same = this.msgs.every((m) => m.n < from || theirs.get(m.n) === JSON.stringify(m));
       if (!same) this.msgs = this.msgs.filter((m) => m.n < from || (this.touched.get(m.n) ?? 0) > since);
       this.put(next, since);
+      if (was && this.end > was) this.late++;
       this.came = Date.now();
       return;
     }

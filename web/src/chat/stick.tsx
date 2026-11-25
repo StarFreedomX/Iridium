@@ -87,7 +87,7 @@ const offNow = (m: Mark, col: Element) => {
 
 /** tail: changes as the conversation grows at its end. quiet: no key to go down (an ask under
  *  it). draw: draws the page now (the page before, once older brought it). */
-export function Stick({ tail, older, draw, place, style, children, scroller, bottom, quiet }: { tail: unknown; older: () => Promise<boolean>; draw: () => void; place: { top: number | null }; style?: CSSProperties; children: ReactNode; scroller?: RefObject<HTMLDivElement | null>; bottom: number; quiet?: boolean }) {
+export function Stick({ tail, older, draw, place, style, children, scroller, bottom, quiet, openAt, late, onFollow }: { tail: unknown; older: () => Promise<boolean>; draw: () => void; place: { top: number | null; opened?: boolean }; openAt?: number; late?: number; onFollow?: (on: boolean) => void; style?: CSSProperties; children: ReactNode; scroller?: RefObject<HTMLDivElement | null>; bottom: number; quiet?: boolean }) {
   const own = useRef<HTMLDivElement>(null);
   const list = scroller ?? own;
   const [fresh, setFresh] = useState(false);
@@ -137,8 +137,14 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     s.frame = requestAnimationFrame(step);
   };
   const run = () => void (!s.frame && s.following && ((s.last = performance.now()), (s.frame = requestAnimationFrame(step))));
-  const leave = () => (s.following && moveLog("stick.leave", "reader"), (s.following = false), stop());
-  const follow = () => ((s.following = true), setFresh(false));
+  const told = useRef(onFollow);
+  told.current = onFollow;
+  const leave = () => (s.following && moveLog("stick.leave", "reader"), (s.following = false), stop(), told.current?.(false));
+  const follow = () => ((s.following = true), setFresh(false), told.current?.(true));
+  /** What came is not gone down to (kumo, 2026-11-26: said while the reader was away, it is theirs
+   *  to go to): the view stays, the key to go down shown. */
+  const stay = (why: string) => (moveLog("stick.stay", why), (s.following = false), stop(), setFresh(true), told.current?.(false));
+  const lateWas = useRef(late);
   /** To the end, eased from no farther than NEAR (the key pressed, a message sent). */
   const goDown = (why: string) => {
     const el = list.current;
@@ -180,10 +186,20 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     if (!s.drawn) {
       // Opened: drawn at its newest, or where it was left, in the first frame.
       s.drawn = true;
-      if (s.following) put(el, maxOf(el));
+      // First opened with messages not read yet (kumo, 2026-11-26): at the last one read, its
+      // foot at the pane's, as it was left; not at the newest.
+      const first = !place.opened && !!el.querySelector("[data-seq]");
+      let row: HTMLElement | null = null;
+      if (first && s.following && openAt !== undefined) for (let n = openAt; !row && n > openAt - 4 && n > 0; n--) row = el.querySelector<HTMLElement>(`[data-seq="${n}"]`);
+      if (first) place.opened = true;
+      const to = row ? row.getBoundingClientRect().bottom - el.getBoundingClientRect().top + el.scrollTop - (el.clientHeight - parseFloat(getComputedStyle(el).paddingBottom || "0")) + 16 : Infinity;
+      if (row && to < maxOf(el) - 48) (put(el, Math.max(0, to)), stay("unread"));
+      else if (s.following) put(el, maxOf(el));
       else el.scrollTop = place.top!;
     } else if (was === tail) return;
+    else if (s.following && late !== lateWas.current) stay("late");
     else if (!s.following) atFoot(el) ? follow() : setFresh(true);
+    lateWas.current = late;
     // The page before is asked for near the top: opened, or read up there. Not at each draw while
     // it follows its end, where asking reads the layout the draw has just changed, once more a
     // frame (a stream drawn many times a second; scrolled up, the scroll asks).
