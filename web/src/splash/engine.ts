@@ -574,7 +574,8 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
   // goes along it, faster and faster, its trail behind it, and bursts at its end.
   type Rocket = { pts: [number, number][]; cum: number[]; total: number; at: number; flown: boolean; puff: number };
   type RocketNow = { k: Rocket; stop: boolean; drawn: number; head: number; hx: number; hy: number };
-  const STOP = 650, FLY = 850;
+  // No standing still before it goes (kumo, 2026-11-26: the page seemed stuck).
+  const STOP = 0, FLY = 850;
   let rk: Rocket | null = null;
   let path: { x: number; y: number; t: number }[] = [];
   let looked = 0, held = false, heldAt = 0, lastHeld = 0;
@@ -629,7 +630,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
     if (!rk) return null;
     const t = now - rk.at;
     const stop = t < STOP;
-    const drawn = clamp(t / (STOP * 0.7));
+    const drawn = STOP ? clamp(t / (STOP * 0.7)) : 1;
     const u = clamp((t - STOP) / FLY);
     const head = stop ? -1 : rk.total * u * u;
     const [hx, hy] = head < 0 ? [-1e9, -1e9] : along(rk, head);
@@ -928,7 +929,9 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
       ly = y;
       lensOn = true;
       const now = performance.now();
-      if (moved > 3) path.push({ x, y, t: now });
+      // A line is drawn pressed (a mouse's button down, a finger on the pane), not by a pointer
+      // only passing (kumo, 2026-11-26: rockets went off unasked).
+      if (moved > 3 && held) path.push({ x, y, t: now });
       path = path.filter((p) => now - p.t < 1400);
       if (!rk && now - looked > 60) {
         looked = now;
@@ -951,6 +954,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
     },
     hold(on) {
       held = on && !still;
+      path = [];
       heldAt = performance.now();
       if (held) kick();
     },
