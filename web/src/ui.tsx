@@ -368,7 +368,6 @@ export function PopSurface({
   finalFocus,
   anchor,
   still,
-  drop,
   style,
 }: {
   children: ReactNode;
@@ -385,16 +384,12 @@ export function PopSurface({
    *  a frame behind each push, and flipped over the face as that neared an edge (kumo,
    *  2026-11-17). Needs anchor. */
   still?: boolean;
-  /** Down from the window's top edge, as wide as it, over the top bar: the bottom sheet's
-   *  counterpart (a step's card on a phone, kumo 2026-11-25). The page under it as it was, not
-   *  dimmed. anchor is not needed. */
-  drop?: boolean;
   style?: CSSProperties;
 }) {
   return (
     <PopoverPortal>
-      <Placed side={drop ? "bottom" : side} align={drop ? "start" : align} sideOffset={drop ? 0 : sideOffset} anchor={drop ? TOP_EDGE : anchor} still={still || drop} edge={drop ? 0 : 8}>
-        <Popover.Popup initialFocus={initialFocus ?? ((type) => type === "keyboard")} finalFocus={finalFocus} style={style} className={cn(drop ? "g-drop float w-screen rounded-b-2xl bg-paper pt-[env(safe-area-inset-top)] text-ink outline-none" : "g-unfold glass thick float rounded-lg text-ink outline-none", className)}>
+      <Placed side={side} align={align} sideOffset={sideOffset} anchor={anchor} still={still}>
+        <Popover.Popup initialFocus={initialFocus ?? ((type) => type === "keyboard")} finalFocus={finalFocus} style={style} className={cn("g-unfold glass thick float rounded-lg text-ink outline-none", className)}>
           {children}
         </Popover.Popup>
       </Placed>
@@ -402,12 +397,9 @@ export function PopSurface({
   );
 }
 
-/** The window's top edge, its whole width: where a drop opens. */
-const TOP_EDGE = { getBoundingClientRect: () => new DOMRect(0, 0, window.innerWidth, 0) };
-
 /** PopSurface's place; drawn only while it is open, so a still one's anchor is where it was as
  *  it opened: its box then, not the element, which moves. */
-function Placed({ children, side, align, sideOffset, anchor, still, edge }: { children: ReactNode; side: "top" | "bottom" | "left" | "right"; align: "start" | "center" | "end"; sideOffset: number; anchor?: Element | { getBoundingClientRect: () => DOMRect } | null; still?: boolean; edge: number }) {
+function Placed({ children, side, align, sideOffset, anchor, still }: { children: ReactNode; side: "top" | "bottom" | "left" | "right"; align: "start" | "center" | "end"; sideOffset: number; anchor?: Element | { getBoundingClientRect: () => DOMRect } | null; still?: boolean }) {
   const [box] = useState(() => (still && anchor ? anchor.getBoundingClientRect() : null));
   const at = useMemo(() => (box ? { getBoundingClientRect: () => box } : undefined), [box]);
   // A still one's side is chosen once, as it opens: over its anchor where under it there is little
@@ -419,7 +411,7 @@ function Placed({ children, side, align, sideOffset, anchor, still, edge }: { ch
     return under < 320 && box.top > under ? "top" : side;
   });
   return (
-    <Popover.Positioner side={box ? sure : side} align={align} sideOffset={sideOffset} collisionPadding={edge} collisionAvoidance={box ? { side: "none", align: "shift" } : undefined} anchor={at ?? anchor ?? undefined} className="z-50">
+    <Popover.Positioner side={box ? sure : side} align={align} sideOffset={sideOffset} collisionPadding={8} collisionAvoidance={box ? { side: "none", align: "shift" } : undefined} anchor={at ?? anchor ?? undefined} className="z-50">
       {children}
     </Popover.Positioner>
   );

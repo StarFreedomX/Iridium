@@ -30,12 +30,15 @@ const near = (el: HTMLElement) => Math.max(600, el.clientHeight * 2);
  *  anchoring: Chromium, Firefox, Safari 27 on). ?noanchor=1 tries the page's own way. */
 const anchors = () => typeof CSS !== "undefined" && CSS.supports("overflow-anchor", "auto") && !/[?&]noanchor=1/.test(location.search);
 
-type Chat = { toEnd(): void; letGo(): void; rests(): boolean };
+type Chat = { toEnd(): void; letGo(): void; rests(): boolean; down(by: number): void };
 const chats = new WeakMap<HTMLElement, Chat>();
 /** A message sent from here: the chat follows again, to its end. */
 export const toEnd = (el: HTMLElement | null) => el && chats.get(el)?.toEnd();
 /** The chat is taken up by the reader's doing elsewhere (a quote pressed, gone to). */
 export const letGo = (el: HTMLElement | null) => el && chats.get(el)?.letGo();
+/** The conversation moved down by px, as far as it goes, and let go: room over a row for what opens
+ *  over it (a step's card on a phone, work.tsx). */
+export const moveDown = (el: HTMLElement | null, by: number) => el && chats.get(el)?.down(by);
 /** At its very newest and still: the phone's sheet may be swiped on from it (sheet.tsx). */
 export const restsAtEnd = (el: HTMLElement) => chats.get(el)?.rests() ?? false;
 
@@ -209,7 +212,7 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     });
     ro.observe(el);
     if (el.firstElementChild) ro.observe(el.firstElementChild);
-    chats.set(el, { toEnd: () => goDown("send"), letGo: leave, rests: () => s.following && !s.frame && atFoot(el) });
+    chats.set(el, { toEnd: () => goDown("send"), letGo: leave, rests: () => s.following && !s.frame && atFoot(el), down: (by) => (leave(), put(el, Math.max(0, el.scrollTop - by))) });
     // The reader's way up, seen before the scroll comes; down at the very end, where none comes.
     const wheel = (e: WheelEvent) => {
       s.hand = performance.now();
