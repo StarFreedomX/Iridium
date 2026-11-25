@@ -1053,9 +1053,8 @@ export function StepCard({ s, session }: { s: Step; session: string }) {
             <Lead mark="⎿" dim>
               {s.name === "Agent" || s.name === "Task" ? <SubResult r={s.result} session={session} fold={false} /> : <Clipped text={s.result!.text} length={s.result!.length} at={s.result!.at} session={session} error={s.result!.error} asked />}
             </Lead>
-          ) : !s.result ? (
-            <span className="text-xs text-ink-3">{t("msg.noResult")}</span>
           ) : null}
+          {/* Nothing came back (a cd), or not yet: no line for it, no 暂无结果 (kumo, 2026-11-25). */}
           {/* The sessions it names by id, each a card going there (ir send, ir wait); not a list's
               many (ir ls): the sidebar has those. ir new's is under its line (Opened). */}
           {!newOfCall(s) && <NamedCards text={s.input ?? ""} also={s.result?.text} />}
