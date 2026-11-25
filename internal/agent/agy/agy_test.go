@@ -774,3 +774,37 @@ func TestPictureOfRead(t *testing.T) {
 		t.Errorf("by its location: none")
 	}
 }
+
+func TestReadTextOf(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "sample.go")
+	os.WriteFile(src, []byte("package main\n\nfunc main() {\n\tprintln(\"hi\")\n}\n"), 0o600)
+	bin := filepath.Join(dir, "bin.dat")
+	os.WriteFile(bin, []byte{0x00, 0x01, 0x02}, 0o600)
+	d := &Driver{readFile: os.ReadFile}
+
+	// Sliced read with StartLine/EndLine (as agy read_file passes).
+	u := &update{Status: "completed", ToolKind: "read", RawInput: json.RawMessage(`{"Path":"` + src + `","StartLine":3,"EndLine":4}`)}
+	got := d.readTextOf(u, tool{name: "read"})
+	want := "3: func main() {\n4: \tprintln(\"hi\")"
+	if got != want {
+		t.Fatalf("readTextOf slice = %q, want %q", got, want)
+	}
+
+	// Whole read using location fallback when RawInput omits Path.
+	u2 := &update{Status: "completed", ToolKind: "read"}
+	u2.Locations = append(u2.Locations, struct {
+		Path string `json:"path"`
+	}{src})
+	if full := d.readTextOf(u2, tool{name: "read"}); !strings.HasPrefix(full, "1: package main\n") || !strings.HasSuffix(full, "5: }") {
+		t.Fatalf("readTextOf full = %q", full)
+	}
+
+	// Binary or failed read returns empty.
+	if b := d.readTextOf(&update{Status: "completed", ToolKind: "read", RawInput: json.RawMessage(`{"Path":"` + bin + `"}`)}, tool{name: "read"}); b != "" {
+		t.Fatalf("binary file should return empty, got %q", b)
+	}
+	if f := d.readTextOf(&update{Status: "failed", ToolKind: "read", RawInput: json.RawMessage(`{"Path":"` + src + `"}`)}, tool{name: "read"}); f != "" {
+		t.Fatalf("failed read should return empty, got %q", f)
+	}
+}

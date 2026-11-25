@@ -6,6 +6,7 @@
 import { api, queryClient, type First } from "./api/client";
 import type { Block, DraftEvent, MessagePage, Session, SessionState } from "./api/types.gen";
 import { anyUnsentChannel, channelLog, heldLog } from "./chat/channel/log";
+import { seedSpans } from "./chat/spans";
 import { getCarried, setCarried } from "./store";
 
 /** Whether what came at at (ms) is of just now: a page that opens right after a first screen (or
@@ -591,6 +592,7 @@ function putFirst(id: string, f: First, log: Messages): void {
   }
   if (!f.log) return;
   channelLog(id).log.take(f.log);
+  if (f.work?.length) seedSpans(f.work);
   if (f.reads && !getCarried(`reads:${id}`)) setCarried(`reads:${id}`, f.reads);
 }
 

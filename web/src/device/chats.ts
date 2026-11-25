@@ -16,9 +16,9 @@ import { getCarried, onCarried, setCarried } from "../store";
 import { listFromDevice } from "./first";
 import { asked, db, done, drop, entries, getConf } from "./store";
 
-/** The copy's format: one that is not this is dropped whole (4: step spans kept with each
- *  channel's copy so reload draws tool icons and steps from cache). */
-export const FORMAT = 4;
+/** The copy's format: one that is not this is dropped whole (5: minimal brief step spans kept
+ *  with each channel's copy so reload draws tool rows from cache without storing heavy outputs). */
+export const FORMAT = 5;
 /** As much of the record as its newest page (internal/transcript PageMessages, PageBlocks). */
 const PAGE_MESSAGES = 20;
 const PAGE_BLOCKS = 200;

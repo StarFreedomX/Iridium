@@ -1075,7 +1075,7 @@ function Fields({ text }: { text: string }) {
     v = part;
   }
   if (!v || typeof v !== "object" || Array.isArray(v)) return <Pre text={pretty(text)} />;
-  const rows = Object.entries(v as Record<string, unknown>);
+  const rows = Object.entries(v as Record<string, unknown>).filter(([k]) => k !== "_diff");
   const file = rows.find(([k, x]) => FILE.has(k) && typeof x === "string")?.[1] as string | undefined;
   const oldRow = rows.find(([k, x]) => OLD.has(k) && typeof x === "string");
   const newRow = rows.find(([k, x]) => EDIT_NEW.has(k) && typeof x === "string");

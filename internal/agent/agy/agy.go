@@ -1271,7 +1271,12 @@ func (d *Driver) update(raw json.RawMessage, replay bool) {
 			}
 			delete(d.tools, u.ToolCallID)
 			d.withdrawFor(u.ToolCallID)
-			d.record(transcript.Entry{Kind: string(api.BlockKindResult), ID: u.ToolCallID, Text: resultOf(u), Error: u.Status == "failed", Content: d.pictureOf(u)})
+			text := resultOf(u)
+			pic := d.pictureOf(u)
+			if live && text == "" && pic == nil {
+				text = d.readTextOf(u, t)
+			}
+			d.record(transcript.Entry{Kind: string(api.BlockKindResult), ID: u.ToolCallID, Text: text, Error: u.Status == "failed", Content: pic})
 			if !d.loading {
 				d.emitLocked(agent.ToolDone{ID: u.ToolCallID, Name: t.name})
 			}

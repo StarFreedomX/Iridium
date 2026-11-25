@@ -119,9 +119,12 @@ export function WorkLine({ channel, n, session, work, did, span, may, esc }: { c
   // has, so that it is whole as it opens, before they are read.
   const rows = work ? Math.max(steps, 1) : undefined;
   const read = () => from !== undefined && void (work ? readSteps(session, from, undefined, steps) : readSteps(session, from, to)).catch(() => {});
-  // Read as it is drawn (its line says what was done by its sorts, as its record has it), and
-  // again as its steps go on while it is open.
-  useEffect(() => void read(), [open, steps, running, to]);
+  // When brief summary blocks are already seeded (from /first or device cache) and the line is
+  // collapsed and done, avoid firing block.list on mount; full blocks load on hover/focus/press/open.
+  const hasSpan = !!blocks?.length;
+  useEffect(() => {
+    if (open || running || !hasSpan) void read();
+  }, [open, steps, running, to, hasSpan]);
   const limit = work ? Math.max(steps, 1) : undefined;
   const all = useMemo(() => (blocks ? allStepsOf(blocks, running, limit) : undefined), [blocks, running, limit]);
   const runs = useMemo(() => (all ? foldLine(all) : []), [all]);
@@ -177,10 +180,13 @@ export function WorkLine({ channel, n, session, work, did, span, may, esc }: { c
     if (!open || stays) setOnly(to);
     if (!stays) setOpen(channel, n, !open);
   };
+  // Before any tool step (connecting / thinking): match single-line text-md height (23px) so
+  // switching from "思考中" to the first line of streamed text causes zero downward sink (#107).
+  const idle = !!work && running && !steps;
   return (
     <div className="min-w-0">
       {/* The room right of its keys opens all of it too (kumo, 2026-11-25); each key keeps its own. */}
-      <div onClick={(e) => opens && !one && !(e.target as Element).closest("button") && toggle()} className={cn("flex h-7 min-w-0 items-center gap-1.5 text-sm text-ink-3 pointer-coarse:h-9", opens && !one && "cursor-pointer")}>
+      <div onClick={(e) => opens && !one && !(e.target as Element).closest("button") && toggle()} className={cn("flex min-w-0 items-center gap-1.5 text-sm text-ink-3 select-none", idle ? "h-[23px]" : "h-7 pointer-coarse:h-9", opens && !one && "cursor-pointer")}>
         {/* The key that opens all of it, before the rest; where it worked, pressed, the same. */}
         <button
           type="button"
@@ -330,7 +336,7 @@ function StepList({ reveal, session, steps, only, rows, open, card, setCard, was
           clearWasOn();
           setCard(shut ? (card ? { ...card, open: false } : null) : { key, at: group[0]!.at, group: group.map((s) => s.at), el: e.currentTarget, open: true });
         }}
-        className={cn(ROW, "w-full shrink-0 text-left outline-none focus-visible:text-ink-2", on && "text-ink")}
+        className={cn(ROW, "w-full shrink-0 text-left outline-none select-none focus-visible:text-ink-2", on && "text-ink")}
       >
         {body}
       </button>
@@ -367,7 +373,7 @@ function StepList({ reveal, session, steps, only, rows, open, card, setCard, was
               2026-11-24): the whole row from the left edge, under the line's own key, the line
               over it ending before it. */}
           {ever && (
-            <button type="button" onClick={shut} className={cn(ROW, "w-full shrink-0 cursor-pointer gap-1.5 text-left text-xs text-ink-4 outline-none hover:text-ink-2 focus-visible:text-ink-2")}>
+            <button type="button" onClick={shut} className={cn(ROW, "w-full shrink-0 cursor-pointer gap-1.5 text-left text-xs text-ink-4 outline-none select-none hover:text-ink-2 focus-visible:text-ink-2")}>
               <ChevronRight size={13} aria-hidden className="shrink-0 -rotate-90" />
               {t("nav.less")}
             </button>

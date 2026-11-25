@@ -145,3 +145,55 @@ func TestWorkAt(t *testing.T) {
 		t.Errorf("no place: %v", got)
 	}
 }
+
+func TestParseWorkTagAndBriefBlock(t *testing.T) {
+	from, to, steps, ok := parseWorkTag(`hello<iridium:work steps="4" from="12" to="25" ms="900"/>`)
+	if !ok || from != 12 || to != 25 || steps != 4 {
+		t.Fatalf("parseWorkTag: got (%d, %d, %d, %v)", from, to, steps, ok)
+	}
+	if _, _, _, ok := parseWorkTag(`<iridium:work steps="0" running="true" from="10"/>`); ok {
+		t.Fatal("parseWorkTag should skip 0-step work")
+	}
+
+	// Thinking text stripped to placeholder; empty thinking dropped.
+	if _, ok := briefBlock(api.Block{At: "1.0", Kind: api.BlockKindThinking, Text: "   "}); ok {
+		t.Fatal("empty thinking should be dropped")
+	}
+	tb, ok := briefBlock(api.Block{At: "2.0", Kind: api.BlockKindThinking, Text: "very long chain of thought..."})
+	if !ok || tb.Text != "…" {
+		t.Fatalf("brief thinking: %+v %v", tb, ok)
+	}
+
+	// Edit tool strips file bodies, precomputes _diff, and strips result text/images.
+	eb, ok := briefBlock(api.Block{
+		At:    "3.0",
+		Kind:  api.BlockKindTool,
+		ID:    "t1",
+		Name:  "Edit",
+		Input: `{"file_path":"/a/b.go","old_string":"line1\nline2","new_string":"line1\nline2b\nline3"}`,
+		Result: &api.Result{
+			At:     "4.0",
+			Time:   200,
+			Text:   "huge output text that should not be shipped in /first",
+			Error:  false,
+			Images: []api.Image{{Mime: "image/png"}},
+		},
+	})
+	if !ok {
+		t.Fatal("brief edit failed")
+	}
+	if eb.Result == nil || eb.Result.Text != "" || len(eb.Result.Images) != 0 || eb.Result.Time != 200 {
+		t.Fatalf("brief result not stripped: %+v", eb.Result)
+	}
+	var in map[string]any
+	if err := json.Unmarshal([]byte(eb.Input), &in); err != nil {
+		t.Fatalf("brief input json: %v (%s)", err, eb.Input)
+	}
+	if in["file_path"] != "/a/b.go" || in["old_string"] != nil || in["new_string"] != nil {
+		t.Fatalf("brief edit input kept heavy fields: %v", in)
+	}
+	diff, _ := in["_diff"].(map[string]any)
+	if diff["added"] != float64(2) || diff["taken"] != float64(1) {
+		t.Fatalf("brief edit _diff: got %v, want +2 -1", diff)
+	}
+}

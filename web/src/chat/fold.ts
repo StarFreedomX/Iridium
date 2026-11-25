@@ -172,6 +172,12 @@ export function diffOf(t: { name?: string; input?: string }): Diff | undefined {
   if (kindOf(t.name) !== "edit") return undefined;
   const name = (t.name ?? "").toLowerCase();
   const i = inputOf(t.input);
+  // Precomputed diff on brief blocks from /first or device cache (no full file/patch body).
+  const pre = i._diff as { added?: unknown; taken?: unknown } | undefined;
+  if (pre && typeof pre === "object" && (typeof pre.added === "number" || typeof pre.taken === "number")) {
+    const d = { added: Number(pre.added) || 0, taken: Number(pre.taken) || 0 };
+    return d.added || d.taken ? d : undefined;
+  }
   const pair = (e: unknown): Diff => {
     const o = (e && typeof e === "object" ? e : {}) as Record<string, unknown>;
     return lineDiff(o.old_string ?? o.oldText, o.new_string ?? o.newText);
