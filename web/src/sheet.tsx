@@ -5,7 +5,7 @@
 // pressed again puts it away; Esc does too. No swipe brings it or puts it away (kumo, 2026-11-25).
 // With no chat open it stays out, the whole window. While searching it stands taller, for the
 // keyboard. Its head, the tabs' row (no grip drawn, kumo 2026-11-25), dragged up or down sizes it at
-// once, no hold first, from LOW up to the window's top, what it holds scrolling, with no bar; it
+// once, no hold first, from LOW up to the chat's top bar, what it holds scrolling, with no bar; it
 // stays so on this device. Let go near its first height, it goes back to that.
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { motion } from "./motion";
@@ -64,6 +64,14 @@ export function Sheet({ open, setOpen, size: want, raised, name, head = 0, from:
     return () => void all.delete(setGrown);
   }, [name]);
   const [live, setLive] = useState<number | null>(null);
+  // Left taller than the chat's top bar allows (up to the window's top, before 2026-11-25): as
+  // tall as it may be, as it comes out.
+  useEffect(() => {
+    if (!open || !grown) return;
+    const bar = document.querySelector("main header")?.getBoundingClientRect().bottom ?? 0;
+    const most = (innerHeight - bar) / innerHeight;
+    if (grown > most + 0.001) setGrown(most);
+  }, [open, grown]);
   // Held: the grip lit, the finger sizing it.
   const [armed, setArmed] = useState(false);
   const now = useRef({ open, setOpen, zone, size, name, head, onPull });
@@ -148,6 +156,8 @@ export function Sheet({ open, setOpen, size: want, raised, name, head = 0, from:
     let travel = 0; // from the conversation: px the finger went up past LOG.DEAD
     let last = { y: 0, t: 0, v: 0 };
     const height = () => panel.current?.offsetHeight || innerHeight / 2;
+    // How tall it may be made: up to the chat's top bar's lower edge (none: the window's top).
+    const roof = () => innerHeight - (document.querySelector("main header")?.getBoundingClientRect().bottom ?? 0);
     // As tall as what it holds: its grip, its foot and what is in its body.
     const fits = () => {
       const el = panel.current;
@@ -191,7 +201,7 @@ export function Sheet({ open, setOpen, size: want, raised, name, head = 0, from:
       if (!from) return false;
       const dy = y - from.y;
       if (held) {
-        // Up or down: the finger sizes it, from LOW up to the window's top; across: the pages'
+        // Up or down: the finger sizes it, from LOW up to the chat's top bar; across: the pages'
         // own swipe (pager.tsx). Nothing under it scrolls.
         if (!mine) {
           const dx = Math.abs(x - from.x);
@@ -205,7 +215,10 @@ export function Sheet({ open, setOpen, size: want, raised, name, head = 0, from:
           noSelect(true);
           getSelection()?.removeAllRanges();
         }
-        tall = Math.max(Math.min(LOW, first), Math.min(innerHeight, from.h - dy));
+        // Up to the chat's top bar, not over it; near it, at it (kumo, 2026-11-25).
+        const most = roof();
+        tall = Math.max(Math.min(LOW, first), Math.min(most, from.h - dy));
+        if (tall >= most - SNAP) tall = most;
         setLive(tall);
         return true;
       }
@@ -241,7 +254,7 @@ export function Sheet({ open, setOpen, size: want, raised, name, head = 0, from:
         // Let go near its first height it goes back to it, near the window's top up to it; else
         // it stays as tall as it was made, on this device.
         if (mine) {
-          const g = Math.abs(tall - first) <= SNAP ? 0 : tall >= innerHeight - SNAP ? 1 : tall / innerHeight;
+          const g = Math.abs(tall - first) <= SNAP ? 0 : tall / innerHeight;
           told.get(now.current.name)?.forEach((f) => f(g));
           keep(KEPT + now.current.name, g ? String(g) : null);
         }
