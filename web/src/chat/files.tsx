@@ -60,9 +60,10 @@ export const previews = new Map<string, string>();
 
 /** An image that fades in once it has loaded (at once if it already has), over under if given.
  *  style: its aspect ratio, when known, so its place is kept before it loads. */
-function Shown({ src, under, alt, className, style }: { src: string; under?: string; alt: string; className: string; style?: CSSProperties }) {
-  const [ready, setReady] = useState(false);
-  const done = useCallback((el: HTMLImageElement | null) => void (el?.complete && el.naturalWidth && setReady(true)), []);
+function Shown({ src, under, alt, className, style, onReady }: { src: string; under?: string; alt: string; className: string; style?: CSSProperties; onReady?: () => void }) {
+  const [ready, setOne] = useState(false);
+  const setReady = useCallback((v: boolean) => (setOne(v), v && onReady?.()), [onReady]);
+  const done = useCallback((el: HTMLImageElement | null) => void (el?.complete && el.naturalWidth && setReady(true)), [setReady]);
   return (
     <>
       {under && <img src={under} alt="" aria-hidden className={cn(className, "absolute inset-0 size-full")} />}
@@ -96,10 +97,14 @@ export function Picture({ src, full, name, under, w, h }: { src: string; full: s
   const box = pictureBox(w, h);
   const style: CSSProperties | undefined = box ? { width: box.w, aspectRatio: `${box.w} / ${box.h}` } : undefined;
   const pos = box?.crop === "top" ? "object-top" : "object-center";
+  // Its grey ground only till it has come: under a picture that lets the page through (a
+  // translucent window's screenshot) it greyed it, darker than the picture opened (kumo, 2026-11-25).
+  const [ready, setReady] = useState(false);
+  const shown = useCallback(() => setReady(true), []);
   return (
     <Zoom full={full} name={name}>
-      <button type="button" aria-label={`${name} · ${t("msg.openImage")}`} style={box ? { width: box.w } : undefined} className={cn("g-press relative block max-w-full overflow-hidden rounded-lg bg-fill shadow-[0_0_0_0.5px_var(--edge)]", !box && "w-fit")}>
-        <Shown src={src} under={under} alt={name} style={style} className={cn("block max-w-full object-cover", pos, box ? "w-full" : "max-h-[420px] max-w-[340px] min-h-[56px] min-w-[80px] h-auto w-auto")} />
+      <button type="button" aria-label={`${name} · ${t("msg.openImage")}`} style={box ? { width: box.w } : undefined} className={cn("g-press relative block max-w-full overflow-hidden rounded-lg shadow-[0_0_0_0.5px_var(--edge)]", !ready && !under && "bg-fill", !box && "w-fit")}>
+        <Shown src={src} under={under} alt={name} style={style} onReady={shown} className={cn("block max-w-full object-cover", pos, box ? "w-full" : "max-h-[420px] max-w-[340px] min-h-[56px] min-w-[80px] h-auto w-auto")} />
       </button>
     </Zoom>
   );
