@@ -33,12 +33,13 @@ export function Splash({ show = true, fig = null, scene = "", className }: { sho
   const phone = useMedia(PHONE);
   const up = useSyncExternalStore(onPoint, panelIsUp);
   const low = phone && up && show;
-  // Where it is drawn goes after where it is to be: the characters go out where they are, the
-  // band is put at its other place with none drawn, and they come in there (kumo, 2026-11-25: it
-  // was down in one frame as the + was pressed).
-  const [placed, setPlaced] = useState(low);
-  const comeIn = useRef(false);
+  // Under the + panel it is the same band, moved down and made smaller as one piece, slowly: not
+  // drawn anew there, not gone and come again (kumo, 2026-11-25). How far and how small, by the
+  // pane's height (fit).
+  const [down, setDown] = useState({ dy: 0, k: 1 });
   const fitRef = useRef(() => {});
+  const phoneRef = useRef(phone);
+  phoneRef.current = phone;
   const nowRef = useRef(now);
   nowRef.current = now;
   // Before the frame it is first in: one band going as another comes (the empty pane's, a new
@@ -46,18 +47,27 @@ export function Splash({ show = true, fig = null, scene = "", className }: { sho
   useLayoutEffect(() => {
     const el = cv.current;
     if (!el) return;
-    const e = splash(el, still);
+    const e = splash(el, still, phone);
     eng.current = e;
     e.figure(nowRef.current);
     e.resize();
     // Left of the panel while it is open and there is room for a figure there; else the middle.
     const fit = () => {
       e.resize();
-      if (comeIn.current) (comeIn.current = false), e.enter();
       const w = el.clientWidth, h = el.clientHeight, free = w - PANEL;
       const left = asideRef.current && free >= 240;
-      const side = left ? Math.min(h * 0.92, free * 0.9) : Math.min(h * 0.92, w * 0.7);
-      e.place(left ? free / 2 : -1, side);
+      // The portrait layout: as large as the band has room for.
+      const side = left ? Math.min(h * 0.92, free * 0.9) : phoneRef.current ? Math.min(h * 0.98, w * 0.94) : Math.min(h * 0.92, w * 0.7);
+      const own = !left && !phoneRef.current;
+      e.place(own ? -1 : left ? free / 2 : w / 2, side);
+      // The pane's height, the composer's 76px at its foot: the room under a panel of half of it.
+      const pane = el.parentElement?.parentElement?.clientHeight ?? 0;
+      const room = Math.max(120, pane / 2 - 128);
+      const k = Math.min(1, room / h);
+      setDown((d) => {
+        const dy = Math.round(pane - 76 - room / 2 - (pane / 2 - 24));
+        return d.dy === dy && Math.abs(d.k - k) < 0.005 ? d : { dy, k };
+      });
     };
     fitRef.current = fit;
     fit();
@@ -65,7 +75,9 @@ export function Splash({ show = true, fig = null, scene = "", className }: { sho
     ro.observe(el);
     const move = (ev: PointerEvent) => {
       const r = el.getBoundingClientRect();
-      e.near(ev.clientX - r.left, ev.clientY - r.top);
+      // As drawn it may be smaller than it is (moved under the panel): the pointer in its own px.
+      const z = r.width ? el.clientWidth / r.width : 1;
+      e.near((ev.clientX - r.left) * z, (ev.clientY - r.top) * z);
     };
     window.addEventListener("pointermove", move, { passive: true });
     return () => {
@@ -74,7 +86,7 @@ export function Splash({ show = true, fig = null, scene = "", className }: { sho
       e.stop();
       eng.current = null;
     };
-  }, [there, still]);
+  }, [there, still, phone]);
   useEffect(() => eng.current?.figure(now), [now?.key]);
   // Not to be shown any more: where it was shown (the same channel, its first agent in or its
   // first words said), it goes by its own going, played whole; the page under it another one,
@@ -88,21 +100,10 @@ export function Splash({ show = true, fig = null, scene = "", className }: { sho
     else eng.current.leave(() => setThere(false));
   }, [show, scene, there]);
   useEffect(() => fitRef.current(), [aside]);
-  useEffect(() => {
-    if (low === placed) return;
-    const e = eng.current;
-    if (!e || still) return setPlaced(low);
-    e.leave(() => ((comeIn.current = true), setPlaced(low)));
-  }, [low, placed, still]);
-  // Put there: come in, once its size there is known (fit), or now if it is the same size.
-  useEffect(() => {
-    const id = requestAnimationFrame(() => comeIn.current && fitRef.current());
-    return () => cancelAnimationFrame(id);
-  }, [placed]);
   useEffect(() => eng.current?.power(show ? power : STANDARD), [power, show]);
   if (!there) return null;
   return (
-    <div aria-hidden={!now} className={cn("pointer-events-none absolute inset-x-0 z-1", placed ? "top-[calc(100%-84px)] h-[max(120px,calc(50%-150px))] -translate-y-full" : "top-[calc(50%-24px)] h-[clamp(220px,46%,420px)] -translate-y-1/2", className)}>
+    <div aria-hidden={!now} style={{ transform: low ? `translateY(${down.dy}px) scale(${down.k})` : undefined }} className={cn("pointer-events-none absolute inset-x-0 top-[calc(50%-24px)] z-1 -translate-y-1/2 transition-transform duration-700 ease-(--ease-out) motion-reduce:transition-none", phone ? "h-[clamp(260px,56%,460px)]" : "h-[clamp(220px,46%,420px)]", className)}>
       <canvas ref={cv} aria-hidden className="absolute inset-0 size-full text-ink" style={{ maskImage: MASK, maskComposite: "intersect", WebkitMaskImage: MASK, WebkitMaskComposite: "source-in" }} />
     </div>
   );

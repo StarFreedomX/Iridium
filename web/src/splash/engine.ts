@@ -8,8 +8,8 @@ import type { Agent } from "../api/types.gen";
 import { AGY_DATA_URI, CLAUDE, DSH, DSH_VIEWBOX, OPENAI, OPENAI_VIEWBOX, PI, PI_VIEWBOX } from "../logos";
 import { STANDARD, type Fig } from "./figure";
 
-const FONT = 9; // px
-const ROW = 10; // px, a row's height
+const FONT_PX = 9; // px; a narrow band's (fine): 7
+const ROW_PX = 10; // px, a row's height; fine: 8
 const SRC = 256; // px, the figure as it is drawn before the cells are read from it
 const BASE = 0.12; // a cell's opacity with no figure on it
 const TURN = 700; // ms, one cell going over
@@ -123,7 +123,10 @@ let kept: { at: number; cols: number; rows: number; text: string[][]; off: Float
 
 export type Splash = { leave(done: () => void): void; enter(): void; figure(f: Fig | null): void; place(x: number, side: number): void; power(f: number): void; resize(): void; near(x: number, y: number): void; stop(): void };
 
-export function splash(cv: HTMLCanvasElement, still: boolean): Splash {
+/** fine: smaller characters, more of them to a figure (the portrait layout, where the band is
+ *  narrow and a figure of few cells is a blur: kumo, 2026-11-25). */
+export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Splash {
+  const FONT = fine ? 7 : FONT_PX, ROW = fine ? 8 : ROW_PX;
   const g = cv.getContext("2d")!;
   const src = document.createElement("canvas");
   src.width = src.height = SRC;
