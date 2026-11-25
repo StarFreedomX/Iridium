@@ -429,8 +429,8 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
   const KX = new Float32Array(RN), KY = new Float32Array(RN), KZ = new Float32Array(RN), KA = new Float32Array(RN * 3), KB = new Float32Array(RN * 3);
   for (let j = 0; j < RN; j++) {
     const u = (j / RN) * 6.2832, c = Math.cos(u), sn = Math.sin(u);
-    (KX[j] = c), (KY[j] = 1.3 * sn * c), (KZ[j] = 0.24 * sn);
-    let tx = -sn, ty = 1.3 * Math.cos(2 * u), tz = 0.24 * c;
+    (KX[j] = c), (KY[j] = 1.2 * sn * c), (KZ[j] = 0.24 * sn);
+    let tx = -sn, ty = 1.2 * Math.cos(2 * u), tz = 0.24 * c;
     const tl = Math.hypot(tx, ty, tz);
     (tx /= tl), (ty /= tl), (tz /= tl);
     // Across it: level (the tangent crossed with the depth), and the one square to both.
@@ -450,19 +450,47 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
     if (ringK < 0.01 || !rows) return;
     // What is stirred goes on to its neighbours, less each time, and dies away.
     const dec = Math.exp(-dt / 700);
-    for (let j = 0; j < RN; j++) stir2[j] = Math.max(stir[j]!, (stir[(j + 1) % RN]! + stir[(j + RN - 1) % RN]!) * 0.494) * dec;
+    for (let j = 0; j < RN; j++) stir2[j] = Math.max(stir[j]!, (stir[(j + 1) % RN]! + stir[(j + RN - 1) % RN]!) * 0.49) * dec;
     [stir, stir2] = [stir2, stir];
-    const top = footT >= 0 ? footT : H, t = still ? 0 : now;
-    const A = Math.min(W * 0.4, top * 0.36, 290) * (1 + 0.03 * Math.sin(t / 1700)), wv = A * 0.13, xc = W / 2, yc = cy >= 0 ? cy : top * 0.5;
+    const top = footT >= 0 ? footT : H, t = still ? 5000 : now;
+    const A = Math.min(W * 0.4, top * 0.36, 290) * (1 + 0.03 * Math.sin(t / 1700)), wv = A * 0.15, xc = W / 2, yc = cy >= 0 ? cy : top * 0.5;
     // It sways: about its length, about its height, and a little in the pane.
-    const a1 = 0.2 + 0.38 * Math.sin(t / 2300), a2 = 0.4 * Math.sin(t / 3100 + 1), a3 = 0.47 + 0.07 * Math.sin(t / 4100);
+    const a1 = 0.15 + 0.3 * Math.sin(t / 2300), a2 = 0.32 * Math.sin(t / 3100 + 1), a3 = 0.47 + 0.07 * Math.sin(t / 4100);
     const c1 = Math.cos(a1), s1 = Math.sin(a1), c2 = Math.cos(a2), s2 = Math.sin(a2), c3 = Math.cos(a3), s3 = Math.sin(a3);
-    const RM = Math.ceil((wv * 2.5) / cw) + 2, flow = t * 0.07, spin = t * 0.0011;
+    // A dragon along the figure (kumo, 2026-11-26: more alive, broken here and there, not a mark):
+    // its head goes round, the body behind it thinner to the tail, waving as it swims, whole near
+    // the head and in pieces towards the tail, a few pieces after it.
+    const head = (t / 9000) % 1, flow = t * 0.07, wag = t / 260;
     for (let iu = 0; iu < RN; iu++) {
-      const u = (iu / RN) * 6.2832, tw = u * 1.5 + spin + 0.6 * Math.sin(2 * u - t / 900), ct = Math.cos(tw), st = Math.sin(tw);
-      const wide = wv * (0.8 + 0.3 * Math.sin(3 * u + t / 1300));
-      const j3 = iu * 3, wx = KA[j3]! * ct + KB[j3]! * st, wy = KA[j3 + 1]! * ct + KB[j3 + 1]! * st, wz = KB[j3 + 2]! * st;
-      const e = stir[iu]!, hue0 = (iu / RN) * 720 - flow + e * 150, mx = KX[iu]! * A, my = KY[iu]! * A, mz = KZ[iu]! * A;
+      // How far behind the head, 0 to 1 round the figure.
+      let sb = head - iu / RN;
+      if (sb < 0) sb += 1;
+      let wide: number, lum: number;
+      const e = stir[iu]!;
+      if (sb < 0.74) {
+        // Gaps in it, wider and oftener towards the tail.
+        if (sb > 0.3) {
+          const ph = sb * 13 + 0.35 * Math.sin(sb * 31);
+          // (what a star has stirred is whole for the while)
+          if (e < 0.25 && ph - Math.floor(ph) < (sb - 0.3) * 0.75) continue;
+        }
+        wide = wv * (sb < 0.035 ? 0.45 + sb / 0.035 * 0.55 : Math.pow(1 - sb / 0.74, 0.55) * 0.9 + 0.1);
+        lum = 1 - sb * 0.55;
+      } else {
+        const ph = sb * 15;
+        if (e < 0.25 && ph - Math.floor(ph) < 0.62) continue;
+        wide = wv * 0.1;
+        lum = 0.45;
+      }
+      const u = (iu / RN) * 6.2832, tw = 0.5 * Math.sin(2 * u - t / 900) + 0.35 * Math.sin(sb * 9 - t / 700), ct = Math.cos(tw), st = Math.sin(tw);
+      const j3 = iu * 3, ax = KA[j3]!, ay = KA[j3 + 1]!, wx = ax * ct + KB[j3]! * st, wy = ay * ct + KB[j3 + 1]! * st, wz = KB[j3 + 2]! * st;
+      // The swimming: the body's middle line to one side and the other, more towards the tail.
+      // A star over it (kumo, 2026-11-26: the stars are to move it): it swells there and shakes,
+      // and that goes along the body with the colours.
+      wide = wide * (1 + 0.45 * e) + wv * 0.12 * e;
+      const sw = A * (0.012 + 0.07 * sb) * Math.sin(sb * 26 - wag) + A * 0.028 * e * Math.sin(iu * 0.35 - t / 55), dz = A * 0.05 * Math.cos(sb * 19 - wag * 0.7);
+      const hue0 = sb * 520 - flow + e * 150, mx = KX[iu]! * A + ax * sw, my = KY[iu]! * A + ay * sw, mz = KZ[iu]! * A + dz;
+      const RM = Math.max(2, Math.ceil((wide * 2.5) / cw) + 1);
       for (let iv = 0; iv < RM; iv++) {
         const vn = (iv / (RM - 1)) * 2 - 1, v = vn * wide;
         const x = mx + wx * v, y = my + wy * v, z = mz + wz * v;
@@ -479,9 +507,10 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
         rowRing[row] = 1;
         rz[i] = z2;
         ru[i] = iu;
-        // Nearer, stronger; its two edges stronger than its middle.
-        ra[i] = Math.min(1, Math.max(0.3, 0.55 + 0.3 * (z2 / (A * 0.5)) + 0.25 * vn * vn + e * 0.4) * ringK);
-        rh[i] = hue0 + vn * 50;
+        // Its two edges and its spine stronger than between them; nearer, stronger.
+        const rib = vn * vn > 0.6 || vn * vn < 0.03 ? 1 : 0.5;
+        ra[i] = Math.min(1, Math.max(0.22, (0.75 + 0.25 * (z2 / (A * 0.5))) * rib * lum + e * 0.5) * ringK);
+        rh[i] = hue0 + vn * 40;
       }
     }
   };
