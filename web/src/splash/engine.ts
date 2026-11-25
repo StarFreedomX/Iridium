@@ -892,8 +892,8 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
     }
     wasTurning = turning;
     // The ring there where Iridium's letters would be (no agent to draw), coming and going.
-    const ringOn = rainbow && !leaving && !left && !sl.on() ? 1 : 0;
-    ringK += (ringOn - ringK) * (1 - Math.exp(-dt / 0.35));
+    const ringOn = rainbow && !leaving && !left && (!sl.on() || sl.going()) ? 1 : 0;
+    ringK += (ringOn - ringK) * (1 - Math.exp(-dt / (sl.on() ? 0.9 : 0.35)));
     if (Math.abs(ringOn - ringK) < 0.005) ringK = ringOn;
     draw();
     calm = ringK < 0.01 && !sl.on() && !burst && !turning && !gliding && !pops.length && !lensOn && !rk && !held && Math.abs(vel - want) < 0.02;

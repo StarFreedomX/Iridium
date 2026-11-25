@@ -37,6 +37,8 @@ type Thing = { s: Sprite; bomb: boolean; x: number; y: number; vx: number; vy: n
 const FALL = 560; // px a second each second
 // Digits, three cells by five, a bit a cell from the upper left.
 const FONT = [0x7b6f, 0x2c97, 0x73e7, 0x73cf, 0x5bc9, 0x79cf, 0x79ef, 0x7249, 0x7bef, 0x7bcf];
+// Over: the count stays this long, then is this long in going.
+const STAY = 6500, GONE = 1800;
 const RED = 0xff5c3bff, GREY = 0x60808080, INK = 0xffffffff;
 
 export function slicer(E: Env) {
@@ -98,12 +100,24 @@ export function slicer(E: Env) {
     }
   };
   /** A number in cells, each point of a digit z rows tall and twice as many cells wide; its middle at x. */
-  const digits = (n: number, x: number, y: number, z: number, c: number) => {
+  /** A colour of the rainbow at hue h (degrees), as strong as a (0 to 1). */
+  const hueOf = (h: number, a: number) => {
+    const f = (n: number) => {
+      const k = (n + h / 30) % 12;
+      return Math.round(255 * Math.min(1, 0.55 - 0.5 * Math.max(-1, Math.min(k - 3, 9 - k, 1))));
+    };
+    return ((Math.round(a * 255) << 24) | (f(4) << 16) | (f(8) << 8) | f(0)) >>> 0;
+  };
+  /** c: its colour, or what gives each of its points one by where it is. */
+  const digits = (n: number, x: number, y: number, z: number, c: number | ((x: number, y: number) => number)) => {
     const s = String(n), cw = E.cw(), one = 8 * z * cw;
     let at = x - (s.length * one - 2 * z * cw) / 2;
     for (const ch of s) {
       const bits = FONT[+ch]!;
-      for (let b = 0; b < 15; b++) if (bits & (1 << (14 - b))) block(at + (b % 3) * 2 * z * cw, y + ((b / 3) | 0) * z * E.row, 2 * z, z, c);
+      for (let b = 0; b < 15; b++) if (bits & (1 << (14 - b))) {
+          const bx = at + (b % 3) * 2 * z * cw, by = y + ((b / 3) | 0) * z * E.row;
+          block(bx, by, 2 * z, z, typeof c === "number" ? c : c(bx, by));
+        }
       at += one;
     }
   };
@@ -117,8 +131,15 @@ export function slicer(E: Env) {
     // told apart): thrown where it is farthest from those in the air, and nearly straight up.
     const half = (s.w * E.cw()) / 2, lo = half + 6, hi = Math.max(lo + 1, W - half - 6);
     let x = W / 2, best = -1;
+    // A small one never by the pane's sides, a large one seldom (kumo, 2026-11-26: a stroke from
+    // the side of a phone's screen is its way back, not a cut).
+    const small = !isBomb && from === marks, side = W * 0.18;
     for (let n = 0; n < 9; n++) {
-      const c = lo + Math.random() * (hi - lo);
+      let c = lo + Math.random() * (hi - lo);
+      if (c < side || c > W - side) {
+        if (small || Math.random() < 0.7) c = side + Math.random() * (W - 2 * side);
+        c = Math.max(lo, Math.min(hi, c));
+      }
       let near = 1e9;
       for (const q of things) if (!q.cut) near = Math.min(near, Math.abs(q.x - c) - (q.s.w * E.cw()) / 2 - half);
       if (near > best) (best = near), (x = c);
@@ -136,6 +157,8 @@ export function slicer(E: Env) {
 
   return {
     on: () => on,
+    /** Over and its count going: the page as it was may come back under it. */
+    going: () => on && !!endAt && T - endAt > STAY,
     cast: (who: Cast[]) => void ((cast = who), (made = "")),
     start() {
       if (on) return;
@@ -183,7 +206,7 @@ export function slicer(E: Env) {
       void make();
       const dt = ms / 1000, bot = E.bottom(), far = bot + size() * 1.5;
       if (endAt) {
-        if (T - endAt > 2600) (on = false), E.over();
+        if (T - endAt > STAY + GONE) (on = false), E.over();
       } else if (T >= next && faces.length) {
         // A few at a time (kumo, 2026-11-26: more of them), more as the count grows.
         const n = 1 + (Math.random() < 0.55 ? 1 : 0) + (score > 8 && Math.random() < 0.4 ? 1 : 0) + (score > 20 && Math.random() < 0.4 ? 1 : 0);
@@ -232,8 +255,11 @@ export function slicer(E: Env) {
         for (let j = 0; j < 3; j++) block(W / 2 + (j - 1) * 5 * cw - cw, top + 10 + 7 * E.row, 2, 1, j < lost ? RED : GREY);
       } else {
         // Over: the count, large, in the pane's middle, coming and going.
-        const t = (T - endAt) / 2600, z = Math.max(2, Math.min(5, Math.round(W / 130)));
-        if (t > 0.12 && t < 0.92) digits(score, W / 2, (top + E.bottom()) / 2 - 2.5 * z * E.row, z, INK);
+        // In the rainbow, flowing; there for a while (to be looked at, a picture taken of it), then
+        // going slowly, the page as it was coming back under it (kumo, 2026-11-26).
+        const t = T - endAt, z = Math.max(2, Math.min(6, Math.round(W / 110)));
+        const a = t < 400 ? 0 : t < 1000 ? (t - 400) / 600 : t < STAY ? 1 : Math.max(0, 1 - (t - STAY) / GONE);
+        if (a > 0.02) digits(score, W / 2, (top + E.bottom()) / 2 - 2.5 * z * E.row, z, (x, y) => hueOf(x * 0.9 + y * 0.5 - T * 0.12, a));
       }
     },
   };
