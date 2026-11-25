@@ -429,6 +429,88 @@ export function UsagePage() {
   );
   const other = metric === "cost" ? t("usage.tokens", { n: tokens(totalOf(sum)) }) : sum.cost > 0 ? dollars(sum.cost) : "";
   const figures = [other, t("usage.turns", { n: sum.turns }), hit && t("usage.hit", { n: hit })].filter(Boolean).join(" · ");
+  const metricPills = (
+    <Pills
+      label={t("usage.metric")}
+      value={metric}
+      onChange={(v) => (capture(), setMetric(v))}
+      options={[
+        { value: "cost", label: t("usage.cost") },
+        { value: "tokens", label: t("usage.tokensMetric") },
+      ]}
+    />
+  );
+  const viewPills = range > 1 && (
+    <Pills
+      label={t("usage.view")}
+      value={view}
+      onChange={setView}
+      options={[
+        { value: "bars", label: t("usage.bars"), icon: <BarsIcon /> },
+        { value: "heat", label: t("usage.heat"), icon: <HeatIcon /> },
+      ]}
+    />
+  );
+  // What the page is narrowed to, as chips: the harnesses pressed out over the page (those left
+  // in, each its mark: the user, 2026-11-12), the day, who is in.
+  const chips = u && [
+    hidden.size > 0 &&
+      chip(
+        "agents",
+        harnesses.length === 1 ? t("usage.onlyName", { name: agentName(harnesses[0]!) }) : harnesses.map(agentName).join(" · "),
+        () => (capture(), setHidden(new Set())),
+        <span className="flex shrink-0 items-center gap-0.5">
+          {harnesses.map((a) => (
+            <Logo key={a} agent={a} size={11} />
+          ))}
+        </span>,
+        "shrink-0",
+      ),
+    day && chip("day", dayLabel(day), () => setDay(null), undefined, "shrink-0"),
+    !all && chip("who", solo !== undefined ? t("usage.onlyName", { name: who(u, solo).name }) : t("usage.picked", { n: shown.length }), everyone, solo !== undefined && <Dot color={colors.get(solo)!} on />, "shrink-0"),
+  ];
+  const figure = u && <Figure text={metric === "cost" ? dollars(total) : tokens(Math.round(total))} k={metric} />;
+  const chart = !u ? (
+    <StacksWaiting days={days} h={chartH} />
+  ) : heat ? (
+    <Heat u={hq.data} hidden={hidden} off={off} m={m} color={solo !== undefined ? colors.get(solo)! : "var(--series-1)"} h={chartH} />
+  ) : (
+    <StacksSwap k={String(range)} days={u.days} perDay={parts.perDay} order={parts.order} colors={parts.colors} on={parts.on} name={parts.name} sel={day} onSel={setDay} week={range === 7} m={m} h={chartH} wide={wide} />
+  );
+  const list = (
+    <section ref={listRef} className="flex flex-col" aria-label={t("usage.sources")}>
+      {u && s.order.length === 0 && <p className="g-fade m-0 py-6 text-center text-sm text-ink-3">{t("usage.none")}</p>}
+      {!u && !q.isError && (
+        <div aria-hidden className="g-wait">
+          {[0, 1].map((i) => (
+            <div key={i} className="flex items-center gap-3 py-2">
+              <span className="block size-7 shrink-0 rounded-full bg-fill" />
+              <span className="flex min-w-0 flex-1 flex-col gap-1.5">
+                <span className="block h-3 rounded-full bg-fill" style={{ width: i ? "40%" : "55%" }} />
+                <span className="block h-1 rounded-full bg-fill" />
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+      {s.byLogin.map((x) => (
+        <LoginRow
+          key={x.id}
+          x={x}
+          u={u}
+          color={colors.get(x.id)!}
+          whole={whole}
+          on={on(x.id)}
+          many={many}
+          metric={metric}
+          peek={peek === x.id}
+          onPeek={(o) => setPeek(o ? x.id : (c) => (c === x.id ? null : c))}
+          onToggle={() => toggle(x.id)}
+          onOnly={() => only(x.id)}
+        />
+      ))}
+    </section>
+  );
   return (
     <div ref={root} className="flex min-h-0 flex-1 flex-col">
       {/* The title's line as the file browser's; the page's two choices on it with the room, else
@@ -457,136 +539,94 @@ export function UsagePage() {
         </div>
       )}
       <div className={cn("no-bar min-h-0 flex-1 overflow-y-auto pb-4", wide ? "pt-2" : "pt-3")}>
-        <div className={cn("flex flex-col gap-4", wide ? "px-5" : "px-3")}>
+        <div className={cn("flex flex-col", wide ? "gap-5 px-5" : "gap-4 px-3")}>
           {q.isError && <p className="m-0 text-sm text-ink-3">{errText(q.error)}</p>}
-          <section className="flex flex-col gap-3" aria-label={t("usage.title")}>
-            {/* Till the first answer, the page as it will be, in faint blocks of the same size: nothing
-                moves as it comes, the figures fading in over them and the bars rising. */}
-            {u ? (
-              <div className="g-fade flex flex-col">
-                <div className="flex items-end justify-between gap-2">
-                  {/* The figure leads: proportional digits, as a figure that stands alone. */}
-                  <Figure text={metric === "cost" ? dollars(total) : tokens(Math.round(total))} k={metric} />
-                  <Pills
-                    label={t("usage.metric")}
-                    value={metric}
-                    onChange={(v) => (capture(), setMetric(v))}
-                    options={[
-                      { value: "cost", label: t("usage.cost") },
-                      { value: "tokens", label: t("usage.tokensMetric") },
-                    ]}
-                  />
-                </div>
-                {/* The figures, the chart's switch at their right, under the measure's (the user,
-                    2026-11-12: not side by side). */}
-                <div className="mt-0.5 flex h-6 min-w-0 items-center gap-1.5 text-xs text-ink-3 tabular-nums">
-                  <span className="min-w-0 flex-1 truncate leading-6 whitespace-nowrap" title={figures}>{figures}</span>
-                  {range > 1 && (
-                    <Pills
-                      label={t("usage.view")}
-                      value={view}
-                      onChange={setView}
-                      options={[
-                        { value: "bars", label: t("usage.bars"), icon: <BarsIcon /> },
-                        { value: "heat", label: t("usage.heat"), icon: <HeatIcon /> },
-                      ]}
-                    />
+          {wide ? (
+            <>
+              {/* With the room (kumo, 2026-11-25): the figures in a column of their own, the chart
+                  beside them as tall as they are; under both, who and their models side by side,
+                  each with its head. */}
+              <section className="grid grid-cols-[13.5rem_minmax(0,1fr)] gap-8" aria-label={t("usage.title")}>
+                <div className="flex min-w-0 flex-col">
+                  <div className="self-start">{metricPills}</div>
+                  {u ? (
+                    <div className="g-fade mt-3 flex min-w-0 flex-col">
+                      {figure}
+                      <div className="mt-1 flex flex-col gap-0.5 text-xs text-ink-3 tabular-nums">
+                        {[other, t("usage.turns", { n: sum.turns }), hit && t("usage.hit", { n: hit })].filter(Boolean).map((f) => (
+                          <span key={String(f)} className="truncate">{f}</span>
+                        ))}
+                      </div>
+                      <Mix sum={sum} column />
+                      <div className="mt-3 flex min-h-5 flex-wrap gap-1.5 text-xs tabular-nums">{chips}</div>
+                    </div>
+                  ) : (
+                    <div aria-hidden className="g-wait mt-3 flex flex-col gap-2">
+                      <span className="block h-9 w-28 rounded-md bg-fill" />
+                      <span className="block h-2.5 w-24 rounded-full bg-fill" />
+                      <span className="block h-2.5 w-20 rounded-full bg-fill" />
+                      <span className="mt-2 block h-16 rounded-md bg-fill" />
+                    </div>
                   )}
                 </div>
-                {/* What the page is narrowed to: a line kept for it, empty or not, so a chip coming
-                    moves nothing; more than fit scroll sideways, with no bar (the user, 2026-11-12). */}
-                <div className="no-bar -mx-3 mt-1 flex h-6 items-center gap-1.5 overflow-x-auto px-3 text-xs tabular-nums">
-                  {/* The harnesses pressed out over the page: those left in, each its mark (the user,
-                      2026-11-12: a filter too). */}
-                  {hidden.size > 0 &&
-                    chip(
-                      "agents",
-                      harnesses.length === 1 ? t("usage.onlyName", { name: agentName(harnesses[0]!) }) : harnesses.map(agentName).join(" · "),
-                      () => (capture(), setHidden(new Set())),
-                      <span className="flex shrink-0 items-center gap-0.5">
-                        {harnesses.map((a) => (
-                          <Logo key={a} agent={a} size={11} />
-                        ))}
-                      </span>,
-                      "shrink-0",
-                    )}
-                  {day && chip("day", dayLabel(day), () => setDay(null), undefined, "shrink-0")}
-                  {!all &&
-                    chip(
-                      "who",
-                      solo !== undefined ? t("usage.onlyName", { name: who(u, solo).name }) : t("usage.picked", { n: shown.length }),
-                      everyone,
-                      solo !== undefined && <Dot color={colors.get(solo)!} on />,
-                      "shrink-0",
-                    )}
+                <div className="flex min-w-0 flex-col gap-2">
+                  <div className="flex h-7 items-center justify-end">{viewPills}</div>
+                  {chart}
                 </div>
-                {/* Under either measure: switched, the page keeps its height. */}
-                <Mix sum={sum} wide={wide} />
+              </section>
+              <div className="grid grid-cols-2 items-start gap-8 border-t border-edge pt-3">
+                <div className="flex min-w-0 flex-col gap-1">
+                  <span className="text-[11px] leading-4 text-ink-4">{t("usage.sources")}</span>
+                  {list}
+                </div>
+                {u && s.order.length > 0 && <ModelTable logins={s.byLogin.filter((x) => on(x.id))} />}
               </div>
-            ) : (
-              <div aria-hidden className="g-wait">
-                <div className="flex h-9 items-center">
-                  <span className="block h-7 w-24 rounded-md bg-fill" />
-                </div>
-                <div className="mt-0.5 flex h-6 items-center">
-                  <span className="block h-2.5 w-40 rounded-full bg-fill" />
-                </div>
-                <div className="mt-1 h-6" />
-                <div className={cn("mt-2 grid gap-x-4 gap-y-0.5", wide ? "grid-cols-4" : "grid-cols-2")}>
-                  {[0, 1, 2, 3].map((i) => (
-                    <span key={i} className="block h-4 rounded-full bg-fill" />
-                  ))}
-                </div>
-              </div>
-            )}
-            <div className="flex flex-col gap-1">
-              {!u ? (
-                <StacksWaiting days={days} h={chartH} />
-              ) : heat ? (
-                <Heat u={hq.data} hidden={hidden} off={off} m={m} color={solo !== undefined ? colors.get(solo)! : "var(--series-1)"} h={chartH} />
-              ) : (
-                <StacksSwap k={String(range)} days={u.days} perDay={parts.perDay} order={parts.order} colors={parts.colors} on={parts.on} name={parts.name} sel={day} onSel={setDay} week={range === 7} m={m} h={chartH} wide={wide} />
-              )}
-            </div>
-          </section>
-
-          <div className={cn(wide && "grid grid-cols-2 items-start gap-8")}>
-          <section ref={listRef} className="flex flex-col" aria-label={t("usage.sources")}>
-            {u && s.order.length === 0 && <p className="g-fade m-0 py-6 text-center text-sm text-ink-3">{t("usage.none")}</p>}
-            {!u && !q.isError && (
-              <div aria-hidden className="g-wait">
-                {[0, 1].map((i) => (
-                  <div key={i} className="flex items-center gap-3 py-2">
-                    <span className="block size-7 shrink-0 rounded-full bg-fill" />
-                    <span className="flex min-w-0 flex-1 flex-col gap-1.5">
-                      <span className="block h-3 rounded-full bg-fill" style={{ width: i ? "40%" : "55%" }} />
-                      <span className="block h-1 rounded-full bg-fill" />
-                    </span>
+            </>
+          ) : (
+            <>
+              <section className="flex flex-col gap-3" aria-label={t("usage.title")}>
+                {/* Till the first answer, the page as it will be, in faint blocks of the same size:
+                    nothing moves as it comes, the figures fading in over them and the bars rising. */}
+                {u ? (
+                  <div className="g-fade flex flex-col">
+                    <div className="flex items-end justify-between gap-2">
+                      {/* The figure leads: proportional digits, as a figure that stands alone. */}
+                      {figure}
+                      {metricPills}
+                    </div>
+                    {/* The figures, the chart's switch at their right, under the measure's (the user,
+                        2026-11-12: not side by side). */}
+                    <div className="mt-0.5 flex h-6 min-w-0 items-center gap-1.5 text-xs text-ink-3 tabular-nums">
+                      <span className="min-w-0 flex-1 truncate leading-6 whitespace-nowrap" title={figures}>{figures}</span>
+                      {viewPills}
+                    </div>
+                    {/* What the page is narrowed to: a line kept for it, empty or not, so a chip coming
+                        moves nothing; more than fit scroll sideways, with no bar (the user, 2026-11-12). */}
+                    <div className="no-bar -mx-3 mt-1 flex h-6 items-center gap-1.5 overflow-x-auto px-3 text-xs tabular-nums">{chips}</div>
+                    {/* Under either measure: switched, the page keeps its height. */}
+                    <Mix sum={sum} />
                   </div>
-                ))}
-              </div>
-            )}
-            {s.byLogin.map((x) => (
-              <LoginRow
-                key={x.id}
-                x={x}
-                u={u}
-                color={colors.get(x.id)!}
-                whole={whole}
-                on={on(x.id)}
-                many={many}
-                metric={metric}
-                peek={peek === x.id}
-                onPeek={(o) => setPeek(o ? x.id : (c) => (c === x.id ? null : c))}
-                onToggle={() => toggle(x.id)}
-                onOnly={() => only(x.id)}
-                wide={wide}
-              />
-            ))}
-          </section>
-          {/* With the room, the models of those in the chart beside them, at hand (kumo, 2026-11-25). */}
-          {wide && u && s.order.length > 0 && <ModelTable logins={s.byLogin.filter((x) => on(x.id))} />}
-          </div>
+                ) : (
+                  <div aria-hidden className="g-wait">
+                    <div className="flex h-9 items-center">
+                      <span className="block h-7 w-24 rounded-md bg-fill" />
+                    </div>
+                    <div className="mt-0.5 flex h-6 items-center">
+                      <span className="block h-2.5 w-40 rounded-full bg-fill" />
+                    </div>
+                    <div className="mt-1 h-6" />
+                    <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-0.5">
+                      {[0, 1, 2, 3].map((i) => (
+                        <span key={i} className="block h-4 rounded-full bg-fill" />
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <div className="flex flex-col gap-1">{chart}</div>
+              </section>
+              {list}
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -734,14 +774,14 @@ const MIX = [
 
 /** The tokens' four parts, the cache's reads first, each one's figure (no bar of them: the user,
  *  2026-11-12). */
-function Mix({ sum, wide }: { sum: Sum; wide?: boolean }) {
+function Mix({ sum, column }: { sum: Sum; column?: boolean }) {
   return (
-    <div className="g-fade mt-2 tabular-nums">
-      <div className={cn("grid gap-x-4 gap-y-0.5 text-xs text-ink-3", wide ? "grid-cols-4" : "grid-cols-2")}>
+    <div className={cn("g-fade tabular-nums", column ? "mt-4" : "mt-2")}>
+      <div className={cn("grid gap-x-4 text-xs text-ink-3", column ? "grid-cols-1 gap-y-1" : "grid-cols-2 gap-y-0.5")}>
         {MIX.map((p) => (
           <span key={p.key} className="flex min-w-0 items-center gap-1.5">
             <span aria-hidden className="block size-2 shrink-0 rounded-[2px]" style={{ background: p.tone }} />
-            <span className={cn("min-w-0 truncate", !wide && "flex-1")}>{t(p.key)}</span>
+            <span className="min-w-0 flex-1 truncate">{t(p.key)}</span>
             <span className="text-ink-2">{tokens(p.of(sum))}</span>
           </span>
         ))}
@@ -797,7 +837,9 @@ function Stacks({ days, perDay, order, colors, on, name, sel, onSel, week, m, h:
             {m.fmt(line)}
           </span>
         </div>
-        <div className={cn("relative flex h-full items-end", week ? "gap-1.5" : "gap-0.5")}>
+        {/* With the room, the bars leave the scale's figure a lane of its own at the right: over the
+            last bar it was hidden. */}
+        <div className={cn("relative flex h-full items-end", week ? "gap-1.5" : "gap-0.5", wide && "mr-12")}>
           {days.map((d, i) => {
             const day = perDay.get(d);
             const all = sums[i]!;
@@ -837,7 +879,7 @@ function Stacks({ days, perDay, order, colors, on, name, sel, onSel, week, m, h:
         </div>
       </div>
       {week ? (
-          <div className="flex gap-1.5 text-[11px] text-ink-3 tabular-nums">
+          <div className={cn("flex gap-1.5 text-[11px] text-ink-3 tabular-nums", wide && "mr-12")}>
             {days.map((d) => (
               <span key={d} className={cn("min-w-0 flex-1 truncate text-center transition-colors duration-(--dur-2)", (d === sel || (!sel && d === today)) && "font-medium text-ink-2")}>
                 {d === today ? t("usage.today") : weekdayOf(d)}
@@ -846,7 +888,7 @@ function Stacks({ days, perDay, order, colors, on, name, sel, onSel, week, m, h:
           </div>
         ) : wide ? (
           // With the room, a day a week (an hour in six) under its bar, counted back from the last.
-          <div className="flex gap-0.5 text-[11px] text-ink-3 tabular-nums">
+          <div className="mr-12 flex gap-0.5 text-[11px] text-ink-3 tabular-nums">
             {days.map((d, i) => {
               const back = days.length - 1 - i;
               const mark = back % (hours ? 6 : 7) === 0;
@@ -928,7 +970,7 @@ function StacksSwap(p: SwapProps) {
 
 /** The chart's height, whatever the range or view: another changes no height; with the room, taller. */
 const CHART_H = 136;
-const CHART_WIDE = 220;
+const CHART_WIDE = 232;
 
 /** A bar's tip: the day's total, then each one's. Drawn only as it opens: 30 bars' lists made with
  *  every draw made a range chosen stutter. */
@@ -1057,11 +1099,10 @@ function StacksWaiting({ days, h }: { days: number; h: number }) {
 }
 
 /** A hit rate as a figure, amber under LOW_HIT; a dash with no input. */
-function Hit({ s, short }: { s: Sum; short?: boolean }) {
+function Hit({ s }: { s: Sum }) {
   const h = hitOf(s);
-  if (h === undefined) return short ? null : <span className="text-ink-4">—</span>;
-  const rate = hitRate(s);
-  return <span style={h < LOW_HIT ? { color: "var(--need)" } : undefined}>{short ? t("usage.hitShort", { n: rate }) : rate}</span>;
+  if (h === undefined) return <span className="text-ink-4">—</span>;
+  return <span style={h < LOW_HIT ? { color: "var(--need)" } : undefined}>{hitRate(s)}</span>;
 }
 
 /** The figure: another measure is another figure, so it comes again rather than glide. */
@@ -1102,7 +1143,7 @@ function ShareBar({ share, color }: { share: number; color: string }) {
  *  colour. The row pressed takes it out of the chart or puts it back; right-clicked or held, it is
  *  the only one in (the user, 2026-11-12: as before its models folded open under it); out, the whole row faint and grey. Its models
  *  float out of its avatar, in a panel over the page (no row grows). */
-function LoginRow({ x, u, color, whole, on, many, metric, peek, onPeek, onToggle, onOnly, wide }: { x: LoginSum; u: Usage | undefined; color: string; whole: number; on: boolean; many: boolean; metric: Metric; peek: boolean; onPeek: (o: boolean) => void; onToggle: () => void; onOnly: () => void; wide?: boolean }) {
+function LoginRow({ x, u, color, whole, on, many, metric, peek, onPeek, onToggle, onOnly }: { x: LoginSum; u: Usage | undefined; color: string; whole: number; on: boolean; many: boolean; metric: Metric; peek: boolean; onPeek: (o: boolean) => void; onToggle: () => void; onOnly: () => void }) {
   const w = who(u, x.id);
   const v = MEASURES[metric].value(x.sum);
   const cost = x.sum.cost > 0 ? dollars(x.sum.cost) : "";
@@ -1115,13 +1156,6 @@ function LoginRow({ x, u, color, whole, on, many, metric, peek, onPeek, onToggle
     <span className={cn("flex min-w-0 flex-1 flex-col py-0.5 transition-[opacity,filter] duration-(--dur-2)", !on && OUT)}>
       <span className="flex w-full items-baseline gap-2">
         <span className="min-w-0 flex-1 truncate text-sm font-medium">{w.name}</span>
-        {/* With the room, its turns and its cache's hit rate too (kumo, 2026-11-25). */}
-        {wide && <span className="shrink-0 text-xs text-ink-4 tabular-nums">{t("usage.turns", { n: x.sum.turns })}</span>}
-        {wide && (
-          <span className="shrink-0 text-xs text-ink-4 tabular-nums">
-            <Hit s={x.sum} short />
-          </span>
-        )}
         <span className="shrink-0 text-xs text-ink-3 tabular-nums">{second}</span>
         <span className="shrink-0 text-sm font-semibold tabular-nums">{main}</span>
       </span>
@@ -1234,12 +1268,12 @@ function ModelTable({ logins }: { logins: LoginSum[] }) {
     }
   const rows = [...all.values()].filter((m) => totalOf(m.sum) > 0).sort((a, b) => b.sum.cost - a.sum.cost || totalOf(b.sum) - totalOf(a.sum));
   return (
-    <section aria-label={t("usage.model")} className="g-fade grid grid-cols-[0.875rem_minmax(0,1fr)_auto_auto_auto] items-center gap-x-3 gap-y-1.5 pt-1.5 text-xs tabular-nums">
-      <span />
-      <span className="text-[11px] text-ink-4">{t("usage.model")}</span>
-      <span className="text-right text-[11px] text-ink-4">{t("usage.colHit")}</span>
-      <span className="text-right text-[11px] text-ink-4">{t("usage.tokensMetric")}</span>
-      <span className="text-right text-[11px] text-ink-4">{t("usage.cost")}</span>
+    <section aria-label={t("usage.model")} className="g-fade grid grid-cols-[0.875rem_minmax(0,1fr)_auto_auto_auto] items-center gap-x-3 gap-y-2 text-xs tabular-nums">
+      {/* Its head on the list's head's line, the model's name first under it, as 来源 is. */}
+      <span className="col-span-2 text-[11px] leading-4 text-ink-4">{t("usage.model")}</span>
+      <span className="text-right text-[11px] leading-4 text-ink-4">{t("usage.colHit")}</span>
+      <span className="text-right text-[11px] leading-4 text-ink-4">{t("usage.tokensMetric")}</span>
+      <span className="text-right text-[11px] leading-4 text-ink-4">{t("usage.cost")}</span>
       {rows.map((md) => (
         <ModelLine key={md.key} md={md} />
       ))}

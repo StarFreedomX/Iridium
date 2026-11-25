@@ -424,7 +424,7 @@ export function App() {
   // layout's the whole screen. Closed, the step that opened it is gone back.
   const usageWindow = (
     <Dialog.Root open={usageOpen} onOpenChange={(o) => !o && route().name === "usage" && stepBack()}>
-      <FileWindow full={phone} className={cn("@container", !phone && "h-[min(640px,86dvh)]")}>
+      <FileWindow full={phone} className={cn("@container", !phone && "max-h-[min(760px,92dvh)]")}>
         <Suspense fallback={<Waiting />}>
           <UsagePage />
         </Suspense>
