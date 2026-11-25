@@ -30,6 +30,8 @@ export type Env = {
   /** One of the cast, or Iridium's mark (null), as cells, size px across. */
   sprite(who: Cast | null, size: number): Promise<Sprite | null>;
   over(): void;
+  /** The page dark (its ink light). */
+  dark(): boolean;
 };
 
 /** ux, uy: the way the stroke that cut it went. */
@@ -39,7 +41,8 @@ const FALL = 560; // px a second each second
 const FONT = [0x7b6f, 0x2c97, 0x73e7, 0x73cf, 0x5bc9, 0x79cf, 0x79ef, 0x7249, 0x7bef, 0x7bcf];
 // Over: the count stays this long, then is this long in going.
 const STAY = 6500, GONE = 1800;
-const RED = 0xff5c3bff, GREY = 0x60808080, INK = 0xffffffff;
+const FUSE = 0xff2a8cff, SPARK = 0xff30d0ff;
+const RED = 0xff5c3bff, GREY = 0x60808080;
 
 export function slicer(E: Env) {
   let on = false, T = 0, next = 0, score = 0, lost = 0, endAt = 0, made = "";
@@ -50,6 +53,8 @@ export function slicer(E: Env) {
   let things: Thing[] = [];
   let blade: { x: number; y: number; t: number }[] = [];
   let cast: Cast[] = [];
+  // The page's ink: what is neither a face nor a colour is in it (the count, the fuse's end).
+  const ink = () => (E.dark() ? 0xffffffff : 0xff141414);
   const size = () => Math.max(84, Math.min(150, Math.min(E.W(), E.bottom() - E.top()) * 0.25));
 
   /** The sprites, for the pane as large as it is now; made again as that changes. */
@@ -77,7 +82,7 @@ export function slicer(E: Env) {
 
   /** side: 0 all of it; 1, -1: the half of it to that side of the line through its middle that
    *  goes the way (ux, uy). */
-  const stamp = (s: Sprite, x: number, y: number, side = 0, ux = 0, uy = 0) => {
+  const stamp = (s: Sprite, x: number, y: number, side = 0, ux = 0, uy = 0, tint = 0) => {
     const cw = E.cw(), ROW = E.row, cols = E.cols(), rows = E.rows(), r0 = Math.round((y - (s.h * ROW) / 2) / ROW);
     for (let sr = 0; sr < s.h; sr++) {
       const r = r0 + sr;
@@ -87,7 +92,7 @@ export function slicer(E: Env) {
         const c = s.px[sr * s.w + sc]!, k = k0 + sc;
         if (!c || k < 0 || k >= cols) continue;
         if (side && ((sc + 0.5 - s.w / 2) * cw * uy - oy * ux) * side < 0) continue;
-        E.put(r * cols + k, c);
+        E.put(r * cols + k, tint || c);
       }
     }
   };
@@ -231,7 +236,23 @@ export function slicer(E: Env) {
       if (!on) return;
       const cw = E.cw(), W = E.W(), top = E.top();
       for (const q of things) {
-        if (!q.cut) stamp(q.s, q.x, q.y);
+        if (!q.cut && q.bomb) {
+          // What is not to be cut, plain to see as that (kumo, 2026-11-26: more of a bomb): it goes
+          // red and back, a red line about it as it does; a fuse from its top, alight at its end.
+          const hot = ((T / 230) | 0) % 2 === 0, w = q.s.w * cw, h = q.s.h * E.row, x0 = q.x - w / 2, y0 = q.y - h / 2;
+          stamp(q.s, q.x, q.y, 0, 0, 0, hot ? RED : 0);
+          if (hot) {
+            block(x0 - 2 * cw, y0 - 2 * E.row, q.s.w + 4, 1, RED);
+            block(x0 - 2 * cw, y0 + h + E.row, q.s.w + 4, 1, RED);
+            block(x0 - 4 * cw, y0 - E.row, 2, q.s.h + 2, RED);
+            block(x0 + w + 2 * cw, y0 - E.row, 2, q.s.h + 2, RED);
+          }
+          for (let j = 1; j <= 4; j++) block(q.x + w * 0.2 + j * 2 * cw, y0 - (j + 2) * E.row, 2, 1, FUSE);
+          const fx = q.x + w * 0.2 + 10 * cw, fy = y0 - 7 * E.row, f = (T / 70) | 0;
+          block(fx, fy, 2, 1, ink());
+          block(fx + ((f % 3) - 1) * 2 * cw, fy - E.row, 2, 1, f % 2 ? SPARK : ink());
+          block(fx + (((f + 1) % 3) - 1) * 3 * cw, fy + (f % 2 ? -2 : 1) * E.row, 1, 1, SPARK);
+        } else if (!q.cut) stamp(q.s, q.x, q.y);
         else if (!q.bomb) {
           // Its two halves, each to its own side of the cut (kumo, 2026-11-26: cut the way the
           // stroke went, not always upright).
@@ -251,7 +272,7 @@ export function slicer(E: Env) {
       }
       // The count at the top; under it the three that may fall, each gone red as one does.
       if (!endAt) {
-        digits(score, W / 2, top + 10, 1, INK);
+        digits(score, W / 2, top + 10, 1, ink());
         for (let j = 0; j < 3; j++) block(W / 2 + (j - 1) * 5 * cw - cw, top + 10 + 7 * E.row, 2, 1, j < lost ? RED : GREY);
       } else {
         // Over: the count, large, in the pane's middle, coming and going.

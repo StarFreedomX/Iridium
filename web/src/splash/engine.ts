@@ -611,6 +611,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
       return { w, h, px };
     },
     over: () => kick(),
+    dark: () => dark,
   });
 
   const draw = () => {
