@@ -57,7 +57,8 @@ export function slicer(E: Env) {
   let cast: Cast[] = [];
   // The page's ink: what is neither a face nor a colour is in it (the count, the fuse's end).
   const ink = () => (E.dark() ? 0xffffffff : 0xff141414);
-  const size = () => Math.max(84, Math.min(150, Math.min(E.W(), E.bottom() - E.top()) * 0.25));
+  // (larger, kumo 2026-11-26: small, in characters, they were not made out)
+  const size = () => Math.max(108, Math.min(196, Math.min(E.W(), E.bottom() - E.top()) * 0.33));
 
   /** The sprites, for the pane as large as it is now; made again as that changes. */
   const make = async () => {
@@ -71,12 +72,12 @@ export function slicer(E: Env) {
       if (made !== sig) return;
       if (s) got.push(s);
       if (who.src) continue;
-      const m = await E.sprite(who, px * 0.55).catch(() => null);
+      const m = await E.sprite(who, px * 0.6).catch(() => null);
       if (made !== sig) return;
       if (m) small.push(m);
     }
     // (smaller than the faces: easier to keep a stroke clear of, kumo 2026-11-26)
-    const b = await E.sprite(null, px * 0.6).catch(() => null);
+    const b = await E.sprite(null, px * 0.47).catch(() => null);
     if (made !== sig) return;
     faces = got;
     marks = small;
@@ -111,8 +112,10 @@ export function slicer(E: Env) {
   /** A colour of the rainbow at hue h (degrees), as strong as a (0 to 1). */
   const hueOf = (h: number, a: number) => {
     const f = (n: number) => {
-      const k = (n + h / 30) % 12;
-      return Math.round(255 * Math.min(1, 0.55 - 0.5 * Math.max(-1, Math.min(k - 3, 9 - k, 1))));
+      // (never under 0: a hue gone below it made all three the same, the count white, kumo 2026-11-26)
+      const k = (((n + h / 30) % 12) + 12) % 12;
+      // (deeper on a light page: the rainbow's light colours were lost on white, kumo 2026-11-26)
+      return Math.round(255 * (E.dark() ? Math.min(1, 0.55 - 0.5 * Math.max(-1, Math.min(k - 3, 9 - k, 1))) : 0.72 * Math.max(0, 0.45 - 0.5 * Math.max(-1, Math.min(k - 3, 9 - k, 1)))));
     };
     return ((Math.round(a * 255) << 24) | (f(4) << 16) | (f(8) << 8) | f(0)) >>> 0;
   };

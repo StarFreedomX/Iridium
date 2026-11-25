@@ -575,7 +575,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
         cg.drawImage(face, (face.naturalWidth - m) / 2, (face.naturalHeight - m) / 2, m, m, 0, 0, SRC, SRC);
       } else {
         // A mark on a round ground of its own, faint: a thing to cut, not a few strokes.
-        cg.fillStyle = dark ? "rgba(255,255,255,0.3)" : "rgba(0,0,0,0.2)";
+        cg.fillStyle = dark ? "rgba(255,255,255,0.3)" : "rgba(0,0,0,0.42)";
         cg.beginPath();
         cg.arc(SRC / 2, SRC / 2, SRC * 0.48, 0, 7);
         cg.fill();
@@ -610,7 +610,14 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
         const a = d[j * 4 + 3]!;
         if (a < 24) continue;
         // A face's cells whole; a mark's faint ground as faint as it is.
-        px[j] = ((Math.max(70, a) << 24) | (d[j * 4 + 2]! << 16) | (d[j * 4 + 1]! << 8) | d[j * 4]!) >>> 0;
+        let r = d[j * 4]!, g2 = d[j * 4 + 1]!, b = d[j * 4 + 2]!;
+        if (!dark && who) {
+          // On a light page (kumo, 2026-11-26: faint there): its colours deeper and stronger, a
+          // light one on white being hardly seen.
+          const m = (r + g2 + b) / 3;
+          (r = clamp((m + (r - m) * 1.45) * 0.72, 0, 255)), (g2 = clamp((m + (g2 - m) * 1.45) * 0.72, 0, 255)), (b = clamp((m + (b - m) * 1.45) * 0.72, 0, 255));
+        }
+        px[j] = ((Math.max(dark ? 70 : 110, a) << 24) | (b << 16) | (g2 << 8) | r) >>> 0;
       }
       return { w, h, px };
     },
