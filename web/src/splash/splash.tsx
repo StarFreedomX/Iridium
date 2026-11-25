@@ -9,8 +9,6 @@ import { cn, PHONE, useMedia } from "../ui";
 import { splash, type Splash as Engine } from "./engine";
 import { justMade } from "../chat/channel/adding";
 import { onPoint, pointedAt, powerNow, stage, stagedNow, STANDARD, type Fig } from "./figure";
-import { useHomePicture, useHomeStyle } from "./style";
-import { useCarried } from "../store";
 
 
 const MASK = "linear-gradient(to right, transparent, #000 10%, #000 90%, transparent)";
@@ -24,14 +22,9 @@ export function Splash({ show = true, fig = null, scene = "", className }: { sho
   const still = useMedia("(prefers-reduced-motion: reduce)");
   const cv = useRef<HTMLCanvasElement>(null);
   const eng = useRef<Engine | null>(null);
-  // What it draws with no agent pointed at or in the channel, as the settings ask (主页): Iridium's
-  // letters, this Iridium's own picture (its server's face, the letters where it has none), or one's
-  // own picture. An agent pointed at or added: that one's face, whichever it is (kumo, 2026-11-25).
-  const style = useHomeStyle();
-  const picture = useHomePicture();
-  const faces = useCarried<number>("avatars") ?? 0;
-  const base: Fig | null = style === "face" ? { key: `server:${faces}`, src: `/v1/internal/face?v=${faces}` } : style === "own" && picture ? { key: `own:${picture.length}:${picture.slice(-24)}`, src: picture } : null;
-  const now = (show ? (pointed ?? fig) : fig) ?? base;
+  // With no agent pointed at or in the channel, Iridium's letters, always (kumo, 2026-11-25: the
+  // setting with its other kinds gone). An agent pointed at or added: that one's face.
+  const now = show ? (pointed ?? fig) : fig;
   const power = useSyncExternalStore(onPoint, powerNow);
   // The portrait layout with the + panel there: the band under the panel, over the composer.
   const phone = useMedia(PHONE);
@@ -99,13 +92,41 @@ export function Splash({ show = true, fig = null, scene = "", className }: { sho
       const r = el.getBoundingClientRect();
       if (ev.clientX < r.left || ev.clientX > r.right || ev.clientY < r.top || ev.clientY > r.bottom) return;
       e.tap(ev.clientX - r.left, ev.clientY - r.top);
+      e.hold(true);
+      touching = ev.pointerType === "touch";
+    };
+    // A finger (kumo, 2026-11-25): held and drawn along the pane as a mouse is, the page not
+    // scrolled by it; let go, all it did ends (the lens with it).
+    let touching = false;
+    const drag = (ev: TouchEvent) => {
+      const p = touching ? ev.touches[0] : undefined;
+      if (!p) return;
+      ev.preventDefault();
+      const r = el.getBoundingClientRect();
+      e.near(p.clientX - r.left, p.clientY - r.top);
+    };
+    const free = (ev: Event) => {
+      // A finger's pointer is cancelled as the page would scroll: it is let go by touchend alone.
+      if (touching && ev.type === "pointercancel") return;
+      e.hold(false);
+      if (touching || ev.type.startsWith("touch")) (touching = false), e.near(-1, -1);
     };
     window.addEventListener("pointerdown", press, { passive: true });
+    window.addEventListener("pointerup", free, { passive: true });
+    window.addEventListener("pointercancel", free, { passive: true });
+    window.addEventListener("touchmove", drag, { passive: false });
+    window.addEventListener("touchend", free, { passive: true });
+    window.addEventListener("touchcancel", free, { passive: true });
     return () => {
       ro.disconnect();
       tone.disconnect();
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerdown", press);
+      window.removeEventListener("pointerup", free);
+      window.removeEventListener("pointercancel", free);
+      window.removeEventListener("touchmove", drag);
+      window.removeEventListener("touchend", free);
+      window.removeEventListener("touchcancel", free);
       e.stop();
       eng.current = null;
     };
@@ -158,9 +179,6 @@ export function ChannelSplash({ id, show: blank, last, agents }: { id: string; s
  *  none (a session's record). */
 export function PaneSplash({ open, off }: { open?: string; off?: boolean }) {
   const st = useSyncExternalStore(onPoint, stagedNow);
-  const style = useHomeStyle();
   const mine = open && st?.id === open ? st : null;
-  // 主页 无: none drawn at all.
-  if (style === "none") return null;
   return <Splash show={!off && (!open || (mine ? mine.show : justMade(open)))} fig={mine?.fig ?? null} scene={open ?? ""} />;
 }

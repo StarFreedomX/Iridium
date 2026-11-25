@@ -19,7 +19,7 @@ import { ahead as cacheAhead } from "./device/state";
 import { manages as managesApps, pushQ, useApps, useMe, useSettings, useUpdate } from "./data";
 import { t, useLang } from "./i18n";
 import { install, useInstall } from "./install";
-import { LangSwitch, HomeSwitch, ThemeSwitch, type ThemePref } from "./me";
+import { LangSwitch, ThemeSwitch, type ThemePref } from "./me";
 import { AvatarCrop, Profile } from "./profile";
 import { PUSH_EVENTS, subscribe } from "./pushmenu";
 import { go } from "./route";
@@ -119,9 +119,6 @@ export function SettingsPage({ theme, setTheme, initial = "main" }: { theme: The
           <Profile onPicture={(url) => (setPicture(url), setPage("crop"))} />
           <Item label={t("me.theme")}>
             <ThemeSwitch theme={theme} setTheme={setTheme} />
-          </Item>
-          <Item label={t("me.home")}>
-            <HomeSwitch />
           </Item>
           <Item label={t("me.lang")}>
             <LangSwitch lang={lang} />
