@@ -7,12 +7,14 @@ import type { Agent } from "../api/types.gen";
 export type Fig = { key: string; src?: string; alt?: string; agent?: Agent };
 
 let pointed: Fig | null = null;
+let power = 0.5;
 const heard = new Set<() => void>();
 
 /** The figure a row of the + panel stands for, as it is pointed at; null as the panel goes. */
 export function point(f: Fig | null): void {
   if (pointed?.key === f?.key) return;
   pointed = f;
+  power = 0.5; // another one's effort is not this one's
   heard.forEach((h) => h());
 }
 export const pointedAt = () => pointed;
@@ -48,7 +50,6 @@ export const panelOpen = () => open;
 
 // The effort slider's level as it is moved (chat/effort.tsx), 0 to 1: the code flows the faster
 // and the figure stands the stronger for it. 0.5 with none moved.
-let power = 0.5;
 export function effortAt(f: number): void {
   if (power === f) return;
   power = f;

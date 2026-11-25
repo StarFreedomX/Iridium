@@ -95,7 +95,9 @@ export function EffortSlider({ levels, value, set, aside, tag }: { levels: strin
   const fracNow = useRef(frac);
   fracNow.current = frac;
   // The splash behind, where there is one, goes with the level (splash/).
-  useEffect(() => void (known && effortAt(frac)), [frac, known]);
+  // Only a level the slider is moved to: one it merely shows as it comes (a row of the + panel
+  // pointed at) changes nothing (kumo, 2026-11-25: the flow was reset from row to row).
+  useEffect(() => void ((drag !== null || want !== null) && effortAt(frac)), [frac]);
   const canvas = useRef<HTMLCanvasElement>(null);
   const root = useRef<HTMLDivElement>(null);
   const goo = `goo${useId().replace(/\W/g, "")}`;

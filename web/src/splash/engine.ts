@@ -278,7 +278,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean): Splash {
     const want = still ? 0 : burst ? 1 : IDLE;
     vel += (want - vel) * (1 - Math.exp(-dt / (burst ? 0.4 : 0.7)));
     const flow = vel > 0.004 ? vel : 0;
-    if (flow > 0) for (let r = 0; r < rows; r++) off[r] = (off[r]! + speed[r]! * flow * (0.4 + 3.2 * pw * pw) * dt + len) % len;
+    if (flow > 0) for (let r = 0; r < rows; r++) off[r] = (off[r]! + speed[r]! * flow * (0.6 + 2.4 * pw * pw) * dt + len) % len;
     // The figure's place, size and strength glide to what is asked: the cells read anew each frame.
     const [gx, gs] = goal();
     const gliding = Math.abs(gx - px) > 0.4 || Math.abs(gs - ps) > 0.4 || Math.abs(pwT - pw) > 0.004;
@@ -356,7 +356,8 @@ export function splash(cv: HTMLCanvasElement, still: boolean): Splash {
     for (let i = 0; i < wait.length; i++) wait[i] = (Math.hypot(((i % cols) + 0.5) * cw - px, (((i / cols) | 0) + 0.5) * ROW - H / 2) / far) * SPREAD * (0.92 + Math.random() * 0.16);
     last = t0 = performance.now();
     spreadNow = SPREAD;
-    flowTo = t0 + (first ? 2600 : 1700);
+    // Faster for a moment as it first comes; a figure changing leaves the flow as it is.
+    if (first) flowTo = t0 + 2600;
     first = false;
     kick();
   };
