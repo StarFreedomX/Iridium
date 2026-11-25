@@ -163,7 +163,7 @@ export function TopRight({ id }: { id: string }) {
           </Tip>
           <MenuPortal>
             <Menu.Positioner side="bottom" align="end" sideOffset={6} collisionPadding={8} className="z-50">
-              <Menu.Popup finalFocus={false} className={cn(POPUP, SUB)}>
+              <Menu.Popup finalFocus={false} className={cn(POPUP, SUB, "w-[min(320px,calc(100vw-16px))]")}>
                 <div className="g-stagger flex flex-col">
                   <Invite id={id} />
                 </div>
