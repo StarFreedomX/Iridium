@@ -308,16 +308,6 @@ export function WorkLine({ channel, n, session, work, did, span, may, esc }: { c
  *  its left stay seen and pressed one after another (kumo, 2026-11-25); where the pane is too
  *  narrow, as far left as it must. A finger's screen: from the row's start. */
 const ASIDE = 176;
-/** On the phone every card opens at one place, one height: under the top bar, whichever row it
- *  is of (kumo, 2026-11-25). */
-const atTop = (el: Element) => ({
-  getBoundingClientRect: () => {
-    const log = el.closest<HTMLElement>("[role=log]");
-    const top = log ? log.getBoundingClientRect().top + parseFloat(getComputedStyle(log).paddingTop || "0") : 8;
-    return new DOMRect(8, top, window.innerWidth - 16, 0);
-  },
-});
-
 const aside = (el: Element) => ({
   getBoundingClientRect: () => {
     const r = el.getBoundingClientRect();
@@ -408,7 +398,9 @@ function StepList({ reveal, session, steps, only, rows, open, card, setCard, was
           (kumo, 2026-11-25). */}
       {(ever || !!card) && (
         <Popover.Root key={card?.key} open={!!card?.open && !!chosen} onOpenChange={(o) => !o && card && setCard({ ...card, open: false })}>
-          <PopSurface anchor={card?.el && (phone ? atTop(card.el) : aside(card.el))} still scrim={phone} sideOffset={4} className={cn("flex w-[min(620px,calc(100vw-16px))] flex-col overflow-hidden", phone ? "h-[min(56dvh,520px)] bg-(--glass-thick-solid)!" : "max-h-[min(72dvh,620px,var(--available-height))]")}>
+          {/* On a phone every card at one place, one height: down from the window's top, the bottom
+              sheet's counterpart (kumo, 2026-11-25). */}
+          <PopSurface anchor={card?.el && aside(card.el)} still drop={phone} sideOffset={4} className={cn("flex flex-col overflow-hidden", phone ? "h-[calc(min(56dvh,520px)+env(safe-area-inset-top))]" : "max-h-[min(72dvh,620px,var(--available-height))] w-[min(620px,calc(100vw-16px))]")}>
             {chosen && card && (
               <>
                 {among.length > 1 && (

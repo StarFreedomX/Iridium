@@ -7,6 +7,7 @@
      g-pop      a small surface appears in place (toast, approval card, lamp change)
      g-slide    a panel's content arrives from the side (popover pages)
      g-sheet    on a phone, the sidebar rises from the foot over the composer (sheet.tsx, g-sink)
+     g-drop     on a phone, a step's card comes down from the top over the top bar (PopSurface drop)
      g-dialog   the settings rise out of their key at the sidebar's foot (app.tsx)
      g-fade     plain cross-fade
      g-arrive   a row comes in under the last (an agent called, taking over): it rises in, the
@@ -147,6 +148,17 @@
     transform var(--dur-3) var(--ease-out),
     translate var(--dur-3) var(--ease-out),
     box-shadow var(--dur-3) var(--ease-out);
+}
+/* --- drop: the sheet's counterpart from the window's top (PopSurface drop): down over the top bar,
+   back up past its own height and its shadow; the page under it not dimmed --- */
+.g-drop {
+  transition:
+    transform var(--dur-3) var(--ease-out),
+    box-shadow var(--dur-3) var(--ease-out);
+}
+.g-drop:is([data-starting-style], [data-ending-style]) {
+  transform: translateY(calc(-100% - 20px));
+  box-shadow: none;
 }
 .g-sink {
   transition:
@@ -545,6 +557,7 @@ html[data-turn] .vt-drawer {
     transform: none !important;
   }
   .g-sheet,
+  .g-drop,
   .g-sink {
     transition-duration: var(--dur-1);
   }
