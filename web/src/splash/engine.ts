@@ -426,11 +426,15 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
   const PX = new Float32Array(RN + 1), PY = new Float32Array(RN + 1), PZ = new Float32Array(RN + 1);
   // Where its head is: the angle up and down, and round the ball.
   let headU = 0, headL = 0;
+  // Its flare (Iridium's satellites were known for theirs: sunlight off a panel, a point brighter
+  // than any star for a second): when the last one was, when the next is due; and how far each
+  // cell is the page's ink, not the rainbow, for it and for the satellite itself at the head.
+  let flareAt = -1e9, flareNext = 0, rw = new Float32Array(0);
   let ra = new Float32Array(0), rh = new Float32Array(0), rz = new Float32Array(0), ru = new Int16Array(0), rowRing = new Uint8Array(0), ringCells = new Int32Array(0), nRing = 0;
   let stir = new Float32Array(RN), stir2 = new Float32Array(RN);
   let ringK = 0, ringAt = 0;
   const ringLay = (now: number) => {
-    for (let j = 0; j < nRing; j++) ra[ringCells[j]!] = 0;
+    for (let j = 0; j < nRing; j++) (ra[ringCells[j]!] = 0), (rw[ringCells[j]!] = 0);
     nRing = 0;
     rowRing.fill(0);
     const dt = Math.min(50, now - ringAt);
@@ -465,10 +469,16 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
     const a1 = 0.9 * Math.sin(t / 2600), a2 = 0.3 + 0.12 * Math.sin(t / 3700), a3 = 0.46;
     const c1 = Math.cos(a1), s1 = Math.sin(a1), c2 = Math.cos(a2), s2 = Math.sin(a2), c3 = Math.cos(a3), s3 = Math.sin(a3);
     const flow = t * 0.09;
+    if (!flareNext) flareNext = now + 6000;
+    if (!still && now > flareNext) (flareAt = now), (flareNext = now + 9000 + Math.random() * 12000);
+    // Up at once, gone in a second.
+    const fl = now - flareAt < 90 ? (now - flareAt) / 90 : Math.exp(-(now - flareAt - 90) / 380);
     for (let iu = 0; iu < RN; iu++) {
       const q = iu / RN, e = stir[iu]!;
+      // The satellite itself at the very head; the flare on it and a little way back.
+      const white = Math.max(q < 0.012 ? 1 : 0, fl > 0.02 && q < 0.14 ? fl * (1 - q / 0.14) : 0);
       // Thick just behind its head, thinner all the way to its tail.
-      const wide = wv * (q < 0.03 ? 0.3 + (q / 0.03) * 0.7 : Math.pow(1 - q, 0.6) * 0.92 + 0.08) * (1 + 0.6 * e);
+      const wide = wv * (q < 0.03 ? 0.3 + (q / 0.03) * 0.7 : Math.pow(1 - q, 0.6) * 0.92 + 0.08) * (1 + 0.6 * e) * (1 + 0.8 * white);
       const hue0 = q * 620 - flow + e * 150, mx = PX[iu]!, my = PY[iu]!, mz = PZ[iu]!;
       // Across it: along the ball, square to its way.
       const tx = PX[iu + 1]! - mx, ty = PY[iu + 1]! - my, tz = PZ[iu + 1]! - mz;
@@ -493,7 +503,8 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
         rz[i] = z2;
         ru[i] = iu;
         // In front, strong; behind, faint.
-        ra[i] = Math.min(1, ((0.62 + 0.38 * (z2 / R)) * lum + e * 0.4) * ringK);
+        ra[i] = Math.min(1, ((0.62 + 0.38 * (z2 / R)) * lum + e * 0.4 + white) * ringK);
+        rw[i] = white;
         rh[i] = hue0 + vn * 30;
       }
     }
@@ -546,8 +557,8 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
           // drawn over it.
           if (lv > 0.3 && ru[i]! >= 0) stir[ru[i]!] = 1;
           lv = 0;
-          const h3 = hueAt3(rh[i]!);
-          (cr = HUES[h3]!), (cg = HUES[h3 + 1]!), (cb = HUES[h3 + 2]!);
+          const h3 = hueAt3(rh[i]!), wq = rw[i]!;
+          (cr = HUES[h3]! + (ink[0] - HUES[h3]!) * wq), (cg = HUES[h3 + 1]! + (ink[1] - HUES[h3 + 1]!) * wq), (cb = HUES[h3 + 2]! + (ink[2] - HUES[h3 + 2]!) * wq);
         }
         const fmi = rainbow ? (fm[i] ?? 0) : 0;
         if (fmi > 0) {
@@ -833,6 +844,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
     nTouched = 0;
     rowLit = new Uint8Array(rows);
     ra = new Float32Array(n);
+    rw = new Float32Array(n);
     rh = new Float32Array(n);
     rz = new Float32Array(n);
     ru = new Int16Array(n);
