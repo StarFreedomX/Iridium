@@ -199,7 +199,8 @@ function MemberList({ id, viewers, ask, script }: { id: string; viewers: Viewer[
           ))}
         </>
       )}
-      <div className={HEAD}>{t("channel.agents")}</div>
+      {/* No agents, no head for them (kumo, 2026-11-25). */}
+      {agents.length > 0 && <div className={HEAD}>{t("channel.agents")}</div>}
       {agents.map((m) => {
         const row = list?.find((x) => x.id === m.session);
         const agent = m.agent ?? row?.agent ?? "claude";
