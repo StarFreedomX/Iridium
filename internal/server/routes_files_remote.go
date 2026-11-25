@@ -41,7 +41,7 @@ func (s *Server) listAt(w http.ResponseWriter, r *http.Request, machine, path st
 
 // remoteDirListing turns executor entries into an API directory listing at path.
 func remoteDirListing(path string, ents []wire.Entry) api.DirListing {
-	l := api.DirListing{Path: path, Entries: make([]api.DirEntry, 0, len(ents))}
+	l := api.DirListing{Open: true, Path: path, Entries: make([]api.DirEntry, 0, len(ents))}
 	for _, e := range ents {
 		l.Entries = append(l.Entries, api.DirEntry(e))
 	}

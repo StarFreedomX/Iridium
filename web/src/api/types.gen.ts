@@ -1899,6 +1899,7 @@ export interface DirEntry {
   type: string; // file | dir | link | other
 }
 export interface DirListing {
+  open: boolean; // the directory itself is in scope, not just a route to one that is
   path: string;
   entries: DirEntry[];
 }

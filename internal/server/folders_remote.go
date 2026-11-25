@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kumoSleeping/iridium/internal/access"
 	"github.com/kumoSleeping/iridium/internal/api"
 	"github.com/kumoSleeping/iridium/internal/remote"
 	"github.com/kumoSleeping/iridium/internal/remote/wire"
@@ -133,14 +134,54 @@ func (s *Server) remoteMkdir(w http.ResponseWriter, r *http.Request, req api.New
 		fail(w, http.StatusBadRequest, "not an absolute path")
 		return
 	}
+	scope, err := s.browserScope(callerOf(r), mc.ID())
+	if err != nil {
+		s.error(w, err)
+		return
+	}
 	p := remote.Join(hi.Sep, dir, req.Name)
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
+	if len(scope) > 0 {
+		// Unlike remoteScope for the picker, the expanded parent must be inside the login's
+		// scope, not just an ancestor. Compare using the target's path conventions.
+		key := remotePathKey(hi, dir)
+		inScope := false
+		for i, root := range scope {
+			scope[i] = nativePath(hi, root)
+			inScope = inScope || pathKeyWithin(key, remotePathKey(hi, scope[i]))
+		}
+		if !inScope {
+			s.error(w, &access.Denied{Reason: "parent folder is out of this login's scope"})
+			return
+		}
+		// Ordinary stat honors scope without treating dot directories as browser-hidden.
+		var st wire.Stat
+		if err := mc.Call(ctx, "fs.stat", wire.StatParams{Path: dir, Scope: scope}, &st); err != nil {
+			s.remoteError(w, err)
+			return
+		}
+		if st.Type != "dir" {
+			fail(w, http.StatusBadRequest, "not a directory")
+			return
+		}
+		// Very old executors ignore Scope on stat. Prove that scope is enforced before
+		// trusting the successful stat above, so a symlink cannot escape a restricted login.
+		err := mc.Call(ctx, "fs.stat", wire.StatParams{Path: dir, Scope: []string{""}}, &st)
+		if err == nil {
+			refuse(w, http.StatusConflict, "scoped_files_unsupported", "update the connected computer to create folders with a restricted login")
+			return
+		}
+		if !wire.IsCode(err, wire.CodeDenied) {
+			s.remoteError(w, err)
+			return
+		}
+	}
 	if _, err := mc.Stat(ctx, p); err == nil {
 		fail(w, http.StatusConflict, "already there")
 		return
 	}
-	if err := mc.Mkdir(ctx, p); err != nil {
+	if err := mc.Call(ctx, "fs.mkdir", wire.PathParams{Path: p, Scope: scope}, nil); err != nil {
 		s.remoteError(w, err)
 		return
 	}

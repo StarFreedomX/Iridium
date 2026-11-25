@@ -79,6 +79,7 @@ type DirEntry struct {
 }
 
 type DirListing struct {
+	Open    bool       `json:"open"` // the directory itself is in scope, not just a route to one that is
 	Path    string     `json:"path"`
 	Entries []DirEntry `json:"entries"`
 }

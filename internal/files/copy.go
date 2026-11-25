@@ -164,15 +164,24 @@ func (c *counted) Read(p []byte) (int, error) {
 // List is one level of the directory at path: name, size, time and type of each entry.
 // When scope is given, the resolved path must also lie inside one of those roots.
 func (s *Service) List(path string, scope ...string) (api.DirListing, error) {
-	return s.list(path, false, scope...)
+	real, err := s.Guarded(path, scope...)
+	if err != nil {
+		return api.DirListing{}, err
+	}
+	return readDirectory(filepath.Clean(path), real, false)
 }
 
 // Browse is List for the web file browser: it rejects dot-prefixed paths and omits dot entries
-// from the listing, leaving ordinary List untouched for ir and internal reads. On Windows, "/"
-// returns the synthetic drive-letter root filtered by scope rather than a real directory.
+// from the listing, leaving ordinary List untouched for ir and internal reads. Ancestors of
+// scoped roots project only the next directory names leading into scope (Open: false) without
+// reading the parent; on Windows, "/" returns the synthetic drive-letter root filtered by scope.
 func (s *Service) Browse(path string, scope ...string) (api.DirListing, error) {
+	guard := s.o.Guard
+	if guard == nil {
+		guard = &pathsafe.Guard{}
+	}
 	if filepath.Separator == '\\' && path == "/" {
-		drives, err := pathsafe.BrowserDrives(nil, scope)
+		drives, err := guard.BrowserDrives(nil, scope)
 		if err != nil {
 			return api.DirListing{}, err
 		}
@@ -182,28 +191,27 @@ func (s *Service) Browse(path string, scope ...string) (api.DirListing, error) {
 		}
 		return out, nil
 	}
-	return s.list(path, true, scope...)
-}
-
-func (s *Service) list(path string, browser bool, scope ...string) (api.DirListing, error) {
-	if !filepath.IsAbs(path) {
-		return api.DirListing{}, fmt.Errorf("%w: the path must be absolute", ErrBad)
-	}
-	path = filepath.Clean(path)
-	real, err := s.Guarded(path, scope...)
+	dir, err := guard.BrowserDirectory(path, nil, scope)
 	if err != nil {
 		return api.DirListing{}, err
 	}
-	if browser {
-		if err := pathsafe.CheckBrowser(path, real); err != nil {
-			return api.DirListing{}, err
-		}
+	if dir.Real != "" {
+		return readDirectory(dir.Path, dir.Real, true)
 	}
+	out := api.DirListing{Path: dir.Path, Entries: make([]api.DirEntry, 0, len(dir.Children))}
+	for _, name := range dir.Children {
+		out.Entries = append(out.Entries, api.DirEntry{Name: name, Type: "dir"})
+	}
+	return out, nil
+}
+
+// readDirectory reads one accessible directory (Open: true), hiding dot entries for browser listings.
+func readDirectory(path, real string, browser bool) (api.DirListing, error) {
 	ents, err := os.ReadDir(real)
 	if err != nil {
 		return api.DirListing{}, err
 	}
-	out := api.DirListing{Path: path, Entries: []api.DirEntry{}}
+	out := api.DirListing{Open: true, Path: path, Entries: []api.DirEntry{}}
 	for _, e := range ents {
 		if browser && pathsafe.BrowserHidden(e.Name()) {
 			continue

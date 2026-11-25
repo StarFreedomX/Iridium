@@ -23,7 +23,7 @@ func TestBrowserDriveScope(t *testing.T) {
 		{name: "no usable login scope", scope: []string{}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			names := driveNames(available, tc.roots, tc.scope)
+			names := driveNames(available, intersectBrowserRoots(tc.roots, tc.scope))
 			if !slices.Equal(names, tc.want) {
 				t.Fatalf("got %v, want %v", names, tc.want)
 			}

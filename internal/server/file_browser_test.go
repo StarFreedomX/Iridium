@@ -106,7 +106,7 @@ func TestFileBrowserScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	l.want(http.StatusOK, "socket", http.MethodPut, "/v1/internal/apps/"+gate.WebApp+"/logins/"+login.ID+"/perms", api.Perms{
-		Scope: []string{here, "pc:" + there, "pc:" + here},
+		Scope: []string{here, "pc:" + here, "pc:" + filepath.Join(shared, "deleted"), "pc:" + there},
 	}, nil)
 	c := caller{Identity: gate.Identity{App: gate.WebApp, Login: login.ID}}
 	mux := http.NewServeMux()
@@ -131,12 +131,54 @@ func TestFileBrowserScope(t *testing.T) {
 		if err := json.Unmarshal(w.Body.Bytes(), &list); err != nil {
 			t.Fatalf("listing at %q: %v", machine, err)
 		}
-		if filepath.FromSlash(list.Path) != dir || len(list.Entries) != 1 || list.Entries[0].Name != name {
+		if filepath.FromSlash(list.Path) != dir || !list.Open || len(list.Entries) != 1 || list.Entries[0].Name != name {
 			t.Fatalf("starting folder at %q: %+v, want %s with %s", machine, list, dir, name)
 		}
 		if w := req(t, "/content", machine, filepath.Join(dir, name), http.StatusPartialContent); w.Body.String() != content[:7] {
 			t.Fatalf("preview at %q: %q", machine, w.Body)
 		}
+	}
+	// Traversal is only a projection of the next granted directory, not access to its parent.
+	for _, tc := range []struct{ machine, dir, child string }{
+		{"", l.work, "here"},
+		{"pc", l.work, "shared"},
+		{"pc", shared, "there"},
+	} {
+		w := req(t, "", tc.machine, tc.dir, http.StatusOK)
+		var list api.DirListing
+		if err := json.Unmarshal(w.Body.Bytes(), &list); err != nil || list.Open ||
+			!slices.Equal(list.Entries, []api.DirEntry{{Name: tc.child, Type: "dir"}}) {
+			t.Fatalf("projected listing at %s:%s: %s (%v)", tc.machine, tc.dir, w.Body, err)
+		}
+	}
+	req(t, "", "pc", sibling, http.StatusForbidden)
+	ancestorFile := filepath.Join(shared, name)
+	if err := os.WriteFile(ancestorFile, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	req(t, "/content", "pc", ancestorFile, http.StatusForbidden)
+	mkdir := func(dir, name string, want int) {
+		t.Helper()
+		w := httptest.NewRecorder()
+		body := strings.NewReader(string(mustJSON(api.NewFolder{Machine: "pc", Name: name, Path: dir})))
+		r := httptest.NewRequest(http.MethodPost, "/v1/internal/folders", body)
+		l.s.makeFolder(w, r.WithContext(context.WithValue(r.Context(), callerKey{}, c)))
+		if w.Code != want {
+			t.Fatalf("mkdir at %s: %d %s, want %d", dir, w.Code, w.Body, want)
+		}
+	}
+	mkdir(shared, "blocked", http.StatusForbidden)
+	dotDir := filepath.Join(there, ".worktrees")
+	if err := os.Mkdir(dotDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	mkdir(dotDir, "allowed", http.StatusOK)
+	if _, err := os.Stat(filepath.Join(dotDir, "allowed")); err != nil {
+		t.Fatal(err)
+	}
+	escape := filepath.Join(there, "escape")
+	if err := os.Symlink(sibling, escape); err == nil {
+		mkdir(escape, "blocked", http.StatusForbidden)
 	}
 	req(t, "", "", there, http.StatusForbidden)
 	req(t, "/content", "", filepath.Join(there, name), http.StatusForbidden)
@@ -192,6 +234,20 @@ func TestFileBrowserScope(t *testing.T) {
 			t.Fatalf("ordinary executor read: %v", err)
 		}
 	})
+	t.Run("starting folder through a remote alias", func(t *testing.T) {
+		alias := filepath.Join(l.work, "shared-alias")
+		if err := os.Symlink(there, alias); err != nil {
+			t.Skipf("no directory links: %v", err)
+		}
+		l.want(http.StatusOK, "socket", http.MethodPut, "/v1/internal/apps/"+gate.WebApp+"/logins/"+login.ID+"/perms",
+			api.Perms{Scope: []string{"pc:" + alias}}, nil)
+		w := req(t, "", "pc", "", http.StatusOK)
+		var list api.DirListing
+		if err := json.Unmarshal(w.Body.Bytes(), &list); err != nil || !list.Open || filepath.FromSlash(list.Path) != alias {
+			t.Fatalf("remote alias default: %s (%v)", w.Body, err)
+		}
+	})
+
 }
 
 // A Windows executor receives "/" verbatim for browser listings, with the login scope still
@@ -213,17 +269,20 @@ func TestFileBrowserWindowsRemoteRoot(t *testing.T) {
 	}
 	conn := wire.NewConn(ws)
 	defer conn.Close()
-	calls := make(chan testBrowserDriveCall, 2)
+	calls := make(chan testBrowserDriveCall, 4)
 	conn.OnRequest = func(_ context.Context, method string, raw json.RawMessage) (any, error) {
 		var p wire.PathParams
 		if err := json.Unmarshal(raw, &p); err != nil {
 			return nil, err
 		}
 		calls <- testBrowserDriveCall{method, p}
+		if method == "fs.stat" {
+			return wire.Stat{Type: "dir"}, nil // A legacy executor that ignores StatParams.Scope.
+		}
 		return wire.ListReply{Entries: []wire.Entry{{Name: "D:", Type: "dir"}}}, nil
 	}
 	go conn.Run(ctx)
-	hi := wire.Hello{Protocol: wire.Protocol, OS: "windows", Sep: `\`, Home: `C:\Users\example`}
+	hi := wire.Hello{Protocol: wire.Protocol, OS: "windows", Sep: `\`, Home: `D:\project`}
 	if err := conn.Call(ctx, "hello", hi, &wire.HelloReply{}); err != nil {
 		t.Fatal(err)
 	}
@@ -247,25 +306,25 @@ func TestFileBrowserWindowsRemoteRoot(t *testing.T) {
 
 	q := "?" + url.Values{"machine": {app.App.ID}, "path": {"/"}}.Encode()
 	c := caller{Identity: gate.Identity{App: gate.WebApp, Login: login.ID}}
-	request := func(route string) *httptest.ResponseRecorder {
-		r := httptest.NewRequest(http.MethodGet, route+q, nil)
+	request := func(route, query string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(http.MethodGet, route+query, nil)
 		w := httptest.NewRecorder()
 		mux := http.NewServeMux()
 		l.s.fileRoutes(mux, false)
 		mux.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), callerKey{}, c)))
 		return w
 	}
-	w := request("/v1/internal/web/files")
+	w := request("/v1/internal/web/files", q)
 	var got api.DirListing
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil || w.Code != http.StatusOK ||
-		got.Path != "/" || len(got.Entries) != 1 || got.Entries[0].Name != "D:" || got.Entries[0].Type != "dir" {
+		got.Path != "/" || got.Open || len(got.Entries) != 1 || got.Entries[0].Name != "D:" || got.Entries[0].Type != "dir" {
 		t.Fatalf("listing: status %d, body %s, decode %v", w.Code, w.Body, err)
 	}
 	call := <-calls
 	if call.method != "fs.list.browser" || call.params.Path != "/" || !slices.Equal(call.params.Scope, []string{`D:\project`}) {
 		t.Fatalf("unexpected executor call: %+v", call)
 	}
-	if w := request("/v1/internal/web/files/content"); w.Code != http.StatusBadRequest {
+	if w := request("/v1/internal/web/files/content", q); w.Code != http.StatusBadRequest {
 		t.Fatalf("virtual root content: %d %s", w.Code, w.Body)
 	}
 	select {
@@ -273,6 +332,30 @@ func TestFileBrowserWindowsRemoteRoot(t *testing.T) {
 		t.Fatalf("virtual root content was forwarded: %+v", call)
 	default:
 	}
+	// An older executor omits open. Its ordinary directory listing is still fully open.
+	w = request("/v1/internal/web/files", "?machine="+url.QueryEscape(app.App.ID))
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil || w.Code != http.StatusOK || got.Path != "D:/project" || !got.Open {
+		t.Fatalf("old executor's real listing: status %d, body %s, decode %v", w.Code, w.Body, err)
+	}
+	if call := <-calls; call.params.Path != `D:\project` {
+		t.Fatalf("old executor's starting path: %+v", call)
+	}
+
+	// "~" is expanded before the lexical check, but a scoped write must still refuse an
+	// executor that cannot enforce scope on resolved paths.
+	w = httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/v1/internal/folders", strings.NewReader(
+		string(mustJSON(api.NewFolder{Machine: app.App.ID, Name: "new", Path: "~"}))))
+	l.s.makeFolder(w, r.WithContext(context.WithValue(r.Context(), callerKey{}, c)))
+	if w.Code != http.StatusConflict {
+		t.Fatalf("legacy unscoped stat permitted mkdir: %d %s", w.Code, w.Body)
+	}
+	for _, scope := range [][]string{{`D:\project`}, {""}} {
+		if call := <-calls; call.method != "fs.stat" || call.params.Path != `D:\project` || !slices.Equal(call.params.Scope, scope) {
+			t.Fatalf("unexpected scoped stat request: %+v", call)
+		}
+	}
+
 }
 
 type testBrowserDriveCall struct {
@@ -297,7 +380,7 @@ func TestFileBrowserWindowsHostRoot(t *testing.T) {
 	}
 	w := request("")
 	var got api.DirListing
-	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil || w.Code != http.StatusOK || got.Path != "/" || len(got.Entries) == 0 {
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil || w.Code != http.StatusOK || got.Path != "/" || got.Open || len(got.Entries) == 0 {
 		t.Fatalf("host listing: status %d, body %s, decode %v", w.Code, w.Body, err)
 	}
 	for _, entry := range got.Entries {
@@ -307,5 +390,29 @@ func TestFileBrowserWindowsHostRoot(t *testing.T) {
 	}
 	if w := request("/content"); w.Code != http.StatusBadRequest {
 		t.Fatalf("virtual root content: %d %s", w.Code, w.Body)
+	}
+}
+
+func TestBrowserStartsWindows(t *testing.T) {
+	hi := &wire.Hello{Sep: `\`, Home: `D:\Home`, Roots: []string{`D:\Shared`, `\\NAS\Share\project`}}
+	scope := []string{`d:\Other`, `d:\shared\work`, `\\nas\share\`}
+	got := browserStarts(hi, scope)
+	want := []string{`d:\shared\work`, `\\NAS\Share\project`, `d:\Other`, `\\nas\share\`, `D:\Shared`}
+	if !slices.Equal(got, want) {
+		t.Fatalf("starting candidates: got %v, want %v", got, want)
+	}
+	for _, tc := range []struct {
+		name, root string
+		want       bool
+	}{
+		{`C:\..\Work\notes`, `c:\work`, true},
+		{`C:\Workshop`, `c:\work`, false},
+		{`\\nas\share2\notes`, `\\NAS\Share`, false},
+		{`\\nas\share\..\notes`, `\\NAS\Share`, true},
+		{`D:\Home\notes`, `\\`, false},
+	} {
+		if got := pathKeyWithin(remotePathKey(hi, tc.name), remotePathKey(hi, tc.root)); got != tc.want {
+			t.Errorf("is %q within %q: got %v, want %v", tc.name, tc.root, got, tc.want)
+		}
 	}
 }

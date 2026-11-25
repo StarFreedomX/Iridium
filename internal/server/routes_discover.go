@@ -137,10 +137,6 @@ func (s *Server) makeFolder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Machine != "" {
-		if err := s.remoteScope(callerOf(r), req.Machine, req.Path); err != nil {
-			s.error(w, err)
-			return
-		}
 		s.remoteMkdir(w, r, req)
 		return
 	}

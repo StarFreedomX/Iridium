@@ -234,15 +234,16 @@ type Entry struct {
 type StatParams struct {
 	Path  string   `json:"path"`
 	Head  int      `json:"head,omitempty"`
-	Scope []string `json:"scope,omitempty"` // with fs.stat.browser: allowed roots there
+	Scope []string `json:"scope,omitempty"` // allowed roots for scoped stat (with or without browser rules)
 }
 
 type PathParams struct {
 	Path  string   `json:"path"`
-	Scope []string `json:"scope,omitempty"` // with fs.list.browser: allowed roots there
+	Scope []string `json:"scope,omitempty"` // allowed roots for browser listing or scoped mkdir
 }
 
 type ListReply struct {
+	Open    *bool   `json:"open,omitempty"` // nil for older executors
 	Entries []Entry `json:"entries"`
 }
 

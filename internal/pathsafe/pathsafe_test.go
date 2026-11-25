@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -75,4 +76,63 @@ func TestDenyList(t *testing.T) {
 	if _, err := g.Check(home + "/.sshx"); err != nil {
 		t.Errorf("a sibling with the same prefix: %v", err)
 	}
+}
+
+func TestBrowserDirectory(t *testing.T) {
+	base := t.TempDir()
+	top := filepath.Join(base, "shared")
+	work := filepath.Join(top, "work", "project")
+	notes := filepath.Join(top, "notes")
+	private := filepath.Join(top, "private")
+	missing := filepath.Join(top, "missing")
+	hidden := filepath.Join(top, ".hidden")
+	for _, p := range []string{work, notes, private, hidden} {
+		if err := os.MkdirAll(p, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, p := range []string{filepath.Join(top, "unrelated"), filepath.Join(top, "file.txt")} {
+		if err := os.WriteFile(p, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	g := New(nil, []string{private}, nil)
+	roots := []string{top}
+	scope := []string{missing, private, work, notes, hidden, filepath.Join(base, "unshared")}
+	dir, err := g.BrowserDirectory(top, roots, scope)
+	if err != nil || dir.Real != "" || !slices.Equal(dir.Children, []string{"notes", "work"}) {
+		t.Fatalf("projection: %+v, %v", dir, err)
+	}
+	dir, err = g.BrowserDirectory(work, roots, scope)
+	if err != nil || dir.Real == "" || len(dir.Children) != 0 {
+		t.Fatalf("open directory: %+v, %v", dir, err)
+	}
+	if _, err := g.BrowserDirectory(top, []string{work}, []string{notes}); !errors.Is(err, ErrOutside) {
+		t.Fatalf("disjoint roots: %v", err)
+	}
+	if _, err := g.BrowserDirectory(private, roots, scope); !errors.Is(err, ErrDenied) {
+		t.Fatalf("private directory: %v", err)
+	}
+	if _, err := g.BrowserDirectory(hidden, roots, scope); !errors.Is(err, ErrDenied) {
+		t.Fatalf("hidden directory: %v", err)
+	}
+	t.Run("alias", func(t *testing.T) {
+		link := filepath.Join(base, "alias")
+		if err := os.Symlink(private, link); err != nil {
+			t.Skipf("no directory links: %v", err)
+		}
+		if _, err := g.BrowserDirectory(link, roots, scope); !errors.Is(err, ErrDenied) {
+			t.Fatalf("alias into denied directory: %v", err)
+		}
+	})
+	t.Run("no path through a deny", func(t *testing.T) {
+		exception := filepath.Join(private, "public")
+		if err := os.Mkdir(exception, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		g := New(nil, []string{private}, []string{exception})
+		if _, err := g.BrowserDirectory(top, nil, []string{exception}); !errors.Is(err, ErrOutside) {
+			t.Fatalf("projection through denied directory: %v", err)
+		}
+	})
 }

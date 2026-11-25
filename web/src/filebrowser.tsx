@@ -115,10 +115,11 @@ export default function FileBrowser({ machine: initialMachine, path: initialPath
   const [making, setMaking] = useState(false);
   // Normalize Windows separators to '/' so parent() and join() work uniformly.
   const dir = browserPath(here, computer?.sep);
-  // "/" on Windows is the synthetic drive list rather than a real directory, so folder-scoped
-  // actions (mkdir, chat link, new channel here) stay disabled there.
+  // "/" on Windows is the synthetic drive list (not a real path, so chat link is also disabled);
+  // traversed ancestor directories are real paths but not open, so mkdir and new channel stay off.
   const virtual = computer?.sep === "\\" && dir === "/";
   const realFolder = !!folders.data?.path && !virtual;
+  const open = folders.data?.open === true && !virtual;
   const list = useRef<HTMLDivElement>(null);
   const scroll = useRef<HTMLDivElement>(null);
   const title = useRef<HTMLHeadingElement>(null);
@@ -135,7 +136,7 @@ export default function FileBrowser({ machine: initialMachine, path: initialPath
   };
   const make = () => {
     const name = naming?.trim();
-    if (virtual || !name || name === "." || name === ".." || /[/\\\0]/.test(name) || making) return;
+    if (!open || !name || name === "." || name === ".." || /[/\\\0]/.test(name) || making) return;
     setMaking(true);
     void api
       .mkdir({ path: dir, name, ...(machine ? { machine } : {}) })
@@ -194,7 +195,7 @@ export default function FileBrowser({ machine: initialMachine, path: initialPath
       <div className={cn("shrink-0 items-center gap-1 border-b border-edge px-2 py-1", file ? "hidden @min-[620px]:flex" : "flex")}>
         <IconKey label={t("browse.start")} onClick={() => visit(root ?? "")}><House size={15} /></IconKey>
         <PathBar dir={dir} machine={machine} typed={typed} onType={setTyped} onVisit={visit} inside={inside} />
-        <IconKey label={t("pick.newFolder")} disabled={!realFolder} onClick={() => setNaming((n) => (n === null ? "" : null))}><FolderPlus size={15} /></IconKey>
+        <IconKey label={t("pick.newFolder")} disabled={!open} onClick={() => setNaming((n) => (n === null ? "" : null))}><FolderPlus size={15} /></IconKey>
         <IconKey label={t("top.reload")} onClick={() => void folders.refetch()}><RefreshCw size={15} /></IconKey>
         <IconKey label={t("browse.copyChatLink")} disabled={!realFolder} onClick={() => copyChatLink(dir)}><Link2 size={15} /></IconKey>
       </div>
@@ -203,9 +204,9 @@ export default function FileBrowser({ machine: initialMachine, path: initialPath
         <div ref={list} tabIndex={-1} className={cn("min-w-0 flex-1 flex-col focus-visible:-outline-offset-6 @min-[620px]:flex @min-[620px]:w-72 @min-[620px]:flex-none @min-[620px]:border-r @min-[620px]:border-edge", file ? "hidden" : "flex")}>
           <div ref={scroll} className="min-h-0 flex-1 overflow-auto overscroll-contain p-1.5">
             {/* 新建文件夹: a row at the list's head, its height glided; Enter makes it and goes in. */}
-            <div className={cn("grid transition-[grid-template-rows] duration-(--dur-3) ease-(--ease-out) motion-reduce:transition-none", !virtual && naming !== null ? "grid-rows-[1fr]" : "grid-rows-[0fr]")}>
+            <div className={cn("grid transition-[grid-template-rows] duration-(--dur-3) ease-(--ease-out) motion-reduce:transition-none", open && naming !== null ? "grid-rows-[1fr]" : "grid-rows-[0fr]")}>
               <div className="min-h-0 overflow-hidden">
-                {!virtual && naming !== null && (
+                {open && naming !== null && (
                   <form className={cn(folderRowClass, "bg-fill")} onSubmit={(e) => (e.preventDefault(), make())}>
                     {making ? <LoaderCircle size={17} className="shrink-0 animate-spin text-ink-3" /> : <FolderPlus size={17} className="shrink-0 text-ink-2" />}
                     <input
@@ -240,7 +241,7 @@ export default function FileBrowser({ machine: initialMachine, path: initialPath
             channel in the folder shown, at the computer shown; the folder is its group. */}
         {!file && (
           <Dialog.Close
-            disabled={!realFolder || (!!machine && !computer?.online)}
+            disabled={!open || (!!machine && !computer?.online)}
             onClick={() => void newChannelAt(nativeAt(computer, dir), machine || undefined, workspace).then((id) => id && openChat(id))}
             className="g-press absolute right-3 bottom-3 flex h-9 items-center gap-1.5 rounded-full bg-ink pr-3.5 pl-2.5 text-sm font-medium text-on-ink shadow-lg disabled:opacity-40 pointer-coarse:h-11"
           >

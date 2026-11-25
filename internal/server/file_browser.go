@@ -2,11 +2,14 @@ package server
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -47,18 +50,20 @@ func (s *Server) browserScope(c caller, app string) ([]string, error) {
 }
 
 // browserLocation is a resolved web file-browser target: the computer (nil for the host), its
-// native path, and the login's scope roots there (nil when unrestricted).
+// native path, the login's scope roots there (nil when unrestricted), and for default listings
+// (empty path) the ordered candidate directories to probe until one is fully open.
 type browserLocation struct {
 	machine *remote.Machine
 	hello   *wire.Hello
 	path    string
 	scope   []string
+	starts  []string // non-nil only for a default listing
 }
 
-// browserAt resolves the request's computer, path (defaulting to the first allowed root, the
-// computer's first shared root, or home) and login scope; it has answered when nil. When listing
-// is true, "/" on a Windows host or executor is kept as the synthetic drive root; content reads
-// reject it so it never reaches file serving or remote stat/read calls.
+// browserAt resolves the request's computer, path and login scope; it has answered when nil.
+// When listing is true, an empty path fills starts so browseFiles opens the first accessible
+// candidate, and "/" on Windows is kept as the synthetic drive root; content reads reject "/"
+// so it never reaches file serving or remote stat/read calls.
 func (s *Server) browserAt(w http.ResponseWriter, r *http.Request, listing bool) *browserLocation {
 	q := r.URL.Query()
 	path := q.Get("path")
@@ -76,6 +81,32 @@ func (s *Server) browserAt(w http.ResponseWriter, r *http.Request, listing bool)
 		s.error(w, err)
 		return nil
 	}
+	at.scope = scope
+	if at.machine == nil {
+		for i, root := range scope {
+			scope[i], _ = s.hostPath(c, root)
+		}
+		if path == "" && listing {
+			at.starts = scope
+			if len(scope) == 0 {
+				home, err := os.UserHomeDir()
+				if err != nil {
+					s.error(w, err)
+					return nil
+				}
+				at.starts = []string{home}
+			}
+			return at
+		}
+	} else {
+		for i, root := range scope {
+			scope[i] = nativePath(at.hello, root)
+		}
+		if path == "" && listing {
+			at.starts = browserStarts(at.hello, scope)
+			return at
+		}
+	}
 	if path == "" {
 		path = "~"
 		if len(scope) > 0 {
@@ -84,7 +115,6 @@ func (s *Server) browserAt(w http.ResponseWriter, r *http.Request, listing bool)
 			path = at.hello.Roots[0]
 		}
 	}
-	at.scope = scope
 	if at.machine == nil {
 		if filepath.Separator == '\\' && path == "/" {
 			if !listing {
@@ -99,12 +129,7 @@ func (s *Server) browserAt(w http.ResponseWriter, r *http.Request, listing bool)
 				return nil
 			}
 		}
-		for i, root := range scope {
-			scope[i], _ = s.hostPath(c, root)
-		}
-		return at
-	}
-	if listing && at.hello.Sep == `\` && path == "/" {
+	} else if listing && at.hello.Sep == `\` && path == "/" {
 		at.path = path
 	} else {
 		at.path = nativePath(at.hello, path)
@@ -113,37 +138,132 @@ func (s *Server) browserAt(w http.ResponseWriter, r *http.Request, listing bool)
 			return nil
 		}
 	}
-	for i, root := range scope {
-		scope[i] = nativePath(at.hello, root)
-	}
 	return at
 }
 
+// remotePathKey is only a lexical comparison key. The executor still resolves symlinks and
+// authorizes the actual native path. Keep UNC keys distinct from paths on a logical drive.
+func remotePathKey(hi *wire.Hello, name string) string {
+	if !remote.IsAbs(hi.Sep, name) {
+		return ""
+	}
+	p := pagePath(hi, name)
+	if hi.Sep != `\` {
+		return path.Clean(p)
+	}
+	if !strings.HasPrefix(p, "//") {
+		return strings.ToLower(p[:2] + path.Clean(p[2:]))
+	}
+	server, rest, _ := strings.Cut(p[2:], "/")
+	share, tail, _ := strings.Cut(rest, "/")
+	if server == "" || share == "" || server == "." || server == ".." || share == "." || share == ".." {
+		return ""
+	}
+	return strings.ToLower("//" + server + "/" + share + path.Clean("/"+tail))
+}
+
+// pathKeyWithin reports whether lexical key name equals or lies beneath lexical key root.
+func pathKeyWithin(name, root string) bool {
+	return name != "" && root != "" && (name == root || strings.HasPrefix(name, strings.TrimSuffix(root, "/")+"/"))
+}
+
+// browserStarts prefers paths in the lexical intersection. The original roots are fallback
+// candidates for aliases the server cannot resolve or for paths that no longer exist.
+func browserStarts(hi *wire.Hello, scope []string) []string {
+	roots := make([]string, 0, len(hi.Roots))
+	for _, root := range hi.Roots {
+		roots = append(roots, nativePath(hi, root))
+	}
+	out := []string{}
+	seen := map[string]bool{}
+	add := func(p string) {
+		if remotePathKey(hi, p) != "" && !seen[p] {
+			out = append(out, p)
+			seen[p] = true
+		}
+	}
+	for _, allowed := range scope {
+		for _, root := range roots {
+			a, r := remotePathKey(hi, allowed), remotePathKey(hi, root)
+			switch {
+			case pathKeyWithin(a, r):
+				add(allowed)
+			case pathKeyWithin(r, a):
+				add(root)
+			}
+		}
+	}
+	for _, p := range scope {
+		add(p)
+	}
+	for _, p := range roots {
+		add(p)
+	}
+	if len(scope) == 0 && len(roots) == 0 {
+		add(hi.Home)
+	}
+	return out
+}
+
 // browseFiles is GET /v1/internal/web/files: one level of a folder on the host or a connected
-// computer. An empty path opens the first allowed root or home; "/" on Windows lists drives.
+// computer. An empty path opens the first fully accessible candidate; "/" on Windows lists drives.
 func (s *Server) browseFiles(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	at := s.browserAt(w, r, true)
 	if at == nil {
 		return
 	}
-	if at.machine == nil {
-		out, err := s.files.Browse(at.path, at.scope...)
-		if err != nil {
-			s.fileError(w, err)
-			return
-		}
-		reply(w, http.StatusOK, out)
-		return
-	}
 	ctx, cancel := context.WithTimeout(r.Context(), browseTimeout)
 	defer cancel()
-	var out wire.ListReply
-	if err := at.machine.Call(ctx, "fs.list.browser", wire.PathParams{Path: at.path, Scope: at.scope}, &out); err != nil {
-		s.browserRemoteError(w, err)
+
+	paths := at.starts
+	if paths == nil {
+		paths = []string{at.path}
+	}
+	for _, p := range paths {
+		if at.starts != nil && p == "" {
+			continue
+		}
+		out, err := s.browserList(ctx, at, p)
+		if err == nil {
+			if at.starts == nil || out.Open {
+				reply(w, http.StatusOK, out)
+				return
+			}
+			continue
+		}
+		if at.starts != nil && (errors.Is(err, pathsafe.ErrDenied) || errors.Is(err, pathsafe.ErrOutside) ||
+			errors.Is(err, os.ErrNotExist) || wire.IsCode(err, wire.CodeDenied) || wire.IsCode(err, wire.CodeNotFound)) {
+			continue
+		}
+		if at.machine == nil {
+			s.fileError(w, err)
+		} else {
+			s.browserRemoteError(w, err)
+		}
 		return
 	}
-	reply(w, http.StatusOK, remoteDirListing(pagePath(at.hello, at.path), out.Entries))
+	s.error(w, &access.Denied{Reason: "no starting directory is in scope"})
+}
+
+// browserList lists one host or remote browser directory, treating a missing Open flag from
+// older executors as true for ordinary directories and false for the Windows drive root.
+func (s *Server) browserList(ctx context.Context, at *browserLocation, p string) (api.DirListing, error) {
+	if at.machine == nil {
+		return s.files.Browse(p, at.scope...)
+	}
+	var out wire.ListReply
+	if err := at.machine.Call(ctx, "fs.list.browser", wire.PathParams{Path: p, Scope: at.scope}, &out); err != nil {
+		return api.DirListing{}, err
+	}
+	l := remoteDirListing(pagePath(at.hello, p), out.Entries)
+	// Old executors only list real directories, except for the Windows drive list.
+	if out.Open != nil {
+		l.Open = *out.Open
+	} else if at.hello.Sep == `\` && p == "/" {
+		l.Open = false
+	}
+	return l, nil
 }
 
 // browseFile is GET /v1/internal/web/files/content: one regular file on the host or a connected

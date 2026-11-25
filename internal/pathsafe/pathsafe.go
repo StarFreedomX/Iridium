@@ -166,8 +166,7 @@ func InRoots(path string, roots []string) bool {
 		if err != nil {
 			continue
 		}
-		rel, err := filepath.Rel(real, path)
-		if err == nil && filepath.IsLocal(rel) {
+		if Within(path, real) {
 			return true
 		}
 	}
@@ -213,10 +212,8 @@ func (g *Guard) denied(p string) bool {
 	return false
 }
 
-// Within: p is dir or inside it. Both clean and absolute.
+// Within reports whether p is dir or lies beneath it, using native separator and volume rules.
 func Within(p, dir string) bool {
-	if dir == "/" {
-		return true
-	}
-	return p == dir || strings.HasPrefix(p, dir+string(filepath.Separator))
+	rel, err := filepath.Rel(dir, p)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }

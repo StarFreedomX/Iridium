@@ -470,6 +470,9 @@ func (e *Executor) handle(ctx context.Context, method string, params json.RawMes
 		if err != nil {
 			return nil, err
 		}
+		if len(p.Scope) > 0 && (!pathsafe.InRoots(filepath.Dir(path), p.Scope) || !pathsafe.InRoots(path, p.Scope)) {
+			return nil, &wire.Error{Code: wire.CodeDenied, Message: "folder is out of this login's scope"}
+		}
 		return struct{}{}, os.MkdirAll(path, 0o755)
 	}
 	return nil, &wire.Error{Code: wire.CodeUnsupported, Message: method}
@@ -915,28 +918,47 @@ func (e *Executor) stat(path string, head int, read fileRead) (any, error) {
 }
 
 func (e *Executor) list(path string, read fileRead) (any, error) {
-	// Only the web file browser (fs.list.browser) uses "/" on Windows as a synthetic drive list;
-	// ordinary fs.list, stat, read and mkdir still require a real native absolute path.
-	if read.browser && filepath.Separator == '\\' && path == "/" {
-		drives, err := pathsafe.BrowserDrives(e.Roots(), read.scope)
+	open := true
+	out := wire.ListReply{Open: &open, Entries: []wire.Entry{}}
+	var p string
+	// Web browser listings (fs.list.browser) project Windows drives at "/" and next-step child
+	// names on scoped ancestors (Open: false) without relaxing ordinary fs.list, stat, read or mkdir.
+	if read.browser {
+		guard := pathsafe.New(nil, e.denied(), nil)
+		roots := e.Roots()
+		if filepath.Separator == '\\' && path == "/" {
+			drives, err := guard.BrowserDrives(roots, read.scope)
+			if err != nil {
+				return nil, err
+			}
+			return projectedList(drives), nil
+		}
+		dir, err := guard.BrowserDirectory(path, roots, read.scope)
+		if err != nil {
+			switch {
+			case errors.Is(err, pathsafe.ErrDenied), errors.Is(err, pathsafe.ErrOutside):
+				return nil, &wire.Error{Code: wire.CodeDenied, Message: err.Error()}
+			case errors.Is(err, pathsafe.ErrRelative):
+				return nil, bad("not absolute: %s", path)
+			default:
+				return nil, notFound(err)
+			}
+		}
+		if dir.Real == "" {
+			return projectedList(dir.Children), nil
+		}
+		p = dir.Real
+	} else {
+		var err error
+		p, err = e.readable(path, read)
 		if err != nil {
 			return nil, err
 		}
-		out := wire.ListReply{Entries: make([]wire.Entry, 0, len(drives))}
-		for _, name := range drives {
-			out.Entries = append(out.Entries, wire.Entry{Name: name, Type: "dir"})
-		}
-		return out, nil
-	}
-	p, err := e.readable(path, read)
-	if err != nil {
-		return nil, err
 	}
 	ents, err := os.ReadDir(p)
 	if err != nil {
 		return nil, notFound(err)
 	}
-	out := []wire.Entry{}
 	for _, d := range ents {
 		if read.browser && pathsafe.BrowserHidden(d.Name()) {
 			continue
@@ -945,9 +967,19 @@ func (e *Executor) list(path string, read fileRead) (any, error) {
 		if err != nil {
 			continue
 		}
-		out = append(out, wire.Entry{Name: d.Name(), Size: info.Size(), Mtime: info.ModTime().UnixMilli(), Type: typeOf(info.Mode())})
+		out.Entries = append(out.Entries, wire.Entry{Name: d.Name(), Size: info.Size(), Mtime: info.ModTime().UnixMilli(), Type: typeOf(info.Mode())})
 	}
-	return map[string]any{"entries": out}, nil
+	return out, nil
+}
+
+// projectedList builds a non-open listing of synthetic directory names (drives or ancestor hops).
+func projectedList(names []string) wire.ListReply {
+	open := false
+	out := wire.ListReply{Open: &open, Entries: make([]wire.Entry, 0, len(names))}
+	for _, name := range names {
+		out.Entries = append(out.Entries, wire.Entry{Name: name, Type: "dir"})
+	}
+	return out
 }
 
 func (e *Executor) read(path string, off, n int64, read fileRead) (any, error) {
