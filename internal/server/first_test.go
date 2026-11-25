@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/kumoSleeping/iridium/internal/api"
 	"github.com/kumoSleeping/iridium/internal/satori"
@@ -28,10 +29,19 @@ func TestFirstScreen(t *testing.T) {
 			Data    []json.RawMessage `json:"data"`
 		} `json:"work"`
 	}
+	// Asked again till the channel is still: a line may come after the reply (its turn's end),
+	// between the two asks (a release's check saw them differ once, 2026-11-25).
 	var one first
-	l.want(200, "web", "GET", "/v1/internal/sessions/"+ch+"/first", nil, &one)
 	var log1 satori.BidiList[satori.Message]
-	l.wantSat(200, "web", "message.list", map[string]any{"channel_id": ch}, &log1)
+	for end := time.Now().Add(2 * time.Second); ; {
+		one, log1 = first{}, satori.BidiList[satori.Message]{}
+		l.want(200, "web", "GET", "/v1/internal/sessions/"+ch+"/first", nil, &one)
+		l.wantSat(200, "web", "message.list", map[string]any{"channel_id": ch}, &log1)
+		if one.Log != nil && len(one.Log.Data) == len(log1.Data) || time.Now().After(end) {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 	if one.Session.ID != ch || one.Page != nil ||
 		one.Members == nil || one.Members.Channel != ch || !one.Members.Joined ||
 		one.Reads == nil || one.Reads.Channel != ch ||
