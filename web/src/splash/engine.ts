@@ -417,14 +417,27 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
   };
 
 
-  // The ring (kumo, 2026-11-26): where no agent is to be drawn, a Möbius band of the code's own
-  // characters in the pane's middle, aslant, turning in itself, the rainbow flowing along it. Laid
-  // down each frame as points of the band (RN along it, a few across), each on the cell it falls
-  // in, the nearest kept; no cell asked anything. A star over a part of it (draw) stirs that part
-  // (stir): another run of colours there, going out along the band both ways and dying away.
+  // The knot (kumo, 2026-11-26): where no agent is to be drawn, a band of the code's own characters
+  // in the pane's middle, a figure of eight crossing itself in its middle (one strand over the
+  // other), aslant from the upper left to the lower right; it sways, a twist runs along it, it is
+  // wider and narrower by turns, the rainbow flows along it. Laid down each frame as points of the
+  // band (RN along it, a few across), each on the cell it falls in, the nearest kept; no cell asked
+  // anything. A star over a part of it (draw) stirs that part (stir): another run of colours there,
+  // going out along the band both ways and dying away.
   const RN = 512;
-  const RC = new Float32Array(RN), RS = new Float32Array(RN);
-  for (let j = 0; j < RN; j++) (RC[j] = Math.cos((j / RN) * 6.2832)), (RS[j] = Math.sin((j / RN) * 6.2832));
+  // Along it, for a half length of one: its middle line (x, y, z) and two directions across it.
+  const KX = new Float32Array(RN), KY = new Float32Array(RN), KZ = new Float32Array(RN), KA = new Float32Array(RN * 3), KB = new Float32Array(RN * 3);
+  for (let j = 0; j < RN; j++) {
+    const u = (j / RN) * 6.2832, c = Math.cos(u), sn = Math.sin(u);
+    (KX[j] = c), (KY[j] = 1.3 * sn * c), (KZ[j] = 0.24 * sn);
+    let tx = -sn, ty = 1.3 * Math.cos(2 * u), tz = 0.24 * c;
+    const tl = Math.hypot(tx, ty, tz);
+    (tx /= tl), (ty /= tl), (tz /= tl);
+    // Across it: level (the tangent crossed with the depth), and the one square to both.
+    const al = Math.hypot(ty, tx), ax = ty / al, ay = -tx / al;
+    KA.set([ax, ay, 0], j * 3);
+    KB.set([ty * 0 - tz * ay, tz * ax - tx * 0, tx * ay - ty * ax], j * 3);
+  }
   let ra = new Float32Array(0), rh = new Float32Array(0), rz = new Float32Array(0), ru = new Int16Array(0), rowRing = new Uint8Array(0), ringCells = new Int32Array(0), nRing = 0;
   let stir = new Float32Array(RN), stir2 = new Float32Array(RN);
   let ringK = 0, ringAt = 0;
@@ -439,22 +452,26 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
     const dec = Math.exp(-dt / 700);
     for (let j = 0; j < RN; j++) stir2[j] = Math.max(stir[j]!, (stir[(j + 1) % RN]! + stir[(j + RN - 1) % RN]!) * 0.494) * dec;
     [stir, stir2] = [stir2, stir];
-    const top = footT >= 0 ? footT : H;
-    const R = Math.min(W * 0.36, top * 0.3, 230), wv = R * 0.24, xc = W / 2, yc = cy >= 0 ? cy : top * 0.5;
-    const t = still ? 0 : now, spin = t * 0.0004, lean = 0.92 + 0.1 * Math.sin(t / 2900);
-    const ca = Math.cos(lean), sa = Math.sin(lean), cr = Math.cos(-0.5), sr = Math.sin(-0.5);
-    const RM = Math.max(8, Math.ceil((wv * 2) / ROW) + 3), far = R + wv, flow = t * 0.05;
+    const top = footT >= 0 ? footT : H, t = still ? 0 : now;
+    const A = Math.min(W * 0.4, top * 0.36, 290) * (1 + 0.03 * Math.sin(t / 1700)), wv = A * 0.13, xc = W / 2, yc = cy >= 0 ? cy : top * 0.5;
+    // It sways: about its length, about its height, and a little in the pane.
+    const a1 = 0.2 + 0.38 * Math.sin(t / 2300), a2 = 0.4 * Math.sin(t / 3100 + 1), a3 = 0.47 + 0.07 * Math.sin(t / 4100);
+    const c1 = Math.cos(a1), s1 = Math.sin(a1), c2 = Math.cos(a2), s2 = Math.sin(a2), c3 = Math.cos(a3), s3 = Math.sin(a3);
+    const RM = Math.ceil((wv * 2.5) / cw) + 2, flow = t * 0.07, spin = t * 0.0011;
     for (let iu = 0; iu < RN; iu++) {
-      const cu = RC[iu]!, su = RS[iu]!, half = (iu / RN) * 3.1416 + spin, ct = Math.cos(half), st = Math.sin(half);
-      const e = stir[iu]!, hue0 = (iu / RN) * 360 - flow + e * 150;
+      const u = (iu / RN) * 6.2832, tw = u * 1.5 + spin + 0.6 * Math.sin(2 * u - t / 900), ct = Math.cos(tw), st = Math.sin(tw);
+      const wide = wv * (0.8 + 0.3 * Math.sin(3 * u + t / 1300));
+      const j3 = iu * 3, wx = KA[j3]! * ct + KB[j3]! * st, wy = KA[j3 + 1]! * ct + KB[j3 + 1]! * st, wz = KB[j3 + 2]! * st;
+      const e = stir[iu]!, hue0 = (iu / RN) * 720 - flow + e * 150, mx = KX[iu]! * A, my = KY[iu]! * A, mz = KZ[iu]! * A;
       for (let iv = 0; iv < RM; iv++) {
-        const vn = (iv / (RM - 1)) * 2 - 1, v = vn * wv, r = R + v * ct;
-        const x = r * cu, y = r * su, z = v * st;
-        const y2 = y * ca - z * sa, z2 = y * sa + z * ca;
-        const k = 1 + z2 / (far * 3.2);
-        const row = ((yc + (x * sr + y2 * cr) * k) / ROW) | 0;
+        const vn = (iv / (RM - 1)) * 2 - 1, v = vn * wide;
+        const x = mx + wx * v, y = my + wy * v, z = mz + wz * v;
+        const y1 = y * c1 - z * s1, z1 = y * s1 + z * c1;
+        const x2 = x * c2 + z1 * s2, z2 = z1 * c2 - x * s2;
+        const k = 1 + z2 / (A * 3.2);
+        const row = ((yc + (x2 * s3 + y1 * c3) * k) / ROW) | 0;
         if (row < 0 || row >= rows) continue;
-        const col = Math.round((xc + (x * cr - y2 * sr) * k) / cw - 0.5 + off[row]! - Math.floor(off[row]!));
+        const col = Math.round((xc + (x2 * c3 - y1 * s3) * k) / cw - 0.5 + off[row]! - Math.floor(off[row]!));
         if (col < 0 || col >= cols) continue;
         const i = row * cols + col;
         if (ra[i]! > 0 && rz[i]! >= z2) continue;
@@ -463,8 +480,8 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
         rz[i] = z2;
         ru[i] = iu;
         // Nearer, stronger; its two edges stronger than its middle.
-        ra[i] = Math.min(1, (0.3 + 0.55 * (z2 / far + 1) * 0.5 + 0.25 * vn * vn + e * 0.4) * ringK);
-        rh[i] = hue0 + vn * 46;
+        ra[i] = Math.min(1, Math.max(0.3, 0.55 + 0.3 * (z2 / (A * 0.5)) + 0.25 * vn * vn + e * 0.4) * ringK);
+        rh[i] = hue0 + vn * 50;
       }
     }
   };
