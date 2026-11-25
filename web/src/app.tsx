@@ -26,7 +26,7 @@ import type { Place } from "./places";
 import { prefetch, settled } from "./prefetch";
 import { prefetchRoles } from "./roles";
 import { quotaQ } from "./quota";
-import { back as stepBack, close, go, onTurn, openChat, over, quietDialog, route, setUsageMachine, useRoute, type Route } from "./route";
+import { back as stepBack, close, go, onTurn, openChat, over, quietDialog, route, useRoute, type Route } from "./route";
 import { Pager, TABS_H } from "./pager";
 import { atLeft, GRIP, Sheet } from "./sheet";
 import { HeadKeys, Sidebar } from "./sidebar";
@@ -180,7 +180,7 @@ export function App() {
   // On a phone the 终端 panel is a sheet too (the user, 2026-11-06): its page drawn still as it goes
   // down, once it has been open.
   // The usage is a window over the whole page (kumo, 2026-11-25): under it the sheet stays as it
-  // was, its 设置 page too when the usage was asked for from there.
+  // was, its 设置 page too when the usage was asked for over it (the chat's ⋯ above the sheet).
   const usageOpen = r.name === "usage";
   const setsWas = useRef(false);
   if (!usageOpen) setsWas.current = phone && inSets(r);
@@ -264,9 +264,6 @@ export function App() {
   // A tab, or a swipe across: the sheet stays out, the back key going back to the sessions.
   // 终端 the left page, as a swipe up from the left brings it; the sessions the right (the user, 2026-11-08).
   const toPage = (i: number) => (setSheetOut(true), i === 0 ? go({ name: "settings" }) : inSets(route()) && close(under));
-  // The usage's tab between them (the user, 2026-11-08) is no page: it opens the usage's window
-  // over the sheet as it is (kumo, 2026-11-25), a step of its own, its close the step back.
-  const usageTab = () => (setUsageMachine(), go({ name: "usage" }));
   // Put away, the panel is drawn afresh once it is down: its first page, not renaming.
   const [setsRound, setSetsRound] = useState(0);
   useEffect(() => {
@@ -506,7 +503,6 @@ export function App() {
                 onPage={toPage}
                 tabs={[
                   { label: <>{t("nav.me")}{update.data?.available && <span className="size-1.5 rounded-full bg-err" aria-hidden />}</>, aria: update.data?.available ? `${t("nav.me")} · ${t("settings.updateReady")}` : t("nav.me") },
-                  { label: t("usage.title"), aria: t("usage.title"), press: usageTab },
                   { label: t("nav.sessions"), aria: t("nav.sessions") },
                 ]}
               >
