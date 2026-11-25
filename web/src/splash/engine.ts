@@ -261,7 +261,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean): Splash {
         // On the way a cell is another character, one cell in four, changed eight times a second:
         // not a new one each frame.
         const h = busy[i] ? Math.imul(i ^ Math.imul(tick, 0x9e3779b1), 0x85ebca6b) >>> 0 : 1;
-        run += h % 4 === 0 ? GLYPHS[(h >>> 8) % GLYPHS.length]! : row[(k + o) % len]!;
+        run += h % 4 === 0 ? GLYPHS[(h >>> 8) % GLYPHS.length]! : (row[(k + o) % len] ?? " ");
       }
       flush();
     }
@@ -284,8 +284,9 @@ export function splash(cv: HTMLCanvasElement, still: boolean): Splash {
     const burst = now < flowTo;
     const want = still ? 0 : burst ? 1 : IDLE;
     vel += (want - vel) * (1 - Math.exp(-dt / (burst ? 0.4 : 0.7)));
+    if (!(vel >= 0 && vel <= 1.5)) vel = want; // never out of what a speed is, whatever a frame's time was
     const flow = vel > 0.004 ? vel : 0;
-    if (flow > 0) for (let r = 0; r < rows; r++) off[r] = (off[r]! + speed[r]! * flow * pace(pw) * dt + len) % len;
+    if (flow > 0) for (let r = 0; r < rows; r++) off[r] = (((off[r]! + speed[r]! * flow * pace(pw) * dt) % len) + len) % len;
     // The figure's place, size and strength glide to what is asked: the cells read anew each frame.
     const [gx, gs] = goal();
     const gliding = Math.abs(gx - px) > 0.4 || Math.abs(gs - ps) > 0.4 || Math.abs(pwT - pw) > 0.004;

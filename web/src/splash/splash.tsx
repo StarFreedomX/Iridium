@@ -2,15 +2,13 @@
 // no channel open, show in their middle: a band of small code drawing Iridium's letters, or the
 // agent pointed at in the + panel, or the channel's own once it has one (engine.ts). It is
 // behind everything and takes no press; it goes as the first message comes.
-import { ChevronLeft } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { Agent } from "../api/types.gen";
 import { useFaceSrc } from "../chat/channel/face";
-import { t } from "../i18n";
 import { cn, PHONE, useMedia } from "../ui";
 import { splash, type Splash as Engine } from "./engine";
 import { justMade } from "../chat/channel/adding";
-import { onPoint, panelIsUp, panelOpen, point, pointedAt, powerNow, stage, stagedNow, STANDARD, type Fig } from "./figure";
+import { onPoint, panelIsUp, panelOpen, pointedAt, powerNow, stage, stagedNow, STANDARD, type Fig } from "./figure";
 
 // The + panel and the menu beside its rows, with the gaps about them: what the figure keeps left of.
 const PANEL = 660;
@@ -26,11 +24,7 @@ export function Splash({ show = true, fig = null, scene = "", className }: { sho
   const still = useMedia("(prefers-reduced-motion: reduce)");
   const cv = useRef<HTMLCanvasElement>(null);
   const eng = useRef<Engine | null>(null);
-  // Back pressed (the key left of a figure; for now, kumo, 2026-11-25): Iridium's letters again,
-  // until another figure is asked for.
-  const asked = show ? (pointed ?? fig) : fig;
-  const [left, setLeft] = useState<string | null>(null);
-  const now = asked && asked.key === left ? null : asked;
+  const now = show ? (pointed ?? fig) : fig;
   const aside = useSyncExternalStore(onPoint, panelOpen) && show;
   const asideRef = useRef(aside);
   asideRef.current = aside;
@@ -39,7 +33,6 @@ export function Splash({ show = true, fig = null, scene = "", className }: { sho
   const phone = useMedia(PHONE);
   const up = useSyncExternalStore(onPoint, panelIsUp);
   const low = phone && up && show;
-  const [at, setAt] = useState({ x: 0, side: 0 });
   const fitRef = useRef(() => {});
   const nowRef = useRef(now);
   nowRef.current = now;
@@ -59,7 +52,6 @@ export function Splash({ show = true, fig = null, scene = "", className }: { sho
       const left = asideRef.current && free >= 240;
       const side = left ? Math.min(h * 0.92, free * 0.9) : Math.min(h * 0.92, w * 0.7);
       e.place(left ? free / 2 : -1, side);
-      setAt({ x: left ? free / 2 : w / 2, side });
     };
     fitRef.current = fit;
     fit();
@@ -95,11 +87,6 @@ export function Splash({ show = true, fig = null, scene = "", className }: { sho
   return (
     <div aria-hidden={!now} className={cn("pointer-events-none absolute inset-x-0 z-1 transition-[top] duration-(--dur-3) ease-(--ease-out)", low ? "top-[calc(100%-84px)] h-[clamp(200px,34%,300px)] -translate-y-full" : "top-[calc(50%-24px)] h-[clamp(220px,46%,420px)] -translate-y-1/2", className)}>
       <canvas ref={cv} aria-hidden className="absolute inset-0 size-full text-ink" style={{ maskImage: MASK, maskComposite: "intersect", WebkitMaskImage: MASK, WebkitMaskComposite: "source-in" }} />
-      {now && show && at.side > 0 && (
-        <button type="button" aria-label={t("nav.back")} onClick={() => (setLeft(now.key), point(null))} style={{ left: Math.max(8, Math.round(at.x - at.side / 2) - 44) }} className="g-fade g-press pointer-events-auto absolute top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-md text-ink-3 hover:bg-fill hover:text-ink pointer-coarse:size-10">
-          <ChevronLeft size={17} />
-        </button>
-      )}
     </div>
   );
 }
