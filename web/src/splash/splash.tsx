@@ -63,8 +63,10 @@ export function Splash({ show = true, fig = null, scene = "", className }: { sho
       // In the portrait layout low in the pane, the figure standing on the composer: the lowest
       // edge of what it draws (Ir's letters' foot) just over the composer's top, as on a line. On a
       // computer in the middle of what is over the composer (kumo, 2026-11-25).
-      e.window(ph ? top - h / 2 + 28 : (48 + top) / 2, h);
-      e.place(ph ? w / 2 : -1, ph ? Math.min(w * 0.94, h * 0.98) : Math.min(h * 0.92, w * 0.7));
+      // On a computer the code over the whole pane, no edge fading (kumo, 2026-11-25): its window
+      // twice the pane, the figure as large as it was in the band.
+      e.window(ph ? top - h / 2 + 28 : pane / 2, ph ? h : pane * 2);
+      e.place(ph ? w / 2 : -1, ph ? Math.min(w * 0.94, h * 0.98) : Math.min(h * 0.92, w * 0.7), ph ? -1 : (48 + top) / 2);
       e.foot(ph ? top - 6 : -1);
     };
     fitRef.current = fit;
@@ -105,7 +107,7 @@ export function Splash({ show = true, fig = null, scene = "", className }: { sho
   if (!there) return null;
   return (
     <div aria-hidden={!now} className={cn("pointer-events-none absolute inset-0 z-1", className)}>
-      <canvas ref={cv} aria-hidden className="absolute inset-0 size-full text-ink" style={{ maskImage: MASK, WebkitMaskImage: MASK }} />
+      <canvas ref={cv} aria-hidden className="absolute inset-0 size-full text-ink" style={phone ? { maskImage: MASK, WebkitMaskImage: MASK } : undefined} />
     </div>
   );
 }
