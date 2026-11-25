@@ -6,14 +6,14 @@
 import { Menu } from "@base-ui/react/menu";
 import { useQueryClient } from "@tanstack/react-query";
 import { useQuery } from "../../api/query";
-import { Check, ChevronLeft, PencilLine, Plus, Users } from "lucide-react";
+import { Check, PencilLine, Plus, Users } from "lucide-react";
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { api } from "../../api/client";
-import type { Agent, ChannelMembers, Role, Script, Viewer } from "../../api/types.gen";
+import type { Agent, ChannelMembers, Script, Viewer } from "../../api/types.gen";
 import { agentsQ, isComputer, useApps, useMachines } from "../../data";
 import { t, useLang } from "../../i18n";
 import { useMachine } from "../../machines";
-import { prefetchRoles, roleStart } from "../../roles";
+import { prefetchRoles } from "../../roles";
 import { openChat } from "../../route";
 import { useCarried, useList, useSession } from "../../store";
 import { working } from "../../tree";
@@ -23,11 +23,9 @@ import { openEdit } from "./editing";
 import { Face, MemberFace } from "./face";
 import { ContextMark } from "../meters";
 import { mayAct, useMembers } from "./gate";
-import { AddAgents, ITEM, KindPage, POPUP, RolePreview, useAdd, type Wake } from "./invite";
-import { Deeper, Paged, usePaged } from "./pages";
-import { Tall } from "../../create";
+import { AddAgents, ITEM, POPUP, type Wake } from "./invite";
+import { Deeper, Paged } from "./pages";
 import { onAskAdd, takeAdd } from "./adding";
-import type { Machine } from "../../machines";
 import { prefetchChoices } from "./pick";
 import { useAhead } from "../../prefetch";
 import { memberError } from "./key";
@@ -267,18 +265,10 @@ function Invite({ id }: { id: string }) {
   const loginsOf = (app: string) => (d?.logins ?? []).filter((l) => l.app === app);
   const idsOf = (app: string) => loginsOf(app).map((l) => l.id);
   const setPeople = (p: string[]) => run(() => api.setPeople(id, p));
-  // In the phone's layout no menu beside a row (kumo, 2026-11-25): pressed, what
-  // it would open is the panel's next page, 返回 at its head. The list stays as it was left under
-  // it (the computer picked), only not drawn.
-  const paged = usePaged();
-  const [page, setPage] = useState<{ k: Agent; m?: Machine } | { role: Role; m?: Machine } | { app: string } | null>(null);
   // What wakes the one added (kumo, 2026-11-25): the channel's first agent, only the one adding
   // it; one added after, only its @. As the panel opens; a press changes it.
   const [picked, setWake] = useState<Wake | null>(null);
   const wake: Wake = picked ?? ((members?.members ?? []).some((m) => m.session) ? "at" : "self");
-  const { busy, add } = useAdd(id, wake);
-  const stepped = useRef(false);
-  if (page) stepped.current = true;
   const loginRows = (app: string) => (
     <>
       <Menu.Item closeOnClick={false} disabled={members?.me === appAll(app)} onClick={() => setPeople(pressApp(people, ids, idsOf, app, members?.me))} className={ITEM}>
@@ -294,48 +284,25 @@ function Invite({ id }: { id: string }) {
       ))}
     </>
   );
+  // In the phone's layout no menu beside a row (kumo, 2026-11-25): pressed, what it would open is
+  // the panel's next page, pushed in (Paged), 返回 at its head.
   return (
-    <Tall>
-      {/* Back from a page, the list comes in from the other side; as the panel opens it does not slide. */}
-      <div data-dir="back" className={cn("flex flex-col", stepped.current ? "g-slide" : "g-stagger", page && "hidden")}>
-        <AddAgents id={id} wake={wake} setWake={setWake} onKind={paged ? (k, m) => setPage({ k, m }) : undefined} onRole={paged ? (role, m) => setPage({ role, m }) : undefined} />
+    <Paged>
+      <div className="g-stagger flex flex-col">
+        <AddAgents id={id} wake={wake} setWake={setWake} />
         {apps.length > 0 && <div role="separator" className="mx-2.5 my-1 border-t border-(--edge)" />}
         {apps.map((a) => {
           const name = a.web ? t("term.panel") : a.name;
           const now = hasApp(people, a.id) ? t("channel.everyone") : String(loginsOf(a.id).filter((l) => hasLogin(people, a.id, l.id)).length || "");
           const icon = <Avatar src={a.avatar} name={a.name} size={16} type={a.type} host={!!a.host} />;
-          return paged ? (
-            <Menu.Item key={a.id} closeOnClick={false} onClick={() => setPage({ app: a.id })} className={ITEM}>
-              <span className="text-ink-2">{icon}</span>
-              <span className="min-w-0 flex-1 truncate">{name}</span>
-              {now && <span className="max-w-36 truncate text-xs text-ink-3">{now}</span>}
-            </Menu.Item>
-          ) : (
+          return (
             <Sub key={a.id} icon={icon} label={name} now={now} i={0} bare>
               {loginRows(a.id)}
             </Sub>
           );
         })}
       </div>
-      {page && (
-        <div className="g-slide flex flex-col">
-          <Menu.Item closeOnClick={false} onClick={() => setPage(null)} className={cn(ITEM, "text-ink-2")}>
-            <ChevronLeft size={15} />
-            <span className="min-w-0 flex-1 truncate">{"app" in page ? ((x) => (x?.web ? t("term.panel") : x?.name))(apps.find((a) => a.id === page.app)) : "role" in page ? page.role.name : agentName(page.k)}</span>
-          </Menu.Item>
-          {"app" in page ? (
-            loginRows(page.app)
-          ) : "role" in page ? (
-            // Its card inside the panel's padding, its corners round as the panel's rows.
-            <div className="overflow-hidden rounded-md">
-              <RolePreview role={page.role} at={page.m ? { machine: page.m.id } : { channel: id }} off={busy !== null} busy={busy === `role:${page.role.id}`} add={() => void add(page.role.agent, "", "", "", roleStart(page.role), page.m).then(() => setPage(null))} />
-            </div>
-          ) : (
-            <KindPage id={id} k={page.k} m={page.m} wake={wake} done={() => setPage(null)} />
-          )}
-        </div>
-      )}
-    </Tall>
+    </Paged>
   );
 }
 
