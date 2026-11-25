@@ -18,6 +18,10 @@ type BrowserDirectory struct {
 // BrowserDirectory resolves a listing or projects the next steps to granted directories without
 // reading the ancestor's entries.
 func (g *Guard) BrowserDirectory(path string, roots, scope []string) (BrowserDirectory, error) {
+	return g.browserDirectory(path, g.browserRoots(roots, scope))
+}
+
+func (g *Guard) browserDirectory(path string, allowed []string) (BrowserDirectory, error) {
 	if !filepath.IsAbs(path) {
 		return BrowserDirectory{}, ErrRelative
 	}
@@ -32,7 +36,6 @@ func (g *Guard) BrowserDirectory(path string, roots, scope []string) (BrowserDir
 	if err := CheckBrowser(path, real); err != nil {
 		return BrowserDirectory{}, err
 	}
-	allowed := g.browserRoots(roots, scope)
 	out := BrowserDirectory{Path: path}
 	if allowed == nil || slices.ContainsFunc(allowed, func(root string) bool { return Within(real, root) }) {
 		out.Real = real

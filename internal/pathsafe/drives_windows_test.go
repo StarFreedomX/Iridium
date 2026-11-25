@@ -1,7 +1,10 @@
 package pathsafe
 
 import (
+	"os"
+	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -28,5 +31,38 @@ func TestBrowserDriveScope(t *testing.T) {
 				t.Fatalf("got %v, want %v", names, tc.want)
 			}
 		})
+	}
+}
+
+func TestBrowserDrivesExcludeBlockedRoots(t *testing.T) {
+	base := t.TempDir()
+	drive := strings.ToUpper(filepath.VolumeName(base))
+	if len(drive) != 2 || drive[1] != ':' || drive[0] < 'A' || drive[0] > 'Z' {
+		t.Skip("temp directory is not on a logical drive")
+	}
+	mask := uint32(1) << (drive[0] - 'A')
+	private := filepath.Join(base, "private")
+	uploads := filepath.Join(private, "uploads")
+	work := filepath.Join(base, "work")
+	for _, dir := range []string{uploads, work} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	guard := New(nil, []string{private}, []string{uploads})
+	if names := guard.browserDriveNames(mask, guard.browserRoots(nil, []string{uploads})); len(names) != 0 {
+		t.Fatalf("drive with only an exception behind a denied ancestor: %v", names)
+	}
+	if dir, err := guard.BrowserDirectory(uploads, nil, []string{uploads}); err != nil || dir.Real == "" {
+		t.Fatalf("direct exception should remain open: %+v, %v", dir, err)
+	}
+	if names := guard.browserDriveNames(mask, guard.browserRoots(nil, []string{uploads, work})); !slices.Equal(names, []string{drive}) {
+		t.Fatalf("drive with a navigable sibling grant: %v", names)
+	}
+
+	deniedDrive := New(nil, []string{drive + string(filepath.Separator)}, nil)
+	if names := deniedDrive.browserDriveNames(mask, nil); len(names) != 0 {
+		t.Fatalf("unrestricted login should not list a denied drive: %v", names)
 	}
 }
