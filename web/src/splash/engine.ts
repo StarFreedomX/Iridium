@@ -428,7 +428,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
   let headU = 0, headL = 0;
   // Its flare (Iridium's satellites were known for theirs: sunlight off a panel, a point brighter
   // than any star for a second): when the last one was, when the next is due; and how far each
-  // cell is the page's ink, not the rainbow, for it and for the satellite itself at the head.
+  // cell is that light, not the rainbow, for it and for the satellite itself at the head.
   let flareAt = -1e9, flareNext = 0, rw = new Float32Array(0);
   let ra = new Float32Array(0), rh = new Float32Array(0), rz = new Float32Array(0), ru = new Int16Array(0), rowRing = new Uint8Array(0), ringCells = new Int32Array(0), nRing = 0;
   let stir = new Float32Array(RN), stir2 = new Float32Array(RN);
@@ -558,7 +558,9 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
           if (lv > 0.3 && ru[i]! >= 0) stir[ru[i]!] = 1;
           lv = 0;
           const h3 = hueAt3(rh[i]!), wq = rw[i]!;
-          (cr = HUES[h3]! + (ink[0] - HUES[h3]!) * wq), (cg = HUES[h3 + 1]! + (ink[1] - HUES[h3 + 1]!) * wq), (cb = HUES[h3 + 2]! + (ink[2] - HUES[h3 + 2]!) * wq);
+          // (white on a dark page; on a light one the sun's own gold: black there was ugly, kumo 2026-11-26)
+          const g0 = dark ? 255 : 255, g1 = dark ? 255 : 160, g2 = dark ? 255 : 0;
+          (cr = HUES[h3]! + (g0 - HUES[h3]!) * wq), (cg = HUES[h3 + 1]! + (g1 - HUES[h3 + 1]!) * wq), (cb = HUES[h3 + 2]! + (g2 - HUES[h3 + 2]!) * wq);
         }
         const fmi = rainbow ? (fm[i] ?? 0) : 0;
         if (fmi > 0) {
