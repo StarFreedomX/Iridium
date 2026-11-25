@@ -332,6 +332,7 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
       who={yours(self)}
       bare={bare}
       words={<NickWords text={x.text} />}
+      under={x.quote !== undefined ? <QuoteLine n={x.quote} q={quoted(x.quote)} channel={id} jump={jump} /> : undefined}
       bubbleRef={(el) => void (el ? bubbles.current.set(x.key, el) : bubbles.current.delete(x.key))}
       retry={() => retry(x)}
       drop={() => (log.unsend(x), changed())}

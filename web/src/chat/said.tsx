@@ -308,11 +308,13 @@ export function Attached({ session, f }: { session: string; f: FileRef }) {
 /** A message sent from here the log has yet to bring: its mark says where it is; not taken, red
  *  with a retry. Once the server has answered (s.at), nothing shows beside the bubble ("Taken,
  *  nothing"). bare: under the head of the one before it, its own not drawn. */
-export function Pending({ s, who, retry, drop, takeBack, bubbleRef, words, bare }: { s: Sent; who: You; retry: () => Promise<void>; drop: () => void; takeBack?: () => Promise<unknown>; bubbleRef?: (el: HTMLDivElement | null) => void; words?: ReactNode; bare?: boolean }) {
+/** under: what goes under the bubble once it has landed (the message it answers), there from its
+ *  first frame: it came only with the landed one, which jumped as it did (kumo, 2026-11-25). */
+export function Pending({ s, who, retry, drop, takeBack, bubbleRef, words, bare, under }: { s: Sent; who: You; retry: () => Promise<void>; drop: () => void; takeBack?: () => Promise<unknown>; bubbleRef?: (el: HTMLDivElement | null) => void; words?: ReactNode; bare?: boolean; under?: ReactNode }) {
   const [busy, setBusy] = useState(false);
   return (
     <div className="flex flex-col items-end gap-0.5">
-      <YouBubble ref={bubbleRef} text={s.text} who={who} words={words} bare={bare} failed={s.failed !== undefined} going={s.failed !== undefined ? undefined : s.queued ? "queued" : s.at !== undefined || s.left !== undefined ? undefined : "sending"}>
+      <YouBubble ref={bubbleRef} text={s.text} who={who} words={words} bare={bare} under={under} failed={s.failed !== undefined} going={s.failed !== undefined ? undefined : s.queued ? "queued" : s.at !== undefined || s.left !== undefined ? undefined : "sending"}>
         {s.files.map((f) =>
           f.url ? <Picture key={f.ref} src={f.url} full={f.url} name={f.name} w={f.w} h={f.h} /> : <SentFile key={f.ref} name={f.name} bytes={f.size} />,
         )}
