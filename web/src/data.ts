@@ -52,11 +52,40 @@ export const useHome = () => useQuery({ queryKey: ["folders", "~"], queryFn: () 
 /** The host, as the page is with no gate in front (and while /v1/internal/me has not answered). */
 export const LOCAL_ME: Me = { id: "local", name: "Iridium", app: "local", host: true, public: false, usedToday: 0, rules: { claudeOwner: { by: "local", at: 0 } } };
 
+/** What this browser kept from the page before, for its first draw: who this is, whose faces the
+ *  messages have. A channel is drawn from this device's copy at once as the page loads; without
+ *  these it was drawn as the host's, everyone's words on the left under a letter, till the two
+ *  answered (kumo, 2026-11-25). No more than names and faces; asked for afresh at once. */
+function kept<T>(key: string): T | undefined {
+  try {
+    const v = localStorage.getItem(key);
+    return v ? (JSON.parse(v) as T) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+function keep<T>(key: string, v: T): T {
+  try {
+    localStorage.setItem(key, JSON.stringify(v));
+  } catch {
+    // A full or closed store: not kept.
+  }
+  return v;
+}
+const ME_KEY = "ir:me1";
+const WHO_KEY = "ir:who1";
+
 /** Who this page is: GET /v1/internal/me, else the gate's session (a login of ir_web), else the host. */
 export const useMe = () =>
   useQuery({
     queryKey: ["me"],
     staleTime: 300_000,
+    initialData: () => {
+      const me = kept<Me>(ME_KEY);
+      if (me) speakAs(me.app, me.login || me.app);
+      return me;
+    },
+    initialDataUpdatedAt: 0,
     queryFn: async (): Promise<Me> => {
       // Refused or not there: what the gate says, else the host's page. The network or the daemon
       // a moment away (no answer, a 5xx) is neither: asked again, not taken for five minutes as
@@ -69,7 +98,7 @@ export const useMe = () =>
       const me = await orNone(api.me)().catch((e) => soft<Me>(e));
       if (me) {
         speakAs(me.app, me.login || me.app);
-        return me;
+        return keep(ME_KEY, me);
       }
       const s = await orNone(api.gateSession)().catch((e) => soft<Awaited<ReturnType<typeof api.gateSession>>>(e));
       if (s && !s.local) return { ...LOCAL_ME, id: "", name: s.name ?? "", app: "ir_web", host: false, web: true, public: true };
@@ -131,8 +160,12 @@ export function useMachines(includeHost = false): Machine[] {
 const NO_WHO: Who[] = [];
 export function useWhoList(): Who[] {
   const d = useApps().data;
+  // Not come yet: the one kept from the page before.
+  const was = useMemo(() => kept<Who[]>(WHO_KEY) ?? NO_WHO, []);
   // The same list while the apps are the same: what is drawn from it is not drawn again each time.
-  return useMemo(() => (d ? [...d.apps.filter((a) => !a.web).map((a) => ({ id: a.id, name: a.name, avatar: a.avatar, device: a.device, host: a.host, type: a.type })), ...d.logins.map((l) => ({ id: l.id, name: l.name, avatar: l.avatar, device: l.device, web: true }))] : NO_WHO), [d]);
+  const now = useMemo(() => (d ? [...d.apps.filter((a) => !a.web).map((a) => ({ id: a.id, name: a.name, avatar: a.avatar, device: a.device, host: a.host, type: a.type })), ...d.logins.map((l) => ({ id: l.id, name: l.name, avatar: l.avatar, device: l.device, web: true }))] : undefined), [d]);
+  useEffect(() => void (now && keep(WHO_KEY, now)), [now]);
+  return now ?? was;
 }
 
 /** The last thing said, on one line: yours after 你：, another's after its name. Yours: none tagged

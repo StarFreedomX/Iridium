@@ -2595,7 +2595,7 @@ func (s *Server) answer(id string, m channel.Message) {
 		c, ok := s.calls.answering(id, taken)
 		// Its own channel may have the same words twice (heard live, then read from its record
 		// as another): they are said for a call once.
-		ok = ok && c.Channel != m.Channel && s.ch.Speaks(c.Channel, id) && s.answers.first(id, c, text)
+		ok = ok && c.Channel != m.Channel && s.ch.Speaks(c.Channel, id) && s.answers.first(id, c, text, m.Seq)
 		w := &written{final: final}
 		if ok {
 			if st, err := s.m.State(id); err == nil {
@@ -2662,21 +2662,25 @@ type saidFor struct {
 	channel string
 	seq     int64
 	text    string
+	own     int64 // the message of its own channel these words are
 }
 
-// first: text is not yet said for call c of session's agent; it is now. The last few are kept.
-func (a *answers) first(session string, c called, text string) bool {
+// first: text, message own of its own channel, is not yet said for call c of session's agent; it
+// is now. The last few are kept. One message is said in a channel once, whichever call of it is
+// answered: a turn that ended with no more words (stopped, say) said its last ones again for a
+// call made meanwhile (kumo, 2026-11-25: the same words twice, under two of his messages).
+func (a *answers) first(session string, c called, text string, own int64) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.said == nil {
 		a.said = map[string][]saidFor{}
 	}
 	for _, x := range a.said[session] {
-		if x.channel == c.Channel && x.seq == c.Seq && channel.Same(x.text, text) {
+		if x.channel == c.Channel && channel.Same(x.text, text) && (x.seq == c.Seq || (own != 0 && x.own == own)) {
 			return false
 		}
 	}
-	l := append(a.said[session], saidFor{c.Channel, c.Seq, text})
+	l := append(a.said[session], saidFor{c.Channel, c.Seq, text, own})
 	a.said[session] = l[max(0, len(l)-keptTaken):]
 	return true
 }
