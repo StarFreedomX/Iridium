@@ -18,6 +18,8 @@ export function Splash({ show = true, fig = null, scene = "", className }: { sho
   const pointed = useSyncExternalStore(onPoint, pointedAt);
   const still = useMedia("(prefers-reduced-motion: reduce)");
   const cv = useRef<HTMLCanvasElement>(null);
+  const showRef = useRef(show);
+  showRef.current = show;
   const eng = useRef<Engine | null>(null);
   // With no agent pointed at or in the channel, Iridium's letters, always (kumo, 2026-11-25: the
   // setting with its other kinds gone). An agent pointed at or added: that one's face.
@@ -88,6 +90,13 @@ export function Splash({ show = true, fig = null, scene = "", className }: { sho
     const press = (ev: PointerEvent) => {
       const t = ev.target as Element | null;
       if (t?.closest?.("button, a, input, textarea, [role=menu], [role=dialog], [role=listbox], [data-sheet-pull], nav, aside")) return;
+      // Over the pane there may be a page that scrolls (the settings, a list): a press in one is
+      // its own, never the splash's (kumo, 2026-11-26: a finger's drag taken here, the settings
+      // would not scroll). Nor one while the splash is not shown.
+      if (!showRef.current) return;
+      for (let n: Element | null = t; n && n !== document.body; n = n.parentElement) {
+        if (n.scrollHeight > n.clientHeight + 1 && /auto|scroll/.test(getComputedStyle(n).overflowY)) return;
+      }
       const r = el.getBoundingClientRect();
       if (ev.clientX < r.left || ev.clientX > r.right || ev.clientY < r.top || ev.clientY > r.bottom) return;
       // A finger at the pane's top is the page's own (pulled down, it is loaded again): no stars
