@@ -564,8 +564,12 @@ function SetsPages({ page, children }: { page: SetsPage; children: (slide: strin
 /** Back a step in the settings' dialog. */
 const back = () => (history.state?.depth > 1 ? history.back() : go({ name: "settings" }, true));
 
-// The box at the empty pane's foot: a composer's look.
-const PICK = "glass float rest mx-auto flex h-12 w-full max-w-(--chat-w) cursor-text items-center gap-2.5 rounded-[20px] px-4 text-left text-base text-ink-3";
+// The box at the empty pane's foot: the composer's own container (chat/composer.tsx: its glass,
+// its corners, its row and padding, a key where its attach key is, its words' line), so the two
+// are one thing from the pane to a chat (kumo, 2026-11-25); its words fainter than a placeholder's.
+const PICK = "glass float rest relative flex w-full min-w-0 cursor-text items-end gap-0.5 rounded-[20px] p-2 text-left";
+const PICK_KEY = "grid size-8 shrink-0 place-items-center text-ink-3 pointer-coarse:size-10";
+const PICK_WORDS = "min-w-0 flex-1 self-center truncate px-0.5 py-1 text-md leading-[21px] text-ink-4";
 
 /** The main pane with nothing open: the splash in its middle, a box where a chat's composer is. */
 function Empty({ below, onSheet }: { below: number; onSheet?: () => void }) {
@@ -577,17 +581,23 @@ function Empty({ below, onSheet }: { below: number; onSheet?: () => void }) {
           the sheet as it comes and gone once it is out (g-sink); a swipe up from it brings the sheet. */}
       <div {...{ [PULL]: "" }} data-covered={below > 0 || undefined} className="g-sink absolute inset-x-0 bottom-0 z-2 px-2.5 pb-[max(14px,calc(env(safe-area-inset-bottom)+6px))] sm:px-5">
         {/* A phone's: what a swipe up from here brings, the sheet of the groups; pressed, the same. */}
+        <div className="relative mx-auto max-w-(--chat-w)">
         {onSheet ? (
           <button type="button" onClick={onSheet} className={PICK}>
-            <ChevronUp size={17} className="shrink-0" />
-            <span className="min-w-0 truncate">{t("empty.swipe")}</span>
+            <span className={PICK_KEY}>
+              <ChevronUp size={17} />
+            </span>
+            <span className={PICK_WORDS}>{t("empty.swipe")}</span>
           </button>
         ) : (
           <FileBrowserTrigger place={{ machine: "", path: "" }} className={PICK}>
-            <FolderOpen size={17} className="shrink-0" />
-            <span className="min-w-0 truncate">{t("empty.pick")}</span>
+            <span className={PICK_KEY}>
+              <FolderOpen size={17} />
+            </span>
+            <span className={PICK_WORDS}>{t("empty.pick")}</span>
           </FileBrowserTrigger>
         )}
+        </div>
       </div>
       {/* The desktop app's keys where a chat's top bar has them (appkey.tsx); nothing in a browser.
           The strip they are in drags the window. */}
