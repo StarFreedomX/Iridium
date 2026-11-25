@@ -441,6 +441,25 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
       KA.set([ax / al, ay / al, az / al], j * 3);
     }
   }
+  // The same band as a star of five points, drawn in one line as the figure of eight is, on the
+  // front of the ball (kumo, 2026-11-26: the star and the figure one thing): the band goes over
+  // from one to the other, point by point, as the pane is now and then of itself.
+  const SX = new Float32Array(RN), SY = new Float32Array(RN), SZ = new Float32Array(RN), SA = new Float32Array(RN * 3);
+  {
+    const at = (p: number): [number, number, number] => {
+      const q = (((p % 5) + 5) % 5), n = Math.floor(q), f = q - n, a = -1.5708 + n * 2.5133, b = a + 2.5133;
+      const x = 0.95 * (Math.cos(a) + (Math.cos(b) - Math.cos(a)) * f), y = 0.95 * (Math.sin(a) + (Math.sin(b) - Math.sin(a)) * f);
+      return [x, y, Math.sqrt(Math.max(0, 1 - x * x - y * y))];
+    };
+    for (let j = 0; j < RN; j++) {
+      const p = (j / RN) * 5, [x, y, z] = at(p), a = at(p - 0.004), b = at(p + 0.004);
+      (SX[j] = x), (SY[j] = y), (SZ[j] = z);
+      const tx = b[0] - a[0], ty = b[1] - a[1], tz = b[2] - a[2];
+      const ax = ty * z - tz * y, ay = tz * x - tx * z, az = tx * y - ty * x, al = Math.hypot(ax, ay, az) || 1;
+      SA.set([ax / al, ay / al, az / al], j * 3);
+    }
+  }
+  let starK = 0, starTill = 0, starNext = 0;
   let ra = new Float32Array(0), rh = new Float32Array(0), rz = new Float32Array(0), ru = new Int16Array(0), rowRing = new Uint8Array(0), ringCells = new Int32Array(0), nRing = 0;
   let stir = new Float32Array(RN), stir2 = new Float32Array(RN);
   let ringK = 0, ringAt = 0;
@@ -459,7 +478,14 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
     const R = Math.min(W * 0.34, top * 0.3, 220), wv = Math.max(7, R * 0.085), xc = W / 2, yc = cy >= 0 ? cy : top * 0.5;
     // The ball turns about its upright, to the left and back to the right (not all the way round:
     // the figure is always one of eight), nods a little, and lies aslant in the pane.
-    const a1 = 1.15 * Math.sin(t / 2600), a2 = 0.3 + 0.12 * Math.sin(t / 3700), a3 = 0.46;
+    // How far it is the star now: of itself (kumo, 2026-11-26: not by a press), now and then, no
+    // two waits alike, for a few seconds.
+    if (!starNext) starNext = now + 9000;
+    if (!still && now > starNext) (starTill = now + 4200 + Math.random() * 2600), (starNext = starTill + 11000 + Math.random() * 17000);
+    starK += ((now < starTill ? 1 : 0) - starK) * (1 - Math.exp(-dt / 520));
+    const m = starK * starK * (3 - 2 * starK), w = 1 - m;
+    // (the star stands upright and faces the eye: the ball's turning and its slant go as it comes)
+    const a1 = 1.15 * Math.sin(t / 2600) * (1 - 0.8 * m), a2 = (0.3 + 0.12 * Math.sin(t / 3700)) * w, a3 = 0.46 * w;
     const c1 = Math.cos(a1), s1 = Math.sin(a1), c2 = Math.cos(a2), s2 = Math.sin(a2), c3 = Math.cos(a3), s3 = Math.sin(a3);
     const flow = t * 0.09, going = (t / 11000) % 1;
     for (let iu = 0; iu < RN; iu++) {
@@ -475,7 +501,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
       const RM = Math.max(2, Math.ceil((wide * 2.6) / cw) + 1);
       for (let iv = 0; iv < RM; iv++) {
         const vn = (iv / (RM - 1)) * 2 - 1, v = vn * wide;
-        const x = KX[iu]! * R + KA[j3]! * v, y = KY[iu]! * R * 1.2 + KA[j3 + 1]! * v, z = KZ[iu]! * R + KA[j3 + 2]! * v;
+        const x = (KX[iu]! * w + SX[iu]! * m) * R + (KA[j3]! * w + SA[j3]! * m) * v, y = (KY[iu]! * 1.2 * w + SY[iu]! * m) * R + (KA[j3 + 1]! * w + SA[j3 + 1]! * m) * v, z = (KZ[iu]! * w + SZ[iu]! * m) * R + (KA[j3 + 2]! * w + SA[j3 + 2]! * m) * v;
         const x1 = x * c1 + z * s1, z1 = z * c1 - x * s1;
         const y2 = y * c2 - z1 * s2, z2 = y * s2 + z1 * c2;
         const k = 1 + z2 / (R * 3);
