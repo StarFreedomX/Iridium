@@ -18,8 +18,6 @@ export function Splash({ show = true, fig = null, scene = "", className }: { sho
   const pointed = useSyncExternalStore(onPoint, pointedAt);
   const still = useMedia("(prefers-reduced-motion: reduce)");
   const cv = useRef<HTMLCanvasElement>(null);
-  const showRef = useRef(show);
-  showRef.current = show;
   const eng = useRef<Engine | null>(null);
   // With no agent pointed at or in the channel, Iridium's letters, always (kumo, 2026-11-25: the
   // setting with its other kinds gone). An agent pointed at or added: that one's face.
@@ -80,64 +78,10 @@ export function Splash({ show = true, fig = null, scene = "", className }: { sho
     // Day and night: drawn again in the page's ink as it changes.
     const tone = new MutationObserver(() => requestAnimationFrame(() => e.recolor()));
     tone.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "class", "style"] });
-    const move = (ev: PointerEvent) => {
-      if (touching) return; // a finger's way is touchmove's
-      const r = el.getBoundingClientRect();
-      e.near(ev.clientX - r.left, ev.clientY - r.top);
-    };
-    window.addEventListener("pointermove", move, { passive: true });
-    // A press on the pane itself (not a key, a box, a menu): rings come out about it.
-    const press = (ev: PointerEvent) => {
-      const t = ev.target as Element | null;
-      if (t?.closest?.("button, a, input, textarea, [role=menu], [role=dialog], [role=listbox], [data-sheet-pull], nav, aside")) return;
-      // Over the pane there may be a page that scrolls (the settings, a list): a press in one is
-      // its own, never the splash's (kumo, 2026-11-26: a finger's drag taken here, the settings
-      // would not scroll). Nor one while the splash is not shown.
-      if (!showRef.current) return;
-      for (let n: Element | null = t; n && n !== document.body; n = n.parentElement) {
-        if (n.scrollHeight > n.clientHeight + 1 && /auto|scroll/.test(getComputedStyle(n).overflowY)) return;
-      }
-      const r = el.getBoundingClientRect();
-      if (ev.clientX < r.left || ev.clientX > r.right || ev.clientY < r.top || ev.clientY > r.bottom) return;
-      // A finger at the pane's top is the page's own (pulled down, it is loaded again): no stars
-      // there, the drag not taken (kumo, 2026-11-26).
-      if (ev.pointerType === "touch" && ev.clientY - r.top < Math.max(120, r.height * 0.2)) return;
-      touching = ev.pointerType === "touch";
-      e.tap(ev.clientX - r.left, ev.clientY - r.top);
-      e.hold(true);
-    };
-    // A finger (kumo, 2026-11-25): held and drawn along the pane as a mouse is, the page not
-    // scrolled by it; let go, all it did ends (the lens with it).
-    let touching = false;
-    const drag = (ev: TouchEvent) => {
-      const p = touching ? ev.touches[0] : undefined;
-      if (!p) return;
-      ev.preventDefault();
-      const r = el.getBoundingClientRect();
-      e.near(p.clientX - r.left, p.clientY - r.top);
-    };
-    const free = (ev: Event) => {
-      // A finger's pointer is cancelled as the page would scroll: it is let go by touchend alone.
-      if (touching && ev.type === "pointercancel") return;
-      e.hold(false);
-      if (touching || ev.type.startsWith("touch")) (touching = false), e.near(-1, -1);
-    };
-    window.addEventListener("pointerdown", press, { passive: true });
-    window.addEventListener("pointerup", free, { passive: true });
-    window.addEventListener("pointercancel", free, { passive: true });
-    window.addEventListener("touchmove", drag, { passive: false });
-    window.addEventListener("touchend", free, { passive: true });
-    window.addEventListener("touchcancel", free, { passive: true });
+    // It takes no press, no pointer, no finger (kumo, 2026-11-26: the stars and the rocket gone).
     return () => {
       ro.disconnect();
       tone.disconnect();
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerdown", press);
-      window.removeEventListener("pointerup", free);
-      window.removeEventListener("pointercancel", free);
-      window.removeEventListener("touchmove", drag);
-      window.removeEventListener("touchend", free);
-      window.removeEventListener("touchcancel", free);
       e.stop();
       eng.current = null;
     };
