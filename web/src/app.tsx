@@ -15,7 +15,7 @@ import { api, queryClient } from "./api/client";
 import { InPopup } from "./api/query";
 import { firstScreen, watchTurns } from "./chats";
 import { NewHere } from "./create";
-import { onCreateAt } from "./places";
+import { onCreateAt, type BrowseAt } from "./places";
 import { listFromDevice } from "./device/first";
 import { agentsQ, LOCAL_ME, pushQ, selfQ, useApps, useHome, useMe, useSettings, useUpdate, useWorkspaces } from "./data";
 import { FileWindow } from "./file-window";
@@ -23,7 +23,6 @@ import { FileBrowserHandle, loadFileBrowser } from "./filebrowser-trigger";
 import { t, useLang } from "./i18n";
 import { applyTheme, initialTheme, keepTheme, MeKey, useTellLang, type ThemePref } from "./me";
 import { motion, movesAhead, pageTurn, usePaced } from "./motion";
-import type { Place } from "./places";
 import { prefetch, settled } from "./prefetch";
 import { prefetchRoles } from "./roles";
 import { quotaQ } from "./quota";
@@ -323,7 +322,7 @@ export function App() {
   const session = open ? list?.find((s) => s.id === open) : undefined;
   // Sidebar key and chat folder links share one dialog; bumping filesRound remounts a fresh
   // browser on each open, even if reopened mid-exit.
-  const [filesHandle] = useState(() => Dialog.createHandle<Place>());
+  const [filesHandle] = useState(() => Dialog.createHandle<BrowseAt>());
   const [filesRound, setFilesRound] = useState(0);
   // Any host or web login sees the key; the file routes enforce the login's scope per request.
   const filesAllowed = meNow?.host || meNow?.web;
@@ -346,7 +345,7 @@ export function App() {
               <p role="status" className="m-auto text-sm text-ink-3">{t("msg.loading")}</p>
             </>
           }>
-            <FileBrowser key={filesRound} machine={payload.machine ?? ""} path={payload.path} />
+            <FileBrowser key={filesRound} machine={payload.machine ?? ""} path={payload.path} within={payload.within} workspace={payload.workspace} />
           </Suspense>
         </FileWindow>
       )}
@@ -376,7 +375,7 @@ export function App() {
       chatCode={chatCode}
       panelsCode={loadPanels}
       filesKey={filesKey}
-      wsPlus={(w, trigger, o, setO) => <NewHere key={w.key} w={{ id: w.id, name: w.name, path: w.root }} trigger={trigger} open={o} setOpen={setO} opened={(id) => openChat(id)} />}
+      wsPlus={(w, trigger, o, setO) => <NewHere key={w.key} w={{ id: w.id, name: w.name, path: w.root }} trigger={trigger} open={o} setOpen={setO} opened={(id) => openChat(id)} sub={filesAllowed ? (at) => filesHandle.openWithPayload(at) : undefined} />}
       me={me}
       reveal={phone ? onSheet : undefined}
     />

@@ -23,6 +23,7 @@ import { folderLevels, sessionLevels, usePushMenus, wsLevels, type PushLevel } f
 import { allFolders, folderSessions, foldersHolding, foldMore, groupHolding, machineOf, remotePath, type Folder as FolderNode, type Tree, type WsNode } from "./tree";
 import { createAt, onOpenPlace, type Place } from "./places";
 import { FileBrowserTrigger } from "./filebrowser-trigger";
+import { listKept } from "./chat/channel/adding";
 import { LinkDot } from "./link";
 import { errText, toast } from "./toast";
 import { manages, useMachines, useMe, useSaidLine, useUpdate } from "./data";
@@ -273,6 +274,8 @@ export function Sidebar(p: Props) {
     if (!expanded(w.key)) toggle(w.key);
     const fs = allFolders(w.rows.flatMap((r) => (r.kind === "folder" ? [r.f] : []))).filter((f) => folderSessions(f).some((s) => s.id === p.selected));
     for (const f of fs) if (!expanded(f.key)) toggle(f.key);
+    // One just made from a row here: the list stays (chat/channel/adding.ts).
+    if (listKept(p.selected)) return;
     requestAnimationFrame(() => list.current?.querySelector(`[data-flip="${CSS.escape(`s:${p.selected}`)}"]`)?.scrollIntoView({ block: "nearest", behavior: "smooth" }));
   }, [p.selected, selListed, p.searching]);
   // A session's row (its subagents have none: kumo, 2026-11-15). The sessions it started (ir new)

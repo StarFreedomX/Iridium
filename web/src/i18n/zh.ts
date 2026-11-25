@@ -621,7 +621,6 @@ export const zh = {
   "new.gone": "已移除的应用",
   "new.noAgent": "不带 agent",
   "new.noAgents": "无可用的 agent",
-  "new.subName": "名称",
   "browse.newHere": "在此新建",
   "new.subFolder": "新建子文件夹",
   "new.bot": "Bot",

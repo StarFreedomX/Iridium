@@ -621,7 +621,6 @@ export const en: Dict = {
   "new.gone": "Removed app",
   "new.noAgent": "No agent",
   "new.noAgents": "No agents available",
-  "new.subName": "Name",
   "browse.newHere": "New here",
   "new.subFolder": "New subfolder",
   "new.bot": "Bots",

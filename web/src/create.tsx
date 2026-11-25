@@ -1,21 +1,20 @@
 // Making a channel (kumo, 2026-11-25): no popover to line agents up in. The "+" of a group's or a
 // folder's row makes a channel there with no agent yet and opens it, the + beside its members'
 // key open on it (chat/channel/top.tsx): its agents are added there. The row's menu, or the "+"
-// at the right button: 新建子文件夹, a name and 创建, the channel made in the folder made. A
-// folder no listed group holds: the file browser's 在此新建 (filebrowser.tsx).
-import { Popover } from "@base-ui/react/popover";
-import { LoaderCircle } from "lucide-react";
-import { cloneElement, useLayoutEffect, useRef, useState, type MouseEvent, type ReactElement, type ReactNode } from "react";
+// at the right button: 新建子文件夹, the file browser kept in the row's folder. A folder no
+// listed group holds: the file browser too; a channel is made in the folder it shows by its
+// 在此新建 (filebrowser.tsx).
+import { cloneElement, useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type ReactElement, type ReactNode } from "react";
 import type { Agent, Workspace } from "./api/types.gen";
 import { api } from "./api/client";
-import { askAdd } from "./chat/channel/adding";
+import { askAdd, keepList } from "./chat/channel/adding";
 import { useMachines } from "./data";
 import { t } from "./i18n";
-import { agentsAt, type Machine } from "./machines";
+import { agentsAt, pageAt, type Machine } from "./machines";
+import type { BrowseAt } from "./places";
 import { errText, toast } from "./toast";
-import { cn, PopSurface } from "./ui";
+import { cn } from "./ui";
 
-const join = (dir: string, name: string) => (dir.endsWith("/") || dir.endsWith("\\") ? dir + name : `${dir}/${name}`);
 /** One folder's listing; prefetched before it is shown (the popover opening, a row hovered), so the
  *  picker opens and steps at its full height instead of a spinner springing open into the list. */
 export const foldersQ = (path: string, machine?: string) => ({ queryKey: ["folders", machine ?? "", path], queryFn: () => api.folders(path, machine), retry: false, staleTime: 10_000 });
@@ -40,18 +39,13 @@ export function Tall({ children, className }: { children: ReactNode; className?:
   );
 }
 
-/** A subfolder's name as typed: trimmed, or null when it is none (empty, or a path, not a name). */
-export const subName = (v: string) => {
-  const n = v.trim();
-  return n && n !== "." && n !== ".." && !/[/\\\0]/.test(n) ? n : null;
-};
-
 /** A channel made in cwd (at machine: a path there; none: here) with no agent yet: its id, the +
  *  beside its members' key asked to open on it; null (and said) when it was not made. */
 export async function newChannelAt(cwd: string, machine?: string, workspace?: number): Promise<string | null> {
   try {
     // Every new chat is a channel: no agent of its own, its agents members of it.
     const { id } = await api.create({ agent: "" as Agent, cwd, ...(workspace ? { workspace } : {}), ...(machine ? { machine } : {}) });
+    if (workspace) keepList(id);
     askAdd(id);
     return id;
   } catch (e) {
@@ -77,69 +71,36 @@ export async function newChannel(path: string, ms: Machine[], workspace?: number
 }
 
 /** The "+" of a group's or a folder's row. Pressed: a channel there, opened (opened). At the right
- *  button, or open set by the row's menu: 新建子文件夹, out of the key: a name and 创建 (Enter
- *  too); the folder is made where the row's is, the channel in it. */
-export function NewHere({ w, trigger, open, setOpen, opened }: { w: Workspace; trigger: ReactElement; open: boolean; setOpen: (o: boolean) => void; opened: (id: string) => void }) {
+ *  button, or open set by the row's menu: 新建子文件夹, the file browser opened in the row's
+ *  folder and kept in it (sub; kumo, 2026-11-25): a folder there gone into or made, 在此新建. */
+export function NewHere({ w, trigger, open, setOpen, opened, sub }: { w: Workspace; trigger: ReactElement; open: boolean; setOpen: (o: boolean) => void; opened: (id: string) => void; sub?: (at: BrowseAt) => void }) {
   const machines = useMachines();
-  const [key, setKey] = useState<HTMLElement | null>(null);
-  const box = useRef<HTMLInputElement>(null);
-  const [busy, setBusy] = useState(false);
-  const [name, setName] = useState("");
-  const [shown, setShown] = useState(open);
-  if (open !== shown) {
-    setShown(open);
-    if (open) setName("");
-  }
-  const run = async (make: () => Promise<string | null>) => {
-    if (busy) return;
-    setBusy(true);
+  const busy = useRef(false);
+  const here = async () => {
+    if (busy.current) return;
+    busy.current = true;
     try {
-      const id = await make();
-      if (id) setOpen(false), opened(id);
+      const id = await newChannel(w.path, machines, w.id);
+      if (id) opened(id);
     } finally {
-      setBusy(false);
+      busy.current = false;
     }
   };
-  const here = () => void run(() => newChannel(w.path, machines, w.id));
-  const n = subName(name);
-  const sub = () =>
-    n &&
-    void run(async () => {
-      const at = whereOf(w.path, machines);
-      if (!at) return null;
-      try {
-        await api.mkdir({ path: at.cwd, name: n, ...(at.machine ? { machine: at.machine } : {}) });
-      } catch (e) {
-        return toast(t("err.mkdir"), { error: true, description: errText(e) }), null;
-      }
-      return newChannelAt(join(at.cwd, n), at.machine, w.id);
-    });
-  return (
-    <Popover.Root open={open} onOpenChange={setOpen}>
-      {cloneElement(trigger as ReactElement<{ onClick?: (e: MouseEvent) => void; onContextMenu?: (e: MouseEvent) => void; ref?: (el: HTMLElement | null) => void; "data-popup-open"?: string }>, {
-        ref: setKey,
-        "data-popup-open": open ? "" : undefined,
-        onClick: (e: MouseEvent) => (e.stopPropagation(), here()),
-        onContextMenu: (e: MouseEvent) => (e.preventDefault(), e.stopPropagation(), setOpen(true)),
-      })}
-      <PopSurface anchor={key} side="bottom" align="end" initialFocus={box} finalFocus={false} className="w-[min(280px,calc(100vw-16px))] p-2.5">
-        <form
-          className="flex flex-col gap-2.5"
-          onSubmit={(e) => {
-            e.preventDefault();
-            sub();
-          }}
-        >
-          <label className="flex flex-col gap-1.5">
-            <span className="px-0.5 text-xs text-ink-3">{t("new.subFolder")}</span>
-            <input ref={box} value={name} onChange={(e) => setName(e.target.value)} placeholder={t("new.subName")} autoComplete="off" spellCheck={false} className="h-8 w-full rounded-md bg-fill px-2.5 text-base text-ink outline-none placeholder:text-ink-4 pointer-coarse:h-10" />
-          </label>
-          <button type="submit" disabled={!n || busy} className={cn("g-press flex h-8 items-center justify-center gap-1.5 rounded-md bg-ink px-3 text-sm font-medium text-on-ink disabled:opacity-40 pointer-coarse:h-10")}>
-            {busy && <LoaderCircle size={14} className="animate-spin" />}
-            {t("role.create")}
-          </button>
-        </form>
-      </PopSurface>
-    </Popover.Root>
-  );
+  const browse = () => {
+    const there = pageAt(w.path, machines);
+    if (!whereOf(w.path, machines)) return;
+    const path = there ? there.path : w.path;
+    sub?.({ machine: there?.m.id, path, within: path, workspace: w.id });
+  };
+  // The row's menu asks by open: answered at once, nothing of this key's stays open.
+  useEffect(() => {
+    if (!open) return;
+    setOpen(false);
+    browse();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+  return cloneElement(trigger as ReactElement<{ onClick?: (e: MouseEvent) => void; onContextMenu?: (e: MouseEvent) => void }>, {
+    onClick: (e: MouseEvent) => (e.stopPropagation(), void here()),
+    onContextMenu: (e: MouseEvent) => (e.preventDefault(), e.stopPropagation(), browse()),
+  });
 }

@@ -21,3 +21,9 @@ export function onAskAdd(fn: () => void): () => void {
   heard.add(fn);
   return () => void heard.delete(fn);
 }
+
+// Made from a row of the list (a group's "+", a subfolder of it): the list stays where it is as
+// the channel opens, not scrolled to its row (a subfolder's is at the group's foot: kumo, 2026-11-25).
+const still = new Set<string>();
+export const keepList = (id: string) => void still.add(id);
+export const listKept = (id: string) => still.has(id);

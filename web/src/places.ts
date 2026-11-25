@@ -4,6 +4,9 @@
 
 /** machine: its ID, none for this machine; path: '/'-separated, as the page writes paths. */
 export type Place = { machine?: string; path: string };
+/** A place the file browser opens at. within: the folder it does not leave (a group's, for a
+ *  subfolder made in it), its computer kept; workspace: the group a channel made there goes in. */
+export type BrowseAt = Place & { within?: string; workspace?: number };
 
 const opens = new Set<(p: Place) => void>();
 const creates = new Set<(p: Place) => void>();

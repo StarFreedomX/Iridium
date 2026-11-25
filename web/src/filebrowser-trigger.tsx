@@ -5,9 +5,9 @@
 import { Dialog } from "@base-ui/react/dialog";
 import { mergeProps } from "@base-ui/react/merge-props";
 import { createContext, useContext, type ComponentProps } from "react";
-import { openPlace, type Place } from "./places";
+import { openPlace, type BrowseAt, type Place } from "./places";
 
-export const FileBrowserHandle = createContext<ReturnType<typeof Dialog.createHandle<Place>> | null>(null);
+export const FileBrowserHandle = createContext<ReturnType<typeof Dialog.createHandle<BrowseAt>> | null>(null);
 export const loadFileBrowser = () => import("./filebrowser");
 
 /** Prefetch the browser chunk and the folder it will open at. */
