@@ -2391,7 +2391,10 @@ func (s *Server) deliverAs(ctx context.Context, ch, to string, seq int64, said, 
 			cc.Quote = &assemble.Quote{Seq: q.Seq, Who: whoOf(q, by), Text: satori.ForwardWords(q.Text)}
 		}
 	}
-	// What it was given and was taken back since it was last given something here.
+	// What it was given and was taken back since it was last given something here. This giving is
+	// of now, as they are looked for: stamped once its words were made, one taken back between was
+	// before it, and never told (TestReactionsAndRecall failed three times in ten of it).
+	givenAt := time.Now().UnixMilli()
 	cc.Recalled = s.recalledFor(to, ch, me.Seen)
 	var line int64 // where its record is as it is given this
 	if st, err := s.m.State(to); err == nil {
@@ -2416,7 +2419,7 @@ func (s *Server) deliverAs(ctx context.Context, ch, to string, seq int64, said, 
 	rec := in.Record()
 	rec.Static, rec.Full, rec.Line = static, !cc.Brief, line
 	if rec, err := json.Marshal(rec); err == nil {
-		if err := s.st.AddInjection(store.Injection{Session: to, Channel: ch, Input: id, Seq: seq, Record: string(rec)}); err != nil {
+		if err := s.st.AddInjection(store.Injection{Session: to, Channel: ch, Input: id, Seq: seq, At: givenAt, Record: string(rec)}); err != nil {
 			s.logf("server: channel %s: keeping what %s was given: %v", ch, to, err)
 		}
 	}

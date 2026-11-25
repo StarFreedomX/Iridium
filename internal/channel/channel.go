@@ -328,6 +328,11 @@ type Service struct {
 	ss   Sessions
 	logf func(string, ...any)
 
+	// OnRecall, if set, is told a channel before a message of it is taken back (Recall): who
+	// keeps which channels have such must know before the store does, or one asking between
+	// is told there is none.
+	OnRecall func(channel string)
+
 	// Numbered: a nick given by default is the harness's name and a number (claude2), as the
 	// tests read them; else its name and four hex digits of its session (Claude-b134).
 	Numbered bool

@@ -75,6 +75,20 @@ func (m *Manager) Called(id string) string {
 	return cmp.Or(m.o.Store.Named(id), title)
 }
 
+// Where is where session id is, as State says it (its id, computer and folder): what says who
+// sees it, without making its state; false for one not known.
+func (m *Manager) Where(id string) (api.Session, bool) {
+	if h, err := m.get(id); err == nil {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		return api.Session{ID: h.id, Machine: h.meta.Machine, Cwd: h.meta.Cwd}, true
+	}
+	if s, _, ok := m.found(id); ok {
+		return api.Session{ID: s.ID, Machine: s.Machine, Cwd: s.Cwd}, true
+	}
+	return api.Session{}, false
+}
+
 // HasIR: session id's agent has an ir that reaches Iridium: here always; at another machine,
 // if its executor gives it one (wire.Hello.IRClient).
 func (m *Manager) HasIR(id string) bool {

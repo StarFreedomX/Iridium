@@ -105,6 +105,15 @@ func (s *Service) channelFull(ss api.Session) Channel {
 	return *c
 }
 
+// guildIDOf is the id of the guild session ss is in: guildOf's, without its name, for what asks
+// it of every row of a list.
+func guildIDOf(ss api.Session) string {
+	if ss.Workspace == 0 {
+		return Loose
+	}
+	return strconv.FormatInt(ss.Workspace, 10)
+}
+
 // guildOf is the guild session ss is in.
 func (s *Service) guildOf(ss api.Session) *Guild {
 	if ss.Workspace == 0 {
@@ -201,7 +210,7 @@ func (s *Service) visible(ctx context.Context, c Caller, all bool) ([]api.Sessio
 	}
 	out := l[:0]
 	for _, ss := range l {
-		if (all || !ss.Archived && !ss.Subagent) && s.b.Sees(c, ss.ID) {
+		if (all || !ss.Archived && !ss.Subagent) && s.b.SeesListed(c, ss) {
 			out = append(out, ss)
 		}
 	}
@@ -248,7 +257,7 @@ func (s *Service) channelList(ctx context.Context, c Caller, body []byte) (any, 
 	}
 	var in []api.Session
 	for _, ss := range l {
-		if req.GuildID == "" || s.guildOf(ss).ID == req.GuildID {
+		if req.GuildID == "" || guildIDOf(ss) == req.GuildID {
 			in = append(in, ss)
 		}
 	}

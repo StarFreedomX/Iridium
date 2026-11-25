@@ -38,6 +38,9 @@ func (s *Service) Recall(channel string, seq int64, by string) (Message, error) 
 	if !Recallable(m) {
 		return Message{}, ErrNotWords
 	}
+	if s.OnRecall != nil {
+		s.OnRecall(channel)
+	}
 	done, err := s.st.RecallChannelMessage(channel, seq, by)
 	if err != nil {
 		return Message{}, err

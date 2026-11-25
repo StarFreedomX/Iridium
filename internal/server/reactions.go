@@ -139,7 +139,9 @@ func (s *Server) recalledFor(session, ch string, seen int64) []int64 {
 		return nil
 	}
 	var out []int64
-	for _, r := range s.ch.Recalls(ch, since) {
+	// since-1: one taken back in the millisecond it was last given something may be after it;
+	// told twice then, rather than never.
+	for _, r := range s.ch.Recalls(ch, since-1) {
 		if r.Seq <= seen {
 			out = append(out, r.Seq)
 		}

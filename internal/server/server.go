@@ -158,6 +158,9 @@ func New(cfg config.Config, m *session.Manager, h *hub.Hub, logf func(string, ..
 	s.reloadSecrets()
 	m.SetAnnotate(s.files.AnnotateBlocks) // a page of messages and a state's tail name files
 	s.ch = channel.New(s.st, m, logf)
+	// Known to have a message taken back before it is written: an agent given something between
+	// the two was told of none, then never (recalledFor; TestReactionsAndRecall, one run in twenty).
+	s.ch.OnRecall = s.recalls.add
 	s.sat = satori.New(satoriBackend{s}, logf)
 	s.sat.Channels(s.ch)
 	s.sat.OnSaid(s.routeSaid)

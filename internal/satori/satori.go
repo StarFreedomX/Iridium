@@ -110,6 +110,9 @@ type Backend interface {
 	SeesGuild(c Caller, w api.Workspace) bool
 	// Sees: c may see session id. What it may not see is not there for it.
 	Sees(c Caller, id string) bool
+	// SeesListed is Sees of a session of the list, by its row: a list asks it of every row, and
+	// Sees makes each one's whole state for it (otae, 2026-11-25: a page of the list in 10 s).
+	SeesListed(c Caller, ss api.Session) bool
 	// Messages is a page of session id's transcript (Manager.Messages), its blocks' files named.
 	Messages(id string, before, after int64) (api.MessagePage, error)
 	// Full is the whole text of the block at at.
