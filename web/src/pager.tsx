@@ -1,4 +1,5 @@
-// On a phone the bottom sheet holds its pages side by side, 设置, 用量 and 会话 (the user, 2026-11-08):
+// On a phone the bottom sheet holds its pages side by side, 设置 and 会话, the 用量 key between their
+// tabs (the user, 2026-11-08; the usage a window of its own, kumo, 2026-11-25):
 // tabs at its head's left say which is shown, their pill following the finger, the shown page's
 // keys at its right, one line under the grip, apart from it (the user, 2026-11-08); a swipe across
 // the page, following the finger too, goes to the next, as a press on its tab does. Not a swipe that began
@@ -14,7 +15,9 @@ const SWIPE = { DECIDE: 10, RATIO: 1.2, GO: 0.25, SPEED: 0.4, EDGE: 0.25 };
 /** The head's height, px, its gap over it too: the sheet's head reaches past it (sheet.tsx head). */
 export const TABS_H = 52;
 
-/** lead: before the tabs (the mark, the sheet the whole window); ends: each page's keys at the right. */
+/** lead: before the tabs (the mark, the sheet the whole window); ends: each page's keys at the right.
+ *  A tab with press is a key among the tabs, no page of its own (the usage's: kumo, 2026-11-25);
+ *  page, children and ends count the pages only. */
 export function Pager({
   page,
   onPage,
@@ -26,7 +29,7 @@ export function Pager({
 }: {
   page: number;
   onPage: (i: number) => void;
-  tabs: { label: ReactNode; aria: string }[];
+  tabs: { label: ReactNode; aria: string; press?: () => void }[];
   lead?: ReactNode;
   ends?: ReactNode[];
   still?: boolean;
@@ -107,6 +110,10 @@ export function Pager({
 
   // Where the tabs' pill stands: the page shown, or between the two as the finger drags.
   const at = Math.max(0, Math.min(children.length - 1, page - (dx ?? 0) / (track.current?.clientWidth || innerWidth)));
+  // Each page's tab; the pill between two pages' tabs, over a key's between them as it goes.
+  const pageTabs = tabs.flatMap((tab, i) => (tab.press ? [] : [i]));
+  const lo = Math.floor(at);
+  const tabAt = (pageTabs[lo] ?? 0) + ((pageTabs[Math.min(lo + 1, pageTabs.length - 1)] ?? 0) - (pageTabs[lo] ?? 0)) * (at - lo);
   // Out of sight (still): it goes to its page at once, not seen sliding as the sheet comes.
   const glide = dx === null && !still && "transition-transform duration-(--dur-3) ease-(--ease-out)";
   return (
@@ -119,7 +126,7 @@ export function Pager({
             className={cn("absolute inset-y-0.5 left-0.5 rounded-full bg-paper shadow-[0_0_0_0.5px_var(--edge),0_1px_2px_var(--edge)]", glide)}
             style={{
               width: `calc((100% - 4px) / ${tabs.length})`,
-              transform: `translateX(${at * 100}%)`,
+              transform: `translateX(${tabAt * 100}%)`,
             }}
           />
           {tabs.map((tab, i) => (
@@ -127,10 +134,10 @@ export function Pager({
               key={i}
               type="button"
               role="tab"
-              aria-selected={i === page}
+              aria-selected={!tab.press && pageTabs.indexOf(i) === page}
               aria-label={tab.aria}
-              onClick={() => i !== page && onPage(i)}
-              className={cn("relative flex items-center justify-center gap-1.5 text-sm transition-colors duration-(--dur-2)", Math.round(at) === i ? "font-medium text-ink" : "text-ink-3")}
+              onClick={() => (tab.press ? tab.press() : pageTabs.indexOf(i) !== page && onPage(pageTabs.indexOf(i)))}
+              className={cn("relative flex items-center justify-center gap-1.5 text-sm transition-colors duration-(--dur-2)", Math.round(tabAt) === i ? "font-medium text-ink" : "text-ink-3")}
             >
               {tab.label}
             </button>

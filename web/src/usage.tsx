@@ -16,6 +16,7 @@
 // in a panel over the page, each with its cache's hit rate, tokens and cost. The chip puts everyone back. A bar pressed narrows the page to that day. With one login in, the bars are
 // its models. Over it all, the harnesses (the user, 2026-11-08): all four at first; pressed, one
 // leaves the whole page or comes back, and the last one taken out puts all four back.
+import { Dialog } from "@base-ui/react/dialog";
 import { Popover } from "@base-ui/react/popover";
 import { keepPreviousData, useQueryClient } from "@tanstack/react-query";
 import { useQuery } from "./api/query";
@@ -31,7 +32,7 @@ import { errText } from "./toast";
 import { hueColor, useHues } from "./hues";
 import { useMachines } from "./data";
 import { useUsageMachine } from "./route";
-import { agentName, AGENTS, Avatar, cn, keep, kept, Logo, PopSurface, Tip, tokens } from "./ui";
+import { agentName, AGENTS, Avatar, cn, IconKey, keep, kept, Logo, PopSurface, Tip, tokens } from "./ui";
 import { Pills } from "./pills";
 
 export const dollars = (n: number) => (n >= 1000 ? `$${Math.round(n).toLocaleString("en-US")}` : n >= 100 ? `$${Math.round(n)}` : `$${n.toFixed(2)}`);
@@ -269,10 +270,30 @@ function useKept<T extends string>(key: string, values: readonly T[], first: T) 
   return [v, (n: T) => (setV(n), keep(key, n))] as const;
 }
 
-/** A panel of its own (no way back to the settings: it is not one of their pages): at the point it
- *  was asked from with the sidebar shown, the phone sheet's 用量 page. */
+/** As wide as this, the page is laid out for the room (kumo, 2026-11-25): its keys on the title's
+ *  line, the chart taller, the logins and their models side by side. */
+const WIDE = 640;
+
+/** Whether the element is at least WIDE across: measured before it is first drawn. */
+function useWide() {
+  const [el, setEl] = useState<HTMLDivElement | null>(null);
+  const [wide, setWide] = useState(false);
+  useLayoutEffect(() => {
+    if (!el) return;
+    setWide(el.clientWidth >= WIDE);
+    const ro = new ResizeObserver(() => setWide(el.clientWidth >= WIDE));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [el]);
+  return [setEl, wide] as const;
+}
+
+/** A window of its own over the whole page, as the file browser is (kumo, 2026-11-25): the whole
+ *  screen in a portrait layout. Its content as it was in the panel; with the room, wider. */
 export function UsagePage() {
   useLang();
+  const [root, wide] = useWide();
+  const chartH = wide ? CHART_WIDE : CHART_H;
   const [days, setDays] = useState<number>(7);
   const [day, setDay] = useState<string | null>(null);
   const [metric, setMetric] = useKept<Metric>("usage.metric", ["cost", "tokens"], "cost");
@@ -409,23 +430,34 @@ export function UsagePage() {
   const other = metric === "cost" ? t("usage.tokens", { n: tokens(totalOf(sum)) }) : sum.cost > 0 ? dollars(sum.cost) : "";
   const figures = [other, t("usage.turns", { n: sum.turns }), hit && t("usage.hit", { n: hit })].filter(Boolean).join(" · ");
   return (
-    <div className="flex h-full flex-col">
-      <header className="flex h-10.5 shrink-0 items-center gap-1 px-3 pt-1.5">
-        <h1 className="m-0 min-w-0 flex-1 truncate text-base font-semibold">
+    <div ref={root} className="flex min-h-0 flex-1 flex-col">
+      {/* The title's line as the file browser's; the page's two choices on it with the room, else
+          on a line of their own under it, as plain words and marks (the user, 2026-11-08). */}
+      <header className="flex h-12 shrink-0 items-center gap-1 px-3 pointer-coarse:h-13">
+        <Dialog.Title className="m-0 min-w-0 flex-1 truncate text-sm font-semibold">
           {t("usage.title")}
           {machine && <span className="font-normal text-ink-3"> · {at?.name ?? machine}</span>}
-        </h1>
+        </Dialog.Title>
         {/* Only once it has been a moment: a quick answer shows no spinner flashing. */}
         {(q.isFetching || (heat && hq.isFetching)) && u && <span className="g-fade mr-1.5 grid [animation-delay:200ms]"><LoaderCircle size={14} className="animate-spin text-ink-4" /></span>}
+        {wide && (
+          <div className="mr-2 flex items-center gap-4">
+            <Ranges value={days} onChange={(n) => (capture(), setDays(n), setDay(null))} />
+            <Harnesses on={(a) => !hidden.has(a)} onToggle={(a) => (capture(), toggleHarness(a))} />
+          </div>
+        )}
+        <Dialog.Close render={<IconKey label={t("nav.close")} className="-mr-1" />}>
+          <X size={17} />
+        </Dialog.Close>
       </header>
-      {/* The page's two choices on a line of their own under the title, as plain words and marks
-          (the user, 2026-11-08): no box in a box, and room for the title in the narrow dialog. */}
-      <div className="flex h-9 shrink-0 items-center justify-between gap-2 px-3">
-        <Ranges value={days} onChange={(n) => (capture(), setDays(n), setDay(null))} />
-        <Harnesses on={(a) => !hidden.has(a)} onToggle={(a) => (capture(), toggleHarness(a))} />
-      </div>
-      <div className="no-bar min-h-0 flex-1 overflow-y-auto pt-3 pb-4">
-        <div className="flex flex-col gap-4 px-3">
+      {!wide && (
+        <div className="flex h-9 shrink-0 items-center justify-between gap-2 px-3">
+          <Ranges value={days} onChange={(n) => (capture(), setDays(n), setDay(null))} />
+          <Harnesses on={(a) => !hidden.has(a)} onToggle={(a) => (capture(), toggleHarness(a))} />
+        </div>
+      )}
+      <div className={cn("no-bar min-h-0 flex-1 overflow-y-auto pb-4", wide ? "pt-2" : "pt-3")}>
+        <div className={cn("flex flex-col gap-4", wide ? "px-5" : "px-3")}>
           {q.isError && <p className="m-0 text-sm text-ink-3">{errText(q.error)}</p>}
           <section className="flex flex-col gap-3" aria-label={t("usage.title")}>
             {/* Till the first answer, the page as it will be, in faint blocks of the same size: nothing
@@ -489,7 +521,7 @@ export function UsagePage() {
                     )}
                 </div>
                 {/* Under either measure: switched, the page keeps its height. */}
-                <Mix sum={sum} />
+                <Mix sum={sum} wide={wide} />
               </div>
             ) : (
               <div aria-hidden className="g-wait">
@@ -500,7 +532,7 @@ export function UsagePage() {
                   <span className="block h-2.5 w-40 rounded-full bg-fill" />
                 </div>
                 <div className="mt-1 h-6" />
-                <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-0.5">
+                <div className={cn("mt-2 grid gap-x-4 gap-y-0.5", wide ? "grid-cols-4" : "grid-cols-2")}>
                   {[0, 1, 2, 3].map((i) => (
                     <span key={i} className="block h-4 rounded-full bg-fill" />
                   ))}
@@ -509,15 +541,16 @@ export function UsagePage() {
             )}
             <div className="flex flex-col gap-1">
               {!u ? (
-                <StacksWaiting days={days} />
+                <StacksWaiting days={days} h={chartH} />
               ) : heat ? (
-                <Heat u={hq.data} hidden={hidden} off={off} m={m} color={solo !== undefined ? colors.get(solo)! : "var(--series-1)"} />
+                <Heat u={hq.data} hidden={hidden} off={off} m={m} color={solo !== undefined ? colors.get(solo)! : "var(--series-1)"} h={chartH} />
               ) : (
-                <StacksSwap k={String(range)} days={u.days} perDay={parts.perDay} order={parts.order} colors={parts.colors} on={parts.on} name={parts.name} sel={day} onSel={setDay} week={range === 7} m={m} />
+                <StacksSwap k={String(range)} days={u.days} perDay={parts.perDay} order={parts.order} colors={parts.colors} on={parts.on} name={parts.name} sel={day} onSel={setDay} week={range === 7} m={m} h={chartH} wide={wide} />
               )}
             </div>
           </section>
 
+          <div className={cn(wide && "grid grid-cols-2 items-start gap-8")}>
           <section ref={listRef} className="flex flex-col" aria-label={t("usage.sources")}>
             {u && s.order.length === 0 && <p className="g-fade m-0 py-6 text-center text-sm text-ink-3">{t("usage.none")}</p>}
             {!u && !q.isError && (
@@ -547,9 +580,13 @@ export function UsagePage() {
                 onPeek={(o) => setPeek(o ? x.id : (c) => (c === x.id ? null : c))}
                 onToggle={() => toggle(x.id)}
                 onOnly={() => only(x.id)}
+                wide={wide}
               />
             ))}
           </section>
+          {/* With the room, the models of those in the chart beside them, at hand (kumo, 2026-11-25). */}
+          {wide && u && s.order.length > 0 && <ModelTable logins={s.byLogin.filter((x) => on(x.id))} />}
+          </div>
         </div>
       </div>
     </div>
@@ -697,14 +734,14 @@ const MIX = [
 
 /** The tokens' four parts, the cache's reads first, each one's figure (no bar of them: the user,
  *  2026-11-12). */
-function Mix({ sum }: { sum: Sum }) {
+function Mix({ sum, wide }: { sum: Sum; wide?: boolean }) {
   return (
     <div className="g-fade mt-2 tabular-nums">
-      <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-ink-3">
+      <div className={cn("grid gap-x-4 gap-y-0.5 text-xs text-ink-3", wide ? "grid-cols-4" : "grid-cols-2")}>
         {MIX.map((p) => (
           <span key={p.key} className="flex min-w-0 items-center gap-1.5">
             <span aria-hidden className="block size-2 shrink-0 rounded-[2px]" style={{ background: p.tone }} />
-            <span className="min-w-0 flex-1 truncate">{t(p.key)}</span>
+            <span className={cn("min-w-0 truncate", !wide && "flex-1")}>{t(p.key)}</span>
             <span className="text-ink-2">{tokens(p.of(sum))}</span>
           </span>
         ))}
@@ -724,9 +761,9 @@ function niceUnder(max: number) {
  *  taking someone out or putting them back, every part glides to its new height. One quiet line
  *  marks a round figure. Pressed, a day is chosen (pressed again, the range); its tip has the day's
  *  total and each one's. week: each day's weekday under it, else the range's ends. */
-type StacksProps = { days: string[]; perDay: Map<string, Map<string, Sum>>; order: string[]; colors: Map<string, string>; on: (id: string) => boolean; name: (id: string) => string; sel: string | null; onSel: (d: string | null) => void; week: boolean; m: Measure };
+type StacksProps = { days: string[]; perDay: Map<string, Map<string, Sum>>; order: string[]; colors: Map<string, string>; on: (id: string) => boolean; name: (id: string) => string; sel: string | null; onSel: (d: string | null) => void; week: boolean; m: Measure; h: number; wide?: boolean };
 
-function Stacks({ days, perDay, order, colors, on, name, sel, onSel, week, m, fall }: StacksProps & { fall?: boolean }) {
+function Stacks({ days, perDay, order, colors, on, name, sel, onSel, week, m, h: chartH, wide, fall }: StacksProps & { fall?: boolean }) {
   const hours = hourly(days[0] ?? "");
   // Drawn first at nothing, the bars rise to their figures (their height's glide); fall: down to
   // nothing again, quicker, as the chart goes (StacksSwap).
@@ -739,7 +776,7 @@ function Stacks({ days, perDay, order, colors, on, name, sel, onSel, week, m, fa
   // A login's models (their keys have a NUL) after the logins: come or gone, they move none of the
   // others in the page, which would end its glide.
   const stack = useMemo(() => [...order].sort((a, b) => Number(a.includes("\u0000")) - Number(b.includes("\u0000")) || (a < b ? -1 : a > b ? 1 : 0)), [order]);
-  const room = CHART_H - 14; // the scale's label above the highest bar
+  const room = chartH - 14; // the scale's label above the highest bar
   const sums = days.map((d) => {
     const all = zero();
     for (const [id, s] of perDay.get(d) ?? []) if (on(id)) add(all, s);
@@ -750,7 +787,7 @@ function Stacks({ days, perDay, order, colors, on, name, sel, onSel, week, m, fa
   const today = days[days.length - 1];
   return (
     <div className="flex flex-col gap-1">
-      <div role="group" aria-label={t("usage.chart")} className="relative border-b border-fill-2" style={{ height: CHART_H }}>
+      <div role="group" aria-label={t("usage.chart")} className="relative border-b border-fill-2" style={{ height: chartH }}>
         <div
           aria-hidden
           className={cn("pointer-events-none absolute inset-x-0 border-t border-dashed border-fill-2 transition-[bottom,opacity] duration-(--dur-3) ease-(--ease-out)", (!line || fall) && "opacity-0")}
@@ -775,7 +812,7 @@ function Stacks({ days, perDay, order, colors, on, name, sel, onSel, week, m, fa
                   onClick={() => onSel(chosen ? null : d)}
                   className={cn("flex h-full min-w-0 flex-1 items-end justify-center outline-offset-1 transition-opacity duration-(--dur-2)", sel && !chosen ? "opacity-35 hover:opacity-60" : "hover:opacity-85")}
                 >
-                  <span className={cn("flex w-full flex-col-reverse overflow-hidden rounded-t-[4px]", week ? "max-w-9" : "max-w-6")}>
+                  <span className={cn("flex w-full flex-col-reverse overflow-hidden rounded-t-[4px]", week ? (wide ? "max-w-16" : "max-w-9") : wide ? "max-w-8" : "max-w-6")}>
                     {(() => {
                       const hs = stack.map((id) => {
                         const x = day?.get(id);
@@ -806,6 +843,19 @@ function Stacks({ days, perDay, order, colors, on, name, sel, onSel, week, m, fa
                 {d === today ? t("usage.today") : weekdayOf(d)}
               </span>
             ))}
+          </div>
+        ) : wide ? (
+          // With the room, a day a week (an hour in six) under its bar, counted back from the last.
+          <div className="flex gap-0.5 text-[11px] text-ink-3 tabular-nums">
+            {days.map((d, i) => {
+              const back = days.length - 1 - i;
+              const mark = back % (hours ? 6 : 7) === 0;
+              return (
+                <span key={d} className={cn("relative h-[16.5px] min-w-0 flex-1", (d === sel || (!sel && d === today)) && "font-medium text-ink-2")}>
+                  {mark && <span className="absolute left-1/2 -translate-x-1/2 whitespace-nowrap">{d === today ? (hours ? t("usage.thisHour") : t("usage.today")) : hours ? hourLabel(d) : dayLabel(d, false)}</span>}
+                </span>
+              );
+            })}
           </div>
         ) : (
           <div className="flex justify-between text-[11px] text-ink-3 tabular-nums">
@@ -876,8 +926,9 @@ function StacksSwap(p: SwapProps) {
   return <Stacks key={draw.k} {...draw} fall={fall} />;
 }
 
-/** The chart's height, whatever the range or view: another changes no height. */
+/** The chart's height, whatever the range or view: another changes no height; with the room, taller. */
 const CHART_H = 136;
+const CHART_WIDE = 220;
 
 /** A bar's tip: the day's total, then each one's. Drawn only as it opens: 30 bars' lists made with
  *  every draw made a range chosen stutter. */
@@ -902,7 +953,7 @@ function BarTip({ label, day, order, colors, on, name, m }: { label: string; day
  *  user, 2026-11-10: when, not which day); five shades of one colour by the measure, the one
  *  login's when only one is in. The line over it says what the square under the pointer (or
  *  tapped) holds, else the busiest hour's, with the shades' key. */
-function Heat({ u, hidden, off, m, color }: { u: Usage | undefined; hidden: ReadonlySet<Agent>; off: ReadonlySet<string>; m: Measure; color: string }) {
+function Heat({ u, hidden, off, m, color, h: chartH }: { u: Usage | undefined; hidden: ReadonlySet<Agent>; off: ReadonlySet<string>; m: Measure; color: string; h: number }) {
   const [at, setAt] = useState<number | null>(null);
   const cells = useMemo(() => {
     const out = Array.from({ length: 7 * 24 }, zero);
@@ -922,10 +973,12 @@ function Heat({ u, hidden, off, m, color }: { u: Usage | undefined; hidden: Read
   const shown = at ?? peak;
   const c = shown !== null ? cells[shown] : undefined;
   return (
-    <div className="g-fade flex flex-col gap-1">
+    // As wide as square squares fill the chart's height: its line over them (20px), the row gaps,
+    // the weekdays' column.
+    <div className="g-fade flex flex-col gap-1" style={{ maxWidth: Math.floor(((chartH - 30 - 18) / 7) * 24 + 23 * 3 + 22) }}>
       {/* The squares stay square (the user, 2026-11-12); the room over them has the hour they say
           and the shades' key, the squares at the bottom on the axis. */}
-      <div role="group" aria-label={t("usage.heat")} className={cn("flex flex-col justify-between border-b border-fill-2 pb-1", !u && "g-wait")} style={{ height: CHART_H }} onPointerLeave={(e) => e.pointerType === "mouse" && setAt(null)}>
+      <div role="group" aria-label={t("usage.heat")} className={cn("flex flex-col justify-between border-b border-fill-2 pb-1", !u && "g-wait")} style={{ height: chartH }} onPointerLeave={(e) => e.pointerType === "mouse" && setAt(null)}>
         <div className="flex h-5 min-w-0 items-center gap-2 text-[11px] text-ink-3 tabular-nums">
           <span className="min-w-0 flex-1 truncate">
             {c && shown !== null ? (
@@ -984,12 +1037,12 @@ function Heat({ u, hidden, off, m, color }: { u: Usage | undefined; hidden: Read
 
 /** The chart's place while the first answer comes: as tall as it will be, faint bars of no
  *  figure in it, and the line under it. */
-function StacksWaiting({ days }: { days: number }) {
+function StacksWaiting({ days, h }: { days: number; h: number }) {
   const week = days === 7;
   const n = days === 1 ? 24 : days;
   return (
     <div aria-hidden className="g-wait flex flex-col gap-1">
-      <div className={cn("flex items-end border-b border-fill-2", week ? "gap-1.5" : "gap-0.5")} style={{ height: CHART_H }}>
+      <div className={cn("flex items-end border-b border-fill-2", week ? "gap-1.5" : "gap-0.5")} style={{ height: h }}>
         {Array.from({ length: n }, (_, i) => (
           <span key={i} className="flex h-full min-w-0 flex-1 items-end justify-center">
             <span className={cn("block w-full rounded-t-[4px] bg-fill", week ? "max-w-9" : "max-w-6")} style={{ height: `${18 + ((i * 37) % 45)}%` }} />
@@ -1004,10 +1057,11 @@ function StacksWaiting({ days }: { days: number }) {
 }
 
 /** A hit rate as a figure, amber under LOW_HIT; a dash with no input. */
-function Hit({ s }: { s: Sum }) {
+function Hit({ s, short }: { s: Sum; short?: boolean }) {
   const h = hitOf(s);
-  if (h === undefined) return <span className="text-ink-4">—</span>;
-  return <span style={h < LOW_HIT ? { color: "var(--need)" } : undefined}>{hitRate(s)}</span>;
+  if (h === undefined) return short ? null : <span className="text-ink-4">—</span>;
+  const rate = hitRate(s);
+  return <span style={h < LOW_HIT ? { color: "var(--need)" } : undefined}>{short ? t("usage.hitShort", { n: rate }) : rate}</span>;
 }
 
 /** The figure: another measure is another figure, so it comes again rather than glide. */
@@ -1048,7 +1102,7 @@ function ShareBar({ share, color }: { share: number; color: string }) {
  *  colour. The row pressed takes it out of the chart or puts it back; right-clicked or held, it is
  *  the only one in (the user, 2026-11-12: as before its models folded open under it); out, the whole row faint and grey. Its models
  *  float out of its avatar, in a panel over the page (no row grows). */
-function LoginRow({ x, u, color, whole, on, many, metric, peek, onPeek, onToggle, onOnly }: { x: LoginSum; u: Usage | undefined; color: string; whole: number; on: boolean; many: boolean; metric: Metric; peek: boolean; onPeek: (o: boolean) => void; onToggle: () => void; onOnly: () => void }) {
+function LoginRow({ x, u, color, whole, on, many, metric, peek, onPeek, onToggle, onOnly, wide }: { x: LoginSum; u: Usage | undefined; color: string; whole: number; on: boolean; many: boolean; metric: Metric; peek: boolean; onPeek: (o: boolean) => void; onToggle: () => void; onOnly: () => void; wide?: boolean }) {
   const w = who(u, x.id);
   const v = MEASURES[metric].value(x.sum);
   const cost = x.sum.cost > 0 ? dollars(x.sum.cost) : "";
@@ -1061,6 +1115,13 @@ function LoginRow({ x, u, color, whole, on, many, metric, peek, onPeek, onToggle
     <span className={cn("flex min-w-0 flex-1 flex-col py-0.5 transition-[opacity,filter] duration-(--dur-2)", !on && OUT)}>
       <span className="flex w-full items-baseline gap-2">
         <span className="min-w-0 flex-1 truncate text-sm font-medium">{w.name}</span>
+        {/* With the room, its turns and its cache's hit rate too (kumo, 2026-11-25). */}
+        {wide && <span className="shrink-0 text-xs text-ink-4 tabular-nums">{t("usage.turns", { n: x.sum.turns })}</span>}
+        {wide && (
+          <span className="shrink-0 text-xs text-ink-4 tabular-nums">
+            <Hit s={x.sum} short />
+          </span>
+        )}
         <span className="shrink-0 text-xs text-ink-3 tabular-nums">{second}</span>
         <span className="shrink-0 text-sm font-semibold tabular-nums">{main}</span>
       </span>
@@ -1157,5 +1218,31 @@ function ModelLine({ md }: { md: ModelSum }) {
       <span className="text-right text-ink-3">{tokens(totalOf(md.sum))}</span>
       <span className="text-right text-ink-2">{md.sum.cost > 0 ? dollars(md.sum.cost) : "—"}</span>
     </div>
+  );
+}
+
+/** The models of the logins in the chart, the most first by cost, then tokens, one line a model
+ *  (its key as the list's: one model under two routes is one line); the logins' own popovers say
+ *  each one's. Beside the list with the room (kumo, 2026-11-25). */
+function ModelTable({ logins }: { logins: LoginSum[] }) {
+  const all = new Map<string, ModelSum>();
+  for (const x of logins)
+    for (const md of x.models) {
+      const m = all.get(md.key) ?? { key: md.key, agent: md.agent, model: md.model, sum: zero() };
+      all.set(md.key, m);
+      add(m.sum, md.sum);
+    }
+  const rows = [...all.values()].filter((m) => totalOf(m.sum) > 0).sort((a, b) => b.sum.cost - a.sum.cost || totalOf(b.sum) - totalOf(a.sum));
+  return (
+    <section aria-label={t("usage.model")} className="g-fade grid grid-cols-[0.875rem_minmax(0,1fr)_auto_auto_auto] items-center gap-x-3 gap-y-1.5 pt-1.5 text-xs tabular-nums">
+      <span />
+      <span className="text-[11px] text-ink-4">{t("usage.model")}</span>
+      <span className="text-right text-[11px] text-ink-4">{t("usage.colHit")}</span>
+      <span className="text-right text-[11px] text-ink-4">{t("usage.tokensMetric")}</span>
+      <span className="text-right text-[11px] text-ink-4">{t("usage.cost")}</span>
+      {rows.map((md) => (
+        <ModelLine key={md.key} md={md} />
+      ))}
+    </section>
   );
 }

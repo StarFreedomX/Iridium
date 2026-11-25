@@ -580,7 +580,7 @@ function ChannelComposer({ composer, s, solo, agents, people, quote, unquote, on
       cycleMode={solo ? mode.cycle : () => {}}
       openModel={() => solo && setModelOpen(true)}
       openMode={() => solo && setModeOpen(true)}
-      openUsage={() => openUsage(undefined, (solo ?? s).machine)}
+      openUsage={() => openUsage((solo ?? s).machine)}
       openContext={() => false}
       cleared={openChat}
       tools={

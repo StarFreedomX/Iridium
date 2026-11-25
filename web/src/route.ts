@@ -100,10 +100,6 @@ function leave() {
 
 export const route = () => current;
 
-/** Where the usage panel was asked for: a point, the panel's left edge on it, or its right (end). */
-export type At = { x: number; y: number; end?: boolean };
-let usageAt: At | null = null;
-export const usagePoint = () => usageAt;
 /** The computer the usage was asked for at (a session's there: an executor's app ID), "" everyone's. */
 let usageMachine = "";
 const machineSubs = new Set<() => void>();
@@ -117,12 +113,11 @@ export const useUsageMachine = () =>
     (f) => (machineSubs.add(f), () => void machineSubs.delete(f)),
     () => usageMachine,
   );
-/** The usage: with the sidebar shown a panel at the point it was asked from, as a row's menu
- *  (app.tsx, the user, 2026-11-08); on a phone the sheet's 用量 page. Asked twice (a long press,
- *  then its contextmenu): once. machine: a session's at another computer asks for that one's. */
-export function openUsage(at?: At, machine?: string) {
+/** The usage: a window over the whole page, as the file browser is (app.tsx, kumo, 2026-11-25).
+ *  Asked twice (a long press, then its contextmenu): once. machine: a session's at another
+ *  computer asks for that one's. */
+export function openUsage(machine?: string) {
   if (current.name === "usage") return;
-  usageAt = at ?? null;
   setUsageMachine(machine);
   go({ name: "usage" }, over(current));
 }
