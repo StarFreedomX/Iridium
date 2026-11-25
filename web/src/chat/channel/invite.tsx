@@ -213,7 +213,7 @@ export function RolePreview({ role, at, off, busy, add, wake, setWake }: { role:
       name={role.name}
       sub={<RoleLine role={role} at={at} />}
       more={role.persona ? <p className="m-0 line-clamp-6 pt-2 text-sm leading-5 whitespace-pre-wrap text-ink-2 [overflow-wrap:anywhere]">{role.persona}</p> : undefined}
-      keys={[{ icon: busy ? <LoaderCircle size={15} className="animate-spin" /> : <Plus size={15} />, label: t("role.add"), run: add, disabled: off }, ...(wake && setWake ? [{ key: "wake", icon: <Mail size={15} />, label: t(`wake.${wake}`), run: () => setWake(nextWake(wake)) }] : [])]}
+      keys={[{ icon: busy ? <LoaderCircle size={15} className="animate-spin" /> : <Plus size={15} />, label: t("role.add"), run: add, disabled: off }, ...(wake && setWake ? [{ key: "wake", icon: <Mail size={15} />, label: `${t("channel.recv")} ${t(`wake.${wake}`)}`, run: () => setWake(nextWake(wake)) }] : [])]}
     />
   );
 }
@@ -293,13 +293,13 @@ function AddFoot({ add, off, wake, setWake }: { add: () => void; off: boolean } 
     <>
       <div role="separator" className="mx-2.5 my-1 shrink-0 border-t border-(--edge)" />
       <div className="flex shrink-0 gap-1">
-        <Menu.Item closeOnClick={false} disabled={off} onClick={add} className={cn(ITEM, "min-w-0 flex-1 justify-center bg-fill data-disabled:opacity-40 data-highlighted:bg-fill-2")}>
+        <Menu.Item closeOnClick={false} disabled={off} onClick={add} className={cn(ITEM, "min-w-0 shrink-0 justify-center bg-fill px-3 data-disabled:opacity-40 data-highlighted:bg-fill-2")}>
           <Plus size={15} className="text-ink-2" />
           <span className="truncate">{t("role.add")}</span>
         </Menu.Item>
         <Menu.Item closeOnClick={false} onClick={() => setWake(nextWake(wake))} aria-label={`${t("channel.recv")} ${t(`wake.${wake}`)}`} className={cn(ITEM, "min-w-0 flex-1 justify-center")}>
           <Mail size={15} className="text-ink-2" />
-          <span key={wake} className="g-fade truncate">{t(`wake.${wake}`)}</span>
+          <span key={wake} className="g-fade truncate">{`${t("channel.recv")} ${t(`wake.${wake}`)}`}</span>
         </Menu.Item>
       </div>
     </>

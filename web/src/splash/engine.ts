@@ -153,6 +153,10 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
   // window goes over the rows, those it leaves fading and those it comes to coming up: the
   // characters do not move with it. Its middle and height, asked (-1: the canvas's own) and drawn.
   let wcT = -1, whT = -1, wc = 0, wh = 0;
+  // The figure's own cells are seen whole, in the window's fading edges and past them too (kumo,
+  // 2026-11-25: the figure was cut off by them): how much of each cell is the figure's (fm), and
+  // the most of it in each row (fr).
+  let fm = new Float32Array(0), fr = new Float32Array(0);
   const winGoal = (): [number, number] => (wcT < 0 ? [H / 2, H] : [wcT, whT]);
   /** How much of a row at height y is seen: all of it in the window's middle half, none at its edges. */
   const seen = (y: number) => {
@@ -229,8 +233,13 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
       const m = (r + g + b) / 3;
       return [clamp((m + (r - m) * k) * gain, 0, 255), clamp((m + (g - m) * k) * gain, 0, 255), clamp((m + (b - m) * k) * gain, 0, 255)];
     };
+    if (fm.length !== n) fm = new Float32Array(n);
+    if (fr.length !== rows) fr = new Float32Array(rows);
+    fr.fill(0);
     for (let i = 0; i < n; i++) {
       const o = i * 4, m = sharp[o + 3]! / 255, h = halo[o + 3]! / 255;
+      fm[i] = m;
+      if (m > fr[(i / cols) | 0]!) fr[(i / cols) | 0] = m;
       let a = BASE, c: RGB = ink;
       const hc = vivid(halo[o]!, halo[o + 1]!, halo[o + 2]!, 1.5, dark ? 1.15 : 0.9);
       if (photo && m > 0.5) {
@@ -262,7 +271,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
     for (let r = 0; r < rows; r++) {
       const o = Math.floor(off[r]!), f = off[r]! - o, row = text[r]!, y = r * ROW + 0.5;
       const env = seen(y + ROW / 2);
-      if (env < 0.01) continue;
+      if (env < 0.01 && fr[r]! < 0.01) continue;
       let run = "", at = 0, key = -1;
       const flush = () => {
         if (!run || !(key & 31)) return;
@@ -271,7 +280,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
       };
       for (let k = 0; k < cols; k++) {
         const i = r * cols + k;
-        const k2 = Math.min(24, Math.round(clamp(cur.a[i]! + heat[i]! * 0.34) * env * 24)) | ((cur.r[i]! >> 3) << 5) | ((cur.g[i]! >> 3) << 10) | ((cur.b[i]! >> 3) << 15);
+        const k2 = Math.min(24, Math.round(clamp(cur.a[i]! + heat[i]! * 0.34) * (env + (1 - env) * (fm[i] ?? 0)) * 24)) | ((cur.r[i]! >> 3) << 5) | ((cur.g[i]! >> 3) << 10) | ((cur.b[i]! >> 3) << 15);
         if (k2 !== key) {
           flush();
           run = "";

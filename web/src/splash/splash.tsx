@@ -62,10 +62,10 @@ export function Splash({ show = true, fig = null, scene = "", className }: { sho
       e.window(under ? pane - 76 - h / 2 : pane / 2 - 24, h);
       const free = w - PANEL;
       const left = asideRef.current && free >= 240;
-      // The figure is one size wherever the window is (kumo, 2026-11-25: under the panel it was
-      // made smaller, by the window's height there): by the window's height in the pane's middle.
-      const h0 = ph ? Math.min(460, Math.max(260, pane * 0.56)) : h;
-      const side = left ? Math.min(h * 0.92, free * 0.9) : ph ? Math.min(w * 0.94, h0 * 1.4) : Math.min(h * 0.92, w * 0.7);
+      // The figure is one size wherever the window is, and whole (kumo, 2026-11-25: not smaller
+      // under the panel, not cut by the window's edges): in the portrait layout, as large as what
+      // is left under a panel of half the pane, over the composer, has room for.
+      const side = left ? Math.min(h * 0.92, free * 0.9) : ph ? Math.min(w * 0.94, Math.max(120, pane / 2 - 128)) : Math.min(h * 0.92, w * 0.7);
       e.place(left ? free / 2 : !ph ? -1 : w / 2, side);
     };
     fitRef.current = fit;

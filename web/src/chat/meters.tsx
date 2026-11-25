@@ -753,11 +753,34 @@ export function ModelKey({ s, open, onOpenChange }: { s: LiveSession; open?: boo
  *  track's right (featKey) even with no levels. */
 export function ModelList({ models, value, pickModel, levels, level, setEffort, featKey, featTag, foot, name }: { models: Model[]; value: string; pickModel: (v: string) => void; levels: string[]; level: string; setEffort: (e: string) => Promise<boolean>; featKey?: ReactNode; featTag?: ReactNode; foot?: boolean; name?: string }) {
   const grouped = new Set(models.map((m) => m.group).filter(Boolean)).size > 1;
+  // The phone's layout (kumo, 2026-11-25): the effort over the models, staying as they scroll,
+  // and the models' list as high as it may be at most, scrolling itself: with no height of its
+  // own it did not scroll, and kept the panel around it from scrolling under a finger on it.
+  const phone = useMedia(PHONE);
+  const effort = (
+    <>
+      {(levels.length > 1 || foot) && (
+        // The foot: tuned in place, never closing the menu; the model's own levels drawn anew.
+        // UltraCode a switch at the track's right, not a row of its own (the user, 2026-11-06).
+        <div className={cn("shrink-0", phone ? "mb-1 border-b border-(--edge) pb-0.5" : "mt-1 border-t border-(--edge) pt-0.5")}>
+          {levels.length > 1 ? (
+            <EffortSlider key={levels.join(" ")} levels={levels} value={level || undefined} set={setEffort} aside={featKey} tag={featTag} />
+          ) : (
+            <div className="flex h-10 items-center justify-between gap-3 px-2.5">
+              <span className="text-xs text-ink-3">{name}</span>
+              {featKey}
+            </div>
+          )}
+        </div>
+      )}
+    </>
+  );
   return (
     <>
+      {phone && effort}
       {/* The models scroll inside, the foot stays; as high as there is room above, short of the
           top by 40px, at most 640px (the user, 2026-11-06). */}
-      <Scrolled className="-mr-1 min-h-0 pr-1">
+      <Scrolled className={cn("-mr-1 min-h-0 pr-1", phone && "max-h-[min(38dvh,320px)] touch-pan-y")}>
         <Menu.RadioGroup value={value} onValueChange={(x) => pickModel(x as string)} className="g-stagger flex flex-col">
           {models.map((m, i) => (
             <Fragment key={m.value}>
@@ -778,20 +801,7 @@ export function ModelList({ models, value, pickModel, levels, level, setEffort, 
           ))}
         </Menu.RadioGroup>
       </Scrolled>
-      {(levels.length > 1 || foot) && (
-        // The foot: tuned in place, never closing the menu; the model's own levels drawn anew.
-        // UltraCode a switch at the track's right, not a row of its own (the user, 2026-11-06).
-        <div className="mt-1 shrink-0 border-t border-(--edge) pt-0.5">
-          {levels.length > 1 ? (
-            <EffortSlider key={levels.join(" ")} levels={levels} value={level || undefined} set={setEffort} aside={featKey} tag={featTag} />
-          ) : (
-            <div className="flex h-10 items-center justify-between gap-3 px-2.5">
-              <span className="text-xs text-ink-3">{name}</span>
-              {featKey}
-            </div>
-          )}
-        </div>
-      )}
+      {!phone && effort}
     </>
   );
 }
