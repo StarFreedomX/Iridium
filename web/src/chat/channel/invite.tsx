@@ -34,8 +34,9 @@ export const POPUP = "g-unfold glass thick float rounded-lg text-ink outline-non
 /** How many agents a channel holds (internal/server MaxAgents). */
 export const MAX_AGENTS = 8;
 
-/** What wakes one added beside its @ (kumo, 2026-11-25): only the one adding it (self, the
- *  first: a press goes on to the next), only an @ (at), or every member's words (all). */
+/** What wakes one added beside its @ (kumo, 2026-11-25): only the one adding it (self: the
+ *  channel's first agent's at first), only an @ (at: one added after it), or every member's
+ *  words (all). A press goes on to the next. */
 export type Wake = "self" | "at" | "all";
 export const WAKES: Wake[] = ["self", "at", "all"];
 const wakeOn = (w: Wake, me?: string): Trigger[] => (w === "all" ? [{ message: { from: ["*"] } }] : w === "self" && me ? [{ message: { from: [me] } }] : []);

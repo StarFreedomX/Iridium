@@ -272,8 +272,10 @@ function Invite({ id }: { id: string }) {
   // it (the computer picked), only not drawn.
   const paged = usePaged();
   const [page, setPage] = useState<{ k: Agent; m?: Machine } | { role: Role; m?: Machine } | { app: string } | null>(null);
-  // What wakes the one added: only the one adding it, as the panel opens (kumo, 2026-11-25).
-  const [wake, setWake] = useState<Wake>("self");
+  // What wakes the one added (kumo, 2026-11-25): the channel's first agent, only the one adding
+  // it; one added after, only its @. As the panel opens; a press changes it.
+  const [picked, setWake] = useState<Wake | null>(null);
+  const wake: Wake = picked ?? ((members?.members ?? []).some((m) => m.session) ? "at" : "self");
   const { busy, add } = useAdd(id, wake);
   const stepped = useRef(false);
   if (page) stepped.current = true;
