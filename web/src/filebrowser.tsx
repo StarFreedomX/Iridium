@@ -54,6 +54,12 @@ export function browserPath(path: string, sep?: string) {
 
 const join = (dir: string, name: string) => dir.endsWith("/") ? dir + name : `${dir}/${name}`;
 
+/** Only "/" needs the computer's OS to distinguish a real directory from the drive list. */
+export function browserRootKind(dir: string, os?: string) {
+  if (dir !== "/") return "real";
+  return !os ? "pending" : os === "windows" ? "virtual" : "real";
+}
+
 /** Target path for one listed row: drive entries under the Windows virtual root open as "C:/". */
 export function entryPath(dir: string, name: string, virtual: boolean) {
   return virtual ? name + "/" : join(dir, name);
@@ -117,9 +123,10 @@ export default function FileBrowser({ machine: initialMachine, path: initialPath
   const dir = browserPath(here, computer?.sep);
   // "/" on Windows is the synthetic drive list (not a real path, so chat link is also disabled);
   // traversed ancestor directories are real paths but not open, so mkdir and new channel stay off.
-  const virtual = computer?.os === "windows" && dir === "/";
-  const realFolder = !!folders.data?.path && !virtual;
-  const open = folders.data?.open === true && !virtual;
+  const kind = browserRootKind(dir, computer?.os);
+  const virtual = kind === "virtual";
+  const realFolder = !!folders.data?.path && kind === "real";
+  const open = folders.data?.open === true && realFolder;
   const list = useRef<HTMLDivElement>(null);
   const scroll = useRef<HTMLDivElement>(null);
   const title = useRef<HTMLHeadingElement>(null);
@@ -231,7 +238,8 @@ export default function FileBrowser({ machine: initialMachine, path: initialPath
                 )}
               </div>
             </div>
-            <FolderContents machine={machine} dir={dir} virtual={virtual} top={dir === root} folders={folders} selected={file?.name} onFolder={openFolder} onFile={openFile} copyActions={copyActions} />
+            {kind === "pending" && !folders.isError ? <Loading /> :
+              <FolderContents machine={machine} dir={dir} virtual={virtual} top={dir === root} folders={folders} selected={file?.name} onFolder={openFolder} onFile={openFile} copyActions={copyActions} />}
           </div>
         </div>
         <div className={cn("min-w-0 flex-1 flex-col @min-[620px]:flex", file ? "flex" : "hidden")}>
