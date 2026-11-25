@@ -359,41 +359,50 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
 
   // What the pointer leaves (kumo, 2026-11-25: not a tail of code): little stars and rings along its
   // way, and a press sends rings out about it; each in the rainbow, rising and going.
-  type Spark = { x: number; y: number; vx: number; vy: number; at: number; life: number; ring: boolean; size: number; hue: number; spin: number };
+  type Spark = { x: number; y: number; vx: number; vy: number; at: number; life: number; ring: boolean; size: number; hue: number; spin: number; seed: number };
   let pops: Spark[] = [];
   let lx = 0, ly = 0, lensOn = false, lastPop = 0;
   const pop = (x: number, y: number, ring: boolean, speed: number, size: number) => {
     const a = Math.random() * Math.PI * 2;
-    pops.push({ x, y, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed - (ring ? 0 : 12), at: performance.now(), life: ring ? 900 + Math.random() * 500 : 700 + Math.random() * 500, ring, size, hue: Math.random() * 360, spin: (Math.random() - 0.5) * 6 });
-    if (pops.length > 160) pops = pops.slice(-160);
+    pops.push({ x, y, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed - (ring ? 0 : 8), at: performance.now(), life: ring ? 900 + Math.random() * 500 : 700 + Math.random() * 500, ring, size, hue: Math.random() * 360, spin: (Math.random() - 0.5) * 1.5, seed: (Math.random() * 997) | 0 });
+    if (pops.length > 40) pops = pops.slice(-40);
   };
-  const star = (x: number, y: number, rad: number, turn: number) => {
-    g.beginPath();
+  // A shape spelt in characters (kumo, 2026-11-25: of code, as the rest): points along its outline,
+  // a character at each, about as far apart as the cells are wide.
+  const outline = (ring: boolean, rad: number, turn: number): [number, number][] => {
+    if (ring) {
+      const n = Math.max(6, Math.round((2 * Math.PI * rad) / (cw * 1.15)));
+      return Array.from({ length: n }, (_, j) => [Math.cos(turn + (j / n) * 2 * Math.PI) * rad, Math.sin(turn + (j / n) * 2 * Math.PI) * rad]);
+    }
+    const tips: [number, number][] = [];
     for (let j = 0; j < 10; j++) {
       const a = turn + (j * Math.PI) / 5 - Math.PI / 2, d = j % 2 ? rad * 0.45 : rad;
-      j ? g.lineTo(x + Math.cos(a) * d, y + Math.sin(a) * d) : g.moveTo(x + Math.cos(a) * d, y + Math.sin(a) * d);
+      tips.push([Math.cos(a) * d, Math.sin(a) * d]);
     }
-    g.closePath();
-    g.fill();
+    const out: [number, number][] = [];
+    for (let j = 0; j < 10; j++) {
+      const [ax, ay] = tips[j]!, [bx, by] = tips[(j + 1) % 10]!;
+      const n = Math.max(1, Math.round(Math.hypot(bx - ax, by - ay) / (cw * 1.15)));
+      for (let q = 0; q < n; q++) out.push([ax + ((bx - ax) * q) / n, ay + ((by - ay) * q) / n]);
+    }
+    return out;
   };
   const sparks = (now: number) => {
     if (!pops.length) return;
     pops = pops.filter((p) => now - p.at < p.life);
+    g.font = FONTS(1);
     for (const p of pops) {
       const t = (now - p.at) / p.life, s2 = (now - p.at) / 1000;
-      const x = p.x + p.vx * s2, y = p.y + p.vy * s2 + 18 * s2 * s2;
-      const [r2, g2, b2] = rainbowAt(p.hue + now * 0.12);
-      const fade = (1 - t) * (1 - t);
-      if (p.ring) {
-        g.strokeStyle = `rgba(${r2 | 0},${g2 | 0},${b2 | 0},${0.85 * fade})`;
-        g.lineWidth = 1.6 * (1 - t) + 0.4;
-        g.beginPath();
-        g.arc(x, y, p.size * (0.4 + t * 1.6), 0, Math.PI * 2);
-        g.stroke();
-      } else {
-        g.fillStyle = `rgba(${r2 | 0},${g2 | 0},${b2 | 0},${0.9 * fade})`;
-        star(x, y, p.size * (1 - t * 0.5), p.spin * s2);
-      }
+      const x = p.x + p.vx * s2, y = p.y + p.vy * s2;
+      // Out from a point to its size, fast at first, slowing.
+      const grow = 1 - (1 - t) ** 3;
+      const pts = outline(p.ring, Math.max(cw * 0.6, p.size * grow), p.spin * s2);
+      const fade = t < 0.6 ? 1 : 1 - (t - 0.6) / 0.4;
+      pts.forEach(([dx, dy], j) => {
+        const [r2, g2, b2] = rainbowAt(p.hue + j * (360 / pts.length) + now * 0.12);
+        g.fillStyle = `rgba(${r2 | 0},${g2 | 0},${b2 | 0},${0.95 * fade})`;
+        g.fillText(GLYPHS[(p.seed + j) % GLYPHS.length]!, x + dx - cw / 2, y + dy - ROW / 2);
+      });
     }
   };
 
@@ -668,16 +677,16 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
       ly = y;
       lensOn = true;
       const now = performance.now();
-      if (moved > 4 && now - lastPop > 45) {
+      if (moved > 6 && now - lastPop > 110) {
         lastPop = now;
-        pop(x, y, Math.random() < 0.3, 10 + Math.random() * 25, 2.5 + Math.random() * 3.5);
+        pop(x, y, Math.random() < 0.4, 6 + Math.random() * 14, 12 + Math.random() * 10);
       }
       kick();
     },
     tap(x, y) {
       if (still || !W) return;
-      for (let j = 0; j < 7; j++) pop(x, y, true, 30 + Math.random() * 70, 6 + Math.random() * 14);
-      for (let j = 0; j < 6; j++) pop(x, y, false, 60 + Math.random() * 90, 3 + Math.random() * 4);
+      for (let j = 0; j < 3; j++) pop(x, y, true, 4 + Math.random() * 10, 36 + j * 26 + Math.random() * 10);
+      for (let j = 0; j < 4; j++) pop(x, y, false, 50 + Math.random() * 70, 16 + Math.random() * 10);
       kick();
     },
     stop() {
