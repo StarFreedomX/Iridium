@@ -482,6 +482,11 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
         wide = wv * 0.1;
         lum = 0.45;
       }
+      // Never whole (kumo, 2026-11-26): where the two strands cross, the one that goes under is not
+      // there, thinner as it comes to the gap; the figure is two hooks, never closed.
+      const gap = Math.abs(iu / RN - 0.75);
+      if (gap < 0.035) continue;
+      if (gap < 0.1) wide *= (gap - 0.035) / 0.065;
       const u = (iu / RN) * 6.2832, tw = 0.5 * Math.sin(2 * u - t / 900) + 0.35 * Math.sin(sb * 9 - t / 700), ct = Math.cos(tw), st = Math.sin(tw);
       const j3 = iu * 3, ax = KA[j3]!, ay = KA[j3 + 1]!, wx = ax * ct + KB[j3]! * st, wy = ay * ct + KB[j3 + 1]! * st, wz = KB[j3 + 2]! * st;
       // The swimming: the body's middle line to one side and the other, more towards the tail.
