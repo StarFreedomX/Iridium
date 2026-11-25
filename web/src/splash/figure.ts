@@ -18,11 +18,26 @@ export function point(f: Fig | null): void {
 export const pointedAt = () => pointed;
 export const onPoint = (h: () => void) => (heard.add(h), () => void heard.delete(h));
 
-// The + panel open: the figure stands left of it and of the menu beside its rows, not under them.
-let open = false;
-export function panel(o: boolean): void {
+// A menu open beside a row of the + panel (a kind's models, a template's card): the figure stands
+// left of the two, not under them. The panel alone leaves the middle free (kumo, 2026-11-25).
+// One row's menu shut as the next one's opens is no return to the middle between them.
+let subs = 0, open = false, later = 0;
+const tell = (o: boolean) => {
   if (open === o) return;
   open = o;
   heard.forEach((h) => h());
+};
+/** A row's menu opened or shut. */
+export function beside(o: boolean): void {
+  subs = Math.max(0, subs + (o ? 1 : -1));
+  clearTimeout(later);
+  if (subs) tell(true);
+  else later = window.setTimeout(() => tell(false), 250);
+}
+/** The panel gone, its menus with it. */
+export function panelGone(): void {
+  subs = 0;
+  clearTimeout(later);
+  tell(false);
 }
 export const panelOpen = () => open;
