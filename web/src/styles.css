@@ -172,6 +172,14 @@ body,
 html,
 body {
   overscroll-behavior-x: none;
+  overflow-x: clip;
+}
+/* What the page draws past its own edges is cut off at #root, not at html and body: with nothing
+   cut, a thing wider than the window for a moment (the layout going from a computer's to a
+   phone's as a screen is folded) made the browser's page wider than the window, and it showed the
+   whole app small in its upper left corner (kumo, 2026-11-25). */
+#root {
+  overflow: hidden;
 }
 /* A menu is never taller than the room it has (Base UI's --available-height, on its positioner):
    on a short window (an unfolded phone, its keys' bar over the page) one with many rows went out
