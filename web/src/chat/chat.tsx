@@ -4,7 +4,7 @@
 // raw session record (?record=1).
 import { Menu } from "@base-ui/react/menu";
 import { Popover } from "@base-ui/react/popover";
-import { ArrowLeft, BarChart3, Ellipsis, FolderOpen, House, Globe, ListTree, Plus, Settings } from "lucide-react";
+import { ArrowLeft, BarChart3, Ellipsis, House, Globe, ListTree, Plus, Settings } from "lucide-react";
 import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
 import { lazyAhead, useAhead } from "../prefetch";
 import type { Device, Session, SessionState as LiveSession } from "../api/types.gen";
@@ -15,14 +15,12 @@ import { newChannel } from "../create";
 import { LOCAL_ME, useMachines, useMe, useWhoList, useWorkspaces } from "../data";
 import { t, useLang } from "../i18n";
 import { LinkDot } from "../link";
-import { shownPath } from "../machines";
 import { back as goBack, go, openChat, openRecord, openUsage } from "../route";
 import { MenuItems, Rename, sessionActions, sessionTags } from "../sidebar";
 import { useList, useSession } from "../store";
 import { drafts, opened } from "../stream";
-import { toast } from "../toast";
 import { groupPath } from "../tree";
-import { agentName, cn, IrMark, lampOf, LogoLamp, PopSurface, sessionStatusText, tilde, Tip, titleOf, untitled, MenuPortal } from "../ui";
+import { agentName, cn, IrMark, lampOf, LogoLamp, PopSurface, sessionStatusText, Tip, titleOf, untitled, MenuPortal } from "../ui";
 import { VoiceDock } from "../voice/dock";
 import { Activity } from "./atwork";
 import { ChannelCard } from "./channel/channelcard";
@@ -214,10 +212,8 @@ const Bar = memo(function Bar({ s, onSheet, onMe, onBack, recordOnly }: { s?: Se
   const more = useRef<HTMLButtonElement>(null);
   const moreAhead = useAhead(ChannelMenu.ahead, []);
   const usageHere = () => openUsage(s?.machine);
-  const folder = s ? (s.machine ? shownPath(groupPath(s), machines).real : tilde(s.cwd)) : "";
-  const where = folder ? [{ icon: <FolderOpen size={15} />, label: folder, run: () => void navigator.clipboard.writeText(folder).then(() => toast(t("toast.copied")), () => {}) }] : [];
   // 回到主页 (kumo, 2026-11-25): the pane with no chat open, its splash.
-  const lead = [{ icon: <House size={15} />, label: t("menu.home"), run: () => go({ name: "home" }) }, ...where, { icon: <Plus size={15} />, label: t("menu.new"), run: () => s && void newChannel(groupPath(s), machines, s.workspace ?? undefined).then((id) => id && openChat(id)) }, ...(onSheet ? [{ icon: <ListTree size={15} />, label: t("nav.sidebar"), run: onSheet }] : []), ...(onMe ? [{ icon: <Settings size={15} />, label: t("nav.me"), run: onMe }] : []), { icon: <BarChart3 size={15} />, label: t("usage.title"), run: usageHere }];
+  const lead = [{ icon: <House size={15} />, label: t("menu.home"), run: () => go({ name: "home" }) }, { icon: <Plus size={15} />, label: t("menu.new"), run: () => s && void newChannel(groupPath(s), machines, s.workspace ?? undefined).then((id) => id && openChat(id)) }, ...(onSheet ? [{ icon: <ListTree size={15} />, label: t("nav.sidebar"), run: onSheet }] : []), ...(onMe ? [{ icon: <Settings size={15} />, label: t("nav.me"), run: onMe }] : []), { icon: <BarChart3 size={15} />, label: t("usage.title"), run: usageHere }];
   const acts = s ? [...sessionActions(s, () => setRenaming(true)), { icon: <Globe size={15} />, label: t("public.menu"), run: () => void Promise.race([queryClient.prefetchQuery(publicLinkQ(s.id)), new Promise((r) => setTimeout(r, 300))]).then(() => setPublicOpen(true)) }] : [];
   return (
     <header data-app-drag className="g-turn-stay vt-bar glass absolute inset-x-0 top-0 z-20 shadow-[0_0.5px_0_var(--edge)]">
