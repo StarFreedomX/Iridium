@@ -217,7 +217,14 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
     const el = box.current;
     if (!el) return;
     el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 220)}px`;
+    const need = el.scrollHeight;
+    el.style.height = `${Math.min(need, 220)}px`;
+    // No scrollbar till the words are more than the box holds (kumo, 2026-11-26: it showed as a
+    // line was added, the box scrolled to its caret a moment before it grew, and stayed all the
+    // while words kept coming, as they do spoken): nothing to scroll, none drawn, the words at
+    // their top.
+    el.style.overflowY = need > 220 ? "auto" : "hidden";
+    if (need <= 220 && el.scrollTop) el.scrollTop = 0;
   };
   // Before it is painted: a frame after, the composer was still as tall as the words just sent
   // while their bubble was already above it.

@@ -417,37 +417,28 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
   };
 
 
-  // The knot (kumo, 2026-11-26): where no agent is to be drawn, a band of the code's own characters
-  // in the pane's middle, a figure of eight crossing itself in its middle (one strand over the
-  // other), aslant from the upper left to the lower right; it sways, a twist runs along it, it is
-  // wider and narrower by turns, the rainbow flows along it. Laid down each frame as points of the
-  // band (RN along it, a few across), each on the cell it falls in, the nearest kept; no cell asked
-  // anything. A star over a part of it (draw) stirs that part (stir): another run of colours there,
-  // going out along the band both ways and dying away.
-  const RN = 1024;
-  // Along it, for a half length of one: its middle line (x, y, z) and two directions across it.
-  // Its two loops are not in one plane (kumo, 2026-11-26: as two orbits): each leans its own way, the
-  // plane turning from one to the other along it.
-  const KX = new Float32Array(RN), KY = new Float32Array(RN), KZ = new Float32Array(RN), KA = new Float32Array(RN * 3), KB = new Float32Array(RN * 3);
+  // The figure (kumo, 2026-11-26): where no agent is to be drawn, a band of the code's own
+  // characters in the pane's middle: a figure of eight on a ball (Viviani's curve), the ball
+  // turning, so the figure is seen from all round, larger and brighter in front, smaller and
+  // fainter behind; aslant from the upper left to the lower right; never whole, a part of it
+  // empty. Three things move at once: the code flows through it, the rainbow flows along it, the
+  // ball turns. Laid down each frame as points of the band (RN along it, a few across), each on
+  // the cell it falls in, the nearest kept; no cell asked anything. A star over a part of it (draw)
+  // stirs that part (stir): another run of colours there, wider, going out along the band both
+  // ways and dying away.
+  const RN = 640;
+  // Along it, for a ball of radius one: its middle line (x across, y up and down, z to the eye)
+  // and the direction across the band, lying on the ball.
+  const KX = new Float32Array(RN), KY = new Float32Array(RN), KZ = new Float32Array(RN), KA = new Float32Array(RN * 3);
   {
-    const at = (u: number): [number, number, number, number] => {
-      const c = Math.cos(u), sn = Math.sin(u), l = 1.25 * sn * c, f = -0.4 * c;
-      return [c, l * Math.cos(f), l * Math.sin(f) + 0.2 * sn, f];
-    };
+    const at = (u: number): [number, number, number] => [Math.sin(u / 2), 0.5 * Math.sin(u), 0.5 * (1 + Math.cos(u))];
     for (let j = 0; j < RN; j++) {
-      const u = (j / RN) * 6.2832, [x, y, z, f] = at(u), a = at(u - 0.01), b = at(u + 0.01);
+      const u = (j / RN) * 12.5664, [x, y, z] = at(u), a = at(u - 0.01), b = at(u + 0.01);
       (KX[j] = x), (KY[j] = y), (KZ[j] = z);
-      let tx = b[0] - a[0], ty = b[1] - a[1], tz = b[2] - a[2];
-      const tl = Math.hypot(tx, ty, tz);
-      (tx /= tl), (ty /= tl), (tz /= tl);
-      // Across it: in its loop's plane (the tangent crossed with the plane's normal), and the one
-      // square to both.
-      const nx = 0, ny = -Math.sin(f), nz = Math.cos(f);
-      let ax = ty * nz - tz * ny, ay = tz * nx - tx * nz, az = tx * ny - ty * nx;
-      const al = Math.hypot(ax, ay, az) || 1;
-      (ax /= al), (ay /= al), (az /= al);
-      KA.set([ax, ay, az], j * 3);
-      KB.set([ty * az - tz * ay, tz * ax - tx * az, tx * ay - ty * ax], j * 3);
+      const tx = b[0] - a[0], ty = b[1] - a[1], tz = b[2] - a[2];
+      // Across it: the tangent crossed with the ball's own outward direction there.
+      const ax = ty * z - tz * y, ay = tz * x - tx * z, az = tx * y - ty * x, al = Math.hypot(ax, ay, az) || 1;
+      KA.set([ax / al, ay / al, az / al], j * 3);
     }
   }
   let ra = new Float32Array(0), rh = new Float32Array(0), rz = new Float32Array(0), ru = new Int16Array(0), rowRing = new Uint8Array(0), ringCells = new Int32Array(0), nRing = 0;
@@ -465,78 +456,39 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
     for (let j = 0; j < RN; j++) stir2[j] = Math.max(stir[j]!, (stir[(j + 1) % RN]! + stir[(j + RN - 1) % RN]!) * 0.49) * dec;
     [stir, stir2] = [stir2, stir];
     const top = footT >= 0 ? footT : H, t = still ? 5000 : now;
-    // Over the whole pane (kumo, 2026-11-26: the dragon swims the page): from its upper left to its
-    // lower right, its two ends past the pane's edges; as tall as the pane has room for.
-    const lie = Math.atan2(top * 0.36, W), A = Math.hypot(W, top * 0.36) * 0.56 * (1 + 0.02 * Math.sin(t / 1700));
-    const ys = Math.min(1, (top * 0.56) / A), wv = Math.max(12, Math.min(34, A * 0.05)), xc = W / 2, yc = top * 0.5;
-    // It sways: about its length, about its height, and a little in the pane.
-    const a1 = 0.1 + 0.22 * Math.sin(t / 2300), a2 = 0.16 * Math.sin(t / 3100 + 1), a3 = lie + 0.04 * Math.sin(t / 4100);
+    const R = Math.min(W * 0.34, top * 0.3, 220), wv = Math.max(7, R * 0.085), xc = W / 2, yc = cy >= 0 ? cy : top * 0.5;
+    // The ball turns about its upright, to the left and back to the right (not all the way round:
+    // the figure is always one of eight), nods a little, and lies aslant in the pane.
+    const a1 = 1.15 * Math.sin(t / 2600), a2 = 0.3 + 0.12 * Math.sin(t / 3700), a3 = 0.46;
     const c1 = Math.cos(a1), s1 = Math.sin(a1), c2 = Math.cos(a2), s2 = Math.sin(a2), c3 = Math.cos(a3), s3 = Math.sin(a3);
-    /** A point of it on the cell it falls in, if none nearer is there: how strong, its hue, and
-     *  where along the body it is (-1: not of the body). */
-    const put = (x: number, y: number, z: number, a: number, hue: number, iu: number) => {
-      const y1 = y * c1 - z * s1, z1 = y * s1 + z * c1;
-      const x2 = x * c2 + z1 * s2, z2 = z1 * c2 - x * s2;
-      const k = 1 + z2 / (A * 5);
-      const row = ((yc + (x2 * s3 + y1 * c3) * k) / ROW) | 0;
-      if (row < 0 || row >= rows) return;
-      const col = Math.round((xc + (x2 * c3 - y1 * s3) * k) / cw - 0.5 + off[row]! - Math.floor(off[row]!));
-      if (col < 0 || col >= cols) return;
-      const i = row * cols + col;
-      if (ra[i]! > 0 && rz[i]! >= z2) return;
-      if (ra[i] === 0) ringCells[nRing++] = i;
-      rowRing[row] = 1;
-      rz[i] = z2;
-      ru[i] = iu;
-      ra[i] = Math.min(1, Math.max(0.3, a * (0.8 + 0.2 * (z2 / (A * 0.5)))) * ringK);
-      rh[i] = hue;
-    };
-    // A dragon along the figure (kumo, 2026-11-26: more alive, broken here and there, not a mark):
-    // its head goes round, the body behind it thinner to the tail, waving as it swims, whole near
-    // the head and in pieces towards the tail, a few pieces after it.
-    const head = (t / 14000) % 1, flow = t * 0.07, wag = t / 260;
+    const flow = t * 0.09;
     for (let iu = 0; iu < RN; iu++) {
-      // How far behind the head, 0 to 1 round the figure.
-      let sb = head - iu / RN;
-      if (sb < 0) sb += 1;
-      let wide: number, lum: number;
+      // A part of it empty, always the same part, the band thinner as it comes to it.
+      const q = iu / RN, gap = Math.abs(q - 0.62);
+      if (gap < 0.075) continue;
       const e = stir[iu]!;
-      // A third of the way round there is nothing at all (kumo, 2026-11-26: too whole, too much a
-      // sign): the figure is never all there, and what a star stirs there stays empty.
-      if (sb > 0.66) continue;
-      if (sb < 0.5) {
-        // Gaps in it from near the head on, wider and oftener towards the tail (what a star has
-        // stirred is whole for the while).
-        if (sb > 0.12) {
-          const ph = sb * 16 + 0.3 * Math.sin(sb * 23);
-          if (e < 0.25 && ph - Math.floor(ph) < 0.18 + (sb - 0.12) * 1.1) continue;
-        }
-        wide = wv * (sb < 0.02 ? 0.45 + (sb / 0.02) * 0.55 : Math.pow(1 - sb / 0.5, 0.55) * 0.88 + 0.12);
-        lum = 1 - sb * 0.6;
-      } else {
-        // After the tail a few pieces, short and far apart.
-        const ph = sb * 22;
-        if (e < 0.25 && ph - Math.floor(ph) < 0.7) continue;
-        wide = wv * 0.12;
-        lum = 0.6;
-      }
-      // Never whole (kumo, 2026-11-26): where the two strands cross, the one that goes under is not
-      // there, thinner as it comes to the gap; the figure is two hooks, never closed.
-      const gap = Math.abs(iu / RN - 0.75);
-      if (gap < 0.035) continue;
-      if (gap < 0.1) wide *= (gap - 0.035) / 0.065;
-      const tw = 0.25 * Math.sin((iu / RN) * 12.57 - t / 900), ct = Math.cos(tw), st = Math.sin(tw);
-      const j3 = iu * 3, ax = KA[j3]!, ay = KA[j3 + 1]!, az = KA[j3 + 2]!, wx = ax * ct + KB[j3]! * st, wy = ay * ct + KB[j3 + 1]! * st, wz = az * ct + KB[j3 + 2]! * st;
-      // A star over it (kumo, 2026-11-26: the stars are to move it): it swells there and shakes,
-      // and that goes along the body with the colours.
-      wide = wide * (1 + 0.45 * e) + wv * 0.12 * e;
-      // The swimming: the body's middle line to one side and the other, more towards the tail.
-      const sw = A * (0.02 + 0.05 * sb) * Math.sin(sb * 20 - wag) + A * 0.028 * e * Math.sin(iu * 0.35 - t / 55);
-      const hue0 = sb * 520 - flow + e * 150, mx = KX[iu]! * A + ax * sw, my = KY[iu]! * A * ys + ay * sw, mz = KZ[iu]! * A + az * sw;
-      const RM = Math.max(2, Math.ceil((wide * 2.5) / cw) + 1);
+      const wide = wv * (gap < 0.16 ? 0.25 + (0.75 * (gap - 0.075)) / 0.085 : 1) * (1 + 0.12 * Math.sin(q * 25.13 + t / 1100)) * (1 + 0.6 * e);
+      const j3 = iu * 3, hue0 = q * 720 - flow + e * 150;
+      const RM = Math.max(2, Math.ceil((wide * 2.6) / cw) + 1);
       for (let iv = 0; iv < RM; iv++) {
         const vn = (iv / (RM - 1)) * 2 - 1, v = vn * wide;
-        put(mx + wx * v, my + wy * v, mz + wz * v, lum + e * 0.5, hue0 + vn * 24, iu);
+        const x = KX[iu]! * R + KA[j3]! * v, y = KY[iu]! * R * 1.2 + KA[j3 + 1]! * v, z = KZ[iu]! * R + KA[j3 + 2]! * v;
+        const x1 = x * c1 + z * s1, z1 = z * c1 - x * s1;
+        const y2 = y * c2 - z1 * s2, z2 = y * s2 + z1 * c2;
+        const k = 1 + z2 / (R * 3);
+        const row = ((yc + (x1 * s3 + y2 * c3) * k) / ROW) | 0;
+        if (row < 0 || row >= rows) continue;
+        const col = Math.round((xc + (x1 * c3 - y2 * s3) * k) / cw - 0.5 + off[row]! - Math.floor(off[row]!));
+        if (col < 0 || col >= cols) continue;
+        const i = row * cols + col;
+        if (ra[i]! > 0 && rz[i]! >= z2) continue;
+        if (ra[i] === 0) ringCells[nRing++] = i;
+        rowRing[row] = 1;
+        rz[i] = z2;
+        ru[i] = iu;
+        // In front, strong; behind, faint.
+        ra[i] = Math.min(1, (0.62 + 0.38 * (z2 / R) + e * 0.4) * ringK);
+        rh[i] = hue0 + vn * 30;
       }
     }
   };
