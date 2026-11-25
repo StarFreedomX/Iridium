@@ -147,7 +147,7 @@ function RoleRow({ role, at, i, off, busy, add }: { role: Role; at: At; i: numbe
   const pages = usePages();
   const style = { "--i": i } as CSSProperties;
   const cls = cn(ITEM, "data-disabled:opacity-40");
-  const of: Fig = { key: `role:${role.id}:${role.avatar ?? ""}:${role.name}`, src: role.avatar || undefined, agent: role.agent, name: role.name };
+  const of: Fig = { key: `role:${role.id}:${role.avatar ?? ""}`, src: role.avatar || undefined, agent: role.agent };
   const fig = pointing(of);
   const row = (
     <>
@@ -216,7 +216,7 @@ function Kind({ id, k, m, lacks, i, off, busy, add }: { id: string; k: Agent; m?
   const style = { "--i": i } as CSSProperties;
   const cls = cn(ITEM, "data-disabled:opacity-40");
   const plain = () => void add(k, p.model || send, p.effort, p.preset, undefined, m);
-  const of: Fig = { key: `kind:${k}`, agent: k, name: agentName(k) };
+  const of: Fig = { key: `kind:${k}`, agent: k };
   const fig = pointing(of);
   if (pages && asked?.models.length)
     return (

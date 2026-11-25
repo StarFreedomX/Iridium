@@ -3,9 +3,8 @@
 // before any is added.
 import type { Agent } from "../api/types.gen";
 
-/** src: its picture; alt: the one to draw when that is not to be had; name: written in the
- *  characters too, right of the figure and below its middle. */
-export type Fig = { key: string; src?: string; alt?: string; agent?: Agent; name?: string };
+/** src: its picture; alt: the one to draw when that is not to be had. */
+export type Fig = { key: string; src?: string; alt?: string; agent?: Agent };
 
 let pointed: Fig | null = null;
 const heard = new Set<() => void>();

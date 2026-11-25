@@ -94,8 +94,8 @@ export function Splash({ show = true, fig = null, className }: { show?: boolean;
 
 /** A channel's: its own face, or its last agent's, or that one's mark; no agent yet: Iridium's
  *  letters. */
-export function ChannelSplash({ id, show, last }: { id: string; show: boolean; last?: { session: string; agent: Agent; nick?: string; name?: string } }) {
+export function ChannelSplash({ id, show, last }: { id: string; show: boolean; last?: { session: string; agent: Agent } }) {
   const own = useFaceSrc(id, true);
   const src = useFaceSrc(last?.session ?? id);
-  return <Splash show={show} fig={last ? { key: `c:${id}:${own}:${src}:${last.nick || last.name || ""}`, name: last.nick || last.name, src: own || src || undefined, alt: own && src ? src : undefined, agent: last.agent } : null} />;
+  return <Splash show={show} fig={last ? { key: `c:${id}:${own}:${src}`, src: own || src || undefined, alt: own && src ? src : undefined, agent: last.agent } : null} />;
 }
