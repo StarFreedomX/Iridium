@@ -9,6 +9,7 @@
 // stays so on this device. Let go near its first height, it goes back to that.
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { motion } from "./motion";
+import { restsAtEnd } from "./chat/stick";
 import { cn, keep, kept } from "./ui";
 
 /** Where a swipe up brings the sheet: the chat's bottom stack (chat.tsx), the composer in it. */
@@ -174,13 +175,30 @@ export function Sheet({ open, setOpen, size: want, raised, name, head = 0, from:
       addEventListener("click", noClick, { capture: true, once: true });
       setTimeout(() => removeEventListener("click", noClick, true), ms);
     };
-    // A finger, or a mouse (a computer's window as narrow as a phone's): the head of a sheet that is out.
-    const begin = (x: number, y: number, t: number, el: Element | null) => {
+    // A finger, or a mouse (a computer's window as narrow as a phone's): the mouse only drags the
+    // head of a sheet that is out, not a swipe up to bring one.
+    const begin = (x: number, y: number, t: number, el: Element | null, mouse: boolean) => {
       if (!el?.closest) return;
-      // No swipe brings it (kumo, 2026-11-25): the bar's Ir, ⋯'s 会话列表. Out, its head dragged up
-      // or down sizes it at once, no hold first; put away by a press outside it or the Ir again.
+      // Shut, a swipe up brings it (the composer, its box, the conversation at rest at its newest);
+      // out, its head dragged up or down sizes it at once, no hold first; put away by a press
+      // outside it or the Ir again (kumo, 2026-11-25: 取消上滑 was how it goes away, not no swipe).
       const { open } = now.current;
-      if (!open) return;
+      if (!open) {
+        // None while a card waits for an answer: the composer is away, the cards scroll (chat.tsx).
+        if (document.querySelector(`[${PULL}][data-asking]`)) return;
+        // The composer's box too, while it has nothing to scroll: all of it, as it first is (the
+        // user, 2026-11-07); grown past its height, it scrolls its words.
+        const box = el.closest("textarea");
+        if (mouse || (box && box.scrollHeight > box.clientHeight + 1) || el.closest("input, [role=listbox], [role=dialog], [role=menu]") || !now.current.zone(x)) return;
+        // In the conversation: only at rest at its newest, no words chosen.
+        const log = el.closest<HTMLElement>("[role=log]");
+        if (log ? !restsAtEnd(log) || !getSelection()?.isCollapsed : !el.closest(`[${PULL}]`)) return;
+        from = { x, y, t, open, h: height(), log: !!log, box: !!box };
+        mine = false;
+        held = false;
+        last = { y, t, v: 0 };
+        return;
+      }
       const box = panel.current?.getBoundingClientRect();
       if (!box || !panel.current!.contains(el) || y - box.top > (now.current.head || HEAD) || el.closest("[role=slider], .touch-none, input, textarea")) return;
       if (now.current.size === "full") return;
@@ -194,7 +212,7 @@ export function Sheet({ open, setOpen, size: want, raised, name, head = 0, from:
     const start = (e: TouchEvent) => {
       const p = e.touches[0];
       if (e.touches.length !== 1 || !p) return;
-      begin(p.clientX, p.clientY, e.timeStamp, e.target as Element | null);
+      begin(p.clientX, p.clientY, e.timeStamp, e.target as Element | null, false);
     };
     // Whether it went the sheet's way: then the event is its own (no scroll, no words chosen).
     const step = (x: number, y: number, t: number) => {
@@ -286,7 +304,7 @@ export function Sheet({ open, setOpen, size: want, raised, name, head = 0, from:
     let pressed = false;
     const mdown = (e: PointerEvent) => {
       if (e.pointerType !== "mouse" || e.button !== 0) return;
-      begin(e.clientX, e.clientY, e.timeStamp, e.target as Element | null);
+      begin(e.clientX, e.clientY, e.timeStamp, e.target as Element | null, true);
       pressed = !!from;
     };
     const mmove = (e: PointerEvent) => {

@@ -29,7 +29,7 @@ import { prefetchRoles } from "./roles";
 import { quotaQ } from "./quota";
 import { back as stepBack, close, go, onTurn, openChat, over, quietDialog, route, useRoute, type Route } from "./route";
 import { Pager, TABS_H } from "./pager";
-import { atLeft, GRIP, Sheet } from "./sheet";
+import { atLeft, GRIP, PULL, Sheet } from "./sheet";
 import { HeadKeys, Sidebar } from "./sidebar";
 import { useConfirms, useList } from "./store";
 import { follow } from "./stream";
@@ -563,8 +563,10 @@ function Empty({ below, onSheet }: { below: number; onSheet?: () => void }) {
     <div className="relative grid h-full place-items-center transition-[padding] duration-(--dur-3) ease-(--ease-out)" style={{ paddingBottom: below }}>
       {/* Where a chat's composer is, its look: pressed, the file browser, a channel made in the
           folder chosen there (kumo, 2026-11-25: the first screen, a phone's too). */}
-      <div className="absolute inset-x-0 z-2 px-2.5 pb-[max(14px,calc(env(safe-area-inset-bottom)+6px))] transition-[bottom] duration-(--dur-3) ease-(--ease-out) sm:px-5" style={{ bottom: below }}>
-{/* A phone's: what a swipe up from here brings, the sheet of the groups; pressed, the same. */}
+      {/* As a chat's composer is (kumo, 2026-11-25: it stood over the sheet): where it is, covered by
+          the sheet as it comes and gone once it is out (g-sink); a swipe up from it brings the sheet. */}
+      <div {...{ [PULL]: "" }} data-covered={below > 0 || undefined} className="g-sink absolute inset-x-0 bottom-0 z-2 px-2.5 pb-[max(14px,calc(env(safe-area-inset-bottom)+6px))] sm:px-5">
+        {/* A phone's: what a swipe up from here brings, the sheet of the groups; pressed, the same. */}
         {onSheet ? (
           <button type="button" onClick={onSheet} className={PICK}>
             <ChevronUp size={17} className="shrink-0" />
