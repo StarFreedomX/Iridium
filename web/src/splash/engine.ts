@@ -461,14 +461,17 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
     // the figure is always one of eight), nods a little, and lies aslant in the pane.
     const a1 = 1.15 * Math.sin(t / 2600), a2 = 0.3 + 0.12 * Math.sin(t / 3700), a3 = 0.46;
     const c1 = Math.cos(a1), s1 = Math.sin(a1), c2 = Math.cos(a2), s2 = Math.sin(a2), c3 = Math.cos(a3), s3 = Math.sin(a3);
-    const flow = t * 0.09;
+    const flow = t * 0.09, going = (t / 11000) % 1;
     for (let iu = 0; iu < RN; iu++) {
-      // A part of it empty, always the same part, the band thinner as it comes to it.
-      const q = iu / RN, gap = Math.abs(q - 0.62);
+      // A part of it empty, the band thinner as it comes to it; the empty part goes along the
+      // figure, so the band itself is seen to run round it (kumo, 2026-11-26: it did not move).
+      const q = iu / RN;
+      let gap = Math.abs(q - going);
+      if (gap > 0.5) gap = 1 - gap;
       if (gap < 0.075) continue;
       const e = stir[iu]!;
-      const wide = wv * (gap < 0.16 ? 0.25 + (0.75 * (gap - 0.075)) / 0.085 : 1) * (1 + 0.12 * Math.sin(q * 25.13 + t / 1100)) * (1 + 0.6 * e);
-      const j3 = iu * 3, hue0 = q * 720 - flow + e * 150;
+      const wide = wv * (gap < 0.16 ? 0.25 + (0.75 * (gap - 0.075)) / 0.085 : 1) * (1 + 0.2 * Math.sin((q - going) * 25.13)) * (1 + 0.6 * e);
+      const j3 = iu * 3, hue0 = (q - going) * 720 - flow + e * 150;
       const RM = Math.max(2, Math.ceil((wide * 2.6) / cw) + 1);
       for (let iv = 0; iv < RM; iv++) {
         const vn = (iv / (RM - 1)) * 2 - 1, v = vn * wide;
