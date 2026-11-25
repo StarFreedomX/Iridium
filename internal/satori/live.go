@@ -219,6 +219,12 @@ func (s *Service) toolFrom(id, tool string) int64 {
 
 // settle: the work message seq of id's channel carries is done.
 func (s *Service) settle(id string, seq int64, origin string) {
+	s.settleAt(id, seq, s.endOf(id), origin)
+}
+
+// settleAt ends the work on message seq of id's channel with To capped at to (falling back to
+// endOf(id) when to <= 0).
+func (s *Service) settleAt(id string, seq, to int64, origin string) {
 	if seq == 0 {
 		return
 	}
@@ -226,15 +232,56 @@ func (s *Service) settle(id string, seq int64, origin string) {
 	if !ok || cur.D.Work == nil || !cur.D.Work.Running {
 		return
 	}
-	end := s.endOf(id)
+	if to <= 0 {
+		to = s.endOf(id)
+	}
 	if m, ok := s.log.SetWork(id, seq, func(w *channel.Work) {
 		w.Running = false
 		if w.At != 0 {
 			w.Ms = max(time.Now().UnixMilli()-w.At, 1)
 		}
-		w.To = end
+		w.To = to
 	}); ok {
 		s.tellLive("message-updated", m, false, origin)
+	}
+}
+
+// userRecorded: id's agent genuinely accepted a user message into its transcript at [before, after).
+// When the agent already had an active carrier in this turn, settle that carrier strictly before
+// the user block and open a fresh pre-message starting at after so subsequent work/words appear
+// directly below the user's message in both the agent's own channel and any shared channel twin
+// (kumo, 2026-11-25).
+func (s *Service) userRecorded(id string, before, after int64, origin string) {
+	if s.log == nil {
+		return
+	}
+	st := s.sayingOf(id)
+	if st.carrier == 0 || st.seq != 0 {
+		if after > 0 {
+			st.from, st.hasFrom = after, true
+			if st.carrier == 0 && st.pre != 0 {
+				_, _ = s.log.SetWork(id, st.pre, func(w *channel.Work) {
+					if w.Steps == 0 {
+						w.From = after
+					}
+				})
+			}
+		}
+		return
+	}
+	s.settleAt(id, st.carrier, before, origin)
+	st.carrier = 0
+	if after > 0 {
+		st.from, st.hasFrom = after, true
+	} else {
+		st.from, st.hasFrom = s.endOf(id), true
+	}
+	if st.pre == 0 && s.log.Listening(id) {
+		m, err := s.log.BeginWork(id, channel.Work{Running: true, At: time.Now().UnixMilli(), From: st.from})
+		if err == nil && m.Seq != 0 {
+			st.pre = m.Seq
+			s.tellLive("message-created", m, false, origin)
+		}
 	}
 }
 
@@ -382,13 +429,6 @@ func (s *Service) step(id, tool, origin string) {
 	}
 	st := s.sayingOf(id)
 	now := time.Now().UnixMilli()
-	// Something was said in its channel after the message that carries its work (words put into
-	// its turn, another's): what it does from here is after that, on a message of its own
-	// (kumo, 2026-11-24: the steps under words sent into a turn counted those from before them).
-	if st.carrier != 0 && st.seq == 0 && s.saidAfter(id, st.carrier) {
-		s.settle(id, st.carrier, origin)
-		st.carrier, st.from, st.hasFrom = 0, s.toolFrom(id, tool), true
-	}
 	if !st.hasFrom {
 		st.from, st.hasFrom = s.toolFrom(id, tool), true
 	}
@@ -531,20 +571,4 @@ func sendsAgent(tool string) int {
 		return 1
 	}
 	return 0
-}
-
-// saidAfter: someone else said something in id's channel after its message seq (words put into
-// its turn, another's): not its own, nor a line of Iridium's, nor one taken away.
-func (s *Service) saidAfter(id string, seq int64) bool {
-	rows, err := s.log.Between(id, seq, 0, 50)
-	if err != nil {
-		return false
-	}
-	me := store.AgentMember(id)
-	for _, m := range rows {
-		if !m.Gone && m.Author != me && (m.Kind == channel.KindUser || m.Kind == channel.KindSaid) {
-			return true
-		}
-	}
-	return false
 }

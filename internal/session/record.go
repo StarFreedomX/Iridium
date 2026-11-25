@@ -15,8 +15,8 @@ import (
 // keeps none it can read (agents.Info.OwnRecord: agy), with where its output ended in out.log and
 // when. What a daemon before this one recorded (one taken up after a crash, before it saved how far
 // it had read) is not written again; sent (a prompt as it went out, not from the output) is always
-// new.
-func (h *Hosted) record(e transcript.Entry, sent bool) {
+// new. Returns the byte range [before, after) written to the transcript and whether it wrote.
+func (h *Hosted) record(e transcript.Entry, sent bool) (before, after int64, wrote bool) {
 	h.recMu.Lock()
 	defer h.recMu.Unlock()
 	path := filepath.Join(h.dir, transcript.OwnFile)
@@ -26,23 +26,29 @@ func (h *Hosted) record(e transcript.Entry, sent bool) {
 	}
 	e.Off = h.fed.Load()
 	if e.Off <= *h.recorded && !sent {
-		return
+		return 0, 0, false
 	}
 	e.Time = time.Now().UnixMilli()
 	b, err := json.Marshal(e)
 	if err != nil {
 		h.logf("record: %v", err)
-		return
+		return 0, 0, false
 	}
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		h.logf("record: %v", err)
-		return
+		return 0, 0, false
 	}
 	defer f.Close()
-	if _, err := f.Write(append(b, '\n')); err != nil {
-		h.logf("record: %v", err)
+	if st, err := f.Stat(); err == nil {
+		before = st.Size()
 	}
+	line := append(b, '\n')
+	if _, err := f.Write(line); err != nil {
+		h.logf("record: %v", err)
+		return 0, 0, false
+	}
+	return before, before + int64(len(line)), true
 }
 
 // lastRecorded is where the output of the record's last whole line ended; -1 for none.

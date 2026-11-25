@@ -206,6 +206,8 @@ func (s *Service) handle(n session.Notice, at time.Time) {
 			s.onTaken(n.Session, n.Text)
 		}
 		s.regreet(n.Session, origin)
+	case session.NoticeUserRecorded:
+		s.userRecorded(n.Session, n.Before, n.After, origin)
 	case session.NoticeWriting:
 		s.writing(n.Session, n.Text, origin)
 	case noticeWritten:

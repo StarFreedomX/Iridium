@@ -6,7 +6,9 @@ import (
 	"time"
 
 	"github.com/kumoSleeping/iridium/internal/api"
+	"github.com/kumoSleeping/iridium/internal/channel"
 	"github.com/kumoSleeping/iridium/internal/session"
+	"github.com/kumoSleeping/iridium/internal/store"
 )
 
 // liveEvents reads events from w till one is of typ and passes ok, and returns all read.
@@ -162,5 +164,69 @@ func TestLiveStepWithoutTurnStartSetsFrom(t *testing.T) {
 	ev := liveEvents(t, w, 1)[0]
 	if ev.Type != "message-created" || strings.Contains(ev.Message.Content, `from="0"`) || !strings.Contains(ev.Message.Content, `from="50"`) {
 		t.Fatalf("unexpected work from: %+v %+v", ev, ev.Message)
+	}
+}
+
+// Mid-turn steer acceptance (NoticeUserRecorded) must be the exact boundary that settles the prior
+// work carrier (capped at Before) and opens a fresh work message starting at After; tools before
+// NoticeUserRecorded stay on the old carrier even if a user message already appeared in the channel.
+func TestLiveUserRecordedSplitsCarrierAndBoundsWork(t *testing.T) {
+	r := newRig(t)
+	r.f.addSession("s1", 2)
+	r.f.mu.Lock()
+	r.f.sessions["s1"].End = 100
+	r.f.mu.Unlock()
+	w := r.dial(nil)
+	w.send(OpIdentify, Identify{Token: "ir_good", Live: true})
+	w.want(OpReady, nil)
+
+	r.s.Notice(session.Notice{Session: "s1", Kind: session.NoticeTurnStart, From: "app1"})
+	_ = liveEvents(t, w, 1) // pre #3
+	r.s.Notice(session.Notice{Session: "s1", Kind: session.NoticeWriting, Text: "Working on it."})
+	_ = liveEvents(t, w, 1) // #3 with words
+	r.s.Notice(session.Notice{Session: "s1", Kind: session.NoticeMessage, Text: "Working on it."})
+	_ = liveEvents(t, w, 1) // #3 settled text
+	r.s.Notice(session.Notice{Session: "s1", Kind: session.NoticeTool, Tool: "Read"})
+	// NoticeTool flushes "progress" on #3 first, then emits the step update with steps="1".
+	var ev1 Event
+	for range 4 {
+		ev1 = liveEvents(t, w, 1)[0]
+		if strings.Contains(ev1.Message.Content, `steps="1"`) {
+			break
+		}
+	}
+	if ev1.Type != "message-updated" || ev1.Message.ID != "3" || !strings.Contains(ev1.Message.Content, `steps="1"`) {
+		t.Fatalf("step 1: %+v %+v", ev1, ev1.Message)
+	}
+
+	// User posts a steer in the channel BEFORE the agent accepts it: another tool call must still
+	// stay on carrier #3 (honest: not falsely split before NoticeUserRecorded).
+	if _, _, err := r.s.log.Say(channel.Message{ChannelMessage: store.ChannelMessage{Channel: "s1", Author: "u1", Kind: channel.KindUser, Text: "status?"}}); err != nil {
+		t.Fatal(err)
+	}
+	r.s.Notice(session.Notice{Session: "s1", Kind: session.NoticeTool, Tool: "Bash"})
+	ev2 := liveEvents(t, w, 1)[0]
+	if ev2.Type != "message-updated" || ev2.Message.ID != "3" || !strings.Contains(ev2.Message.Content, `steps="2"`) {
+		t.Fatalf("step before acceptance falsely split: %+v %+v", ev2, ev2.Message)
+	}
+
+	// Now the agent genuinely records the user message in its transcript at [250, 310).
+	r.s.Notice(session.Notice{Session: "s1", Kind: session.NoticeUserRecorded, Text: "in-steer", Before: 250, After: 310})
+	evs := liveEvents(t, w, 2)
+	// 1) Old carrier #3 settles with to="250" (strictly before user block).
+	if evs[0].Type != "message-updated" || evs[0].Message.ID != "3" || strings.Contains(evs[0].Message.Content, "running") || !strings.Contains(evs[0].Message.Content, `to="250"`) {
+		t.Fatalf("old carrier settle: %+v %+v", evs[0], evs[0].Message)
+	}
+	// 2) Fresh pre-message created AFTER the user's message with from="310".
+	newID := evs[1].Message.ID
+	if evs[1].Type != "message-created" || newID == "3" || !strings.Contains(evs[1].Message.Content, `running="true"`) || !strings.Contains(evs[1].Message.Content, `from="310"`) {
+		t.Fatalf("new pre after acceptance: %+v %+v", evs[1], evs[1].Message)
+	}
+
+	// Subsequent tool call attaches to the new carrier below the user's message.
+	r.s.Notice(session.Notice{Session: "s1", Kind: session.NoticeTool, Tool: "Edit"})
+	ev3 := liveEvents(t, w, 1)[0]
+	if ev3.Type != "message-updated" || ev3.Message.ID != newID || !strings.Contains(ev3.Message.Content, `steps="1"`) || !strings.Contains(ev3.Message.Content, `from="310"`) {
+		t.Fatalf("tool on new carrier: %+v %+v", ev3, ev3.Message)
 	}
 }

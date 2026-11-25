@@ -1334,6 +1334,118 @@ func TestAnswerRegistersTwinNoDuplicate(t *testing.T) {
 	}
 }
 
+// In a bare/shared channel (where agent session != channel id), when the user steers mid-turn,
+// tools executed before NoticeUserRecorded stay on the old twin above the user's message; once
+// NoticeUserRecorded fires (the agent truly accepted the steer into its transcript), the old twin
+// settles strictly before the user block and a new twin opens directly below the user's message.
+func TestSharedChannelMidTurnSteerSplitsTwinBelowUserMessage(t *testing.T) {
+	t.Parallel()
+	l := start(t)
+	ch := l.create(200, "web", api.NewSession{
+		Cwd: l.work,
+		Members: &api.ChannelSetup{
+			Agents: []api.NewMember{{Agent: api.AgentClaude, Nick: "worker", On: onFrom("*")}},
+		},
+	})
+	var ms api.ChannelMembers
+	l.want(200, "web", "GET", "/v1/internal/channels/"+ch+"/members", nil, &ms)
+	var worker string
+	for _, m := range ms.Members {
+		if m.Session != "" {
+			worker = m.Session
+		}
+	}
+	if worker == "" || worker == ch {
+		t.Fatalf("expected bare channel worker != ch, got %+v", ms)
+	}
+	// Open a call for worker in shared channel ch and begin a live turn.
+	in1 := "in-turn-1"
+	l.s.answers.took(worker, in1)
+	l.s.calls.add(worker, called{Channel: ch, Seq: 1, From: 0, Input: in1})
+	l.s.sat.Notice(session.Notice{Session: worker, Kind: session.NoticeTurnStart})
+	l.s.sat.Notice(session.Notice{Session: worker, Kind: session.NoticeWriting, Text: "Working on it."})
+	l.s.sat.Notice(session.Notice{Session: worker, Kind: session.NoticeMessage, Text: "Working on it."})
+	l.s.sat.Notice(session.Notice{Session: worker, Kind: session.NoticeTool, Tool: "Read"})
+	// Drain satori + answers queues by waiting until twin 1 appears with steps=1.
+	waitCond := func(desc string, fn func() bool) {
+		t.Helper()
+		deadline := time.Now().Add(3 * time.Second)
+		for time.Now().Before(deadline) {
+			if fn() {
+				return
+			}
+			time.Sleep(15 * time.Millisecond)
+		}
+		t.Fatalf("timed out waiting for %s", desc)
+	}
+	var firstTwinSeq, firstOwnSeq int64
+	waitCond("first twin created and worker has step 1", func() bool {
+		ownRows, _ := l.s.ch.List(worker, 0, -1, 50)
+		for _, m := range ownRows {
+			if m.Text == "Working on it." && m.D.Work != nil && m.D.Work.Steps == 1 {
+				firstOwnSeq = m.Seq
+			}
+		}
+		if firstOwnSeq == 0 {
+			return false
+		}
+		rows, _ := l.s.ch.List(ch, 0, -1, 50)
+		for _, m := range rows {
+			if m.Text == "Working on it." {
+				firstTwinSeq = m.Seq
+				return true
+			}
+		}
+		return false
+	})
+
+	// User posts a steer message into shared channel ch.
+	steerMsg, _, err := l.s.ch.Say(channel.Message{
+		ChannelMessage: store.ChannelMessage{Channel: ch, Author: "ir_web/kumo", Kind: channel.KindUser, Text: "status?"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	in2 := "in-steer-2"
+	l.s.answers.took(worker, in2)
+	l.s.calls.add(worker, called{Channel: ch, Seq: steerMsg.Seq, From: 0, Input: in2})
+
+	// Tool call BEFORE NoticeUserRecorded stays on firstOwnSeq (above steerMsg, no second twin yet).
+	l.s.sat.Notice(session.Notice{Session: worker, Kind: session.NoticeTool, Tool: "Bash"})
+	waitCond("step 2 still on first carrier", func() bool {
+		m, ok := l.s.ch.Get(worker, firstOwnSeq)
+		return ok && m.D.Work != nil && m.D.Work.Steps == 2 && m.D.Work.Running
+	})
+	if rows, _ := l.s.ch.List(ch, 0, -1, 50); rows[len(rows)-1].Seq != steerMsg.Seq {
+		t.Fatalf("expected no message after steer before NoticeUserRecorded, got %+v", rows[len(rows)-1])
+	}
+
+	// Now the agent genuinely records steerMsg into its transcript at [400, 480).
+	l.s.sat.Notice(session.Notice{Session: worker, Kind: session.NoticeUserRecorded, Text: in2, Before: 400, After: 480})
+	l.s.sat.Notice(session.Notice{Session: worker, Kind: session.NoticeTool, Tool: "Edit"})
+	// End the turn so the second twin's work settles into DB too.
+	l.s.sat.Notice(session.Notice{Session: worker, Kind: session.NoticeTurnEnd})
+
+	var secondTwin channel.Message
+	waitCond("old twin settled before user block and new twin created below user steer", func() bool {
+		first, ok := l.s.ch.Get(ch, firstTwinSeq)
+		if !ok || first.D.Work == nil || first.D.Work.Running || first.D.Work.Steps != 2 || first.D.Work.To != 400 {
+			return false
+		}
+		rows, _ := l.s.ch.List(ch, 0, -1, 50)
+		for _, m := range rows {
+			if m.Seq > steerMsg.Seq && m.Author == store.AgentMember(worker) && m.D.Work != nil && m.D.Work.Steps == 1 && m.D.Work.From == 480 {
+				secondTwin = m
+				return true
+			}
+		}
+		return false
+	})
+	if secondTwin.Seq <= steerMsg.Seq {
+		t.Fatalf("expected new twin seq > user steer seq (%d), got %d", steerMsg.Seq, secondTwin.Seq)
+	}
+}
+
 // onFrom is one message subscription of from.
 func onFrom(from ...string) []api.Trigger {
 	return []api.Trigger{{Message: &api.MessageTrigger{From: from}}}

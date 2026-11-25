@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -149,8 +150,10 @@ type Hosted struct {
 	toolName  string        // its tool's name
 	ready     chan struct{} // closed once the process said its use so far (attached)
 	base      *agent.Usage  // the session's use as of the last result, for each turn's share
-	file      *transcript.File
-	end       int64
+	file       *transcript.File
+	end        int64
+	hasUserAt  bool
+	lastUserAt int64
 	// mirroredAt: when the transcript's mirror was last brought up to date (remote.go).
 	mirroredAt time.Time
 	said       cached
@@ -732,7 +735,10 @@ func (h *Hosted) onEvent(e agent.Event) {
 	case agent.Record:
 		h.mu.Unlock()
 		if !replay || e.Sent {
-			h.record(e.Entry, e.Sent)
+			before, after, wrote := h.record(e.Entry, e.Sent)
+			if !replay && wrote && e.Entry.Kind == string(api.BlockKindUser) {
+				h.m.notify(Notice{Session: h.id, Kind: NoticeUserRecorded, Text: e.Entry.ID, Before: before, After: after})
+			}
 		}
 		return
 	case agent.MessageDone:
@@ -1045,12 +1051,25 @@ func (h *Hosted) readTranscript() {
 	grew := size != h.end
 	old := h.end
 	h.end = size
+	running := h.turn != agent.Idle
+	agentKind := h.meta.Agent
 	stale := h.said.size != size
 	h.mu.Unlock()
 	if !grew {
 		return
 	}
 	h.updateTail(f, old, size)
+	// For file-tailed harnesses (Claude, Codex, pi, dsh), detect user blocks genuinely appended
+	// to the transcript while a turn is running so satori splits the carrier at the exact moment
+	// the harness accepted a steered message (matching TranscriptView). OwnRecord harnesses (agy)
+	// emit NoticeUserRecorded synchronously in case agent.Record above.
+	if old > 0 && size > old && running && !h.replaying.Load() {
+		if info, ok := agents.Get(agentKind); !ok || !info.OwnRecord {
+			if p, err := f.After(old); err == nil {
+				h.notifyTailUsers(p.Blocks, old, size)
+			}
+		}
+	}
 	if stale {
 		title, _ := f.Title()
 		last, _ := f.LastSaid()
@@ -1060,6 +1079,47 @@ func (h *Hosted) readTranscript() {
 	}
 	h.publish()
 	h.m.publishList()
+}
+
+func blockLine(at string) int64 {
+	s, _, _ := strings.Cut(at, ".")
+	n, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return -1
+	}
+	return n
+}
+
+// notifyTailUsers emits NoticeUserRecorded for the newest unseen user block appended at >= old.
+func (h *Hosted) notifyTailUsers(blocks []api.Block, old, size int64) {
+	idx := -1
+	var before int64
+	for i, b := range blocks {
+		if b.Kind != api.BlockKindUser {
+			continue
+		}
+		if line := blockLine(b.At); line >= old {
+			idx, before = i, line
+		}
+	}
+	if idx < 0 {
+		return
+	}
+	h.mu.Lock()
+	if h.hasUserAt && before <= h.lastUserAt {
+		h.mu.Unlock()
+		return
+	}
+	h.hasUserAt, h.lastUserAt = true, before
+	h.mu.Unlock()
+	after := size
+	for j := idx + 1; j < len(blocks); j++ {
+		if line := blockLine(blocks[j].At); line > before {
+			after = line
+			break
+		}
+	}
+	h.m.notify(Notice{Session: h.id, Kind: NoticeUserRecorded, Text: blocks[idx].ID, Before: before, After: after})
 }
 
 func (h *Hosted) status() api.Status {
