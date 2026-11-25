@@ -29,6 +29,8 @@ export type Env = {
   burst(x: number, y: number, n: number, speed: number, size: number, light: boolean): void;
   /** One of the cast, or Iridium's mark (null), as cells, size px across. */
   sprite(who: Cast | null, size: number): Promise<Sprite | null>;
+  /** It is over (its count shown from now); and, later, the count gone too. */
+  ended(): void;
   over(): void;
   /** The page dark (its ink light). */
   dark(): boolean;
@@ -158,6 +160,7 @@ export function slicer(E: Env) {
   const end = () => {
     if (endAt) return;
     endAt = T;
+    E.ended();
     blade = [];
   };
 

@@ -614,6 +614,8 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
       }
       return { w, h, px };
     },
+    // The pane's bars come back as its count comes (kumo, 2026-11-26), not once that is gone.
+    ended: () => tell(false),
     over: () => (tell(false), kick()),
     dark: () => dark,
   });

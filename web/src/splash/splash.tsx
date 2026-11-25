@@ -100,7 +100,7 @@ export function Splash({ show = true, fig = null, scene = "", className }: { sho
     e.onPlay((on) => {
       playing = on;
       document.documentElement.dataset.playing = on ? "1" : "0";
-      if (!on) setTimeout(() => !playing && delete document.documentElement.dataset.playing, 500);
+      if (!on) setTimeout(() => !playing && delete document.documentElement.dataset.playing, 1500);
     });
     const press = (ev: PointerEvent) => {
       const t = ev.target as Element | null;

@@ -757,7 +757,7 @@ html[data-playing="1"] main > :not([data-splash]) {
   pointer-events: none;
 }
 html[data-playing="0"] main > :not([data-splash]) {
-  animation: play-in 0.45s ease-out;
+  animation: play-in 1.4s ease-out;
 }
 html[data-playing="1"],
 html[data-playing="1"] body {
