@@ -739,3 +739,31 @@ body {
 .hljs-subst { color: var(--ink-2); }
 .hljs-addition { color: var(--plus); }
 .hljs-deletion { color: var(--minus); }
+
+/* The splash's game on (splash/splash.tsx): what else is in the pane (its bar, its composer) goes
+   for it and comes back after; the page is not pulled down to load again, nor scrolled, meanwhile. */
+@keyframes play-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes play-in {
+  from {
+    opacity: 0;
+  }
+}
+html[data-playing="1"] main > :not([data-splash]) {
+  animation: play-out 0.35s ease-out forwards;
+  pointer-events: none;
+}
+html[data-playing="0"] main > :not([data-splash]) {
+  animation: play-in 0.45s ease-out;
+}
+html[data-playing="1"],
+html[data-playing="1"] body {
+  overscroll-behavior: none;
+  overflow: hidden;
+}
+html[data-playing="1"] main {
+  touch-action: none;
+}

@@ -77,7 +77,6 @@ export function Splash({ show = true, fig = null, scene = "", className }: { sho
       e.place(ph ? w / 2 : -1, ph ? Math.min(w * 0.94, h * 0.98) : Math.min(h * 0.92, w * 0.7) * (face ? 0.82 : 1), ph ? -1 : (48 + top) / 2);
       e.foot(ph ? top - 6 : -1);
       e.edge(ph || !face);
-      e.bounds(56, top - 6);
     };
     fitRef.current = fit;
     fit();
@@ -95,6 +94,14 @@ export function Splash({ show = true, fig = null, scene = "", className }: { sho
     };
     window.addEventListener("pointermove", move, { passive: true });
     // A press on the pane itself (not a key, a box, a menu): rings come out about it.
+    // The game on (kumo, 2026-11-26): the pane's bars go and what the page does with a finger of
+    // its own is off (pulled down to load again; the root's rule, styles.css), till it is over.
+    let playing = false;
+    e.onPlay((on) => {
+      playing = on;
+      document.documentElement.dataset.playing = on ? "1" : "0";
+      if (!on) setTimeout(() => !playing && delete document.documentElement.dataset.playing, 500);
+    });
     const press = (ev: PointerEvent) => {
       const t = ev.target as Element | null;
       if (t?.closest?.("button, a, input, textarea, [role=menu], [role=dialog], [role=listbox], [data-sheet-pull], nav, aside")) return;
@@ -109,7 +116,7 @@ export function Splash({ show = true, fig = null, scene = "", className }: { sho
       if (ev.clientX < r.left || ev.clientX > r.right || ev.clientY < r.top || ev.clientY > r.bottom) return;
       // A finger at the pane's top is the page's own (pulled down, it is loaded again): no stars
       // there, the drag not taken (kumo, 2026-11-26).
-      if (ev.pointerType === "touch" && ev.clientY - r.top < Math.max(120, r.height * 0.2)) return;
+      if (!playing && ev.pointerType === "touch" && ev.clientY - r.top < Math.max(120, r.height * 0.2)) return;
       touching = ev.pointerType === "touch";
       e.tap(ev.clientX - r.left, ev.clientY - r.top);
       e.hold(true);
@@ -146,6 +153,7 @@ export function Splash({ show = true, fig = null, scene = "", className }: { sho
       window.removeEventListener("touchmove", drag);
       window.removeEventListener("touchend", free);
       window.removeEventListener("touchcancel", free);
+      delete document.documentElement.dataset.playing;
       e.stop();
       eng.current = null;
     };
@@ -165,7 +173,7 @@ export function Splash({ show = true, fig = null, scene = "", className }: { sho
   useEffect(() => eng.current?.power(show ? power : STANDARD), [power, show]);
   if (!there) return null;
   return (
-    <div aria-hidden={!now} className={cn("pointer-events-none absolute inset-0 z-1", className)}>
+    <div aria-hidden={!now} data-splash className={cn("pointer-events-none absolute inset-0 z-1", className)}>
       <canvas ref={cv} aria-hidden className="absolute inset-0 size-full text-ink" />
     </div>
   );

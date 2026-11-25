@@ -143,7 +143,7 @@ export const ahead = (f: Fig) => void (f.src && picture(f.src));
 // anew (kumo, 2026-11-25: it blinked).
 let kept: { at: number; cols: number; rows: number; text: string[][]; off: Float32Array<ArrayBuffer>; speed: Float32Array<ArrayBuffer>; cur: Field; key: string } | null = null;
 
-export type Splash = { leave(done: () => void): void; enter(): void; figure(f: Fig | null): void; place(x: number, side: number, y?: number): void; foot(y: number): void; window(middle: number, height: number): void; recolor(): void; power(f: number): void; resize(): void; near(x: number, y: number): void; tap(x: number, y: number): void; hold(on: boolean): void; stop(): void; edge(on: boolean): void;  cast(who: Cast[]): void; bounds(top: number, bottom: number): void };
+export type Splash = { leave(done: () => void): void; enter(): void; figure(f: Fig | null): void; place(x: number, side: number, y?: number): void; foot(y: number): void; window(middle: number, height: number): void; recolor(): void; power(f: number): void; resize(): void; near(x: number, y: number): void; tap(x: number, y: number): void; hold(on: boolean): void; stop(): void; edge(on: boolean): void;  cast(who: Cast[]): void; onPlay(h: (on: boolean) => void): void };
 
 
 /** fine: smaller characters, more of them to a figure (the portrait layout, where the band is
@@ -524,12 +524,16 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
 
   // The little game (slice.ts; kumo, 2026-11-26): its faces are cells in colours of their own,
   // laid over the code each frame (sp, 0xAABBGGRR a cell; 0: none) and put back to none the next.
-  let sp = new Uint32Array(0), spCells = new Int32Array(0), nSp = 0, roomTop = 56, roomBottom = -1;
+  let sp = new Uint32Array(0), spCells = new Int32Array(0), nSp = 0;
+  // The page told as the game begins and is over: its bars go for it and come back (splash.tsx).
+  let told: ((on: boolean) => void) | null = null, playing = false;
+  const tell = (on: boolean) => void (on !== playing && ((playing = on), told?.(on)));
   const sl = slicer({
     W: () => W,
     H: () => H,
-    top: () => roomTop,
-    bottom: () => (roomBottom > 0 ? roomBottom : footT >= 0 ? footT : H - 90),
+    // The whole pane is its own while it is on (the bars gone for it).
+    top: () => 14,
+    bottom: () => H - 10,
     cw: () => cw,
     row: ROW,
     cols: () => cols,
@@ -610,7 +614,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
       }
       return { w, h, px };
     },
-    over: () => kick(),
+    over: () => (tell(false), kick()),
     dark: () => dark,
   });
 
@@ -840,7 +844,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
         const [ex, ey] = rk.pts.at(-1)!;
         rk = null;
         // And the game begins (kumo, 2026-11-26), where the figure is.
-        if (rainbow && !leaving && !left) sl.start();
+        if (rainbow && !leaving && !left) sl.start(), tell(true);
         pop(ex, ey, false, 0, 78, 0, 0, 520, GLINT);
         const n = 11, a0 = Math.random() * 6.28, hue0 = Math.random() * 360;
         for (let j = 0; j < n; j++) pop(ex, ey, false, 190 + (j % 2) * 110, 20 + (j % 2) * 14, a0 + (j / n) * 6.2832, 170, 1100 + Math.random() * 400, hue0 + (j / n) * 360);
@@ -1032,6 +1036,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
     leave(done) {
       if (leaving) return void (leaving = done);
       sl.stop();
+      tell(false);
       if (still || !W || left) return done();
       asked++;
       from = { a: cur.a.slice(), r: cur.r.slice(), g: cur.g.slice(), b: cur.b.slice() };
@@ -1144,9 +1149,10 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
       kick();
     },
     cast: (who) => sl.cast(who),
-    bounds: (t, b) => void ((roomTop = t), (roomBottom = b)),
+    onPlay: (h) => void (told = h),
     stop() {
       sl.stop();
+      tell(false);
       if (cols && rows && !leaving && !left) kept = { at: performance.now(), cols, rows, text, off, speed, cur, key: drawnKey };
       dead = true;
       cancelAnimationFrame(raf);
