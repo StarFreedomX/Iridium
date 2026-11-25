@@ -558,7 +558,8 @@ export function UsagePage() {
                         ))}
                       </div>
                       <Mix sum={sum} column />
-                      <div className="mt-3 flex min-h-5 flex-wrap gap-1.5 text-xs tabular-nums">{chips}</div>
+                      {/* One line, empty or not, more scrolling sideways: a chip coming moves nothing. */}
+                      <div className="no-bar mt-3 flex h-6 items-center gap-1.5 overflow-x-auto text-xs tabular-nums">{chips}</div>
                     </div>
                   ) : (
                     <div aria-hidden className="g-wait mt-3 flex flex-col gap-2">

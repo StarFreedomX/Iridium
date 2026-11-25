@@ -421,11 +421,12 @@ export function App() {
   const boxH = (dialogPage === "apps" || dialogPage === "secrets" || dialogPage === "roles" || dialogPage === "cache") && settingsH.current !== undefined ? settingsH.current : fit.h;
   const settingsStyle: CSSProperties | undefined = settingsAt && boxH !== undefined && room !== undefined ? { ...settingsAt, height: `min(${boxH}px, ${typeof room === "number" ? `${room}px` : room})` } : settingsAt;
   // The usage: the file browser's own window over the page (kumo, 2026-11-25), in a portrait
-  // layout as tall as it is there; with the sidebar as tall as what it holds. Closed, the step that
-  // opened it is gone back.
+  // layout as tall as it is there. One height whatever is chosen in it, room enough, more scrolling
+  // within (kumo, 2026-11-25: never taller or shorter for a choice). Closed, the step that opened it
+  // is gone back.
   const usageWindow = (
     <Dialog.Root open={usageOpen} onOpenChange={(o) => !o && route().name === "usage" && stepBack()}>
-      <FileWindow className={cn("@container", phone ? "h-[min(640px,86dvh)]" : "max-h-[min(760px,92dvh)]")}>
+      <FileWindow className={cn("@container", phone ? "h-[min(640px,86dvh)]" : "h-[min(720px,90dvh)]")}>
         <Suspense fallback={<Waiting />}>
           <UsagePage />
         </Suspense>
