@@ -12,6 +12,8 @@ import { heldChats, lineOf, peekChat, type Chat } from "../chats";
 import type { Msg } from "../chat/channel/lib";
 import { channelLog, heldLog, keptChannelIds } from "../chat/channel/log";
 import { collectSpans, onSpans, restoreSpans, type KeptSpan } from "../chat/spans";
+import { putReactions, reactionsIn } from "../chat/reactions";
+import type { ReactionSum } from "../api/client";
 import { getCarried, onCarried, setCarried } from "../store";
 import { listFromDevice } from "./first";
 import { asked, db, done, drop, entries, getConf } from "./store";
@@ -34,6 +36,8 @@ export type Copy = {
   members?: ChannelMembers;
   reads?: ChannelReads;
   chan?: { msgs: Msg[]; more: boolean };
+  /** The reactions on its messages, by number (chat/reactions.ts): drawn with them. */
+  reactions?: [number, ReactionSum[]][];
   sessions?: Record<string, SessionState>;
   spans?: KeptSpan[];
 };
@@ -76,6 +80,8 @@ export function copyOf(id: string, it?: Chat, now = Date.now()): Copy | null {
   if (hasCh) {
     const msgs = ch!.msgs.slice(-CHANNEL_MESSAGES);
     c.chan = { msgs, more: ch!.more || ch!.msgs.length > msgs.length };
+    const rs = reactionsIn(id);
+    if (rs.length) c.reactions = rs;
     const sp = collectSpans(msgs);
     if (sp.length) c.spans = sp;
     const reads = getCarried<ChannelReads>(`reads:${id}`);
@@ -121,6 +127,7 @@ export async function restore(id: string, it: Chat): Promise<boolean> {
   }
   if (c.members && !queryClient.getQueryData(["members", id])) queryClient.setQueryData(["members", id], c.members);
   if (c.chan) {
+    if (c.reactions) putReactions(id, c.reactions);
     channelLog(id).log.restore(c.chan.msgs, c.chan.more);
     if (c.reads && !getCarried(`reads:${id}`)) setCarried(`reads:${id}`, c.reads);
     for (const [x, st] of Object.entries(c.sessions ?? {})) if (!getCarried(`session:${x}`)) setCarried(`session:${x}`, st);

@@ -88,6 +88,15 @@ function mark(g: CanvasRenderingContext2D, agent: Agent, ink: string): boolean {
   return true;
 }
 
+/** A colour of the rainbow at hue h (degrees), bright. */
+function rainbowAt(h: number): RGB {
+  const f = (n: number) => {
+    const k = (n + h / 30) % 12;
+    return 255 * (0.55 - 0.5 * Math.max(-1, Math.min(k - 3, 9 - k, 1)));
+  };
+  return [f(0), f(8), f(4)];
+}
+
 /** Iridium's letters (ui.tsx IrMark's, with no square about them), in a rainbow. */
 function letters(g: CanvasRenderingContext2D, ink: string) {
   const k = (SRC * 0.78) / 28;
@@ -182,6 +191,9 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
   let vel = 0, wasGliding = false, tick = 0, calm = false, odd = false;
   let leaving: (() => void) | null = null, left = false, spreadNow = SPREAD;
   const goal = (): [number, number] => (cx < 0 ? [W / 2, Math.min((whT < 0 ? H : whT) * 0.92, W * 0.7)] : [cx, most]);
+  // Iridium's letters drawn: their cells' colours flow through the rainbow each frame (kumo,
+  // 2026-11-25: a gradient that moves).
+  let rainbow = false;
   let fig: Fig | null = null, photo = false, drawnKey = "", asked = 0;
   let t0 = -1e9, flowTo = 0, last = 0, raf = 0, hot = false, first = true, dead = false;
 
@@ -199,6 +211,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
   /** The figure on the square (src); photo: a picture, its tones kept, not a flat mark. */
   const paint = async (f: Fig | null): Promise<boolean> => {
     const css = inkNow();
+    rainbow = false;
     const face = (f?.src ? await picture(f.src) : null) ?? (f?.alt ? await picture(f.alt) : null);
     const img = face ?? (f?.agent === "agy" ? await picture(AGY_DATA_URI) : null);
     sg.clearRect(0, 0, SRC, SRC);
@@ -215,7 +228,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
     }
     below = 0.4;
     if (img) sg.drawImage(img, SRC * 0.1, SRC * 0.1, SRC * 0.8, SRC * 0.8);
-    else if (!f?.agent || !mark(sg, f.agent, css)) (letters(sg, css), (below = 0.39));
+    else if (!f?.agent || !mark(sg, f.agent, css)) (letters(sg, css), (below = 0.39), (rainbow = true));
     return false;
   };
 
@@ -275,6 +288,8 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
     g.clearRect(0, 0, W, H);
     g.font = `${FONT}px ui-monospace, "SF Mono", Menlo, "JetBrains Mono", "Cascadia Mono", "DejaVu Sans Mono", monospace`;
     g.textBaseline = "top";
+    // The rainbow's place now: across the figure, moving on as time goes.
+    const shift = still ? 0 : performance.now() * 0.06, fx0 = px - ps / 2, span = ps || 1;
     for (let r = 0; r < rows; r++) {
       const o = Math.floor(off[r]!), f = off[r]! - o, row = text[r]!, y = r * ROW + 0.5;
       const env = seen(y + ROW / 2);
@@ -287,7 +302,13 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
       };
       for (let k = 0; k < cols; k++) {
         const i = r * cols + k;
-        const k2 = Math.min(24, Math.round(clamp(cur.a[i]! + heat[i]! * 0.34) * (env + (1 - env) * (fm[i] ?? 0)) * 24)) | ((cur.r[i]! >> 3) << 5) | ((cur.g[i]! >> 3) << 10) | ((cur.b[i]! >> 3) << 15);
+        let cr = cur.r[i]!, cg = cur.g[i]!, cb = cur.b[i]!;
+        const fmi = rainbow ? (fm[i] ?? 0) : 0;
+        if (fmi > 0) {
+          const [hr, hg, hb] = rainbowAt(((((k + 0.5) * cw - fx0) / span) * 300 + (r * ROW - py) * 0.4 - shift) % 360 + 360);
+          (cr += (hr - cr) * fmi), (cg += (hg - cg) * fmi), (cb += (hb - cb) * fmi);
+        }
+        const k2 = Math.min(24, Math.round(clamp(cur.a[i]! + heat[i]! * 0.34) * (env + (1 - env) * (fm[i] ?? 0)) * 24)) | ((cr >> 3) << 5) | ((cg >> 3) << 10) | ((cb >> 3) << 15);
         if (k2 !== key) {
           flush();
           run = "";

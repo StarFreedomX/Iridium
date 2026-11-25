@@ -89,6 +89,24 @@ export const useRecalled = (channel: string, seq: number | undefined) => useHeld
 /** Bumped at each change: what reads several of these draws again. */
 export const useHeldVersion = () => useHeld(() => version);
 
+/** The reactions held on channel's messages, by number: kept with this device's copy of it
+ *  (device/chats.ts). */
+export function reactionsIn(channel: string): [number, ReactionSum[]][] {
+  const out: [number, ReactionSum[]][] = [];
+  const p = `${channel} `;
+  for (const [k, v] of sums) if (k.startsWith(p) && v.length) out.push([Number(k.slice(p.length)), v]);
+  return out;
+}
+
+/** This device's copy's reactions put back with its messages, before they are drawn: the page drawn
+ *  from it had none, and each message with some grew as the server's came (kumo, 2026-11-25). What
+ *  is held already (the server's, newer) stays. */
+export function putReactions(channel: string, list: [number, ReactionSum[]][]) {
+  let any = false;
+  for (const [n, rs] of list) if (!sums.has(at(channel, n))) (sums.set(at(channel, n), rs), (any = true));
+  if (any) changed();
+}
+
 /** Takes in a message as the log gives it: its reactions as they were then (none: none), what
  *  its blocks are, and a line of Iridium's own that says one was taken back. */
 function take(channel: string, m: ChannelMessage, whole: boolean) {
