@@ -6,6 +6,8 @@
      g-unfold   popover / menu / tooltip grows out of its anchor (Base UI's --transform-origin)
      g-pop      a small surface appears in place (toast, approval card, lamp change)
      g-slide    a panel's content arrives from the side (popover pages)
+     g-page     a menu's pages pushed: the next in from the right, the one under it out to the left,
+                both seen as they move (chat/channel/pages.tsx)
      g-sheet    on a phone, the sidebar rises from the foot over the composer (sheet.tsx, g-sink)
      g-dialog   the settings rise out of their key at the sidebar's foot (app.tsx)
      g-fade     plain cross-fade
@@ -135,6 +137,28 @@
   .g-slide {
     opacity: 0;
     transform: translateX(var(--slide-x));
+  }
+}
+
+/* --- page: a menu's pages (chat/channel/pages.tsx), pushed one over another: the one shown at
+   its place; the one under it out to the left, then not drawn; the one gone back from out to the
+   right. One shown anew comes in from the right; the menu's own list is there as it opens. --- */
+.g-page {
+  transition:
+    translate var(--dur-3) var(--ease-out),
+    visibility 0s;
+}
+.g-page[data-page="under"] {
+  translate: -100% 0;
+  visibility: hidden;
+  transition-delay: 0s, var(--dur-3);
+}
+.g-page[data-page="gone"] {
+  translate: 100% 0;
+}
+@starting-style {
+  .g-page:not(.g-page-first) {
+    translate: 100% 0;
   }
 }
 
@@ -545,6 +569,7 @@ html[data-turn] .vt-drawer {
     transform: none !important;
   }
   .g-sheet,
+  .g-page,
   .g-sink {
     transition-duration: var(--dur-1);
   }
