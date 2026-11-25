@@ -652,7 +652,7 @@ export const en: Dict = {
   "me.home": "Home",
   "home.none": "None",
   "home.ir": "Ir",
-  "home.face": "Faces",
+  "home.face": "Ir's picture",
   "home.own": "Own picture",
   "me.light": "Light",
   "me.dark": "Dark",

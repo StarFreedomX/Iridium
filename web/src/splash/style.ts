@@ -1,6 +1,6 @@
-// What the home pane's splash draws, chosen in the settings (主页; kumo, 2026-11-25), kept on this
-// device: none at all; Iridium's letters alone; the faces (the letters, then the agent pointed at
-// or added: as it was); or a picture of one's own, always.
+// What the home pane's splash draws with no agent pointed at or in the channel, chosen in the
+// settings (主页; kumo, 2026-11-25), kept on this device: none at all (no splash); Iridium's
+// letters; this Iridium's own picture (its server's face); or a picture of one's own.
 import { useSyncExternalStore } from "react";
 import { keep, kept } from "../ui";
 

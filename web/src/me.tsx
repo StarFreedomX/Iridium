@@ -114,8 +114,8 @@ export function ThemeSwitch({ theme, setTheme }: { theme: ThemePref; setTheme: (
   );
 }
 
-/** 主页 (kumo, 2026-11-25): what the home pane's splash draws: none, Iridium's letters, the faces
- *  as they come, or one's own picture; that one pressed with none chosen yet, or pressed again,
+/** 主页 (kumo, 2026-11-25): what the home pane's splash draws with no agent: none, Iridium's
+ *  letters, this Iridium's own picture, or one's own picture; that one pressed with none chosen yet, or pressed again,
  *  asks for a picture. Kept on this device. */
 export function HomeSwitch() {
   const style = useHomeStyle();

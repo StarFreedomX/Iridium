@@ -652,7 +652,7 @@ export const zh = {
   "me.home": "主页",
   "home.none": "无",
   "home.ir": "Ir",
-  "home.face": "头像",
+  "home.face": "Ir 头像",
   "home.own": "自定义",
   "me.light": "浅色",
   "me.dark": "深色",

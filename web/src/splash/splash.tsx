@@ -10,6 +10,7 @@ import { splash, type Splash as Engine } from "./engine";
 import { justMade } from "../chat/channel/adding";
 import { onPoint, pointedAt, powerNow, stage, stagedNow, STANDARD, type Fig } from "./figure";
 import { useHomePicture, useHomeStyle } from "./style";
+import { useCarried } from "../store";
 
 
 const MASK = "linear-gradient(to right, transparent, #000 10%, #000 90%, transparent)";
@@ -23,11 +24,14 @@ export function Splash({ show = true, fig = null, scene = "", className }: { sho
   const still = useMedia("(prefers-reduced-motion: reduce)");
   const cv = useRef<HTMLCanvasElement>(null);
   const eng = useRef<Engine | null>(null);
-  // What the settings ask it to draw (主页): Iridium's letters alone, one's own picture alone, or
-  // the faces (the agent pointed at, the channel's own) as they come.
+  // What it draws with no agent pointed at or in the channel, as the settings ask (主页): Iridium's
+  // letters, this Iridium's own picture (its server's face, the letters where it has none), or one's
+  // own picture. An agent pointed at or added: that one's face, whichever it is (kumo, 2026-11-25).
   const style = useHomeStyle();
   const picture = useHomePicture();
-  const now = style === "ir" ? null : style === "own" && picture ? { key: `own:${picture.length}:${picture.slice(-24)}`, src: picture } : show ? (pointed ?? fig) : fig;
+  const faces = useCarried<number>("avatars") ?? 0;
+  const base: Fig | null = style === "face" ? { key: `server:${faces}`, src: `/v1/internal/face?v=${faces}` } : style === "own" && picture ? { key: `own:${picture.length}:${picture.slice(-24)}`, src: picture } : null;
+  const now = (show ? (pointed ?? fig) : fig) ?? base;
   const power = useSyncExternalStore(onPoint, powerNow);
   // The portrait layout with the + panel there: the band under the panel, over the composer.
   const phone = useMedia(PHONE);
