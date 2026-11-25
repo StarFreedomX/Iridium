@@ -64,91 +64,6 @@ const turning = (s?: { status: string }) => !!s && BUSY.has(s.status);
 
 let lastStackH = 120;
 
-/** Smooths the mobile keyboard-dismiss two-step viewport jump (keyboard gone -> lvh, then browser
- *  URL bar reappears -> svh): holds the bottom stack visually at its pre-dismiss Y via inline
- *  transform until the viewport stabilizes (~120ms), then glides once to its final bottom place. */
-function useKeyboardSettle(ref: React.RefObject<HTMLDivElement | null>, suspended: boolean) {
-  useEffect(() => {
-    if (typeof window === "undefined" || !window.matchMedia?.("(pointer: coarse)").matches) return;
-    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
-    const vv = window.visualViewport;
-    const readH = () => Math.round(vv?.height ?? window.innerHeight);
-    let prevH = readH();
-    let maxH = prevH;
-    let anchorH: number | null = null;
-    let settleTimer: ReturnType<typeof setTimeout> | undefined;
-    let clearTimer: ReturnType<typeof setTimeout> | undefined;
-
-    const reset = () => {
-      clearTimeout(settleTimer);
-      clearTimeout(clearTimer);
-      settleTimer = clearTimer = undefined;
-      anchorH = null;
-      const el = ref.current;
-      if (el) {
-        el.style.transition = "";
-        el.style.transform = "";
-      }
-    };
-
-    if (suspended) {
-      reset();
-      return;
-    }
-
-    const finish = () => {
-      settleTimer = undefined;
-      anchorH = null;
-      const el = ref.current;
-      if (!el) return;
-      void el.offsetHeight;
-      el.style.transition = "transform var(--move) var(--ease-out)";
-      el.style.transform = "";
-      clearTimeout(clearTimer);
-      clearTimer = setTimeout(() => {
-        clearTimer = undefined;
-        if (ref.current) ref.current.style.transition = "";
-      }, 260);
-    };
-
-    const onResize = () => {
-      const el = ref.current;
-      const nextH = readH();
-      if (nextH > maxH) maxH = nextH;
-      const dh = nextH - prevH;
-      prevH = nextH;
-      if (!el || Math.abs(dh) < 4) return;
-      // Keyboard opening (viewport shrinks sharply): cancel any pending dismiss settle at once.
-      if (dh < -80 && anchorH === null) return;
-      if (dh < -80 && anchorH !== null) {
-        reset();
-        return;
-      }
-      // Keyboard dismissing (viewport grows sharply): anchor composer where it was and debounce
-      // so the browser's follow-up URL bar appearance merges into one smooth settle.
-      if (anchorH === null && dh > 80) {
-        anchorH = nextH - dh;
-      }
-      if (anchorH !== null) {
-        clearTimeout(clearTimer);
-        clearTimer = undefined;
-        el.style.transition = "none";
-        el.style.transform = `translateY(${anchorH - nextH}px)`;
-        clearTimeout(settleTimer);
-        settleTimer = setTimeout(finish, dh < 0 ? 80 : 120);
-      }
-    };
-
-    window.addEventListener("resize", onResize, { passive: true });
-    vv?.addEventListener("resize", onResize, { passive: true });
-    return () => {
-      window.removeEventListener("resize", onResize);
-      vv?.removeEventListener("resize", onResize);
-      reset();
-    };
-  }, [ref, suspended]);
-}
-
 const ghostOf = (row: Session): LiveSession => ({ ...row, asks: [], tasks: [], queue: [], end: 0, proc: -1 });
 
 /** The states of these sessions, as carried; drawn again as any of them changes. */
@@ -334,7 +249,8 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
   // The bottom stack's height pads the conversation's end.
   const stack = useRef<HTMLDivElement>(null);
   const [stackH, setStackH] = useState(lastStackH);
-  useKeyboardSettle(stack, sheet > 0);
+  // The composer's stack sits on the window's foot as the window is, in the frame it is: the
+  // keyboard gone, it is down with it, not held up and let down after (kumo, 2026-11-25).
   useLayoutEffect(() => {
     const el = stack.current;
     if (!el) return;
@@ -789,7 +705,10 @@ export const GroupView = memo(function GroupView({ g, channel, agents, who, reco
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
         <div className="flex h-4 min-w-0 items-center gap-1.5">
           <span className="shrink-0 text-xs font-medium text-ink-2">{now?.nick || a.nick}</span>
-          <span className="min-w-0 truncate text-xs text-ink-4">{now?.name || a.name}</span>
+          <span className="min-w-0 truncate text-xs text-ink-4">{/* What it runs as now; that not known just now (its kind's name alone: its state between
+              two turns, a limit hit), what its message says it ran as, not the bare kind: the
+              line shortened and the row jumped (kumo, 2026-11-25). */}
+            {now?.name && !(a.name && a.name.length > now.name.length && now.name === agentName(now.agent)) ? now.name : a.name}</span>
           {now && bars(now.session)}
           <When time={msgs[0]?.time} />
         </div>

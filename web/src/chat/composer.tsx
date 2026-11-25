@@ -182,6 +182,14 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
   const [caret, setCaret] = useState<number | null>(null);
   const box = useRef<HTMLTextAreaElement>(null);
   const picker = useRef<HTMLInputElement>(null);
+  // The system's chooser asked for once: not again within a moment of its being asked for, nor of
+  // its answer (kumo, 2026-11-25: on Android two of them came up, one over the other).
+  const pickedAt = useRef(0);
+  const pickFiles = () => {
+    if (Date.now() - pickedAt.current < 800) return;
+    pickedAt.current = Date.now();
+    picker.current?.click();
+  };
   // What @ may name: each is one piece in the box, as a session named is (kumo, 2026-11-21).
   const nameKey = [...(nicks ?? []).map((a) => a.nick), ...(people ?? []).map((p) => p.nick)].join("\n");
   const hasEveryone = multi || (nicks !== undefined && ((nicks.length + (people?.length ?? 0)) > 1));
@@ -550,12 +558,13 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
           multiple
           hidden
           onChange={(e) => {
+            pickedAt.current = Date.now();
             attach([...(e.target.files ?? [])]);
             e.target.value = "";
           }}
         />
         {!noFiles && (
-          <IconKey label={t("composer.attach")} onClick={() => picker.current?.click()}>
+          <IconKey label={t("composer.attach")} onClick={pickFiles}>
             <Paperclip size={17} />
           </IconKey>
         )}

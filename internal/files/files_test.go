@@ -543,3 +543,27 @@ func TestImageSize(t *testing.T) {
 		t.Errorf("text has a size: %+v", f)
 	}
 }
+
+// A lossy WebP's white is white in its smaller version, not the 235 its narrow range has it at.
+func TestWebpTones(t *testing.T) {
+	y := image.NewYCbCr(image.Rect(0, 0, 4, 4), image.YCbCrSubsampleRatio420)
+	for i := range y.Y {
+		y.Y[i] = 235
+	}
+	for i := range y.Cb {
+		y.Cb[i], y.Cr[i] = 128, 128
+	}
+	got := webpTones(y, "webp").(*image.NRGBA).NRGBAAt(1, 1)
+	if got.R != 255 || got.G != 255 || got.B != 255 || got.A != 255 {
+		t.Fatalf("white = %v", got)
+	}
+	for i := range y.Y {
+		y.Y[i] = 16
+	}
+	if got := webpTones(y, "webp").(*image.NRGBA).NRGBAAt(1, 1); got.R != 0 || got.G != 0 || got.B != 0 {
+		t.Fatalf("black = %v", got)
+	}
+	if webpTones(y, "jpeg") != image.Image(y) {
+		t.Fatal("a JPEG is left as it is")
+	}
+}

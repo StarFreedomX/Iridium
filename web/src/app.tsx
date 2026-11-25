@@ -32,7 +32,7 @@ import { Pager, TABS_H } from "./pager";
 import { atLeft, GRIP, PULL, Sheet } from "./sheet";
 import { HeadKeys, Sidebar } from "./sidebar";
 import { useConfirms, useList } from "./store";
-import { follow } from "./stream";
+import { follow, opened } from "./stream";
 import { ToastList, toasts } from "./toast";
 import { buildTree, flat, FOLD_STEP } from "./tree";
 import { usePlaces } from "./reorder";
@@ -115,6 +115,11 @@ const loadPanels = () => {
 // whole as it opens, nothing pushed in after (docs/前端设计规范.md "后到的不撑开").
 // The settings' own page and what it draws too, not after every later file has come (a slow link
 // took seconds for those): the me key's dialog opens at its height, not the room's and then its own.
+// The quota asked again as the page is come back to and as its stream opens again (kumo,
+// 2026-11-25: back after a while it showed the old windows, full ones still red, for up to a
+// minute; asked each minute only while the page is in front).
+if (typeof document !== "undefined") document.addEventListener("visibilitychange", () => !document.hidden && void queryClient.invalidateQueries({ queryKey: quotaQ.queryKey }));
+opened.add(() => void queryClient.invalidateQueries({ queryKey: quotaQ.queryKey }));
 void settled().then(() => (prefetchRoles(), movesAhead(), void queryClient.prefetchQuery(agentsQ), void queryClient.prefetchQuery(quotaQ), void SettingsPage.load().catch(() => {}), void queryClient.prefetchQuery({ ...selfQ, staleTime: 30_000 })));
 // The device's own cache: its worker, its sweeps (device/boot.ts), after the first screen.
 void settled().then(() => import("./device/boot"));

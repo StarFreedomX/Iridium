@@ -169,7 +169,21 @@ body,
 html,
 body {
   overflow: hidden;
-  overscroll-behavior: none;
+  /* Sideways alone: down, the browser's own pull to refresh stays (kumo, 2026-11-25: it was
+     gone with both). */
+  overscroll-behavior-x: none;
+}
+/* A menu is never taller than the room it has (Base UI's --available-height, on its positioner):
+   on a short window (an unfolded phone, its keys' bar over the page) one with many rows went out
+   of the window's top (kumo, 2026-11-25). Its rows scroll in it, with no bar. One with a height
+   of its own keeps it (the utilities are a later layer). */
+[role="menu"] {
+  max-height: var(--available-height);
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+[role="menu"]::-webkit-scrollbar {
+  display: none;
 }
 body {
   margin: 0;
