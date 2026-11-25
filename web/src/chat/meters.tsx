@@ -440,7 +440,7 @@ export function ModeKey({ mode, open, onOpenChange }: { mode: ReturnType<typeof 
           <Menu.Popup finalFocus={false} className="g-unfold glass thick float min-w-52 rounded-lg p-1.5 text-ink outline-none">
             <Menu.RadioGroup value={mode.now} onValueChange={(v) => void mode.set(v as string)} className="g-stagger flex flex-col">
               {mode.modes.map((m, i) => (
-                <Menu.RadioItem key={m.id} value={m.id} closeOnClick style={{ "--i": i } as CSSProperties} className="flex h-8 cursor-default items-center gap-2.5 rounded-md pr-2 pl-2.5 text-base outline-none select-none data-highlighted:bg-fill pointer-coarse:h-11">
+                <Menu.RadioItem key={m.id} value={m.id} closeOnClick style={{ "--i": i } as CSSProperties} className="flex h-8 cursor-default items-center gap-2.5 rounded-md pr-2 pl-2.5 text-base outline-none select-none data-highlighted:bg-fill pointer-coarse:h-9">
                   <ModeMark agent={mode.agent} id={m.id} size={16} className="shrink-0 text-ink-3" />
                   <span className="flex-1">{modeName(m)}</span>
                   <Menu.RadioItemIndicator className="text-ink">

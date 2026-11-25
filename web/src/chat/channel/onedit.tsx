@@ -17,7 +17,7 @@ import { triggerWords, useRecvName, useRecvOptions } from "./recv";
 import { dailyCron, EVENTS, triggerLine } from "./scripts";
 
 const POPUP = "g-unfold glass thick float rounded-lg p-1.5 text-ink outline-none";
-const ITEM = "flex h-8 cursor-default items-center gap-2.5 rounded-md px-2.5 text-base outline-none select-none data-highlighted:bg-fill data-popup-open:bg-fill pointer-coarse:h-11";
+const ITEM = "flex h-8 cursor-default items-center gap-2.5 rounded-md px-2.5 text-base outline-none select-none data-highlighted:bg-fill data-popup-open:bg-fill pointer-coarse:h-9";
 const ROW = "flex min-h-7 items-center gap-1 text-sm leading-5";
 const INPUT = "no-ring h-7 min-w-0 flex-1 rounded-md bg-fill px-2 text-sm placeholder:text-ink-3";
 

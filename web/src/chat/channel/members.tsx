@@ -36,7 +36,7 @@ import { fromOf, hasMore, recvLabel, toggle, withFrom } from "./scripts";
 import { CARD_POP, ProfileCard, type CardKey } from "./profilecard";
 import { Deeper, Paged } from "./pages";
 
-const ITEM = "flex h-8 cursor-default items-center gap-2.5 rounded-md px-2.5 text-base outline-none select-none data-highlighted:bg-fill data-popup-open:bg-fill pointer-coarse:h-11";
+const ITEM = "flex h-8 cursor-default items-center gap-2.5 rounded-md px-2.5 text-base outline-none select-none data-highlighted:bg-fill data-popup-open:bg-fill pointer-coarse:h-9";
 const POPUP = "g-unfold glass thick float rounded-lg text-ink outline-none";
 const BUSY = new Set(["running", "compacting", "starting", "waiting"]);
 

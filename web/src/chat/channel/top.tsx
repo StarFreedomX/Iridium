@@ -192,7 +192,7 @@ function MemberList({ id, viewers, ask, script }: { id: string; viewers: Viewer[
         <>
           <div className={HEAD}>{t("channel.viewing")}</div>
           {viewers.map((v) => (
-            <div key={v.member} className="flex h-8 items-center gap-2.5 px-2.5 text-base pointer-coarse:h-11">
+            <div key={v.member} className="flex h-8 items-center gap-2.5 px-2.5 text-base pointer-coarse:h-9">
               <MemberFace member={v.member} name={v.name} size={18} />
               <span className="min-w-0 flex-1 truncate">{v.name}</span>
             </div>

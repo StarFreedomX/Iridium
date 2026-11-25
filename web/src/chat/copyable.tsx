@@ -17,7 +17,7 @@ import type { Act } from "./react";
 export const acts: { Top?: ComponentType<{ act: Act }>; Foot?: ComponentType<{ act: Act }>; Under?: ComponentType<{ act: Act }> } = {};
 
 const ITEM =
-  "flex h-8 cursor-default items-center gap-2.5 rounded-md px-2.5 text-base outline-none select-none data-highlighted:bg-fill pointer-coarse:h-11";
+  "flex h-8 cursor-default items-center gap-2.5 rounded-md px-2.5 text-base outline-none select-none data-highlighted:bg-fill pointer-coarse:h-9";
 
 /** children with 复制 (copy) in a menu of their own, and 引用 (quote) first given quote; with
  *  nothing to copy, children alone. */

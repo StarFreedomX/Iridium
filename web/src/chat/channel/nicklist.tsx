@@ -23,7 +23,7 @@ export function NickList({ open, rows, at, pick, point }: { open: boolean; rows:
             onPointerMove={() => i === at || point(i)}
             onClick={() => pick(r)}
             style={{ "--i": i } as CSSProperties}
-            className={cn("flex h-8 w-full shrink-0 cursor-default items-center gap-2.5 rounded-md px-2.5 text-left text-base outline-none select-none pointer-coarse:h-11", i === at && "bg-fill")}
+            className={cn("flex h-8 w-full shrink-0 cursor-default items-center gap-2.5 rounded-md px-2.5 text-left text-base outline-none select-none pointer-coarse:h-9", i === at && "bg-fill")}
           >
             {/* The names that call more than one: a mark of their own, no logo (the user, 2026-11-13). */}
             {r.member === "*" ? <Users size={14} className="shrink-0 text-ink-2" /> : r.member === "agent:*" ? <Bot size={14} className="shrink-0 text-ink-2" /> : r.person ? <Avatar src={r.avatar} name={r.nick} size={14} /> : <Face id={r.session} agent={r.agent} size={14} />}

@@ -125,7 +125,7 @@ function Decide({ a, cwd, busy, send }: { a: Ask; cwd: string; busy: boolean; se
                   <MenuPortal>
                     <Menu.Positioner side="top" align="end" sideOffset={6} collisionPadding={8} className="z-50">
                       <Menu.Popup className="g-unfold glass thick float rounded-lg p-1.5 text-ink outline-none">
-                        <Menu.Item onClick={() => send({ option: "always" })} className="flex h-8 cursor-default items-center gap-2.5 rounded-md px-2.5 text-base outline-none data-highlighted:bg-fill pointer-coarse:h-11">
+                        <Menu.Item onClick={() => send({ option: "always" })} className="flex h-8 cursor-default items-center gap-2.5 rounded-md px-2.5 text-base outline-none data-highlighted:bg-fill pointer-coarse:h-9">
                           {t("ask.always")}
                           {a.pattern && <span className="font-mono text-xs text-ink-3">{a.pattern}</span>}
                         </Menu.Item>

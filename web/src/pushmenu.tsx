@@ -55,7 +55,7 @@ function setRule(qc: QueryClient, st: PushState, r: PushRule) {
   );
 }
 
-const ITEM = "flex h-8 cursor-default items-center gap-2.5 rounded-md px-2.5 text-base outline-none select-none data-highlighted:bg-fill data-disabled:opacity-40 pointer-coarse:h-11";
+const ITEM = "flex h-8 cursor-default items-center gap-2.5 rounded-md px-2.5 text-base outline-none select-none data-highlighted:bg-fill data-disabled:opacity-40 pointer-coarse:h-9";
 
 /** The choices of one level: 跟随上级 (with what that is, faint), 开, 关; under them its events,
  *  ticked as they now are, to be changed only while it is 开. i: where the menu's stagger is. */
@@ -118,7 +118,7 @@ export function PushSubmenu({ st, levels, i }: { st: PushState; levels: PushLeve
   const own = ruleAt(st, levels[0]!);
   return (
     <Menu.SubmenuRoot>
-      <Menu.SubmenuTrigger style={{ "--i": i } as CSSProperties} className="flex h-8 cursor-default items-center gap-2.5 rounded-md px-2.5 text-base outline-none select-none data-highlighted:bg-fill data-popup-open:bg-fill pointer-coarse:h-11">
+      <Menu.SubmenuTrigger style={{ "--i": i } as CSSProperties} className="flex h-8 cursor-default items-center gap-2.5 rounded-md px-2.5 text-base outline-none select-none data-highlighted:bg-fill data-popup-open:bg-fill pointer-coarse:h-9">
         <span className="text-ink-2">{on ? <Bell size={15} /> : <BellOff size={15} />}</span>
         <span className="flex-1">{t("push.menu")}</span>
         {own && <span className="text-xs text-ink-3">{own.mode === "on" ? t("push.on") : t("push.off")}</span>}

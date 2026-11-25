@@ -701,7 +701,7 @@ function AtList({ open, sections, at, pick, point }: { open: boolean; sections: 
                   onPointerMove={() => r.off || on || point(idx)}
                   onClick={() => r.off || pick(r)}
                   style={{ "--i": n++ } as CSSProperties}
-                  className={cn("flex h-8 w-full shrink-0 cursor-default items-center gap-2.5 rounded-md px-2.5 text-left text-base outline-none select-none pointer-coarse:h-11", on && "bg-fill", r.off && "opacity-50")}
+                  className={cn("flex h-8 w-full shrink-0 cursor-default items-center gap-2.5 rounded-md px-2.5 text-left text-base outline-none select-none pointer-coarse:h-9", on && "bg-fill", r.off && "opacity-50")}
                 >
                   {r.kind === "session" ? (
                     <>
@@ -787,7 +787,7 @@ function Palette({ open, list, at, agent, grouped, pick, point }: { open: boolea
                 onPointerMove={() => i === at || point(i)}
                 onClick={() => pick(c)}
                 style={{ "--i": i } as CSSProperties}
-                className={cn("flex h-8 w-full shrink-0 cursor-default items-center gap-2.5 rounded-md px-2.5 text-left text-base outline-none select-none pointer-coarse:h-11", i === at && "bg-fill")}
+                className={cn("flex h-8 w-full shrink-0 cursor-default items-center gap-2.5 rounded-md px-2.5 text-left text-base outline-none select-none pointer-coarse:h-9", i === at && "bg-fill")}
               >
                 {Icon && <Icon size={15} className="shrink-0 text-ink-2" aria-hidden />}
                 {c.script && <ScriptFace size={15} />}

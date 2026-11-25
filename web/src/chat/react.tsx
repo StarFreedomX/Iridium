@@ -27,7 +27,7 @@ export { reactionLine, recalls } from "./reactions";
  *  bubble with a face beside it (left, right), its reactions under the bubble. */
 export type Act = { channel: string; seq?: number; key?: BlockOf; may: boolean; side?: "left" | "right" };
 
-const ITEM = "flex h-8 cursor-default items-center gap-2.5 rounded-md px-2.5 text-base outline-none select-none data-highlighted:bg-fill pointer-coarse:h-11";
+const ITEM = "flex h-8 cursor-default items-center gap-2.5 rounded-md px-2.5 text-base outline-none select-none data-highlighted:bg-fill pointer-coarse:h-9";
 const POPUP = "g-unfold glass thick float rounded-lg text-ink outline-none";
 
 /** act's number, as given or as its block is known; and what the server is to be told it is by. */
@@ -174,7 +174,7 @@ function Chip({ r, on, press }: { r: ReactionSum; on: boolean; press?: () => voi
           {r.emoji} {r.count}
         </div>
         {r.users.map((u) => (
-          <div key={u.id} className="flex h-8 items-center gap-2.5 px-2.5 text-base pointer-coarse:h-11">
+          <div key={u.id} className="flex h-8 items-center gap-2.5 px-2.5 text-base pointer-coarse:h-9">
             <ReactorFace u={u} />
             <span className="min-w-0 flex-1 truncate">{u.name || u.id}</span>
           </div>

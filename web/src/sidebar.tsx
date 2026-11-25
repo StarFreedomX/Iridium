@@ -1267,7 +1267,7 @@ export function MenuItems({ lead = [], items, tags, children, foot, label, final
     const red = !!it.sure && armed === it.label;
     const props = {
       style: { "--i": i } as CSSProperties,
-      className: cn("flex h-8 cursor-default items-center gap-2.5 rounded-md px-2.5 text-base outline-none select-none data-highlighted:bg-fill pointer-coarse:h-11", red && "text-err"),
+      className: cn("flex h-8 cursor-default items-center gap-2.5 rounded-md px-2.5 text-base outline-none select-none data-highlighted:bg-fill pointer-coarse:h-9", red && "text-err"),
     };
     const label = (
       <>

@@ -41,7 +41,7 @@ function Points({ fig }: { fig: Fig }) {
   return null;
 }
 
-export const ITEM = "flex h-8 cursor-default items-center gap-2.5 rounded-md px-2.5 text-base outline-none select-none data-highlighted:bg-fill data-popup-open:bg-fill pointer-coarse:h-11";
+export const ITEM = "flex h-8 cursor-default items-center gap-2.5 rounded-md px-2.5 text-base outline-none select-none data-highlighted:bg-fill data-popup-open:bg-fill pointer-coarse:h-9";
 export const POPUP = "g-unfold glass thick float rounded-lg text-ink outline-none";
 
 /** How many agents a channel holds (internal/server MaxAgents). */

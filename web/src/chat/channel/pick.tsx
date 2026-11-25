@@ -35,7 +35,7 @@ export function DraftModels({ agent, at, model, effort, preset, set }: { agent: 
       <div className="mt-1 flex shrink-0 flex-col border-t border-(--edge) pt-1">
         <div className="truncate px-2.5 pb-0.5 text-xs text-ink-3 select-none">{t("composer.preset")}</div>
         {presets.map((p) => (
-          <button key={p.id} type="button" onClick={() => set({ preset: p.id === asked?.presets?.default ? "" : p.id })} className="flex h-8 w-full cursor-default items-center gap-2.5 rounded-md px-2.5 text-left text-base outline-none select-none hover:bg-fill focus-visible:bg-fill pointer-coarse:h-11">
+          <button key={p.id} type="button" onClick={() => set({ preset: p.id === asked?.presets?.default ? "" : p.id })} className="flex h-8 w-full cursor-default items-center gap-2.5 rounded-md px-2.5 text-left text-base outline-none select-none hover:bg-fill focus-visible:bg-fill pointer-coarse:h-9">
             <span className="min-w-0 flex-1 truncate">{presetName(p.id, p)}</span>
             {p.id === now && <Check size={14} className="text-ink" />}
           </button>

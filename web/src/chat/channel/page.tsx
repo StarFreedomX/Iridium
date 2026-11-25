@@ -570,7 +570,7 @@ export function ReadMarks({ readers, agents }: { readers: Reader[]; agents: Agen
       <PopSurface align="end" className="no-bar max-h-[min(360px,var(--available-height))] min-w-44 overflow-y-auto p-1.5">
         <div className="truncate px-2.5 pt-1 pb-0.5 text-xs text-ink-3">{t("channel.read")}</div>
         {readers.map((r) => (
-          <div key={r.member} className="flex h-8 items-center gap-2.5 px-2.5 text-base pointer-coarse:h-11">
+          <div key={r.member} className="flex h-8 items-center gap-2.5 px-2.5 text-base pointer-coarse:h-9">
             {face(r, 20)}
             <span className="min-w-0 flex-1 truncate">{nameOf(r)}</span>
           </div>
