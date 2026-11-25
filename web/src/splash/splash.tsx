@@ -9,6 +9,7 @@ import { cn, PHONE, useMedia } from "../ui";
 import { splash, type Splash as Engine } from "./engine";
 import { justMade } from "../chat/channel/adding";
 import { onPoint, pointedAt, powerNow, stage, stagedNow, STANDARD, type Fig } from "./figure";
+import { useHomePicture, useHomeStyle } from "./style";
 
 
 const MASK = "linear-gradient(to right, transparent, #000 10%, #000 90%, transparent)";
@@ -22,7 +23,11 @@ export function Splash({ show = true, fig = null, scene = "", className }: { sho
   const still = useMedia("(prefers-reduced-motion: reduce)");
   const cv = useRef<HTMLCanvasElement>(null);
   const eng = useRef<Engine | null>(null);
-  const now = show ? (pointed ?? fig) : fig;
+  // What the settings ask it to draw (主页): Iridium's letters alone, one's own picture alone, or
+  // the faces (the agent pointed at, the channel's own) as they come.
+  const style = useHomeStyle();
+  const picture = useHomePicture();
+  const now = style === "ir" ? null : style === "own" && picture ? { key: `own:${picture.length}:${picture.slice(-24)}`, src: picture } : show ? (pointed ?? fig) : fig;
   const power = useSyncExternalStore(onPoint, powerNow);
   // The portrait layout with the + panel there: the band under the panel, over the composer.
   const phone = useMedia(PHONE);
@@ -51,11 +56,12 @@ export function Splash({ show = true, fig = null, scene = "", className }: { sho
       const h = ph ? Math.min(460, Math.max(260, pane * 0.56)) : Math.min(420, Math.max(220, pane * 0.46));
       const box = composer()?.firstElementChild ?? composer();
       const top = box ? box.getBoundingClientRect().top - el.getBoundingClientRect().top : pane - 76;
-      // Low in the pane, the figure standing on the composer: the lowest edge of what it draws
-      // (Ir's letters' foot) just over the composer's top (kumo, 2026-11-25: as on a line).
-      e.window(top - h / 2 + 28, h);
+      // In the portrait layout low in the pane, the figure standing on the composer: the lowest
+      // edge of what it draws (Ir's letters' foot) just over the composer's top, as on a line. On a
+      // computer in the middle of what is over the composer (kumo, 2026-11-25).
+      e.window(ph ? top - h / 2 + 28 : (48 + top) / 2, h);
       e.place(ph ? w / 2 : -1, ph ? Math.min(w * 0.94, h * 0.98) : Math.min(h * 0.92, w * 0.7));
-      e.foot(top - 6);
+      e.foot(ph ? top - 6 : -1);
     };
     fitRef.current = fit;
     fit();
@@ -127,6 +133,9 @@ export function ChannelSplash({ id, show: blank, last, agents }: { id: string; s
  *  none (a session's record). */
 export function PaneSplash({ open, off }: { open?: string; off?: boolean }) {
   const st = useSyncExternalStore(onPoint, stagedNow);
+  const style = useHomeStyle();
   const mine = open && st?.id === open ? st : null;
+  // 主页 无: none drawn at all.
+  if (style === "none") return null;
   return <Splash show={!off && (!open || (mine ? mine.show : justMade(open)))} fig={mine?.fig ?? null} scene={open ?? ""} />;
 }

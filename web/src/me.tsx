@@ -3,8 +3,9 @@
 // its profile and every setting, one panel for both (the user, 2026-11-07). Local-only with no
 // Passkey, it is 本机. Also the bits the panel and the pages share: the theme, the language, the
 // segmented control, 本机's mark.
-import { Monitor, Moon, Sun } from "lucide-react";
-import { useEffect, type ReactNode } from "react";
+import { Ban, ImagePlus, Monitor, Moon, Sun, UserRound } from "lucide-react";
+import { useEffect, useRef, type ReactNode } from "react";
+import { HOME_STYLES, setHomePicture, setHomeStyle, useHomePicture, useHomeStyle, type HomeStyle } from "./splash/style";
 import type { Me } from "./api/types.gen";
 import { api, queryClient } from "./api/client";
 import { LOCAL_ME, useMe, useSettings } from "./data";
@@ -110,6 +111,22 @@ export function ThemeSwitch({ theme, setTheme }: { theme: ThemePref; setTheme: (
         { v: "auto", label: t("me.auto"), icon: <Monitor size={15} /> },
       ]}
     />
+  );
+}
+
+/** 主页 (kumo, 2026-11-25): what the home pane's splash draws: none, Iridium's letters, the faces
+ *  as they come, or one's own picture; that one pressed with none chosen yet, or pressed again,
+ *  asks for a picture. Kept on this device. */
+export function HomeSwitch() {
+  const style = useHomeStyle();
+  const picture = useHomePicture();
+  const file = useRef<HTMLInputElement>(null);
+  const icon: Record<HomeStyle, ReactNode> = { none: <Ban size={15} />, ir: <IrMark size={15} />, face: <UserRound size={15} />, own: picture ? <img src={picture} alt="" className="size-[15px] rounded-full object-cover" /> : <ImagePlus size={15} /> };
+  return (
+    <>
+      <Segmented label={t("me.home")} value={style} onChange={(v) => (v === "own" && (!picture || style === "own") ? file.current?.click() : setHomeStyle(v as HomeStyle))} items={HOME_STYLES.map((v) => ({ v, label: t(`home.${v}`), icon: icon[v] }))} />
+      <input ref={file} type="file" accept="image/*" hidden onChange={(e) => (e.target.files?.[0] && void setHomePicture(e.target.files[0]), (e.target.value = ""))} />
+    </>
   );
 }
 

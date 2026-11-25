@@ -552,6 +552,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
       if (still || px < 0 || settling()) return settle();
       kick();
     },
+    // y -1: none (the figure in the window's middle).
     foot(y) {
       if (Math.abs(y - footT) < 1) return;
       footT = y;
