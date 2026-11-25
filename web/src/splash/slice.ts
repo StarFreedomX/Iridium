@@ -32,7 +32,8 @@ export type Env = {
   over(): void;
 };
 
-type Thing = { s: Sprite; bomb: boolean; x: number; y: number; vx: number; vy: number; cut: number; dx: number; up: boolean };
+/** ux, uy: the way the stroke that cut it went. */
+type Thing = { s: Sprite; bomb: boolean; x: number; y: number; vx: number; vy: number; cut: number; dx: number; up: boolean; ux: number; uy: number };
 const FALL = 560; // px a second each second
 // Digits, three cells by five, a bit a cell from the upper left.
 const FONT = [0x7b6f, 0x2c97, 0x73e7, 0x73cf, 0x5bc9, 0x79cf, 0x79ef, 0x7249, 0x7bef, 0x7bcf];
@@ -65,22 +66,26 @@ export function slicer(E: Env) {
       if (made !== sig) return;
       if (m) small.push(m);
     }
-    const b = await E.sprite(null, px * 0.8).catch(() => null);
+    const b = await E.sprite(null, px).catch(() => null);
     if (made !== sig) return;
     faces = got;
     marks = small;
     bomb = b;
   };
 
-  const stamp = (s: Sprite, x: number, y: number, from = 0, to = s.w) => {
-    const cw = E.cw(), cols = E.cols(), rows = E.rows(), r0 = Math.round((y - (s.h * E.row) / 2) / E.row);
+  /** side: 0 all of it; 1, -1: the half of it to that side of the line through its middle that
+   *  goes the way (ux, uy). */
+  const stamp = (s: Sprite, x: number, y: number, side = 0, ux = 0, uy = 0) => {
+    const cw = E.cw(), ROW = E.row, cols = E.cols(), rows = E.rows(), r0 = Math.round((y - (s.h * ROW) / 2) / ROW);
     for (let sr = 0; sr < s.h; sr++) {
       const r = r0 + sr;
       if (r < 0 || r >= rows) continue;
-      const k0 = Math.floor((x - (s.w * cw) / 2) / cw + E.frac(r) + 0.5);
-      for (let sc = from; sc < to; sc++) {
+      const k0 = Math.floor((x - (s.w * cw) / 2) / cw + E.frac(r) + 0.5), oy = (sr + 0.5 - s.h / 2) * ROW;
+      for (let sc = 0; sc < s.w; sc++) {
         const c = s.px[sr * s.w + sc]!, k = k0 + sc;
-        if (c && k >= 0 && k < cols) E.put(r * cols + k, c);
+        if (!c || k < 0 || k >= cols) continue;
+        if (side && ((sc + 0.5 - s.w / 2) * cw * uy - oy * ux) * side < 0) continue;
+        E.put(r * cols + k, c);
       }
     }
   };
@@ -109,7 +114,7 @@ export function slicer(E: Env) {
     const s = isBomb ? bomb! : from[(Math.random() * from.length) | 0];
     if (!s) return;
     const x = W * (0.14 + Math.random() * 0.72), rise = (bot - top) * (0.55 + Math.random() * 0.3);
-    things.push({ s, bomb: isBomb, x, y: bot + size() * 0.7, vx: (W / 2 - x) * (0.25 + Math.random() * 0.5), vy: -Math.sqrt(2 * FALL * (rise + size())), cut: 0, dx: 0, up: false });
+    things.push({ s, bomb: isBomb, x, y: bot + size() * 0.7, vx: (W / 2 - x) * (0.25 + Math.random() * 0.5), vy: -Math.sqrt(2 * FALL * (rise + size())), cut: 0, dx: 0, up: false, ux: 1, uy: 0 });
   };
   const end = () => {
     if (endAt) return;
@@ -151,8 +156,10 @@ export function slicer(E: Env) {
         q.cut = T || 1;
         score++;
         E.burst(q.x, q.y, 5, 170, 20, false);
-        // The cut itself: a line of light through it, the way the stroke went.
+        // The cut itself: a line of light through it, the way the stroke went; its halves part
+        // to either side of that line.
         const L = Math.sqrt(L2);
+        (q.ux = dx / L), (q.uy = dy / L);
         slashes.push({ x: q.x, y: q.y, dx: (dx / L) * rad * 1.7, dy: (dy / L) * rad * 1.7, t: T });
         if (slashes.length > 6) slashes.shift();
       }
@@ -176,7 +183,7 @@ export function slicer(E: Env) {
         q.vy += FALL * dt;
         q.x += q.vx * dt;
         q.y += q.vy * dt;
-        if (q.cut) q.dx += 150 * dt;
+        if (q.cut) q.dx += 110 * dt;
         if (q.y < bot) q.up = true;
         if (q.y > far && q.vy > 0) {
           things.splice(i, 1);
@@ -191,10 +198,10 @@ export function slicer(E: Env) {
       for (const q of things) {
         if (!q.cut) stamp(q.s, q.x, q.y);
         else if (!q.bomb) {
-          // Its two halves, apart.
-          const half = q.s.w >> 1;
-          stamp(q.s, q.x - q.dx, q.y, 0, half);
-          stamp(q.s, q.x + q.dx, q.y + q.dx * 0.25, half, q.s.w);
+          // Its two halves, each to its own side of the cut (kumo, 2026-11-26: cut the way the
+          // stroke went, not always upright).
+          stamp(q.s, q.x + q.uy * q.dx, q.y - q.ux * q.dx, 1, q.ux, q.uy);
+          stamp(q.s, q.x - q.uy * q.dx, q.y + q.ux * q.dx, -1, q.ux, q.uy);
         }
       }
       // The blade: where the stroke has just been, widest and brightest at its point, to nothing

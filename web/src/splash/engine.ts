@@ -554,11 +554,15 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
       const css = inkNow();
       if (!who) {
         // Iridium's own mark, on its rounded square (ui.tsx IrMark): the one not to be cut.
-        cg.fillStyle = dark ? "#f4f4f4" : "#111";
+        // A block of one colour, white on a dark page and black on a light one, the letters cut
+        // out of it: what is not to be cut is to be plain to see (kumo, 2026-11-26).
+        cg.fillStyle = dark ? "#fff" : "#000";
         cg.beginPath();
-        cg.roundRect(SRC * 0.06, SRC * 0.06, SRC * 0.88, SRC * 0.88, SRC * 0.2);
+        cg.roundRect(SRC * 0.03, SRC * 0.03, SRC * 0.94, SRC * 0.94, SRC * 0.2);
         cg.fill();
+        cg.globalCompositeOperation = "destination-out";
         letters(cg, css);
+        cg.globalCompositeOperation = "source-over";
       } else if (face) {
         const m = Math.min(face.naturalWidth, face.naturalHeight);
         cg.beginPath();
