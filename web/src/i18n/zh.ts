@@ -978,6 +978,19 @@ export const zh = {
   "app.computerName": "这台电脑",
   "app.runLocal": "在本机运行 Iridium",
   "app.run": "运行",
+
+  "game.move": "移动：躲避",
+  "game.hold": "按住：攻击，防御降至 1/3",
+  "game.zig": "画折线：爆破",
+  "game.win": "胜利",
+  "game.lose": "失败",
+  "game.stream": "流式输出",
+  "game.echo": "回声",
+  "game.parallel": "并行调用",
+  "game.think": "深度思考",
+  "game.sub": "子代理",
+  "game.flow": "Workflow",
+  "game.compact": "上下文压缩",
 } as const;
 
 export type Key = keyof typeof zh;
