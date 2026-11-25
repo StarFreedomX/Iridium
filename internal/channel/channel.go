@@ -781,13 +781,13 @@ func Given(text string) bool {
 // isOtherChannelInput reports whether a user block in session's own transcript was actually
 // delivered from another channel (e.g. a brief same-channel turn with no <channel-context> block).
 func (s *Service) isOtherChannelInput(session, input, text string) bool {
+	if !strings.HasPrefix(text, "#") {
+		return false
+	}
 	if input != "" {
 		if in, ok := s.st.InjectionOf(session, input); ok && in.Channel != "" && in.Channel != session {
 			return true
 		}
-	}
-	if !strings.HasPrefix(text, "#") {
-		return false
 	}
 	rows, err := s.st.Injections(session, 20)
 	if err != nil {
@@ -1069,7 +1069,13 @@ func (s *Service) Begin(session, text string, writing bool, after, pre int64) (m
 	// What its record has before these words (what it was asked, typed in its terminal or as a
 	// new session's first message) comes before them.
 	s.Touch(session)
-	defer s.lock(session)()
+	unlock := s.lock(session)
+	unlocked := false
+	defer func() {
+		if !unlocked {
+			unlock()
+		}
+	}()
 	author := store.AgentMember(session)
 	s.mu.Lock()
 	since := s.since[session]
@@ -1094,6 +1100,9 @@ func (s *Service) Begin(session, text string, writing bool, after, pre int64) (m
 			s.mu.Lock()
 			s.await[session] = append(s.await[session], m.Seq)
 			s.mu.Unlock()
+			unlock()
+			unlocked = true
+			s.notifyList(m)
 			return m, false, nil
 		}
 	}
@@ -1131,14 +1140,18 @@ func (s *Service) words(ch string, seq int64, text string, writing bool) (Messag
 	if err := s.st.SetChannelMessageData(ch, seq, m.D.encode()); err != nil {
 		s.logf("channel %s: message %d: %v", ch, seq, err)
 	}
-	s.notifyList(m)
 	return m, true
 }
 
 // Words is words for a message of another channel than its agent's own (a twin).
 func (s *Service) Words(ch string, seq int64, text string, writing bool) (Message, bool) {
-	defer s.lock(ch)()
-	return s.words(ch, seq, text, writing)
+	unlock := s.lock(ch)
+	m, ok := s.words(ch, seq, text, writing)
+	unlock()
+	if ok {
+		s.notifyList(m)
+	}
+	return m, ok
 }
 
 // Forget takes message seq of ch away as one never said (a message made as a turn began, of a
@@ -1151,9 +1164,10 @@ func (s *Service) Forget(ch string, seq int64) {
 
 // Wrote: message seq of channel ch is written whole, text its words.
 func (s *Service) Wrote(ch string, seq int64, text string) (Message, bool) {
-	defer s.lock(ch)()
+	unlock := s.lock(ch)
 	m, ok := s.Get(ch, seq)
 	if !ok {
+		unlock()
 		return Message{}, false
 	}
 	if m.Text != text {
@@ -1168,6 +1182,7 @@ func (s *Service) Wrote(ch string, seq int64, text string) (Message, bool) {
 			s.logf("channel %s: message %d: %v", ch, seq, err)
 		}
 	}
+	unlock()
 	s.notifyList(m)
 	return m, true
 }
@@ -1218,9 +1233,10 @@ func (s *Service) first(session string) {
 // Revise changes message seq of channel ch: its words, where text is not nil; its data, by f
 // (nil: as it is); and what it is from, where ref is not "".
 func (s *Service) Revise(ch string, seq int64, text *string, f func(*Data), ref string) (Message, bool) {
-	defer s.lock(ch)()
+	unlock := s.lock(ch)
 	m, ok := s.Get(ch, seq)
 	if !ok {
+		unlock()
 		return Message{}, false
 	}
 	if text != nil && m.Text != *text {
@@ -1245,6 +1261,7 @@ func (s *Service) Revise(ch string, seq int64, text *string, f func(*Data), ref 
 	if err != nil {
 		s.logf("channel %s: message %d: %v", ch, seq, err)
 	}
+	unlock()
 	if text != nil {
 		s.notifyList(m)
 	}
