@@ -272,7 +272,10 @@ export function splash(cv: HTMLCanvasElement, still: boolean): Splash {
     if (dead) return;
     // Only flowing: every other frame is enough, half the work.
     if (calm && (odd = !odd)) return kick();
-    const dt = Math.min(50, now - last) / 1000;
+    // The time since the last frame drawn, from the frames' own clock alone: set from outside (a
+    // pointer's move, later than the frame it is in) it came to nothing, and the flow stood still
+    // under a pointer (kumo, 2026-11-25).
+    const dt = Math.max(0, Math.min(50, now - last)) / 1000;
     last = now;
     tick = Math.floor(now / 125);
     // The flow gathers and dies away: its speed goes to what is asked of it, by a part each frame.
@@ -358,7 +361,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean): Splash {
     from = { a: cur.a.slice(), r: cur.r.slice(), g: cur.g.slice(), b: cur.b.slice() };
     const far = Math.hypot(W / 2, H / 2) || 1;
     for (let i = 0; i < wait.length; i++) wait[i] = (Math.hypot(((i % cols) + 0.5) * cw - px, (((i / cols) | 0) + 0.5) * ROW - H / 2) / far) * SPREAD * (0.92 + Math.random() * 0.16);
-    last = t0 = performance.now();
+    t0 = performance.now();
     spreadNow = SPREAD;
     // Faster for a moment as it first comes; a figure changing leaves the flow as it is.
     if (first) flowTo = t0 + 2600;
@@ -450,7 +453,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean): Splash {
       const far = Math.hypot(Math.max(px, W - px), H / 2) || 1;
       for (let i = 0; i < wait.length; i++) wait[i] = (1 - Math.hypot(((i % cols) + 0.5) * cw - px, (((i / cols) | 0) + 0.5) * ROW - H / 2) / far) * SPREAD * 1.5 * (0.92 + Math.random() * 0.16);
       leaving = done;
-      last = t0 = performance.now();
+      t0 = performance.now();
       spreadNow = SPREAD * 1.5;
       flowTo = t0 + 1500;
       kick();
@@ -467,8 +470,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean): Splash {
       pwT = f;
       if (!W) return void (pw = f);
       if (still) return settle();
-      last = performance.now();
-      flowTo = last + 1400;
+      flowTo = performance.now() + 1400;
       kick();
     },
     place(x, side) {
@@ -477,7 +479,6 @@ export function splash(cv: HTMLCanvasElement, still: boolean): Splash {
       most = side;
       if (!W) return;
       if (still || px < 0) return settle();
-      last = performance.now();
       kick();
     },
     near(x, y) {
@@ -489,7 +490,6 @@ export function splash(cv: HTMLCanvasElement, still: boolean): Splash {
           const d = Math.hypot((k + 0.5) * cw - x, (r + 0.5) * ROW - y);
           if (d < NEAR) heat[r * cols + k] = Math.max(heat[r * cols + k]!, (1 - d / NEAR) ** 1.5);
         }
-      last = performance.now();
       kick();
     },
     stop() {
