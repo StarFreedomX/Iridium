@@ -26,14 +26,14 @@ import { LongWords } from "../longwords";
 import { MODEL_POPUP, SessionModels, useModelMenu, useMode } from "../meters";
 import { EditBody } from "./edit";
 import { Face } from "./face";
-import { prefetchEdit, useMembers } from "./gate";
+import { prefetchEdit } from "./gate";
 import { useAhead } from "../../prefetch";
 import { memberError } from "./key";
 import { describeGivenParts, givenKind, givenText, ownAgent, type AgentRow, type DescribedPart, type GivenKind } from "./lib";
 import { memberMenu, type MenuKey } from "./menu";
 import { recvWords, useRecvName, useRecvOptions } from "./recv";
 import { fromOf, hasMore, recvLabel, toggle, withFrom } from "./scripts";
-import { CARD_POP, ProfileCard, useCard, type CardKey } from "./profilecard";
+import { CARD_POP, ProfileCard, type CardKey } from "./profilecard";
 import { Deeper } from "./pages";
 
 const ITEM = "flex h-8 cursor-default items-center gap-2.5 rounded-md px-2.5 text-base outline-none select-none data-highlighted:bg-fill data-popup-open:bg-fill pointer-coarse:h-11";
@@ -123,9 +123,6 @@ export function AgentCard({ channel, a, call, record, may, talk, done }: { chann
 
 function CardOf({ channel, a, call, record, may, talk, done, edit }: Parameters<typeof AgentCard>[0] & { edit: () => void }) {
   const mine = ownAgent(channel, a);
-  // What the members' list has of it at once; the card itself, asked for, as it comes.
-  const row = useMembers(channel)?.members.find((m) => m.session === a.session);
-  const card = useCard(`agent:${a.session}`);
   const qc = useQueryClient();
   const keys: CardKey[] = [];
   if (!mine || (talk && may)) keys.push({ icon: <MessageCircle size={14} />, label: t("channel.talk"), run: () => (done(), mine ? talk?.() : openChat(a.session)) });
@@ -147,7 +144,6 @@ function CardOf({ channel, a, call, record, may, talk, done, edit }: Parameters<
           {sessionStatusText(a)}
         </>
       }
-      background={card?.background ?? row?.background}
       keys={keys}
     />
   );

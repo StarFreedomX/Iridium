@@ -21,29 +21,29 @@ func PersonProfileKey(member string) string { return "u:" + member }
 // RoleProfileKey is the profile key of role id.
 func RoleProfileKey(id string) string { return "r:" + id }
 
-// BackgroundKey is where the background image of the profile under key is kept (avatars).
+// BackgroundKey is where the background image of the profile under key was kept (avatars): no
+// card has a background now (kumo, 2026-11-25); what was kept is taken away with its profile.
 func BackgroundKey(key string) string { return "b:" + key }
 
-// Profile is what is kept of a profile beside its name and its images: Intro, a few words on
-// who it is; Persona, an agent's own words on how it works, for its system prompt alone;
-// Avatar, Background: an emoji or a colour ("#2f4f6f") in place of an image, "" for
-// the image, or none.
+// Profile is what is kept of a profile beside its name and its face's image: Persona, an agent's
+// own words on how it works, for its system prompt alone; Avatar: an emoji or a colour
+// ("#2f4f6f") in place of an image, "" for the image, or none. The table's background column is
+// no longer read or written.
 type Profile struct {
-	Persona    string
-	Avatar     string
-	Background string
+	Persona string
+	Avatar  string
 }
 
 // Profile is the profile kept under key; zero if none.
 func (s *Store) Profile(key string) Profile {
 	var p Profile
-	_ = s.db.QueryRow(`SELECT persona, avatar, background FROM profiles WHERE key = ?`, key).Scan(&p.Persona, &p.Avatar, &p.Background)
+	_ = s.db.QueryRow(`SELECT persona, avatar FROM profiles WHERE key = ?`, key).Scan(&p.Persona, &p.Avatar)
 	return p
 }
 
 // Profiles are the profiles whose keys begin with prefix, by key.
 func (s *Store) Profiles(prefix string) (map[string]Profile, error) {
-	rows, err := s.db.Query(`SELECT key, persona, avatar, background FROM profiles WHERE substr(key, 1, ?) = ?`, len(prefix), prefix)
+	rows, err := s.db.Query(`SELECT key, persona, avatar FROM profiles WHERE substr(key, 1, ?) = ?`, len(prefix), prefix)
 	if err != nil {
 		return nil, err
 	}
@@ -52,7 +52,7 @@ func (s *Store) Profiles(prefix string) (map[string]Profile, error) {
 	for rows.Next() {
 		var k string
 		var p Profile
-		if err := rows.Scan(&k, &p.Persona, &p.Avatar, &p.Background); err != nil {
+		if err := rows.Scan(&k, &p.Persona, &p.Avatar); err != nil {
 			return nil, err
 		}
 		out[k] = p
@@ -66,13 +66,13 @@ func (s *Store) SetProfile(key string, p Profile) error {
 		_, err := s.db.Exec(`DELETE FROM profiles WHERE key = ?`, key)
 		return err
 	}
-	_, err := s.db.Exec(`INSERT INTO profiles (key, persona, avatar, background, at) VALUES (?, ?, ?, ?, ?)
-		ON CONFLICT (key) DO UPDATE SET persona = excluded.persona, avatar = excluded.avatar, background = excluded.background, at = excluded.at`,
-		key, p.Persona, p.Avatar, p.Background, now())
+	_, err := s.db.Exec(`INSERT INTO profiles (key, persona, avatar, at) VALUES (?, ?, ?, ?)
+		ON CONFLICT (key) DO UPDATE SET persona = excluded.persona, avatar = excluded.avatar, at = excluded.at`,
+		key, p.Persona, p.Avatar, now())
 	return err
 }
 
-// CopyProfile makes what is kept under key from (the profile, the face, the background) to's too.
+// CopyProfile makes what is kept under key from (the profile, the face) to's too.
 func (s *Store) CopyProfile(from, to string) error {
 	return s.Tx(func(tx *sql.Tx) error {
 		for _, q := range []struct {
@@ -80,10 +80,9 @@ func (s *Store) CopyProfile(from, to string) error {
 			args []any
 		}{
 			{`DELETE FROM profiles WHERE key = ?`, []any{to}},
-			{`INSERT INTO profiles (key, persona, avatar, background, at) SELECT ?, persona, avatar, background, ? FROM profiles WHERE key = ?`, []any{to, now(), from}},
+			{`INSERT INTO profiles (key, persona, avatar, at) SELECT ?, persona, avatar, ? FROM profiles WHERE key = ?`, []any{to, now(), from}},
 			{`DELETE FROM avatars WHERE key IN (?, ?)`, []any{to, BackgroundKey(to)}},
 			{`INSERT INTO avatars (key, image, version, at) SELECT ?, image, version, ? FROM avatars WHERE key = ?`, []any{to, now(), from}},
-			{`INSERT INTO avatars (key, image, version, at) SELECT ?, image, version, ? FROM avatars WHERE key = ?`, []any{BackgroundKey(to), now(), BackgroundKey(from)}},
 		} {
 			if _, err := tx.Exec(q.q, q.args...); err != nil {
 				return err
@@ -93,7 +92,7 @@ func (s *Store) CopyProfile(from, to string) error {
 	})
 }
 
-// DropProfile takes away what is kept under key: the profile, the face, the background.
+// DropProfile takes away what is kept under key: the profile, the face, a background once kept.
 func (s *Store) DropProfile(key string) error {
 	return s.Tx(func(tx *sql.Tx) error {
 		if _, err := tx.Exec(`DELETE FROM profiles WHERE key = ?`, key); err != nil {

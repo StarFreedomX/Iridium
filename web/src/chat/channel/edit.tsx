@@ -13,10 +13,11 @@ import { ChevronLeft, LoaderCircle, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api } from "../../api/client";
 import { type Agent, type Profile, type ProfilePatch } from "../../api/types.gen";
-import { asDataURL, BannerThumb, FacePick, Field } from "../../facepick";
+import { asDataURL, FacePick, Field } from "../../facepick";
+import { FaceGlow } from "../../glow";
 import { PersonaEditor, PersonaRow } from "../../persona";
 import { t, useLang } from "../../i18n";
-import { AvatarCrop, Crop, Profile as Own, ProfileMore } from "../../profile";
+import { AvatarCrop, Crop, Profile as Own } from "../../profile";
 import { openChat } from "../../route";
 import { useCarried, useList } from "../../store";
 import { errText, toast } from "../../toast";
@@ -81,10 +82,8 @@ export function EditBody({ editing, back, done }: { editing: Editing; back?: () 
     void qc.invalidateQueries({ queryKey: ["members", channel] });
     void qc.invalidateQueries({ queryKey: ["card"] });
   };
-  // A picture chosen for the face, being cropped (in the popover, as a page of it); one for the
-  // background, its strip being chosen, the same way.
+  // A picture chosen for the face, being cropped (in the popover, as a page of it).
   const [picture, setPicture] = useState<string | null>(null);
-  const [banner, setBanner] = useState<string | null>(null);
   // Its persona open whole, as a page of the popover.
   const [persona, setPersona] = useState(false);
   const file = useRef<HTMLInputElement>(null);
@@ -102,24 +101,6 @@ export function EditBody({ editing, back, done }: { editing: Editing; back?: () 
     return (
       <div className="g-slide">
         <Crop src={picture} onCancel={() => setPicture(null)} onDone={cropped} />
-      </div>
-    );
-  if (banner)
-    return (
-      <div className="g-slide">
-        <Crop
-          banner
-          src={banner}
-          onCancel={() => setBanner(null)}
-          onDone={(b) =>
-            void asDataURL(b)
-              .then((v) => save({ background: v }))
-              .then(
-                () => setBanner(null),
-                (e) => toast(t("profile.background"), { error: true, description: memberError(e) }),
-              )
-          }
-        />
       </div>
     );
   if (persona && agent && p)
@@ -149,10 +130,14 @@ export function EditBody({ editing, back, done }: { editing: Editing; back?: () 
         </div>
       ) : (
         <>
-          {/* As its card shows it: the background, the face on its lower edge; the face is the
-              key that changes it. */}
+          {/* As its card shows it: the banner its face's colours, the face on its lower edge; the
+              face is the key that changes it. */}
           <div className="relative mb-9 h-20 rounded-lg bg-fill-2">
-            {p.background && <img key={p.background} src={p.background} alt="" draggable={false} className="g-fade absolute inset-0 size-full rounded-lg object-cover" />}
+            <span className="absolute inset-0 overflow-hidden rounded-lg">
+              <FaceGlow>
+                <Face id={face} agent={kind} size={56} logo={30} channel={!agent} />
+              </FaceGlow>
+            </span>
             <Tip label={t("profile.avatarChange")}>
               <button type="button" aria-label={t("profile.avatarChange")} onClick={() => file.current?.click()} className="group g-press absolute -bottom-7 left-3.5 grid size-[62px] place-items-center rounded-full bg-paper">
                 <span className="relative grid size-14 place-items-center overflow-hidden rounded-full bg-fill">
@@ -182,7 +167,6 @@ export function EditBody({ editing, back, done }: { editing: Editing; back?: () 
             set={(v) => save({ avatar: v })}
             upload={chosen}
           />
-          <FacePick label={t("profile.background")} preview={<BannerThumb src={p.background} />} set={(v) => save({ background: v })} upload={(f) => setBanner(URL.createObjectURL(f))} />
           {session && <RoleRow session={session} role={p.role} name={name || agentName(kind)} again={() => void qc.invalidateQueries({ queryKey: key })} channel={channel} />}
           {session && <OnSection channel={channel} session={session} />}
           {session && <Memories session={session} done={done} />}
@@ -193,7 +177,7 @@ export function EditBody({ editing, back, done }: { editing: Editing; back?: () 
 }
 
 /** 编辑资料 of your own card (a person's): this panel's own profile (profile.tsx: the face a key
- *  that changes it, cropped; the name; the intro, the background), in the same frame. */
+ *  that changes it, cropped; the name), in the same frame. */
 export function SelfEdit({ back }: { back?: () => void }) {
   useLang();
   const [picture, setPicture] = useState<string | null>(null);
@@ -206,7 +190,6 @@ export function SelfEdit({ back }: { back?: () => void }) {
   return (
     <Frame back={back}>
       <Own onPicture={setPicture} />
-      <ProfileMore />
     </Frame>
   );
 }

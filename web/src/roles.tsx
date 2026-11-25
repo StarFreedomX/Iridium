@@ -5,7 +5,6 @@
 // effort for one start, and what a start as one sends. Shown on the
 // "+" (create.tsx), first in a channel's 邀请 (chat/channel/invite.tsx), kept in the settings
 // (rolespage.tsx).
-import { FaceGlow } from "./glow";
 import { keepPreviousData } from "@tanstack/react-query";
 import { useQuery } from "./api/query";
 import { LoaderCircle } from "lucide-react";
@@ -80,23 +79,6 @@ export function RoleFace({ role, size, className }: { role: Role; size: number; 
   return (
     <span className={cn("relative grid shrink-0 place-items-center overflow-hidden rounded-full bg-fill", className)} style={{ width: size, height: size }}>
       {role.avatar && broken !== role.avatar ? <img src={role.avatar} alt="" draggable={false} onError={() => setBroken(role.avatar!)} className="size-full object-cover" /> : <Logo agent={role.agent} size={Math.round(size * 0.64)} />}
-    </span>
-  );
-}
-
-/** A role's background as a banner filling its parent; none: its face, out of focus. */
-export function RoleBanner({ role, className }: { role: Role; className?: string }) {
-  const [broken, setBroken] = useState<string | null>(null);
-  const has = role.background && broken !== role.background;
-  return (
-    <span className={cn("relative block overflow-hidden bg-fill-2", className)}>
-      {has ? (
-        <img src={role.background} alt="" draggable={false} onError={() => setBroken(role.background!)} className="size-full object-cover" />
-      ) : (
-        <FaceGlow>
-          <RoleFace role={role} size={32} />
-        </FaceGlow>
-      )}
     </span>
   );
 }

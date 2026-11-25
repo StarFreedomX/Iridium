@@ -9,11 +9,11 @@ import { useQuery } from "../../api/query";
 import { Check, ChevronLeft, PencilLine, Plus, Users } from "lucide-react";
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { api } from "../../api/client";
-import type { Agent, ChannelMembers, Script, Viewer } from "../../api/types.gen";
+import type { Agent, ChannelMembers, Role, Script, Viewer } from "../../api/types.gen";
 import { agentsQ, isComputer, useApps, useMachines } from "../../data";
 import { t, useLang } from "../../i18n";
 import { useMachine } from "../../machines";
-import { prefetchRoles } from "../../roles";
+import { prefetchRoles, roleStart } from "../../roles";
 import { openChat } from "../../route";
 import { useCarried, useList, useSession } from "../../store";
 import { working } from "../../tree";
@@ -23,7 +23,7 @@ import { openEdit } from "./editing";
 import { Face, MemberFace } from "./face";
 import { ContextMark } from "../meters";
 import { mayAct, useMembers } from "./gate";
-import { AddAgents, ITEM, KindPage, POPUP } from "./invite";
+import { AddAgents, ITEM, KindPage, POPUP, RolePreview, useAdd } from "./invite";
 import { Deeper, Paged, usePaged } from "./pages";
 import { Tall } from "../../create";
 import { onAskAdd, takeAdd } from "./adding";
@@ -271,7 +271,8 @@ function Invite({ id }: { id: string }) {
   // it would open is the panel's next page, 返回 at its head. The list stays as it was left under
   // it (the computer picked), only not drawn.
   const paged = usePaged();
-  const [page, setPage] = useState<{ k: Agent; m?: Machine } | { app: string } | null>(null);
+  const [page, setPage] = useState<{ k: Agent; m?: Machine } | { role: Role; m?: Machine } | { app: string } | null>(null);
+  const { busy, add } = useAdd(id);
   const stepped = useRef(false);
   if (page) stepped.current = true;
   const loginRows = (app: string) => (
@@ -293,7 +294,7 @@ function Invite({ id }: { id: string }) {
     <Tall>
       {/* Back from a page, the list comes in from the other side; as the panel opens it does not slide. */}
       <div data-dir="back" className={cn("flex flex-col", stepped.current ? "g-slide" : "g-stagger", page && "hidden")}>
-        <AddAgents id={id} onKind={paged ? (k, m) => setPage({ k, m }) : undefined} />
+        <AddAgents id={id} onKind={paged ? (k, m) => setPage({ k, m }) : undefined} onRole={paged ? (role, m) => setPage({ role, m }) : undefined} />
         {apps.length > 0 && <div role="separator" className="mx-2.5 my-1 border-t border-(--edge)" />}
         {apps.map((a) => {
           const name = a.web ? t("term.panel") : a.name;
@@ -316,9 +317,18 @@ function Invite({ id }: { id: string }) {
         <div className="g-slide flex flex-col">
           <Menu.Item closeOnClick={false} onClick={() => setPage(null)} className={cn(ITEM, "text-ink-2")}>
             <ChevronLeft size={15} />
-            <span className="min-w-0 flex-1 truncate">{"app" in page ? ((x) => (x?.web ? t("term.panel") : x?.name))(apps.find((a) => a.id === page.app)) : agentName(page.k)}</span>
+            <span className="min-w-0 flex-1 truncate">{"app" in page ? ((x) => (x?.web ? t("term.panel") : x?.name))(apps.find((a) => a.id === page.app)) : "role" in page ? page.role.name : agentName(page.k)}</span>
           </Menu.Item>
-          {"app" in page ? loginRows(page.app) : <KindPage id={id} k={page.k} m={page.m} done={() => setPage(null)} />}
+          {"app" in page ? (
+            loginRows(page.app)
+          ) : "role" in page ? (
+            // Its card inside the panel's padding, its corners round as the panel's rows.
+            <div className="overflow-hidden rounded-md">
+              <RolePreview role={page.role} at={page.m ? { machine: page.m.id } : { channel: id }} off={busy !== null} busy={busy === `role:${page.role.id}`} add={() => void add(page.role.agent, "", "", "", roleStart(page.role), page.m).then(() => setPage(null))} />
+            </div>
+          ) : (
+            <KindPage id={id} k={page.k} m={page.m} done={() => setPage(null)} />
+          )}
         </div>
       )}
     </Tall>

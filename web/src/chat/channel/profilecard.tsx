@@ -1,11 +1,12 @@
 // The card a face or an @name opens (docs/next/group.md "资料卡"; the user, 2026-11-16): one
-// for people, agents and apps. A banner (its background; a flat ground with none), the face on
+// for people, agents and apps. A banner (its face, large and out of focus: no background of its
+// own, kumo 2026-11-25), the face on
 // the banner's lower edge, then what it is called, what it runs as and its state, its intro (a
 // person's signature), its keys.
 import { FaceGlow } from "../../glow";
 import { useQueryClient } from "@tanstack/react-query";
 import { useQuery } from "../../api/query";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { api } from "../../api/client";
 import { ahead, useAhead } from "../../prefetch";
 import { useCarried } from "../../store";
@@ -36,16 +37,13 @@ export type CardKey = { icon: ReactNode; label: string; run: () => void; disable
 /** face: 56 across, round. sub: the line under the name (what an agent runs as, a person's
  *  app); state: the line after it (an agent's lamp and state). more: what else it shows, before
  *  its keys; after: what they bring, under them (a script's, script.tsx). */
-export function ProfileCard({ face, name, sub, state, note, background, keys, more, after }: { face: ReactNode; name: string; sub?: ReactNode; state?: ReactNode; note?: string; background?: string; keys: CardKey[]; more?: ReactNode; after?: ReactNode }) {
-  const [gone, setGone] = useState<string | null>(null);
+export function ProfileCard({ face, name, sub, state, note, keys, more, after }: { face: ReactNode; name: string; sub?: ReactNode; state?: ReactNode; note?: string; keys: CardKey[]; more?: ReactNode; after?: ReactNode }) {
   const aheads = keys.flatMap((k) => (k.ahead ? [k.ahead] : []));
   useAhead(aheads.length ? () => aheads.forEach((f) => f()) : undefined, [aheads.length]);
-  const banner = background && gone !== background ? background : undefined;
   return (
     <div className="flex flex-col">
       <div className="relative h-[76px] shrink-0 overflow-hidden bg-fill-2">
-        {!banner && <FaceGlow>{face}</FaceGlow>}
-        {banner && <img src={banner} alt="" draggable={false} onError={() => setGone(banner)} className="g-fade absolute inset-0 size-full object-cover" />}
+        <FaceGlow>{face}</FaceGlow>
       </div>
       <div className="flex flex-col px-3.5 pb-3.5">
         {/* On the banner's lower edge, ringed in the card's ground. */}

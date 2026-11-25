@@ -11,19 +11,20 @@
 import { Menu } from "@base-ui/react/menu";
 import { useQueryClient } from "@tanstack/react-query";
 import { useQuery } from "../../api/query";
-import { LoaderCircle } from "lucide-react";
+import { LoaderCircle, Plus } from "lucide-react";
 import { useState, type CSSProperties } from "react";
 import { api } from "../../api/client";
 import type { Agent, ChannelMembers, Role } from "../../api/types.gen";
 import { agentsQ, useMachines } from "../../data";
 import { t, useLang } from "../../i18n";
 import { MachineFace, type Machine } from "../../machines";
-import { RoleFace, roleStart, useRoles } from "../../roles";
+import { RoleFace, RoleLine, roleStart, useRoles } from "../../roles";
 import { useList, useSession } from "../../store";
 import { toast } from "../../toast";
 import { AGENTS, agentName, cn, Logo, MenuPortal } from "../../ui";
 import { memberError } from "./key";
-import { choicesQ, draftDefault, draftName } from "../choices";
+import { choicesQ, draftDefault, draftName, type At } from "../choices";
+import { CARD_POP, ProfileCard } from "./profilecard";
 import { DraftModels } from "./pick";
 
 export const ITEM = "flex h-8 cursor-default items-center gap-2.5 rounded-md px-2.5 text-base outline-none select-none data-highlighted:bg-fill data-popup-open:bg-fill pointer-coarse:h-11";
@@ -57,7 +58,7 @@ export function useAdd(id: string) {
  *  and the kinds of agent of the one picked. Every template and every kind any computer has
  *  keeps its row whichever is picked, one the picked computer lacks drawn faint and not pressed:
  *  the menu is as tall for each computer. */
-export function AddAgents({ id, onKind }: { id: string; onKind?: (k: Agent, m?: Machine) => void }) {
+export function AddAgents({ id, onKind, onRole }: { id: string; onKind?: (k: Agent, m?: Machine) => void; onRole?: (r: Role, m?: Machine) => void }) {
   useLang();
   const row = useList()?.find((x) => x.id === id);
   const own = (useSession(id) ?? row)?.machine ?? "";
@@ -91,7 +92,7 @@ export function AddAgents({ id, onKind }: { id: string; onKind?: (k: Agent, m?: 
         </div>
       )}
       {roles.map((r, i) => (
-        <RoleRow key={r.id} role={r} i={i} off={off || !has.includes(r.agent) || (!!r.machine && r.machine !== picked)} busy={busy === `role:${r.id}`} add={() => void add(r.agent, "", "", "", roleStart(r), to)} />
+        <RoleRow key={r.id} role={r} at={to ? { machine: to.id } : { channel: id }} i={i} off={off || !has.includes(r.agent) || (!!r.machine && r.machine !== picked)} busy={busy === `role:${r.id}`} add={() => void add(r.agent, "", "", "", roleStart(r), to)} onPage={onRole && (() => onRole(r, to))} />
       ))}
       {roles.length > 0 && <div role="separator" className="mx-2.5 my-1 border-t border-(--edge)" />}
       {kinds.map((k, i) => (
@@ -103,13 +104,50 @@ export function AddAgents({ id, onKind }: { id: string; onKind?: (k: Agent, m?: 
 
 /** One template's row: its face and name alone (kumo, 2026-11-25: a template, no model to pick
  *  as it is added; its model and effort are changed on the member afterwards). Pressed, it adds
- *  one as the role. */
-function RoleRow({ role, i, off, busy, add }: { role: Role; i: number; off: boolean; busy: boolean; add: () => void }) {
-  return (
-    <Menu.Item closeOnClick={false} disabled={off} onClick={add} style={{ "--i": i } as CSSProperties} className={cn(ITEM, "data-disabled:opacity-40")}>
+ *  one as the role; pointed at, its card beside it (RolePreview), 添加 there too. onPage (the
+ *  phone's layout): pressed, its card is the panel's next page, added from there. */
+function RoleRow({ role, at, i, off, busy, add, onPage }: { role: Role; at: At; i: number; off: boolean; busy: boolean; add: () => void; onPage?: () => void }) {
+  const style = { "--i": i } as CSSProperties;
+  const cls = cn(ITEM, "data-disabled:opacity-40");
+  const row = (
+    <>
       {busy ? <LoaderCircle size={16} className="animate-spin text-ink-3" /> : <RoleFace role={role} size={16} />}
       <span className="min-w-0 flex-1 truncate">{role.name}</span>
-    </Menu.Item>
+    </>
+  );
+  if (onPage)
+    return (
+      <Menu.Item closeOnClick={false} onClick={onPage} style={style} className={cls}>
+        {row}
+      </Menu.Item>
+    );
+  return (
+    <Menu.SubmenuRoot>
+      <Menu.SubmenuTrigger disabled={off} onClick={add} style={style} className={cls}>
+        {row}
+      </Menu.SubmenuTrigger>
+      <MenuPortal>
+        <Menu.Positioner className="z-50" sideOffset={4} collisionPadding={8}>
+          <Menu.Popup className={cn(POPUP, CARD_POP)}>
+            <RolePreview role={role} at={at} off={off} busy={busy} add={add} />
+          </Menu.Popup>
+        </Menu.Positioner>
+      </MenuPortal>
+    </Menu.SubmenuRoot>
+  );
+}
+
+/** A template as its card shows it, to be seen, not changed (kumo, 2026-11-25): its face, name,
+ *  what it runs as, its persona; 添加 under them. */
+export function RolePreview({ role, at, off, busy, add }: { role: Role; at: At; off: boolean; busy: boolean; add: () => void }) {
+  return (
+    <ProfileCard
+      face={<RoleFace role={role} size={56} />}
+      name={role.name}
+      sub={<RoleLine role={role} at={at} />}
+      more={role.persona ? <p className="m-0 line-clamp-6 pt-2 text-sm leading-5 whitespace-pre-wrap text-ink-2 [overflow-wrap:anywhere]">{role.persona}</p> : undefined}
+      keys={[{ icon: busy ? <LoaderCircle size={15} className="animate-spin" /> : <Plus size={15} />, label: t("role.add"), run: add, disabled: off }]}
+    />
   );
 }
 

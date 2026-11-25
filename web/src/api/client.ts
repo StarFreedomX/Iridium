@@ -319,8 +319,6 @@ export const api = {
   channelProfile: (id: string) => get<Card>(`/v1/internal/channels/${enc(id)}/profile`),
   patchChannel: (id: string, p: ProfilePatch) => write<Card>("PATCH", `/v1/internal/channels/${enc(id)}`, p),
   self: () => get<Self>("/v1/internal/self"),
-  /** The one looking's own card: its background (name and avatar: profile below). */
-  patchSelf: (p: Pick<ProfilePatch, "background">) => write<Card>("PATCH", "/v1/internal/self", p),
   /** What a session's agent chose to remember; forget: one of them gone. */
   memory: (session: string) => get<Memory[]>(`/v1/internal/memory?session=${enc(session)}`),
   forget: (session: string, id: number) => write<unknown>("DELETE", `/v1/internal/memory/${id}?session=${enc(session)}`),

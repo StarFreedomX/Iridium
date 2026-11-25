@@ -633,7 +633,7 @@ func (s *Server) membersOf(c caller, ch string) (api.ChannelMembers, error) {
 				am.Model, am.Effort = satori.ModelID(*st), cmp.Or(st.Effort, st.EffortNow)
 			}
 			p := s.agentProfile(m.Session)
-			am.Avatar, am.Background, am.Role = p.Avatar, p.Background, p.Role
+			am.Avatar, am.Role = p.Avatar, p.Role
 		}
 		out.Members = append(out.Members, am)
 	}
@@ -754,7 +754,7 @@ func (s *Server) addAgent(ctx context.Context, c caller, ch string, st *api.Sess
 		}
 	} else {
 		ns := api.NewSession{Agent: req.Agent, Cwd: cmp.Or(req.Cwd, st.Cwd), Machine: st.Machine, Model: req.Model, Mode: req.Mode,
-			Effort: req.Effort, Preset: req.Preset, Role: req.Role, Avatar: req.Avatar, Background: req.Background, ForChannel: true}
+			Effort: req.Effort, Preset: req.Preset, Role: req.Role, Avatar: req.Avatar, ForChannel: true}
 		if req.Cwd != "" {
 			ns.Machine = req.Machine
 		} else if req.Machine != "" && req.Machine != st.Machine {
@@ -1575,7 +1575,7 @@ func (s *Server) avatarOf(ch string, st *api.SessionState) (image []byte, versio
 
 // avatarIn is avatarOf, looked up in src.
 func avatarIn(src faceSrc, ch string, st *api.SessionState) (image []byte, version string, ok bool) {
-	return faceIn(src, store.ChannelProfileKey(ch), false, modelAvatarKey(st))
+	return faceIn(src, store.ChannelProfileKey(ch), modelAvatarKey(st))
 }
 
 // roomKey is the key of channel ch's card as a channel: a session's own channel's apart from
@@ -1588,25 +1588,22 @@ func (s *Server) roomKey(ch string) string {
 	return store.RoomProfileKey(ch)
 }
 
-// channelFace is channel ch's face (bg: its background) as a channel (GET …?of=channel): a
-// session's own channel's own, else its agent's, as it was before it had one; one of several
-// agents without a face of its own has none: the page draws its agents' (the user, 2026-11-16).
-func (s *Server) channelFace(ch string, st *api.SessionState, bg bool) (image []byte, version string, ok bool) {
-	return s.channelFaceIn(liveFaces{s.st}, ch, st, bg)
+// channelFace is channel ch's face as a channel (GET …?of=channel): a session's own channel's
+// own, else its agent's, as it was before it had one; one of several agents without a face of
+// its own has none: the page draws its agents' (the user, 2026-11-16).
+func (s *Server) channelFace(ch string, st *api.SessionState) (image []byte, version string, ok bool) {
+	return s.channelFaceIn(liveFaces{s.st}, ch, st)
 }
 
 // channelFaceIn is channelFace, looked up in src.
-func (s *Server) channelFaceIn(src faceSrc, ch string, st *api.SessionState, bg bool) (image []byte, version string, ok bool) {
+func (s *Server) channelFaceIn(src faceSrc, ch string, st *api.SessionState) (image []byte, version string, ok bool) {
 	if key := s.roomKey(ch); key != store.ChannelProfileKey(ch) {
-		if img, v, ok := faceIn(src, key, bg, ""); ok {
+		if img, v, ok := faceIn(src, key, ""); ok {
 			return img, v, true
 		}
-		if !bg && len(s.ch.Agents(ch)) > 1 {
+		if len(s.ch.Agents(ch)) > 1 {
 			return nil, "", false
 		}
-	}
-	if bg {
-		return faceIn(src, store.ChannelProfileKey(ch), true, "")
 	}
 	return avatarIn(src, ch, st)
 }
@@ -1631,7 +1628,7 @@ func (s *Server) avatarGet(w http.ResponseWriter, r *http.Request) {
 	}
 	img, v, ok := s.avatarOf(ch, st)
 	if r.URL.Query().Get("of") == "channel" {
-		img, v, ok = s.channelFace(ch, st, false)
+		img, v, ok = s.channelFace(ch, st)
 	}
 	if !ok {
 		refuse(w, http.StatusNotFound, "not_found", "no avatar")

@@ -9,7 +9,7 @@ channel.create {_data.agent?, _data.cwd, _data.text?, _data.model?, _data.mode?,
   _data.cwd: . is your own folder and a relative path goes from it; ~ and ~/x the home; host:path here; app:path at that app's computer (GET internal/apps), where it then runs; an absolute path as it is.
   guild_id: a folder group's id (guild.list), self yours; not given: its folder's group, yours when yours holds its folder.
   _data.agent: not given: a channel with no agent of its own, listed in _data.cwd; agents join it (POST internal/channels/{id}/members) and people speak in it. Given: claude, codex, pi, dsh or agy (GET internal/agents: those that can start here, their modes); _data.mode: one of them; model, effort, preset: the agent's own (SessionState.models, efforts; GET internal/sessions/{id}/presets).
-  _data.role: start it as a kept role (GET internal/roles): its agent, model (dsh: preset) and card; effort and mode are this start's (_data.effort, _data.mode) or the agent's own. _data.nick, _data.persona, _data.avatar, _data.background: its card from the start (ir api help profile).
+  _data.role: start it as a kept role (GET internal/roles): its agent, model (dsh: preset) and card; effort and mode are this start's (_data.effort, _data.mode) or the agent's own. _data.nick, _data.persona, _data.avatar: its card from the start (ir api help profile).
   _data.text: its first message, from you: it reads [ir:<your session>] before it. ir prints the id, with text once the agent took it. Started from a session, it joins that session's channel: the text is then said to it there, its answer said there.
   --wait: holds your turn till its first turn ends, then prints its reply: for a session that does a job apart from your channel and reports to you. Not for an agent in your channel (one you invited or started there): its words are said in the channel and its answer to you calls you, so waiting only holds your turn and gets you words everyone has already seen.
 channel.list {guild_id?, next?, _data.all?} -> List<Channel>  the folders (type 2), then the sessions; _data.all adds archived  view=id,name,_data.status,_data.agent,_data.cwd,_data.title
@@ -97,27 +97,24 @@ DELETE internal/sessions/{id}/public - -> {ok}  revoke it at once; person only
 GET internal/sessions/{id}/commands - -> Command[]  the agent's slash commands  view=name,description
 
 # profile
-GET internal/self - -> Self  your own card (nick, persona, face, background, what you run as), the channels you are in with when you last spoke there, your earlier contexts (cleared since), what you chose to remember  view=name,model,channels.name,channels.last,before.session,before.first,memory.id,memory.text
-PATCH internal/self {nick?, persona?, avatar?, background?} -> Profile  change your own card
+GET internal/self - -> Self  your own card (nick, persona, face, what you run as), the channels you are in with when you last spoke there, your earlier contexts (cleared since), what you chose to remember  view=name,model,channels.name,channels.last,before.session,before.first,memory.id,memory.text
+PATCH internal/self {nick?, persona?, avatar?} -> Profile  change your own card
   nick: letters, digits, _ and -, at most 32, no other agent's. persona: who you are and how you work (manner, tone, rules), in your own system prompt alone; at most 5000 characters, "" none.
-  avatar, background: an image file's path (PNG, JPEG, WebP, at most 2 MB), one emoji (avatar=🧪), or a colour (background=#2f4f6f); "" takes it away.
+  avatar: an image file's path (PNG, JPEG, WebP, at most 2 MB), one emoji (avatar=🧪), or a colour (avatar=#2f4f6f); "" takes it away. A card has no background: its banner is drawn from its face.
   When: a role becomes clear or changes, or someone asks; in the same turn as the work at hand, all fields in one call. Starting an agent, give its card at once: channel.create … _data.nick=tester _data.avatar=🧪.
 GET internal/members/{who} - -> MemberCard  another member: an agent (its nick, agent:<session>, a session's id) or a person (a login's name): its card, the channels you share, the last things it said  view=name,kind,model,said.name,said.seq,said.head
-PATCH internal/members/{who} {nick?, persona?, avatar?, background?} -> Profile  change another agent's card (one in a channel you are in, one you started); fields as PATCH internal/self; a person's is the person's own
+PATCH internal/members/{who} {nick?, persona?, avatar?} -> Profile  change another agent's card (one in a channel you are in, one you started); fields as PATCH internal/self; a person's is the person's own
 GET internal/channels/{id}/profile - -> Profile  a channel's card; id: here (the channel you are working for), self, an id
-PATCH internal/channels/{id} {name?, avatar?, background?} -> Profile  change the channel's card (id=here: the one you are working for); fields as PATCH internal/self
+PATCH internal/channels/{id} {name?, avatar?} -> Profile  change the channel's card (id=here: the one you are working for); fields as PATCH internal/self
 POST internal/recall {q, all?, limit?} -> RecallHit[]  what the records say of these words: your memory, then the messages of your channels and of your earlier contexts, the latest first; all:=true: every channel you see; each with how to read it whole (get)  view=kind,name,seq,who,head,get
 POST internal/remember {text} -> {id}  keep one short note (at most 300 characters) for yourself across contexts and channels; your role's if your session is of one (shared by its sessions). Rarely: when asked to, a major piece of work done, something the user plainly cares about, a clear preference, a serious problem; once at the turn's end, with where it is from
 GET internal/memory {session?} -> Memory[]  what you chose to remember, the latest first, each with the session, channel and message number it is from  view=id,text,name,seq
 DELETE internal/memory/{id} - -> {ok}  forget one
-GET internal/channels/{id}/background - -> image  the background of the channel's card (a session's: its agent's); 404 none
-GET internal/people/{id}/background - -> image  the background of a person's card; 404 none
-POST internal/roles {session | name, agent, machine?, model?, preset?, persona?, avatar?, background?} -> Role  keep a role: from a session as it is now (its card, agent, model, preset; the session is the role's from then on), or as given; no effort or mode: those are each start's; no intro: each of its sessions writes its own; person only
-PATCH internal/roles/{id} {name?, model?, preset?, persona?, avatar?, background?, sort?, session?} -> Role  change a role (its agent stays); session: take its card (persona, face, background) from that session again, not its model; person only
+POST internal/roles {session | name, agent, machine?, model?, preset?, persona?, avatar?} -> Role  keep a role: from a session as it is now (its card, agent, model, preset; the session is the role's from then on), or as given; no effort or mode: those are each start's; no intro: each of its sessions writes its own; person only
+PATCH internal/roles/{id} {name?, model?, preset?, persona?, avatar?, sort?, session?} -> Role  change a role (its agent stays); session: take its card (persona, face) from that session again, not its model; person only
 DELETE internal/roles/{id} - -> {ok}  take a role away, its memory with it; its sessions stay; person only
 DELETE internal/sessions/{id}/role - -> {ok}  the session is no role's from now on: its card stays, what it remembered stays the role's; person only
 GET internal/roles/{id}/avatar - -> image  a role's face; 404 none
-GET internal/roles/{id}/background - -> image  a role's background; 404 none
 GET internal/roles - -> Role[]  the roles kept to start sessions as (channel.create _data.role=<name>; POST internal/channels/{id}/members role=<name>): name, agent, model  view=name,agent,model
 GET internal/personas - -> HostPersona[]  the personas the agents' hosts give where they run (dsh's persona plugin), each whole: one to take as a persona (persona=<its text>); none: empty  view=name,from,machineName,description
 

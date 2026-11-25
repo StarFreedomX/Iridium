@@ -560,13 +560,12 @@ export interface NewSession {
   /**
    * Role: start it as this role (its id or name): the role's agent, model, preset and card,
    * where the fields above say nothing; its effort and mode are these fields' or the agent's
-   * own. Nick, Persona, Avatar, Background: its card (ProfilePatch), over the role's.
+   * own. Nick, Persona, Avatar: its card (ProfilePatch), over the role's.
    */
   role?: string;
   nick?: string;
   persona?: string;
   avatar?: string;
-  background?: string;
 }
 /**
  * Send gives the session a message: a new turn when idle; while a turn runs it joins that turn
@@ -1313,11 +1312,10 @@ export interface ChannelMember {
   cwd?: string;
   machine?: string;
   /**
-   * Its card (Profile): Avatar, Background where they are an emoji or a colour, or the
-   * background's image; Role, the role its session was started as.
+   * Its card (Profile): Avatar where it is an emoji or a colour; Role, the role its session was
+   * started as.
    */
   avatar?: string;
-  background?: string;
   role?: string;
 }
 /**
@@ -1359,12 +1357,11 @@ export interface NewMember {
   /**
    * Role: start it as this role (its id or name): the role's agent, model, preset and card,
    * where the fields above say nothing; its effort and mode are these fields' or the agent's
-   * own. Persona, Avatar, Background: its card (ProfilePatch).
+   * own. Persona, Avatar: its card (ProfilePatch).
    */
   role?: string;
   persona?: string;
   avatar?: string;
-  background?: string;
   /**
    * Text: its first words, said in the channel by the one inviting it as "@nick text" once it
    * is in (one call: no @ before it has joined). Given, it does not greet.
@@ -1961,8 +1958,9 @@ export type CardKind = typeof CardKindAgent | typeof CardKindPerson | typeof Car
 /**
  * Profile is the card of a member or of a channel. ID: an agent's member ("agent:<session>"), a
  * person's or an app's user id, a channel's id. Name: what it is called by (an agent's nick, a
- * login's name, a channel's name). Avatar, Background: where the image is fetched ("/v1/…"), or
- * an emoji, or a colour ("#2f4f6f"); "" none. Persona: an agent's own words on how it works,
+ * login's name, a channel's name). Avatar: where the image is fetched ("/v1/…"), or an emoji,
+ * or a colour ("#2f4f6f"); "" none. No background: its card's banner is its face's colours
+ * (kumo, 2026-11-25). Persona: an agent's own words on how it works,
  * in its system prompt (otae, 2026-11-21). Model: what an agent runs as. Role:
  * the role its session was started as.
  */
@@ -1972,7 +1970,6 @@ export interface Profile {
   name?: string;
   persona?: string;
   avatar?: string;
-  background?: string;
   session?: string;
   agent?: Agent;
   model?: string;
@@ -1985,7 +1982,7 @@ export interface Profile {
 }
 /**
  * ProfilePatch changes a profile; a nil field stays. Nick and Name are the same thing (an
- * agent's is its nick, a channel's its name). Avatar, Background: an image (a data: URL or
+ * agent's is its nick, a channel's its name). Avatar: an image (a data: URL or
  * base64; for the host's own ir, a file's path), an emoji, a colour ("#2f4f6f"), or "" for none.
  * Persona: an agent's alone.
  */
@@ -1994,7 +1991,6 @@ export interface ProfilePatch {
   name?: string;
   persona?: string;
   avatar?: string;
-  background?: string;
 }
 /**
  * PersonaMax is how many characters a persona may have; MemoryMax, a memory.
@@ -2090,8 +2086,8 @@ export interface MemberCard extends Profile {
 }
 /**
  * Role is an agent kept to start sessions as: its name (the nick its sessions take), what it
- * runs (Agent, its default Model and dsh's Preset, at Machine), its card (Persona, Avatar,
- * Background as Profile's; no intro: what it does each of its sessions writes, otae, 2026-11-23). ModelName: the model as shown. No effort and no mode: they are the
+ * runs (Agent, its default Model and dsh's Preset, at Machine), its card (Persona, Avatar as
+ * Profile's; no intro: what it does each of its sessions writes, otae, 2026-11-23). ModelName: the model as shown. No effort and no mode: they are the
  * task's, chosen as a session starts (otae, 2026-11-21).
  */
 export interface Role {
@@ -2104,7 +2100,6 @@ export interface Role {
   machine?: string;
   persona?: string;
   avatar?: string;
-  background?: string;
   memories?: number /* int */;
 }
 /**
@@ -2131,9 +2126,9 @@ export interface NewRole extends Role {
   session?: string;
 }
 /**
- * RolePatch changes a role; a nil field stays. Avatar, Background as ProfilePatch's. Session:
- * take the card from this session, as it is now (its persona, face, background; not its intro,
- * nick, model or preset: those change here alone).
+ * RolePatch changes a role; a nil field stays. Avatar as ProfilePatch's. Session: take the card
+ * from this session, as it is now (its persona and face; not its nick, model or preset: those
+ * change here alone).
  */
 export interface RolePatch {
   name?: string;
@@ -2141,7 +2136,6 @@ export interface RolePatch {
   preset?: string;
   persona?: string;
   avatar?: string;
-  background?: string;
   sort?: number /* float64 */;
   session?: string;
 }

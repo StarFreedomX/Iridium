@@ -19,22 +19,22 @@ func TestProfileCards(t *testing.T) {
 	t.Parallel()
 	l, ch, second := two(t)
 	var p api.Profile
-	l.want(200, "agent-in:"+second, "PATCH", "/v1/internal/self", map[string]any{"nick": "tester", "persona": "runs the tests only", "avatar": "🧪", "background": "#2f4f6f"}, &p)
-	if p.Name != "tester" || p.Persona != "runs the tests only" || !strings.Contains(p.Avatar, "/avatar?v=g") || !strings.Contains(p.Background, "/background?v=g") {
+	l.want(200, "agent-in:"+second, "PATCH", "/v1/internal/self", map[string]any{"nick": "tester", "persona": "runs the tests only", "avatar": "🧪"}, &p)
+	if p.Name != "tester" || p.Persona != "runs the tests only" || !strings.Contains(p.Avatar, "/avatar?v=g") {
 		t.Fatalf("its card: %+v", p)
 	}
-	for _, path := range []string{"/avatar", "/background"} {
-		img, _, ok := l.s.face(store.ChannelProfileKey(second), path == "/background", "")
-		if !ok || !strings.HasPrefix(string(img), "<svg") {
-			t.Errorf("%s: %q", path, img)
-		}
-		l.want(200, "web", "GET", "/v1/internal/channels/"+second+path, nil, nil)
+	if img, _, ok := l.s.face(store.ChannelProfileKey(second), ""); !ok || !strings.HasPrefix(string(img), "<svg") {
+		t.Errorf("its face: %q", img)
 	}
+	l.want(200, "web", "GET", "/v1/internal/channels/"+second+"/avatar", nil, nil)
+	// No background any more (kumo, 2026-11-25): a card's banner is drawn from its face.
+	l.want(400, "agent-in:"+second, "PATCH", "/v1/internal/self", map[string]any{"background": "#2f4f6f"}, nil)
+	l.want(404, "web", "GET", "/v1/internal/channels/"+second+"/background", nil, nil)
 	// Again at once: still one line in the channel, of all that changed.
 	end := l.s.ch.End(ch)
 	l.want(200, "agent-in:"+second, "PATCH", "/v1/internal/self", map[string]any{"persona": "runs the tests, changes no code"}, nil)
 	last, _ := l.s.ch.Get(ch, l.s.ch.End(ch))
-	if last.Kind != channel.KindNote || last.D.Event == nil || last.D.Event.Type != "profile" || len(last.D.Event.What) != 3 {
+	if last.Kind != channel.KindNote || last.D.Event == nil || last.D.Event.Type != "profile" || len(last.D.Event.What) != 2 {
 		t.Errorf("the channel's line: %+v %+v", last.ChannelMessage, last.D.Event)
 	}
 	if before, ok := l.s.ch.Get(ch, end); ok && !before.Gone && before.Seq != last.Seq && before.D.Event != nil && before.D.Event.Type == "profile" {
@@ -45,7 +45,7 @@ func TestProfileCards(t *testing.T) {
 	found := false
 	for _, m := range ms.Members {
 		if m.Session == second {
-			found = m.Nick == "tester" && m.Background != ""
+			found = m.Nick == "tester" && m.Avatar != ""
 		}
 	}
 	if !found {
@@ -63,12 +63,13 @@ func TestProfileCards(t *testing.T) {
 	if mc.Kind != api.CardKindAgent {
 		t.Errorf("looked up: %+v", mc)
 	}
-	// A person's own: a background; not another's to change.
-	l.want(200, "web", "PATCH", "/v1/internal/self", map[string]any{"background": "#123456"}, &p)
-	if p.Background == "" || p.Kind != api.CardKindPerson {
+	// A person's own: nothing of it changed here; not another's to change.
+	l.want(200, "web", "PATCH", "/v1/internal/self", map[string]any{}, &p)
+	if p.Kind != api.CardKindPerson {
 		t.Errorf("a person's card: %+v", p)
 	}
-	l.want(403, "agent-in:"+second, "PATCH", "/v1/internal/members/"+p.ID, map[string]any{"background": "#000000"}, nil)
+	l.want(400, "web", "PATCH", "/v1/internal/self", map[string]any{"background": "#123456"}, nil)
+	l.want(403, "agent-in:"+second, "PATCH", "/v1/internal/members/"+p.ID, map[string]any{}, nil)
 	// Its system prompt says who it is.
 	self := l.s.selfText(second)
 	if self.Nick != "tester" || self.Persona != "runs the tests, changes no code" {
@@ -243,7 +244,7 @@ func TestRoleKeepsModelFace(t *testing.T) {
 			t.Fatal("no model for the second session")
 		}
 	}
-	if _, _, ok := l.s.face(store.ChannelProfileKey(second), false, ""); ok {
+	if _, _, ok := l.s.face(store.ChannelProfileKey(second), ""); ok {
 		t.Fatal("the second session has a face of its own")
 	}
 	want, _, ok, _ := l.s.st.Avatar(model)
@@ -320,26 +321,26 @@ func TestChannelCardApart(t *testing.T) {
 	if p.Avatar != "" {
 		t.Errorf("the card of a channel of two agents, none of its own: %q", p.Avatar)
 	}
-	if _, _, ok := l.s.channelFace(ch, nil, false); ok {
+	if _, _, ok := l.s.channelFace(ch, nil); ok {
 		t.Error("a face of a channel of two agents, none of its own")
 	}
 	l.want(200, "web", "DELETE", "/v1/internal/channels/"+ch+"/members/agent:"+second, nil, nil)
 	l.want(200, "web", "GET", "/v1/internal/channels/"+ch+"/profile", nil, &p)
-	agentFace, _, _ := l.s.face(store.ChannelProfileKey(ch), false, "")
+	agentFace, _, _ := l.s.face(store.ChannelProfileKey(ch), "")
 	if !strings.Contains(p.Avatar, "of=channel") || p.Persona != "" || p.Session != "" {
 		t.Fatalf("the channel's card before it has its own: %+v", p)
 	}
-	if img, _, ok := l.s.channelFace(ch, nil, false); !ok || string(img) != string(agentFace) {
+	if img, _, ok := l.s.channelFace(ch, nil); !ok || string(img) != string(agentFace) {
 		t.Errorf("its face before it has its own: %q, want the agent's", img)
 	}
-	l.want(200, "web", "PATCH", "/v1/internal/channels/"+ch, map[string]any{"avatar": "🏠", "background": "#334455"}, &p)
-	if p.Background == "" {
+	l.want(200, "web", "PATCH", "/v1/internal/channels/"+ch, map[string]any{"avatar": "🏠"}, &p)
+	if p.Avatar == "" {
 		t.Errorf("the channel's card: %+v", p)
 	}
-	if img, _, ok := l.s.channelFace(ch, nil, false); !ok || !strings.Contains(string(img), "🏠") {
+	if img, _, ok := l.s.channelFace(ch, nil); !ok || !strings.Contains(string(img), "🏠") {
 		t.Errorf("the channel's face: %q", img)
 	}
-	if img, _, _ := l.s.face(store.ChannelProfileKey(ch), false, ""); string(img) != string(agentFace) {
+	if img, _, _ := l.s.face(store.ChannelProfileKey(ch), ""); string(img) != string(agentFace) {
 		t.Errorf("the agent's face changed with the channel's: %q", img)
 	}
 	var mc api.MemberCard
@@ -356,7 +357,7 @@ func TestAgentPutsFace(t *testing.T) {
 	l, ch, second := two(t)
 	png := "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
 	l.want(200, "agent-in:"+second, "PUT", "/v1/internal/channels/"+ch+"/avatar", map[string]any{"avatar": png}, nil)
-	if _, _, ok := l.s.face(store.ChannelProfileKey(ch), false, ""); !ok {
+	if _, _, ok := l.s.face(store.ChannelProfileKey(ch), ""); !ok {
 		t.Fatal("no face after an agent's PUT")
 	}
 	l.want(200, "agent-in:"+second, "DELETE", "/v1/internal/channels/"+ch+"/avatar", nil, nil)

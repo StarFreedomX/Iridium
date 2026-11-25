@@ -24,11 +24,10 @@ type ChannelMember struct {
 	Status  Status    `json:"status,omitempty"`
 	Cwd     string    `json:"cwd,omitempty"`
 	Machine string    `json:"machine,omitempty"`
-	// Its card (Profile): Avatar, Background where they are an emoji or a colour, or the
-	// background's image; Role, the role its session was started as.
-	Avatar     string `json:"avatar,omitempty"`
-	Background string `json:"background,omitempty"`
-	Role       string `json:"role,omitempty"`
+	// Its card (Profile): Avatar where it is an emoji or a colour; Role, the role its session was
+	// started as.
+	Avatar string `json:"avatar,omitempty"`
+	Role   string `json:"role,omitempty"`
 }
 
 // ChannelMembers are a channel's members: Channel, its id; Multi, it has more than one agent or
@@ -62,11 +61,10 @@ type NewMember struct {
 	On      []Trigger `json:"on,omitempty"`
 	// Role: start it as this role (its id or name): the role's agent, model, preset and card,
 	// where the fields above say nothing; its effort and mode are these fields' or the agent's
-	// own. Persona, Avatar, Background: its card (ProfilePatch).
-	Role       string `json:"role,omitempty"`
-	Persona    string `json:"persona,omitempty"`
-	Avatar     string `json:"avatar,omitempty"`
-	Background string `json:"background,omitempty"`
+	// own. Persona, Avatar: its card (ProfilePatch).
+	Role    string `json:"role,omitempty"`
+	Persona string `json:"persona,omitempty"`
+	Avatar  string `json:"avatar,omitempty"`
 	// Text: its first words, said in the channel by the one inviting it as "@nick text" once it
 	// is in (one call: no @ before it has joined). Given, it does not greet.
 	Text string `json:"text,omitempty"`
