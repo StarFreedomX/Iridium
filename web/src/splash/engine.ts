@@ -100,7 +100,7 @@ function rainbowAt(h: number): RGB {
 // cell each frame.
 const HUES = (() => {
   const t = new Uint8Array(360 * 3);
-  for (let h = 0; h < 360; h++) t.set(rainbowAt(h).map((v) => Math.round(v)), h * 3);
+  for (let h = 0; h < 360; h++) t.set(rainbowAt(h).map((v) => Math.min(255, Math.round(v))), h * 3);
   return t;
 })();
 const hueAt3 = (h: number) => ((((h | 0) % 360) + 360) % 360) * 3;
@@ -417,6 +417,58 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
   };
 
 
+  // The ring (kumo, 2026-11-26): where no agent is to be drawn, a Möbius band of the code's own
+  // characters in the pane's middle, aslant, turning in itself, the rainbow flowing along it. Laid
+  // down each frame as points of the band (RN along it, a few across), each on the cell it falls
+  // in, the nearest kept; no cell asked anything. A star over a part of it (draw) stirs that part
+  // (stir): another run of colours there, going out along the band both ways and dying away.
+  const RN = 512;
+  const RC = new Float32Array(RN), RS = new Float32Array(RN);
+  for (let j = 0; j < RN; j++) (RC[j] = Math.cos((j / RN) * 6.2832)), (RS[j] = Math.sin((j / RN) * 6.2832));
+  let ra = new Float32Array(0), rh = new Float32Array(0), rz = new Float32Array(0), ru = new Int16Array(0), rowRing = new Uint8Array(0), ringCells = new Int32Array(0), nRing = 0;
+  let stir = new Float32Array(RN), stir2 = new Float32Array(RN);
+  let ringK = 0, ringAt = 0;
+  const ringLay = (now: number) => {
+    for (let j = 0; j < nRing; j++) ra[ringCells[j]!] = 0;
+    nRing = 0;
+    rowRing.fill(0);
+    const dt = Math.min(50, now - ringAt);
+    ringAt = now;
+    if (ringK < 0.01 || !rows) return;
+    // What is stirred goes on to its neighbours, less each time, and dies away.
+    const dec = Math.exp(-dt / 700);
+    for (let j = 0; j < RN; j++) stir2[j] = Math.max(stir[j]!, (stir[(j + 1) % RN]! + stir[(j + RN - 1) % RN]!) * 0.494) * dec;
+    [stir, stir2] = [stir2, stir];
+    const top = footT >= 0 ? footT : H;
+    const R = Math.min(W * 0.36, top * 0.3, 230), wv = R * 0.24, xc = W / 2, yc = cy >= 0 ? cy : top * 0.5;
+    const t = still ? 0 : now, spin = t * 0.0004, lean = 0.92 + 0.1 * Math.sin(t / 2900);
+    const ca = Math.cos(lean), sa = Math.sin(lean), cr = Math.cos(-0.5), sr = Math.sin(-0.5);
+    const RM = Math.max(8, Math.ceil((wv * 2) / ROW) + 3), far = R + wv, flow = t * 0.05;
+    for (let iu = 0; iu < RN; iu++) {
+      const cu = RC[iu]!, su = RS[iu]!, half = (iu / RN) * 3.1416 + spin, ct = Math.cos(half), st = Math.sin(half);
+      const e = stir[iu]!, hue0 = (iu / RN) * 360 - flow + e * 150;
+      for (let iv = 0; iv < RM; iv++) {
+        const vn = (iv / (RM - 1)) * 2 - 1, v = vn * wv, r = R + v * ct;
+        const x = r * cu, y = r * su, z = v * st;
+        const y2 = y * ca - z * sa, z2 = y * sa + z * ca;
+        const k = 1 + z2 / (far * 3.2);
+        const row = ((yc + (x * sr + y2 * cr) * k) / ROW) | 0;
+        if (row < 0 || row >= rows) continue;
+        const col = Math.round((xc + (x * cr - y2 * sr) * k) / cw - 0.5 + off[row]! - Math.floor(off[row]!));
+        if (col < 0 || col >= cols) continue;
+        const i = row * cols + col;
+        if (ra[i]! > 0 && rz[i]! >= z2) continue;
+        if (ra[i] === 0) ringCells[nRing++] = i;
+        rowRing[row] = 1;
+        rz[i] = z2;
+        ru[i] = iu;
+        // Nearer, stronger; its two edges stronger than its middle.
+        ra[i] = Math.min(1, (0.3 + 0.55 * (z2 / far + 1) * 0.5 + 0.25 * vn * vn + e * 0.4) * ringK);
+        rh[i] = hue0 + vn * 46;
+      }
+    }
+  };
+
   const draw = () => {
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.clearRect(0, 0, W, H);
@@ -431,6 +483,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
     for (let j = 0; j < nTouched; j++) lit[touched[j]!] = 0;
     nTouched = 0;
     rowLit.fill(0);
+    ringLay(now);
     for (const q of shapes(now)) (q.ring ? ringOf : starOf)(q, now);
     const rs = rocketNow(now);
     if (rs) rocketOf(rs, now);
@@ -439,7 +492,8 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
     for (let r = 0; r < rows; r++) {
       const o = Math.floor(off[r]!), f = off[r]! - o, row = text[r]!, y = r * ROW + 0.5, ym = y + ROW / 2;
       const env = seen(ym);
-      const lr = rowLit[r] === 1;
+      const rr = rowRing[r] === 1;
+      const lr = rowLit[r] === 1 || rr;
       if (!lr && (env < 0.01 && fr[r]! < 0.01)) continue;
       if (!lr && rim && Math.abs(ym - py) > rim) continue;
       const k0 = rim && !lr ? Math.max(0, Math.floor((px - rim) / cw)) : 0;
@@ -455,7 +509,16 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
         const i = r * cols + k;
         let cr = cur.r[i]!, cg = cur.g[i]!, cb = cur.b[i]!;
         // A star, ring or the rocket over this cell: the cell's own character in its colour.
-        const lv = lr ? lit[i]! : 0;
+        let lv = lr ? lit[i]! : 0;
+        const rv = rr ? ra[i]! : 0;
+        if (rv > 0) {
+          // The ring's cell: in the ring's colour; a star over it stirs the ring there, and is not
+          // drawn over it.
+          if (lv > 0.3) stir[ru[i]!] = 1;
+          lv = 0;
+          const h3 = hueAt3(rh[i]!);
+          (cr = HUES[h3]!), (cg = HUES[h3 + 1]!), (cb = HUES[h3 + 2]!);
+        }
         const fmi = rainbow ? (fm[i] ?? 0) : 0;
         if (fmi > 0) {
           const h3 = hueAt3((((k + 0.5 - f) * cw - fx0) / span) * 300 + hue0);
@@ -465,7 +528,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
           const h3 = hueAt3(litHue[i]!), m = Math.min(1, lv * 1.4);
           (cr += (HUES[h3]! - cr) * m), (cg += (HUES[h3 + 1]! - cg) * m), (cb += (HUES[h3 + 2]! - cb) * m);
         }
-        const k2 = Math.min(24, Math.round(Math.max(clamp(cur.a[i]!) * (env + (1 - env) * (fm[i] ?? 0)) * dim, lv * 0.95) * 24)) | ((cr >> 3) << 5) | ((cg >> 3) << 10) | ((cb >> 3) << 15);
+        const k2 = Math.min(24, Math.round(Math.max(clamp(cur.a[i]!) * (env + (1 - env) * (fm[i] ?? 0)) * dim, lv * 0.95, rv) * 24)) | ((cr >> 3) << 5) | ((cg >> 3) << 10) | ((cb >> 3) << 15);
         if (k2 !== key) {
           flush();
           run = "";
@@ -489,7 +552,6 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
   type Shape = { x: number; y: number; rad: number; turn: number; ring: boolean; fade: number; hue: number; w: number };
   let pops: Spark[] = [];
   // The second ring of a press, on its way.
-  let ringLater: ReturnType<typeof setTimeout> | 0 = 0;
   let lx = 0, ly = 0, lensOn = false, lastPop = 0;
   const pop = (x: number, y: number, ring: boolean, speed: number, size: number) => {
     const a = Math.random() * Math.PI * 2;
@@ -606,7 +668,6 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
       if (t >= STOP + FLY) {
         const [ex, ey] = rk.pts.at(-1)!;
         rk = null;
-        for (let j = 0; j < 3; j++) pop(ex, ey, true, 6, 90 + j * 70 + Math.random() * 20);
         for (let j = 0; j < 7; j++) pop(ex, ey, false, 150 + Math.random() * 180, 36 + Math.random() * 24);
       }
     }
@@ -614,7 +675,6 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
     if (held && lensOn && now - heldAt > 280) {
       if (now - lastHeld > 130) {
         lastHeld = now;
-        pop(lx, ly, true, 8, 50 + Math.random() * 50);
         for (let j = 0; j < 2; j++) pop(lx, ly, false, 90 + Math.random() * 130, 28 + Math.random() * 18);
       }
       outTo(ly, 220 * dt);
@@ -662,8 +722,12 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
       }
     }
     wasTurning = turning;
+    // The ring there where Iridium's letters would be (no agent to draw), coming and going.
+    const ringOn = rainbow && !leaving && !left ? 1 : 0;
+    ringK += (ringOn - ringK) * (1 - Math.exp(-dt / 0.35));
+    if (Math.abs(ringOn - ringK) < 0.005) ringK = ringOn;
     draw();
-    calm = !burst && !turning && !gliding && !pops.length && !lensOn && !rk && !held && Math.abs(vel - want) < 0.02;
+    calm = ringK < 0.01 && !burst && !turning && !gliding && !pops.length && !lensOn && !rk && !held && Math.abs(vel - want) < 0.02;
     if (flow > 0 || want || turning || gliding || pops.length || rk || held) kick();
   };
   const kick = () => {
@@ -744,6 +808,13 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
     touched = new Int32Array(n);
     nTouched = 0;
     rowLit = new Uint8Array(rows);
+    ra = new Float32Array(n);
+    rh = new Float32Array(n);
+    rz = new Float32Array(n);
+    ru = new Int16Array(n);
+    ringCells = new Int32Array(n);
+    nRing = 0;
+    rowRing = new Uint8Array(rows);
     busy = new Uint8Array(n);
     off = new Float32Array(rows);
     speed = new Float32Array(rows);
@@ -866,7 +937,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
       }
       if (moved > 6 && now - lastPop > 140) {
         lastPop = now;
-        pop(x, y, Math.random() < 0.4, 10 + Math.random() * 20, 30 + Math.random() * 22);
+        pop(x, y, false, 10 + Math.random() * 20, 30 + Math.random() * 22);
       }
       kick();
     },
@@ -874,15 +945,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
       if (still || !W) return;
       (lx = x), (ly = y), (lensOn = true);
       outTo(y, 90);
-      // One ring now, another after a while (kumo, 2026-11-25: the stars are what a press is for).
-      pop(x, y, true, 4 + Math.random() * 8, 110 + Math.random() * 20);
-      if (ringLater) clearTimeout(ringLater);
-      ringLater = setTimeout(() => {
-        ringLater = 0;
-        if (dead || still) return;
-        pop(x, y, true, 6 + Math.random() * 8, 130 + Math.random() * 30);
-        kick();
-      }, 780);
+      // Stars alone (kumo, 2026-11-26: no rings).
       for (let j = 0; j < 5; j++) pop(x, y, false, 120 + Math.random() * 140, 36 + Math.random() * 20);
       kick();
     },
