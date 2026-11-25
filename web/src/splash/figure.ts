@@ -36,8 +36,19 @@ export function beside(o: boolean): void {
 }
 /** The panel gone, its menus with it. */
 export function panelGone(): void {
+  power = 0.5;
   subs = 0;
   clearTimeout(later);
   tell(false);
 }
 export const panelOpen = () => open;
+
+// The effort slider's level as it is moved (chat/effort.tsx), 0 to 1: the code flows the faster
+// and the figure stands the stronger for it. 0.5 with none moved.
+let power = 0.5;
+export function effortAt(f: number): void {
+  if (power === f) return;
+  power = f;
+  heard.forEach((h) => h());
+}
+export const powerNow = () => power;

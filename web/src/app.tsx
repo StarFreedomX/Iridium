@@ -10,6 +10,7 @@ import { AppKey, AppTell, WinKeys } from "./appkey";
 import { Dialog } from "@base-ui/react/dialog";
 import { Toast } from "@base-ui/react/toast";
 import { Tooltip } from "@base-ui/react/tooltip";
+import { FolderOpen } from "lucide-react";
 import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType, type CSSProperties, type ReactNode } from "react";
 import { api, queryClient } from "./api/client";
 import { InPopup } from "./api/query";
@@ -19,7 +20,7 @@ import { onCreateAt, type BrowseAt } from "./places";
 import { listFromDevice } from "./device/first";
 import { agentsQ, LOCAL_ME, pushQ, selfQ, useApps, useHome, useMe, useSettings, useUpdate, useWorkspaces } from "./data";
 import { FileWindow } from "./file-window";
-import { FileBrowserHandle, loadFileBrowser } from "./filebrowser-trigger";
+import { FileBrowserHandle, FileBrowserTrigger, loadFileBrowser } from "./filebrowser-trigger";
 import { t, useLang } from "./i18n";
 import { applyTheme, initialTheme, keepTheme, MeKey, useTellLang, type ThemePref } from "./me";
 import { motion, movesAhead, pageTurn, usePaced } from "./motion";
@@ -555,6 +556,14 @@ function Empty({ below }: { below: number }) {
       <Suspense fallback={null}>
         <Splash />
       </Suspense>
+      {/* Where a chat's composer is, its look: pressed, the file browser, a channel made in the
+          folder chosen there (kumo, 2026-11-25: the first screen, a phone's too). */}
+      <div className="absolute inset-x-0 z-2 px-2.5 pb-[max(14px,calc(env(safe-area-inset-bottom)+6px))] transition-[bottom] duration-(--dur-3) ease-(--ease-out) sm:px-5" style={{ bottom: below }}>
+        <FileBrowserTrigger place={{ machine: "", path: "" }} className="glass float rest mx-auto flex h-12 w-full max-w-(--chat-w) cursor-text items-center gap-2.5 rounded-[20px] px-4 text-left text-base text-ink-3">
+          <FolderOpen size={17} className="shrink-0" />
+          <span className="min-w-0 truncate">{t("empty.pick")}</span>
+        </FileBrowserTrigger>
+      </div>
       {/* The desktop app's keys where a chat's top bar has them (appkey.tsx); nothing in a browser.
           The strip they are in drags the window. */}
       <div data-app-drag className="absolute inset-x-0 top-0 flex h-12 items-center justify-end pr-2">

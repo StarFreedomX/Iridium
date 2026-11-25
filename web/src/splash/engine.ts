@@ -112,7 +112,7 @@ function picture(src: string): Promise<HTMLImageElement | null> {
 /** A figure's picture asked for ahead (a row of the + panel as it is drawn). */
 export const ahead = (f: Fig) => void (f.src && picture(f.src));
 
-export type Splash = { figure(f: Fig | null): void; place(x: number, side: number): void; resize(): void; near(x: number, y: number): void; stop(): void };
+export type Splash = { figure(f: Fig | null): void; place(x: number, side: number): void; power(f: number): void; resize(): void; near(x: number, y: number): void; stop(): void };
 
 export function splash(cv: HTMLCanvasElement, still: boolean): Splash {
   const g = cv.getContext("2d")!;
@@ -130,6 +130,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean): Splash {
   let wait = new Float32Array(0), heat = new Float32Array(0), off = new Float32Array(0), speed = new Float32Array(0);
   let text: string[][] = [];
   let ink: RGB = [34, 34, 34], dark = false;
+  let pw = 0.5; // the effort slider's level, 0 to 1
   let cx = -1, most = 0; // where the figure's middle is and how large it may be; -1: the band's own
   let fig: Fig | null = null, photo = false, drawnKey = "", asked = 0;
   let t0 = -1e9, flowTo = 0, last = 0, raf = 0, hot = false, first = true, dead = false;
@@ -201,15 +202,15 @@ export function splash(cv: HTMLCanvasElement, still: boolean): Splash {
       const hc = vivid(halo[o]!, halo[o + 1]!, halo[o + 2]!, 1.5, dark ? 1.15 : 0.9);
       if (photo && m > 0.5) {
         const lum = (0.3 * sharp[o]! + 0.59 * sharp[o + 1]! + 0.11 * sharp[o + 2]!) / 255;
-        a = 0.3 + 0.7 * Math.pow(dark ? lum : 1 - lum, 0.75);
+        a = (0.3 + 0.7 * Math.pow(dark ? lum : 1 - lum, 0.75)) * (0.7 + 0.3 * pw);
         c = vivid(sharp[o]!, sharp[o + 1]!, sharp[o + 2]!, 1.5, dark ? 1.2 : 0.85);
       } else {
-        const w = clamp(h * (photo ? 1.25 : 0.9) * (1 - (photo ? 0 : m)));
+        const w = clamp(h * (photo ? 1.25 : 0.9) * (0.5 + pw) * (1 - (photo ? 0 : m)));
         c = [ink[0] + (hc[0] - ink[0]) * w, ink[1] + (hc[1] - ink[1]) * w, ink[2] + (hc[2] - ink[2]) * w];
         a = BASE + w * (photo ? 0.3 : 0.12);
         if (!photo && m > 0) {
           c = [c[0] + (sharp[o]! - c[0]) * m, c[1] + (sharp[o + 1]! - c[1]) * m, c[2] + (sharp[o + 2]! - c[2]) * m];
-          a += m * 0.62;
+          a += m * (0.42 + 0.4 * pw);
         }
       }
       out.a[i] = a;
@@ -254,7 +255,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean): Splash {
     const dt = Math.min(50, now - last) / 1000;
     last = now;
     const flow = clamp((flowTo - now) / 900);
-    if (flow > 0) for (let r = 0; r < rows; r++) off[r] = (off[r]! + speed[r]! * flow * dt + len) % len;
+    if (flow > 0) for (let r = 0; r < rows; r++) off[r] = (off[r]! + speed[r]! * flow * (0.4 + 3.2 * pw * pw) * dt + len) % len;
     const span = now - t0;
     const turning = span < SPREAD + TURN + 400;
     if (turning) {
@@ -363,6 +364,11 @@ export function splash(cv: HTMLCanvasElement, still: boolean): Splash {
       if (W) show(f, false);
     },
     resize,
+    power(f) {
+      if (Math.abs(f - pw) < 0.01) return;
+      pw = f;
+      if (W && drawnKey === (fig?.key ?? "")) turn(false);
+    },
     place(x, side) {
       if (Math.abs(x - cx) < 1 && Math.abs(side - most) < 1) return;
       const had = cx !== -1 || x !== -1;

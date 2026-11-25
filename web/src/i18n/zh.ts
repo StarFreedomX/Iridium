@@ -150,6 +150,7 @@ export const zh = {
   "msg.noPreview": "无法预览",
   "msg.loading": "加载中",
   "msg.close": "关闭",
+  "empty.pick": "选择文件夹",
   "browse.title": "文件",
   "browse.up": "上一级",
   "browse.start": "起始目录",

@@ -9,7 +9,7 @@ import { useFaceSrc } from "../chat/channel/face";
 import { t } from "../i18n";
 import { cn, useMedia } from "../ui";
 import { splash, type Splash as Engine } from "./engine";
-import { onPoint, panelOpen, point, pointedAt, type Fig } from "./figure";
+import { onPoint, panelOpen, point, pointedAt, powerNow, type Fig } from "./figure";
 
 // The + panel and the menu beside its rows, with the gaps about them: what the figure keeps left of.
 const PANEL = 660;
@@ -33,6 +33,7 @@ export function Splash({ show = true, fig = null, className }: { show?: boolean;
   const aside = useSyncExternalStore(onPoint, panelOpen) && show;
   const asideRef = useRef(aside);
   asideRef.current = aside;
+  const power = useSyncExternalStore(onPoint, powerNow);
   const [at, setAt] = useState({ x: 0, side: 0 });
   const fitRef = useRef(() => {});
   const nowRef = useRef(now);
@@ -71,6 +72,7 @@ export function Splash({ show = true, fig = null, className }: { show?: boolean;
   }, [there, still]);
   useEffect(() => eng.current?.figure(now), [now?.key]);
   useEffect(() => fitRef.current(), [aside]);
+  useEffect(() => eng.current?.power(show ? power : 0.5), [power, show]);
   if (!there) return null;
   return (
     <div aria-hidden={!now} onTransitionEnd={(e) => e.target === e.currentTarget && !show && setThere(false)} className={cn("pointer-events-none absolute inset-x-0 top-[calc(50%-24px)] z-1 h-[clamp(220px,46%,420px)] -translate-y-1/2 transition-opacity duration-(--dur-3) ease-(--ease-out)", !show && "opacity-0", className)}>
