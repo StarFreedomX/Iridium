@@ -104,9 +104,23 @@ export function EffortSlider({ levels, value, set, aside, tag }: { levels: strin
     const box = root.current;
     if (!el || !box) return;
     const still = matchMedia("(prefers-reduced-motion: reduce)").matches || !!document.querySelector("[data-still]");
-    const stopFlow = flow(el, () => fracNow.current, still);
-    const stopPull = pull(box, () => fracNow.current, still);
-    return () => (stopFlow(), stopPull());
+    // Where the finger is along the track while it holds the knob (0..1), else null: the knob is
+    // drawn there, not at the stop the slider has it at.
+    let held: number | null = null;
+    const at = (e: PointerEvent) => {
+      const r = box.querySelector("[data-track]")?.getBoundingClientRect();
+      return r && r.width > 24 ? Math.min(1, Math.max(0, (e.clientX - r.left - 12) / (r.width - 24))) : null;
+    };
+    const down = (e: PointerEvent) => void ((e.target as Element).closest?.("[data-track-control]") && (held = at(e)));
+    const move = (e: PointerEvent) => void (held !== null && (held = at(e)));
+    const up = () => void (held = null);
+    box.addEventListener("pointerdown", down, true);
+    window.addEventListener("pointermove", move, { passive: true });
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+    const stopFlow = flow(el, () => held ?? fracNow.current, still);
+    const stopPull = pull(box, () => fracNow.current, still, () => (still ? null : held));
+    return () => (stopFlow(), stopPull(), box.removeEventListener("pointerdown", down, true), window.removeEventListener("pointermove", move), window.removeEventListener("pointerup", up), window.removeEventListener("pointercancel", up));
   }, []);
   const commit = (k: number) => {
     setDrag(null);
@@ -135,8 +149,8 @@ export function EffortSlider({ levels, value, set, aside, tag }: { levels: strin
         </div>
         {aside && name}
         <Slider.Root value={i} min={0} max={n - 1} step={1} onValueChange={(v) => (v !== i && buzz(), setDrag(v as number))} onValueCommitted={(v) => commit(v as number)} aria-label={t("composer.effort")} className="group/effort min-w-0">
-          <Slider.Control className="relative flex h-7 cursor-grab touch-none items-center data-dragging:cursor-grabbing pointer-coarse:h-10">
-            <Slider.Track className="relative h-6 w-full rounded-full bg-fill-2 shadow-[inset_0_1px_2px_oklch(0_0_0/0.12)]">
+          <Slider.Control data-track-control className="relative flex h-7 cursor-grab touch-none items-center data-dragging:cursor-grabbing pointer-coarse:h-10">
+            <Slider.Track data-track className="relative h-6 w-full rounded-full bg-fill-2 shadow-[inset_0_1px_2px_oklch(0_0_0/0.12)]">
               <span aria-hidden className="absolute inset-0 overflow-hidden rounded-full">
                 {/* Under: the neck the knob draws out, the blobs run together; over: the liquid. */}
                 <span className="absolute inset-0" style={{ filter: `url(#${goo})` }}>

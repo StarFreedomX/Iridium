@@ -108,8 +108,11 @@ export function flow(canvas: HTMLCanvasElement, frac: () => number, still: boole
     g.putImageData(img, 0, 0);
   };
   const seen = new ResizeObserver(() => fit() && still && draw());
+  // Thirty frames a second: the paint flows slowly, and each frame is a sum per pixel; at the
+  // screen's own rate it took the time the page's other motion needs (kumo, 2026-11-25).
   const tick = (now: number) => {
-    const dt = then ? Math.min(0.05, (now - then) / 1000) : 0;
+    if (then && now - then < 30) return void (id = requestAnimationFrame(tick));
+    const dt = then ? Math.min(0.08, (now - then) / 1000) : 0;
     then = now;
     const f = frac();
     // The knob moved: the liquid is thrown the way it went.

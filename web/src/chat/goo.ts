@@ -11,7 +11,7 @@ export type Spring = { x: number; v: number; k: number; c: number };
 /** The springs, in order: the knob (stiff, a slight overshoot), the front (slow, lagging), and the
  *  blobs between, looser and looser (they wobble). */
 export const SPRINGS: Pick<Spring, "k" | "c">[] = [
-  { k: 260, c: 24 },
+  { k: 300, c: 17 }, // the knob, let go: to its stop with a bounce past it, as jelly (kumo, 2026-11-25)
   { k: 48, c: 12.5 }, // the front: a little slower still (the user, 2026-11-06)
   { k: 190, c: 14 },
   { k: 130, c: 13 },
@@ -37,7 +37,7 @@ export const still = (s: Spring, to: number) => Math.abs(s.x - to) < 1e-4 && Mat
 
 /** Runs the springs on root's style till the returned stop is called. frac: where the knob is to
  *  be (0..1). calm (reduced motion, a screenshot): all go there at once. */
-export function pull(root: HTMLElement, frac: () => number, calm: boolean) {
+export function pull(root: HTMLElement, frac: () => number, calm: boolean, held: () => number | null = () => null) {
   const f0 = frac();
   const ss: Spring[] = SPRINGS.map((p) => ({ ...p, x: f0, v: 0 }));
   const put = () => ss.forEach((s, i) => root.style.setProperty(VARS[i]!, s.x.toFixed(4)));
@@ -52,8 +52,21 @@ export function pull(root: HTMLElement, frac: () => number, calm: boolean) {
     if (calm) {
       if (ss[0]!.x !== to) (ss.forEach((s) => ((s.x = to), (s.v = 0))), put());
     } else if (!resting || !ss.every((s) => still(s, to))) {
-      for (const s of ss) step(s, to, dt);
-      resting = ss.every((s) => still(s, to));
+      // Held, the knob is under the finger, in the frame it moves (kumo, 2026-11-25: it came after,
+      // from stop to stop); the rest follow it on their springs. Let go, it springs to its stop.
+      const h = held();
+      const knob = ss[0]!;
+      if (h !== null) {
+        knob.v = dt ? (h - knob.x) / dt : 0;
+        knob.x = h;
+      } else step(knob, to, dt);
+      const lead = h ?? to;
+      for (let i = 1; i < ss.length; i++) step(ss[i]!, lead, dt);
+      // The liquid is drawn out behind the knob, never left ahead of it: the knob taken back, the
+      // front and the drops between go back with it at once (kumo, 2026-11-25: it went the wrong
+      // way, the fill standing out past the knob).
+      for (let i = 1; i <= 4; i++) if (ss[i]!.x > knob.x) (ss[i]!.x = knob.x), (ss[i]!.v = Math.min(ss[i]!.v, knob.v));
+      resting = h === null && ss.every((s) => still(s, to));
       if (resting) ss.forEach((s) => ((s.x = to), (s.v = 0)));
       put();
     }
