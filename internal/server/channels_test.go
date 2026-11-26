@@ -855,7 +855,7 @@ func TestChannelQuoteAndAll(t *testing.T) {
 		}
 	}
 	// In its record, Satori's forward: the messages given, each with its author, the call last;
-	// the first time with the channel's standing words.
+	// never Iridium's standing words (those are the injections', the internal interface).
 	var rec satori.BidiList[satori.Message]
 	l.wantSat(200, "web", "internal/block.list", map[string]any{"channel_id": second}, &rec)
 	fwds := []string{}
@@ -870,8 +870,8 @@ func TestChannelQuoteAndAll(t *testing.T) {
 			again = f
 		}
 	}
-	if len(fwds) < 2 || !strings.Contains(fwds[0], `<iridium:relay channel="`+ch+`"`) || !strings.Contains(fwds[0], " full>You are claude2") ||
-		!strings.Contains(fwds[0], `<author id="local" name="Iridium"/>@claude2 tell me more</message></message>`) ||
+	if len(fwds) < 2 || !strings.Contains(fwds[0], `<iridium:relay channel="`+ch+`"`) || strings.Contains(fwds[0], "You are claude2") || strings.Contains(fwds[0], "<channel-context>") ||
+		!strings.Contains(fwds[0], `<author id="local" name="Iridium"/>[answering #5 claude2: a thought of mine] @claude2 tell me more</message></message>`) ||
 		again == "" || strings.Contains(again, " full>") || !strings.HasSuffix(again, "@全体Agent roll call</message></message>") {
 		t.Errorf("forwards:\n%s", strings.Join(fwds, "\n"))
 	}

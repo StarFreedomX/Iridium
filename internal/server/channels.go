@@ -1876,8 +1876,10 @@ func (s *Server) memberRemove(w http.ResponseWriter, r *http.Request) {
 	reply(w, http.StatusOK, out)
 }
 
+// injections is all a session keeps of what it was given (store.InjectionsKept, newest first):
+// the page shows each of its record's blocks as it was given (web/src/chat/given.ts).
 func (s *Server) injections(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.st.Injections(r.PathValue("id"), 50)
+	rows, err := s.st.Injections(r.PathValue("id"), 0)
 	if err != nil {
 		s.fault(w, err)
 		return
@@ -2794,13 +2796,15 @@ func (a *answers) run(session string) {
 var relayHead = regexp.MustCompile(`^#(\d+)(?:: | \[)`)
 
 // relayOf is what block b of session's record was given as by a channel (satori.Relayer): the
-// messages its injection record cites, in order, the one that called it last. The injection is
+// messages it was given, read out of the text kept of it (assemble.Record.Messages: each as
+// written there, not read again from the channel), the one that called it last. The injection is
 // the one kept under the block's input (which channel it is of is read there, not guessed from
-// the words); a block that names no input, the latest one for that number. None for a block
-// that is no such message or whose record is no longer kept.
+// the words); a block that names no input, the latest one for that number. Who said each is
+// looked up by its number only for the id of its author. A record that cannot be read back
+// (no text kept, a fragment changed since): the words that called it, as the record has them.
+// None for a block that is no such message or whose record is no longer kept.
 func (s *Server) relayOf(session string, b api.Block) (satori.Relay, bool) {
 	m := relayHead.FindStringSubmatch(b.Text)
-	ctxAt := strings.Index(b.Text, "\n\n<channel-context>\n")
 	if m == nil {
 		return satori.Relay{}, false
 	}
@@ -2809,6 +2813,7 @@ func (s *Server) relayOf(session string, b api.Block) (satori.Relay, bool) {
 	if err != nil {
 		return satori.Relay{}, false
 	}
+	ctxAt := strings.Index(b.Text, "\n\n<channel-context>\n")
 	var rec assemble.Record
 	ch, found := "", false
 	for _, in := range rows {
@@ -2824,44 +2829,31 @@ func (s *Server) relayOf(session string, b api.Block) (satori.Relay, bool) {
 		return satori.Relay{}, false
 	}
 	_, by := s.agentsOf(ch)
-	msg := func(n int64) (satori.RelayMsg, bool) {
-		cm, ok := s.ch.Get(ch, n)
-		if !ok {
-			return satori.RelayMsg{}, false
+	author := func(n int64) (string, string) {
+		if cm, ok := s.ch.Get(ch, n); ok {
+			return cm.Author, whoOf(cm, by)
 		}
-		u := satori.User{ID: cm.Author, Name: whoOf(cm, by)}
-		return satori.RelayMsg{ID: strconv.FormatInt(n, 10), User: u, Text: cm.Text, Activity: cm.D.Activity}, true
+		return "", ""
 	}
-	out := satori.Relay{Channel: ch, Name: s.channelName(ch), Seq: seq, Full: rec.Full}
-	full := rec.Full || rec.Static == "" // a record from before: its words were all given
-	open := false
-	for _, p := range rec.Parts {
-		switch {
-		case p.Source == "prompts:channel.context.open":
-			open = true
-		case !open:
-		case p.Source == "prompts:channel.context.guest" || p.Source == "prompts:channel.context.members" || p.Source == "prompts:channel.context.guest-bare":
-			out.Full = full
-		case p.Source == "prompts:channel.context.turn":
-			out.Msgs = append(out.Msgs, satori.RelayMsg{ID: p.Values["from"] + "-" + p.Values["to"], User: satori.User{Name: p.Values["who"]}, Text: p.Values["head"], Turn: true})
-		case p.Source == "input":
-			for _, r := range p.Refs {
-				if r.Kind != "message" {
-					continue
-				}
-				if n, err := strconv.ParseInt(r.ID, 10, 64); err == nil && n != seq {
-					if rm, ok := msg(n); ok {
-						out.Msgs = append(out.Msgs, rm)
-					}
-				}
+	out := satori.Relay{Channel: ch, Name: s.channelName(ch), Seq: seq}
+	given, ok := rec.Messages()
+	if !ok {
+		words := strings.TrimPrefix(b.Text, "#"+m[1]+": ")
+		if ctxAt >= 0 {
+			words = words[:strings.Index(words, "\n\n<channel-context>\n")]
+		}
+		given = []assemble.Given{{ID: m[1], Seq: seq, Words: words}}
+	}
+	for _, g := range given {
+		u := satori.User{Name: g.Who}
+		if !g.Turn {
+			id, who := author(g.Seq)
+			u.ID = id
+			if u.Name == "" {
+				u.Name = who
 			}
 		}
-	}
-	if rm, ok := msg(seq); ok {
-		out.Msgs = append(out.Msgs, rm)
-	}
-	if out.Full && ctxAt >= 0 {
-		out.Context = strings.TrimSuffix(strings.TrimSpace(b.Text[ctxAt+len("\n\n<channel-context>\n"):]), "</channel-context>")
+		out.Msgs = append(out.Msgs, satori.RelayMsg{ID: g.ID, User: u, Text: g.Words, Turn: g.Turn})
 	}
 	return out, true
 }

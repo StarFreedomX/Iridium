@@ -1,5 +1,5 @@
-// A merged forward in what is said (forward.ts), drawn as the card a relay in an agent's own record
-// is (said.tsx Relayed: 聊天记录 · N 条, a line per message, who and what): folded to its head line;
+// A merged forward in what is said (forward.ts), drawn as a card (聊天记录 · N 条, a line per
+// message, who and what; its rows are also a channel's context's new messages, context.tsx): folded to its head line;
 // pressed, it opens in place, its height gliding as a tool's fold does; a forward inside one of
 // its messages is a card of its own, opened in turn.
 import { ChevronRight, MessagesSquare } from "lucide-react";
@@ -8,8 +8,17 @@ import { t } from "../i18n";
 import { cn } from "../ui";
 import { forwardCount, msgWords, type Fwd } from "./forward";
 
-/** A message of a forward as its line: who said it, its words (dim: an earlier one, faint). */
-export function ForwardRow({ who, dim, clamp, children }: { who: string; dim?: boolean; clamp?: boolean; children: ReactNode }) {
+/** A message of a forward as its line: who said it, its words (dim: an earlier one, faint).
+ *  inline: who as written before the words, in one flow (a line of a channel's context, its head
+ *  "#9 [who · time]: " as given). */
+export function ForwardRow({ who, dim, clamp, inline, children }: { who: string; dim?: boolean; clamp?: boolean; inline?: boolean; children: ReactNode }) {
+  if (inline)
+    return (
+      <div className={cn("min-w-0 text-sm whitespace-pre-wrap [overflow-wrap:anywhere]", dim && "text-ink-3")}>
+        <span className={cn("font-medium", dim ? "text-ink-3" : "text-ink-2")}>{who}</span>
+        {children}
+      </div>
+    );
   return (
     <div className={cn("flex min-w-0 gap-2 text-sm", dim && "text-ink-3")}>
       <span className={cn("shrink-0 font-medium", dim ? "text-ink-3" : "text-ink-2")}>{who}</span>

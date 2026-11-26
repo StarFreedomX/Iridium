@@ -6,19 +6,22 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/kumoSleeping/iridium/internal/activity"
 	"github.com/kumoSleeping/iridium/internal/api"
 	"github.com/kumoSleeping/iridium/internal/store"
 )
 
 // A channel's message as an agent of it was given it, in that agent's own record (docs/channels.md
 // "增量", "网页"): Satori's forward, a <message forward> of the messages it was given this time
-// (each a <message> with its <author>), the one that called it last; before it
+// (each a <message> with its <author>, its words as the agent got them), the one that called it
+// last; before it
 //
-//	<iridium:relay channel name seq full>the channel's standing words</iridium:relay>
+//	<iridium:relay channel name seq/>
 //
-// which channel, the number of the message that called it, and, where they were given this time
-// (full), the channel's standing words. A client that knows only Satori sees the forward.
+// which channel and the number of the message that called it, to go there. Only the standard
+// forward and those plain attributes: what else Iridium gave (its standing words, the lines of
+// its <channel-context>) is the internal interface's, the session's injections (kumo, 2026-11-26:
+// the standard interface and the internal one kept apart). A client that knows only Satori sees
+// the forward.
 const elRelay = Adapter + ":relay"
 
 // Relay is what a channel gave an agent with one of its messages.
@@ -26,19 +29,16 @@ type Relay struct {
 	Channel string
 	Name    string
 	Seq     int64
-	Full    bool
-	Context string // the standing words, where Full
 	Msgs    []RelayMsg
 }
 
 // RelayMsg is a message of the forward: ID its number ("3-5" for a turn told in a line), who
-// said it, its words, what its agent did before saying it.
+// said it, its words as the agent was given them.
 type RelayMsg struct {
-	ID       string
-	User     User
-	Text     string
-	Activity *activity.Activity
-	Turn     bool // a turn in a line (its first words), not the words whole
+	ID   string
+	User User
+	Text string
+	Turn bool // a turn in a line (its first words), not the words whole
 }
 
 // Relayer is a Backend that knows what its channels gave their agents.
@@ -53,21 +53,16 @@ func relayContent(b api.Block, r Relay, mask func(string) string) string {
 	mark.Text = ""
 	head := blockContent(mark, "", "", "", mask)
 	kv := []string{"channel", r.Channel, "name", mask(r.Name), "seq", strconv.FormatInt(r.Seq, 10)}
-	rl := Tag(elRelay, kv)
-	if r.Full {
-		rl.Attrs = append(rl.Attrs, Attr{Key: "full", Bare: true})
-		if r.Context != "" {
-			rl.Children = []Element{Text(mask(r.Context))}
-		}
-	}
-	out := head + String([]Element{rl}) + "<message forward>"
+	out := head + String([]Element{Tag(elRelay, kv)}) + "<message forward>"
 	for _, m := range r.Msgs {
-		au := Tag("author", []string{"id", m.User.ID, "name", mask(m.User.Name)})
-		msg := String([]Element{au, Text(mask(m.Text))})
+		kv := []string{"name", mask(m.User.Name)}
+		if m.User.ID != "" {
+			kv = append([]string{"id", m.User.ID}, kv...)
+		}
+		msg := String([]Element{Tag("author", kv), Text(mask(m.Text))})
 		if m.Turn {
 			msg += String([]Element{Tag(Adapter+":turn", nil)})
 		}
-		msg += activityElement(m.Activity, false)
 		out += `<message id="` + Escape(m.ID) + `">` + msg + "</message>"
 	}
 	return out + "</message>"

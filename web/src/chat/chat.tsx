@@ -8,7 +8,9 @@ import { ArrowLeft, BarChart3, Ellipsis, House, Globe, ListTree, Plus, Settings 
 import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
 import { lazyAhead, useAhead } from "../prefetch";
 import type { Device, Session, SessionState as LiveSession } from "../api/types.gen";
-import { queryClient } from "../api/client";
+import { keepPreviousData } from "@tanstack/react-query";
+import { api, queryClient } from "../api/client";
+import { useQuery } from "../api/query";
 import { AppKey, WinKeys } from "../appkey";
 import { chatOf, firstScreen, fresh, stateAhead, type Draft as Drafted } from "../chats";
 import { newChannel } from "../create";
@@ -36,6 +38,8 @@ import { folded, foldKey } from "./fold";
 import { Draft } from "./markdown";
 import { PublicLink, publicLinkQ } from "./publiclink";
 import { sourceOf, withDevice } from "./refs";
+import { SystemPrompt } from "./context";
+import { givenOf } from "./given";
 import { Said } from "./said";
 import { Stick } from "./stick";
 
@@ -133,6 +137,10 @@ function TranscriptView({ id, sheet = 0, onSheet, onMe, onBack }: { id: string; 
   }, [busy]);
 
   const shown = useMemo(() => folded(log.blocks, busy), [log.blocks, busy]);
+  // What its agent was given, kept (given.ts): asked again as a message comes to it.
+  const lastIn = log.blocks.findLast((b) => b.kind === "user")?.id ?? "";
+  const injections = useQuery({ queryKey: ["injections", id, lastIn], queryFn: () => api.injections(id), retry: false, placeholderData: keepPreviousData, meta: { inside: true } });
+  const given = useMemo(() => givenOf(injections.data), [injections.data]);
 
   if (!s) {
     const gone = lost && list !== undefined && !row;
@@ -145,6 +153,7 @@ function TranscriptView({ id, sheet = 0, onSheet, onMe, onBack }: { id: string; 
   }
 
   const cwd = s.cwd ?? row?.cwd ?? "";
+  const asGiven = (b: { id?: string }) => (b.id ? given.byInput.get(b.id) : undefined);
   const running = shown.flatMap((b) => (b.kind === "running" ? [b.tool] : []));
   const rows = shown.filter((b) => b.kind !== "running");
   const textDrafts = log.drafts.filter((d) => !d.tool && d.text.trim());
@@ -159,8 +168,10 @@ function TranscriptView({ id, sheet = 0, onSheet, onMe, onBack }: { id: string; 
     <div className="relative h-full">
       <Stick scroller={scroller} tail={grew} older={() => log.older()} draw={changed} place={chat.place} bottom={bottomH} style={{ paddingTop: 64, paddingBottom: bottomH + 20 }}>
         <div data-column className="mx-auto flex max-w-(--chat-w) flex-col gap-5 px-4 sm:px-6">
+          {/* Its system prompt, as given, where its record is read to its start. */}
+          {given.verbatim && given.system && log.loaded && !log.more && <SystemPrompt text={given.system} />}
           {rows.map((b) => (
-            <Said key={b.kind === "fold" ? (foldKey(b.steps) ?? b.at) : b.at} b={b} session={id} cwd={cwd} source={source} onJump={openChat} />
+            <Said key={b.kind === "fold" ? (foldKey(b.steps) ?? b.at) : b.at} b={b} session={id} cwd={cwd} source={source} onJump={openChat} given={given.verbatim ? asGiven : undefined} />
           ))}
           {textDrafts.map((d) => (
             <div key={`${d.proc}.${d.n}`} className="g-fade min-w-0 pr-6">

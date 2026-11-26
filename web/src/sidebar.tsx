@@ -651,7 +651,9 @@ function Row({ depth, flip, chevron, expanded, icon, label, end, selected, onCli
         else if (onChevron && ((e.key === "ArrowRight" && chevron === "closed") || (e.key === "ArrowLeft" && chevron === "open"))) (e.preventDefault(), onChevron());
       }}
       className={cn(
-        "group relative flex cursor-default rounded-md pr-2 transition-opacity duration-(--dur-2) select-none hover:bg-fill hover:[--row-bg:var(--fill)]",
+        "group relative flex cursor-default rounded-md pr-2 transition-opacity duration-(--dur-2) select-none",
+        // The row open: a fill of its own, a step darker than a hover's, its words as any row's (kumo, 2026-11-26: no bold).
+        selected ? "bg-fill-2 [--row-bg:var(--fill-2)]" : "hover:bg-fill hover:[--row-bg:var(--fill)]",
         face ? "items-center py-1.5 pointer-coarse:py-2" : two ? "items-start py-[5px] pointer-coarse:py-2" : "h-[30px] items-center pointer-coarse:h-10",
         faded && "opacity-60",
         dim && "opacity-40",
@@ -669,7 +671,7 @@ function Row({ depth, flip, chevron, expanded, icon, label, end, selected, onCli
               "min-w-0 flex-1",
               reveal ? "text-md" : "text-base pointer-coarse:text-md",
               two ? "flex items-baseline leading-5 pointer-coarse:leading-[23px]" : "truncate",
-              selected ? "font-semibold text-ink" : "text-ink",
+              "text-ink",
             )}
           >
             {label}

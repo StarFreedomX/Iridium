@@ -44,7 +44,6 @@ test("a conversation's scroll place written only by its follow, and where a thin
 
 test("a row's room opened or shut by CSS only where it is listed", () => {
   expect(using(/g-reveal|grid-rows-\[0fr\]/).filter((f) => f.startsWith("chat/"))).toEqual([
-    "chat/channel/members.tsx",
     "chat/channel/profilecard.tsx",
     "chat/channel/script.tsx",
     "chat/composer.tsx",

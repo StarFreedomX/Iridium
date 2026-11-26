@@ -47,10 +47,10 @@ describe("an agent's menu", () => {
   const all = { may: true, own: false, call: true, models: 3, modes: 2, busy: true, session: true };
   const keys = (x: Parameters<typeof memberMenu>[0]) => memberMenu(x).map((i) => i.key);
   test("all of it, in order", () => {
-    expect(keys(all)).toEqual(["call", "compact", "clear", "model", "stop", "recv", "edit", "given", "remove"]);
+    expect(keys(all)).toEqual(["call", "compact", "model", "stop", "recv", "edit", "remove"]);
   });
   test("what it has none of is left out: no model, one mode, at rest", () => {
-    expect(keys({ ...all, models: 0, modes: 1, busy: false })).toEqual(["call", "compact", "clear", "recv", "edit", "given", "remove"]);
+    expect(keys({ ...all, models: 0, modes: 1, busy: false })).toEqual(["call", "compact", "recv", "edit", "remove"]);
   });
   test("the channel's own agent: 移出 shown, not offered", () => {
     const m = memberMenu({ ...all, own: true, session: false });
@@ -58,8 +58,8 @@ describe("an agent's menu", () => {
     expect(m.map((i) => i.key)).not.toContain("session");
     expect(memberMenu(all).at(-1)).toEqual({ key: "remove" });
   });
-  test("one who only reads: what reads", () => {
-    expect(keys({ ...all, may: false, call: false })).toEqual(["given"]);
+  test("one who only reads: nothing", () => {
+    expect(keys({ ...all, may: false, call: false })).toEqual([]);
   });
 });
 
