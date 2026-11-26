@@ -9,7 +9,7 @@ import { Menu } from "@base-ui/react/menu";
 import { Popover } from "@base-ui/react/popover";
 import { useQueryClient } from "@tanstack/react-query";
 import { useQuery } from "../../api/query";
-import { AtSign, MessageCircle, Box, Check, ChevronRight, CircleStop, Eraser, FoldVertical, Mail, PencilLine, Inbox, ScrollText, ShieldCheck, UserMinus } from "lucide-react";
+import { AtSign, MessageCircle, Box, Check, ChevronRight, CircleStop, FoldVertical, Mail, PencilLine, ScrollText, ShieldCheck, UserMinus } from "lucide-react";
 import { useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 import { api } from "../../api/client";
 import { stopTurn } from "../live";
@@ -82,7 +82,7 @@ export function AgentFace({ channel, a, call, record, may, talk, size = 28 }: { 
           if (lp.onContextMenu(e) || !own(e)) return;
           e.preventDefault();
           setDetail(false);
-          setMenuAt({ x: e.clientX, y: e.clientY });
+          setMenuAt({ x: e.clientX, y: roomBelow(e.clientY) });
         }}
         style={{ width: size, height: size }}
         className="g-press grid shrink-0 place-items-center rounded-full bg-fill select-none hover:bg-fill-2 [-webkit-touch-callout:none]"
@@ -108,6 +108,12 @@ export function AgentFace({ channel, a, call, record, may, talk, size = 28 }: { 
     </>
   );
 }
+
+/** Where a menu opened by the mouse at y begins: there, or higher where too little of the window
+ *  is below it for the menu, so that it is still below its start, whole (kumo, 2026-11-26: not
+ *  from the pointer at any cost). A finger's menu stays under the face, the finger above it. */
+const MENU_ROOM = 360;
+const roomBelow = (y: number) => Math.max(8, Math.min(y, innerHeight - 8 - Math.min(MENU_ROOM, innerHeight - 16)));
 
 /** An agent's card (the user, 2026-11-13, as QQ's; the one card, profilecard.tsx): its
  *  background, its face, nick, what it runs as, its state, its intro; not its context or usage,
@@ -256,8 +262,11 @@ function MemberMenu({ at, close, ...items }: { at: { x: number; y: number } | nu
   return (
     <Menu.Root open={at !== null} onOpenChange={(o) => !o && close()}>
       <MenuPortal>
-        <Menu.Positioner anchor={anchor} side="bottom" align="start" sideOffset={4} collisionPadding={8} className="z-50">
-          <Menu.Popup finalFocus={false} className={cn(POPUP, "no-bar min-w-52 overflow-x-hidden p-1.5")}>
+        {/* Always below what opened it, never turned up over the finger (kumo, 2026-11-26: a menu
+            turned up had 移出 under the finger as it let go): too little room, it is lower, its
+            items scrolled, inside the window. */}
+        <Menu.Positioner anchor={anchor} side="bottom" align="start" sideOffset={4} collisionPadding={8} collisionAvoidance={{ side: "none", align: "shift" }} className="z-50">
+          <Menu.Popup finalFocus={false} className={cn(POPUP, "no-bar max-h-(--available-height) min-w-52 overflow-x-hidden overflow-y-auto p-1.5")}>
             {/* In the phone's layout its next levels are its pages, no menu beside a row (kumo, 2026-11-25). */}
             <Paged>
               <div className="g-stagger flex flex-col">
@@ -309,9 +318,6 @@ function Items({ channel, a, s, may, call, record, ask }: Parameters<typeof Memb
   };
   // Each after a frame: the menu shuts first, and what opens is not shut with it.
   const later = (f: () => void) => () => requestAnimationFrame(f);
-  // 清空 asked in its own place: pressed, it turns red and asks again, the menu left open; pressed
-  // again, /clear (kumo, 2026-11-17: no card for it). The menu shut, it is as it was.
-  const [clearing, setClearing] = useState(false);
   // Its session: by the page's own way there; with none, opened, unless it is this one.
   const view = record ? () => record(a.session) : mine ? undefined : () => openChat(a.session);
   const item = (i: number, icon: ReactNode, label: string, run: () => void, o: { tone?: string; disabled?: boolean; note?: string; key?: string; keep?: boolean } = {}) => (
@@ -324,10 +330,6 @@ function Items({ channel, a, s, may, call, record, ask }: Parameters<typeof Memb
   const draw: Record<MenuKey, (i: number, disabled?: boolean) => ReactNode> = {
     call: (i) => item(i, <AtSign size={15} />, t("channel.call"), later(() => call?.(a.nick))),
     compact: (i) => item(i, <FoldVertical size={15} />, t("channel.compact"), act(() => api.send(a.session, "/compact"), t("err.action"))),
-    clear: (i) =>
-      clearing
-        ? item(i, <Eraser size={15} />, t("channel.clearConfirm"), act(() => api.send(a.session, "/clear"), t("err.action")), { key: "clear", tone: "text-err", note: t("channel.clearHint") })
-        : item(i, <Eraser size={15} />, t("channel.clear"), () => setClearing(true), { key: "clear", keep: true }),
     // The composer's model menu itself (kumo, 2026-11-16): its models, the effort track, UltraCode.
     model: (i) => (
       <Deeper
@@ -364,7 +366,6 @@ function Items({ channel, a, s, may, call, record, ask }: Parameters<typeof Memb
     recv: (i) => <WakePick key="recv" channel={channel} a={a} set={setOn} i={i} />,
     edit: (i) => item(i, <PencilLine size={15} />, t("profile.edit"), later(() => ask("edit"))),
     session: (i) => item(i, <ScrollText size={15} />, t("channel.session"), () => view?.()),
-    given: (i) => item(i, <Inbox size={15} />, t("channel.given"), later(() => ask("given"))),
     // The session the channel is stays in it: shown, not offered.
     remove: (i, disabled) => item(i, <UserMinus size={15} />, t("channel.remove"), later(() => ask("remove")), disabled ? { disabled, note: t("channel.ownAgent") } : { tone: "text-err" }),
   };
