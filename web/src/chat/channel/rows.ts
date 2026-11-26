@@ -34,7 +34,7 @@ export type Bubble = { key: string; place?: number; input?: string; seq?: number
 
 /** Where a message sent from this page is shown, and the key it is drawn under: its bubble's
  *  (kumo, 2026-11-24: 已画的不换位). */
-export type Placed = { at: number; key: string };
+export type Placed = { at: number; key: string; made?: number };
 
 /** The key a bubble is drawn under, and the message it becomes. */
 export const bubbleKey = (b: { key: string }) => `s:${b.key}`;
@@ -42,14 +42,22 @@ export const bubbleKey = (b: { key: string }) => `s:${b.key}`;
 /** The message that a bubble is, by its input id or its number: never by its words. */
 export const bubbleMsg = (b: Bubble, msgs: readonly Msg[]): Msg | undefined => msgs.findLast((m) => (!!b.input && m.input === b.input) || (!!b.seq && m.n === b.seq));
 
-/** A row of the conversation: a message, or a bubble not yet one. */
-export type Line<S> = { key: string; m: Msg; sent?: undefined } | { key: string; sent: S; m?: undefined };
+/** A row of the conversation: a message, or a bubble not yet one. t: the time it is put in a run
+ *  and under a time by (grouped): a message's, or, for one sent from this page, when it was sent
+ *  here, as its bubble was (kumo, 2026-11-26: drawn, it is not moved for the server's clock). */
+export type Line<S> = { key: string; m: Msg; sent?: undefined; t?: number } | { key: string; sent: S; m?: undefined; t?: number };
 
 /** The rows in the order shown: the messages by their numbers, one sent from here at its bubble's
  *  place (placed); the bubbles at theirs (one with none at the end). Messages before bubbles at
  *  the same place; each kind in the order given. A page opened again has the server's order. */
-export function ordered<S extends Bubble>(msgs: readonly Msg[], placed: ReadonlyMap<number, Placed>, sent: readonly S[]): Line<S>[] {
-  const all: { k: number; line: Line<S> }[] = [...msgs.map((m) => ({ k: placed.get(m.n)?.at ?? m.n, line: { key: placed.get(m.n)?.key ?? `m${m.n}`, m } })), ...sent.map((s) => ({ k: s.place ?? Infinity, line: { key: bubbleKey(s), sent: s } }))];
+export function ordered<S extends Bubble & { made?: number }>(msgs: readonly Msg[], placed: ReadonlyMap<number, Placed>, sent: readonly S[]): Line<S>[] {
+  const all: { k: number; line: Line<S> }[] = [
+    ...msgs.map((m) => {
+      const p = placed.get(m.n), t = p?.made ?? m.time;
+      return { k: p?.at ?? m.n, line: { key: p?.key ?? `m${m.n}`, m, ...(t ? { t } : {}) } };
+    }),
+    ...sent.map((s) => ({ k: s.place ?? Infinity, line: { key: bubbleKey(s), sent: s, ...(s.made ? { t: s.made } : {}) } })),
+  ];
   if (placed.size || sent.length) all.sort((a, b) => a.k - b.k);
   return all.map((x) => x.line);
 }
@@ -72,19 +80,41 @@ export function senderOf(m: Msg, mine: (a: Person) => boolean): string {
   }
 }
 
-/** Rows one after another from one sender, under one head (docs/next/ui.md §1.5: nobody else's
- *  between). author: the first's; none for a bubble of the one looking. key: the first row's. */
-export type Group<S> = { key: string; author?: Author; lines: Line<S>[] };
+/** How far apart two messages of one sender may be and still be one run under one head (kumo,
+ *  2026-11-26: a message of yesterday read as one of just now). */
+export const RUN_GAP = 5 * 60_000;
+/** How far apart two messages are for the time to be said between them, as a line across; and a
+ *  day changing between them. */
+export const MARK_GAP = 60 * 60_000;
+const dayOf = (t: number) => new Date(t).toDateString();
 
-export function grouped<S>(lines: readonly Line<S>[], mine: (a: Person) => boolean): Group<S>[] {
+/** Rows one after another from one sender, under one head (docs/next/ui.md §1.5: nobody else's
+ *  between), each within RUN_GAP of the one before. author: the first's; none for a bubble of the
+ *  one looking. key: the first row's. mark: the time said over it (a while, or a day, since the
+ *  row before; the channel's first). bare: the same sender's run going on with only Iridium's
+ *  lines between (an agent joined): no head again. What a row gets is its own and the row
+ *  before's alone: one coming later changes none drawn (kumo, 2026-11-26). start: the first row
+ *  given is the channel's first. */
+export type Group<S> = { key: string; author?: Author; lines: Line<S>[]; mark?: number; bare?: boolean };
+
+export function grouped<S>(lines: readonly Line<S>[], mine: (a: Person) => boolean, start = false): Group<S>[] {
   const out: Group<S>[] = [];
-  let last = "";
+  let last = "", lastT: number | undefined, run = "", runT: number | undefined;
   for (const l of lines) {
     const who = l.m ? senderOf(l.m, mine) : "me";
+    const t = l.t;
     const g = out.at(-1);
-    if (g && who === last) g.lines.push(l);
-    else out.push({ key: l.key, ...(l.m ? { author: l.m.author } : {}), lines: [l] });
+    const known = t !== undefined && lastT !== undefined;
+    const mark = t !== undefined && (known ? t - lastT! >= MARK_GAP || dayOf(t) !== dayOf(lastT!) : start && !out.length) ? t : undefined;
+    const apart = mark !== undefined || (known && t - lastT! > RUN_GAP);
+    if (g && who === last && !apart) g.lines.push(l);
+    else {
+      const bare = who !== "i" && last === "i" && who === run && mark === undefined && t !== undefined && runT !== undefined && t - runT <= RUN_GAP;
+      out.push({ key: l.key, ...(l.m ? { author: l.m.author } : {}), lines: [l], ...(mark !== undefined ? { mark } : {}), ...(bare ? { bare } : {}) });
+    }
     last = who;
+    if (t !== undefined) lastT = t;
+    if (who !== "i") (run = who), (runT = t ?? runT);
   }
   return out;
 }

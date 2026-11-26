@@ -256,7 +256,7 @@ export class ChannelLog {
     this.sent = this.sent.filter((s) => {
       const m = bubbleMsg(s, this.msgs);
       if (!m) return true;
-      if (s.place !== undefined && !this.placed.has(m.n)) this.placed.set(m.n, { at: s.place, key: bubbleKey(s) });
+      if (s.place !== undefined && !this.placed.has(m.n)) this.placed.set(m.n, { at: s.place, key: bubbleKey(s), ...(s.made ? { made: s.made } : {}) });
       return false;
     });
   }
@@ -267,7 +267,7 @@ export class ChannelLog {
   groups(mine: (a: Person) => boolean): Group<Sent>[] {
     if (this.drawn?.v === this.version && this.drawn.mine === mine) return this.drawn.groups;
     // An ask is the card over the composer while open; answered, its message is no one's words (kumo, 2026-11-25): no row.
-    const groups = grouped(ordered(this.msgs.filter((m) => m.kind !== "ask"), this.placed, this.sent), mine);
+    const groups = grouped(ordered(this.msgs.filter((m) => m.kind !== "ask"), this.placed, this.sent), mine, !this.more);
     this.drawn = { v: this.version, mine, groups };
     return groups;
   }

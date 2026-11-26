@@ -224,3 +224,28 @@ describe("work", () => {
     expect([...doneBefore(ms)]).toEqual([3]);
   });
 });
+
+describe("runs in time", () => {
+  const MIN = 60_000, T0 = new Date(2026, 10, 25, 22, 0).getTime();
+  const at = (m: ChannelMessage, t: number): ChannelMessage => ({ ...m, created_at: t });
+  const iri = (n: number, nick: string): ChannelMessage => ({ id: String(n), content: "", user: { id: "iridium" }, _data: { event: { type: "join", nick } } });
+  const runs = (ms: ChannelMessage[], start = false) => grouped(ordered(ms.map((m) => msgOf(m)!), new Map(), []), mine, start);
+  test("one sender's apart more than a while: a head again; an hour or a day apart: the time said over it", () => {
+    const g = runs([at(person(1), T0), at(person(2), T0 + 4 * MIN), at(person(3), T0 + 10 * MIN), at(person(4), T0 + 80 * MIN), at(person(5), T0 + 12 * 60 * MIN)], true);
+    expect(g.map((x) => x.lines.map((l) => l.m!.n).join(","))).toEqual(["1,2", "3", "4", "5"]);
+    expect(g.map((x) => x.mark)).toEqual([T0, undefined, T0 + 80 * MIN, T0 + 12 * 60 * MIN]);
+  });
+  test("the first held, not the channel's first: no time over it", () => {
+    expect(runs([at(person(1), T0)])[0]!.mark).toBeUndefined();
+  });
+  test("a run going on past Iridium's lines: no head again; long after, its head", () => {
+    const e = { ...iri(2, "a"), created_at: T0 + MIN };
+    const g = runs([at(person(1), T0), e, at(person(3), T0 + 2 * MIN), { ...iri(4, "b"), created_at: T0 + 3 * MIN }, at(person(5), T0 + 9 * MIN)]);
+    expect(g.map((x) => !!x.bare)).toEqual([false, false, true, false, false]);
+  });
+  test("one sent from here is put in a run by when it was sent here, not by the server's clock", () => {
+    const placed = new Map([[2, { at: 1.5, key: "s:x", made: T0 + MIN }]]);
+    const g = grouped(ordered([at(person(1), T0), at(person(2, "hi", "in-x"), T0 + 20 * MIN)].map((m) => msgOf(m)!), placed, []), mine);
+    expect(g.map((x) => x.lines.length)).toEqual([2]);
+  });
+});

@@ -30,7 +30,7 @@ import { Copyable } from "../copyable";
 import { Crash } from "../crash";
 import { ContextRing, ModeKey, ModelKey, modelView, QuotaBars, useMode } from "../meters";
 import { fromSatori, PLACE_DRAG, SESSION_DRAG, sourceOf, withDevice, yours, type Source } from "../refs";
-import { Assistant, Attached, Compaction, Letter, Line, MsgRow, Pending, When, YouBubble } from "../said";
+import { Assistant, Attached, clock, Compaction, Letter, Line, MsgRow, Pending, When, YouBubble } from "../said";
 import { ShellRuns } from "../shell";
 import { Stick, toEnd } from "../stick";
 import { justMade } from "./adding";
@@ -445,6 +445,7 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
             {!hold &&
               groups.map((g) => (
                 <div key={g.key} className="relative flex min-w-0 flex-col">
+                  {g.mark !== undefined && <TimeMark at={g.mark} />}
                   <GroupView g={g} channel={id} agents={rowAgents} who={fx.who} record={record} call={fx.call} may={may} quote={may ? fx.quoting : undefined} quoted={fx.quoted} bars={fx.bars} barsSig={barsSig} fold={fx.fold} old={fx.old} olds={olds} jump={fx.jump} wrote={log.wrote} born={log.born} hidden={hidden} pending={fx.pending} />
                   {/* In the gap under it, over nothing: coming late, it moves nothing (docs/前端设计规范.md). */}
                   {SHOW_READS && marks.has(g.key) && <ReadMarks readers={marks.get(g.key)!} agents={agents} />}
@@ -676,7 +677,7 @@ function sameGroup(a: GroupProps, b: GroupProps): boolean {
     return false;
   }
   if (a.g !== b.g) {
-    if (a.g.key !== b.g.key || a.g.author !== b.g.author || a.g.lines.length !== b.g.lines.length) return false;
+    if (a.g.key !== b.g.key || a.g.author !== b.g.author || a.g.lines.length !== b.g.lines.length || a.g.bare !== b.g.bare) return false;
     for (let i = 0; i < b.g.lines.length; i++) {
       const x = a.g.lines[i]!, y = b.g.lines[i]!;
       if (x.key !== y.key || x.m !== y.m || x.sent !== y.sent) return false;
@@ -691,27 +692,23 @@ export const GroupView = memo(function GroupView({ g, channel, agents, who, reco
   const list = useList();
   const a = g.author;
   const msgs = g.lines.flatMap((l) => (l.m ? [l.m] : []));
-  if (a?.kind === "iridium")
-    return (
-      <div className="flex flex-col">
-        {msgs.map((m) => (
-          <EventLine key={m.n} m={m} channel={channel} />
-        ))}
-      </div>
-    );
+  if (a?.kind === "iridium") return <EventLines msgs={msgs} channel={channel} />;
   if (!a || a.kind === "person")
     return (
       <div className="flex flex-col gap-1.5">
-        {g.lines.map((l, i) => (l.m && l.m.author.kind === "person" ? <PersonLine key={l.key} m={l.m} a={l.m.author} bare={i > 0} channel={channel} who={who} call={call} may={may} quote={quote} quoted={quoted} old={old} jump={jump} /> : l.sent ? <div key={l.key}>{pending?.(l.sent, i > 0)}</div> : null))}
+        {g.lines.map((l, i) => (l.m && l.m.author.kind === "person" ? <PersonLine key={l.key} m={l.m} a={l.m.author} bare={i > 0 || !!g.bare} channel={channel} who={who} call={call} may={may} quote={quote} quoted={quoted} old={old} jump={jump} /> : l.sent ? <div key={l.key}>{pending?.(l.sent, i > 0 || !!g.bare)}</div> : null))}
       </div>
     );
-  if (a.kind === "script") return <ScriptGroup msgs={msgs} channel={channel} agents={agents} quote={quote} quoted={quoted} old={old} jump={jump} />;
+  if (a.kind === "script") return <ScriptGroup msgs={msgs} bare={g.bare} channel={channel} agents={agents} quote={quote} quoted={quoted} old={old} jump={jump} />;
   const now = agents.find((x) => x.session === a.session);
   // One no longer in the channel, or an outsider writing via ir: its harness as the list has it.
   const agent = now?.agent ?? list?.find((x) => x.id === a.session)?.agent;
   return (
     <MsgRow className="flex min-w-0 items-start gap-2.5">
-      {now ? (
+      {g.bare ? (
+        // Its run going on past an event's line: under no head again, where its words were.
+        <span className="w-7 shrink-0" />
+      ) : now ? (
         <AgentFace channel={channel} a={now} call={may ? call : undefined} record={record} may={may} />
       ) : (
         <span className="grid size-7 shrink-0 place-items-center rounded-full bg-fill">
@@ -719,7 +716,7 @@ export const GroupView = memo(function GroupView({ g, channel, agents, who, reco
         </span>
       )}
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-        <div className="flex h-4 min-w-0 items-center gap-1.5">
+        <div className={cn("flex h-4 min-w-0 items-center gap-1.5", g.bare && "hidden")}>
           <span className="shrink-0 text-xs font-medium text-ink-2">{now?.nick || a.nick}</span>
           <span className="min-w-0 truncate text-xs text-ink-4">{/* What it runs as now; that not known just now (its kind's name alone: its state between
               two turns, a limit hit), what its message says it ran as, not the bare kind: the
@@ -822,12 +819,12 @@ function PersonLine({ m, a, bare, channel, who, call, may, quote, quoted, old, j
 
 /** A command's messages (docs/channels.md "命令"): said as Iridium, its face and name over what
  *  it printed, as an agent's words are drawn (kumo, 2026-11-24: no face or name of its own). */
-function ScriptGroup({ msgs, channel, agents, quote, quoted, old, jump }: { msgs: Msg[]; channel: string; agents: AgentRow[]; quote?: (m: Msg) => void; quoted: (n: number) => { who: string; text: string } | undefined; old?: (m: Msg) => boolean; jump?: (n: number) => void }) {
+function ScriptGroup({ msgs, bare, channel, agents, quote, quoted, old, jump }: { msgs: Msg[]; bare?: boolean; channel: string; agents: AgentRow[]; quote?: (m: Msg) => void; quoted: (n: number) => { who: string; text: string } | undefined; old?: (m: Msg) => boolean; jump?: (n: number) => void }) {
   return (
     <MsgRow className="flex min-w-0 items-start gap-2.5">
-      <ServerFace size={28} />
+      {bare ? <span className="w-7 shrink-0" /> : <ServerFace size={28} />}
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-        <div className="flex h-4 min-w-0 items-center gap-1.5">
+        <div className={cn("flex h-4 min-w-0 items-center gap-1.5", bare && "hidden")}>
           <span className="min-w-0 truncate text-xs font-medium text-ink-2">Iridium</span>
           <When time={msgs[0]?.time} />
         </div>
@@ -876,10 +873,57 @@ const EVENT_KEYS = ["join", "leave", "rename", "recv", "on", "wake", "everyone",
 const SCRIPT_KEYS = { add: "scriptAdd", remove: "scriptRemove", enabled: "scriptEnabled", disabled: "scriptDisabled", changed: "scriptChanged", renamed: "scriptRenamed" } as const;
 const WHAT_KEYS = ["name", "nick", "persona", "avatar"] as const;
 
+/** The time said over a run (rows.ts grouped: a while since the row before, a day changed, the
+ *  channel's first): today's by its clock, yesterday's so, this week's by its day, older by its
+ *  date (kumo, 2026-11-26). One line, its height the same whatever it says. */
+function TimeMark({ at }: { at: number }) {
+  useLang();
+  const d = new Date(at), now = new Date();
+  const days = Math.round((new Date(now.toDateString()).getTime() - new Date(d.toDateString()).getTime()) / 86_400_000);
+  const l = document.documentElement.lang === "en" ? "en" : "zh-CN";
+  const day = days === 0 ? t("channel.mark.today") : days === 1 ? t("channel.mark.yesterday") : days > 1 && days < 7 ? new Intl.DateTimeFormat(l, { weekday: "short" }).format(d) : new Intl.DateTimeFormat(l, { ...(d.getFullYear() !== now.getFullYear() ? { year: "numeric" } : {}), month: l === "en" ? "short" : "long", day: "numeric" }).format(d);
+  return <div className="mb-3 flex h-4 items-center justify-center text-xs leading-4 text-ink-4 tabular-nums">{`${day} ${clock(at)}`}</div>;
+}
+
+/** The kinds of Iridium's lines that, one after another, are said as one: "A, B joined". */
+const MERGED = new Set(["join", "leave"]);
+/** How many of Iridium's lines in a row are shown before the rest are folded under one. */
+const EVENTS_SHOWN = 3;
+
+/** Iridium's lines one after another: those of one kind (joined, removed) as one line; more than
+ *  EVENTS_SHOWN, the first under one line that says how many, opened as it is pressed (kumo,
+ *  2026-11-26). */
+function EventLines({ msgs, channel }: { msgs: Msg[]; channel: string }) {
+  const [open, setOpen] = useState(false);
+  const runs: Msg[][] = [];
+  for (const m of msgs) {
+    const r = runs.at(-1), k = m.event?.type;
+    if (r && k && MERGED.has(k) && r[0]!.event?.type === k && m.event?.nick) r.push(m);
+    else runs.push([m]);
+  }
+  const line = (r: Msg[]) => <EventLine key={r[0]!.n} m={r[0]!} also={r.slice(1)} channel={channel} />;
+  if (runs.length <= EVENTS_SHOWN) return <div className="flex flex-col">{runs.map(line)}</div>;
+  const hid = runs.slice(0, runs.length - (EVENTS_SHOWN - 1));
+  // Opened: its height not glided (docs/动画.md 4: the conversation's scroll keeps what is seen).
+  return (
+    <div className="flex flex-col">
+      {open ? (
+        hid.map(line)
+      ) : (
+        <button type="button" onClick={() => setOpen(true)} className="g-press py-1 text-xs leading-4 text-ink-4 hover:text-ink-3">
+          {t("channel.eventsMore", { n: hid.length })}
+        </button>
+      )}
+      {runs.slice(hid.length).map(line)}
+    </div>
+  );
+}
+
 /** A line of Iridium's own: what happened to the channel (who joined, left, was renamed, what one
  *  receives, its people), in the page's words, the agent in it as its nick is drawn elsewhere;
- *  one with no event (an older line), its own text. */
-function EventLine({ m, channel }: { m: Msg; channel: string }) {
+ *  one with no event (an older line), its own text. also: more of the same kind after it, their
+ *  agents named with its own. */
+function EventLine({ m, also = [], channel }: { m: Msg; also?: Msg[]; channel: string }) {
   useLang();
   const d = useApps().data;
   const { whole, onWhole } = useRecvLabel(channel);
@@ -891,7 +935,7 @@ function EventLine({ m, channel }: { m: Msg; channel: string }) {
   const apps = (d?.apps ?? []).map((a) => (a.web ? { ...a, name: t("term.panel") } : a));
   return (
     <Line>
-      {parts.map((p, i) => (typeof p === "string" ? p : "nick" in p ? <NickLink key={i} nick={p.nick} /> : "recv" in p ? whole(p.recv) : "on" in p ? onWhole(p.on) : p.people.map((x) => personName(x, apps, d?.logins ?? [])).join(t("channel.event.sep"))))}
+      {parts.map((p, i) => (typeof p === "string" ? p : "nick" in p ? [p.nick, ...also.map((x) => x.event?.nick ?? "")].map((nick, j) => (j ? [t("channel.event.sep"), <NickLink key={`${i}.${j}`} nick={nick} />] : <NickLink key={i} nick={nick} />)) : "recv" in p ? whole(p.recv) : "on" in p ? onWhole(p.on) : p.people.map((x) => personName(x, apps, d?.logins ?? [])).join(t("channel.event.sep"))))}
     </Line>
   );
 }
