@@ -94,7 +94,7 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
   const [, redraw] = useState(0);
   // following: the reader's; left: px to the end as this last put it; ours: where this put the
   // scroll (to the part of a px); mark: without the browser's anchoring, the top row and its place.
-  const s = useRef({ following: place.top === null, frame: 0, last: 0, ours: -1, left: 0, pane: 0, drawn: false, tail: undefined as unknown, paging: false, drag: false, native: true, mark: null as Mark | null, hand: -Infinity }).current;
+  const s = useRef({ following: place.top === null, frame: 0, last: 0, ours: -1, left: 0, pane: 0, drawn: false, tail: undefined as unknown, paging: false, drag: false, native: true, mark: null as Mark | null, hand: -Infinity, sentAt: -Infinity }).current;
 
   const maxOf = (el: HTMLElement) => el.scrollHeight - el.clientHeight;
   const hands = () => s.drag || performance.now() - s.hand < HAND;
@@ -149,6 +149,7 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
   const goDown = (why: string) => {
     const el = list.current;
     if (!el) return;
+    if (why === "send") s.sentAt = performance.now();
     if (!s.following && maxOf(el) - el.scrollTop > NEAR) (moveLog("stick.jump", why, { dy: -Math.round(maxOf(el) - NEAR - el.scrollTop) }), put(el, maxOf(el) - NEAR));
     follow();
     run();
@@ -269,6 +270,13 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
   }, []);
 
 
+  // A message just sent: the composer is shorter at once (its words gone, the quote over it gone),
+  // and the room under the conversation with it, at once too, not glided: gliding, the end was
+  // kept each frame (pin), so the bubble came all the way up in one frame and then sank as the
+  // room closed, higher and then lower, and not at a message's own pace (kumo, 2026-11-26). At
+  // once, what is left to go is the bubble's height less the room given back, eased as any is.
+  const sending = performance.now() - s.sentAt < 500;
+
   const scrolled = () => {
     const el = list.current!;
     keep(el);
@@ -284,7 +292,7 @@ export function Stick({ tail, older, draw, place, style, children, scroller, bot
     <>
       {/* A scrollbar that takes room has its width kept on the left too: the conversation stays
           centred, in line with the composer and the top bar (the user, 2026-11-06). */}
-      <div ref={list} role="log" aria-label={t("chat.log")} onScroll={scrolled} className={cn("gapless absolute inset-0 overflow-y-auto [scrollbar-gutter:stable_both-edges]", eased && "g-room")} style={style}>
+      <div ref={list} role="log" aria-label={t("chat.log")} onScroll={scrolled} className={cn("gapless absolute inset-0 overflow-y-auto [scrollbar-gutter:stable_both-edges]", eased && !sending && "g-room")} style={style}>
         {children}
       </div>
       {fresh && !quiet && (
