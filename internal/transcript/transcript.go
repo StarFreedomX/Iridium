@@ -44,8 +44,15 @@ func fromSource(b *api.Block, text, sender, tag string) {
 	b.From = tag
 	b.FromTerminal, b.FromLogin = api.SplitSender(sender)
 	b.FromDevice = api.Device(api.SenderDevice(sender))
-	b.Text = strings.TrimPrefix(text, "["+tag+"] ")
+	b.Text = withoutTitleNow(strings.TrimPrefix(text, "["+tag+"] "))
 }
+
+// titleNow is the line Iridium puts after a message now and then (internal/ctx/assemble TitleNow,
+// prompts title.now, title.none): the session's title, for the agent, not part of the words.
+var titleNow = regexp.MustCompile(`\n\n(?:Session|Channel \S+) title: (?:"[^\n]*"|none yet)$`)
+
+// withoutTitleNow is a message Iridium wrote without the title line after it.
+func withoutTitleNow(text string) string { return titleNow.ReplaceAllString(text, "") }
 
 // Format gives the blocks of one line of an agent's transcript: max is the characters to cut
 // texts to (-1: none); sources names the user messages Iridium wrote (may be nil).

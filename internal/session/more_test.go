@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -79,7 +80,15 @@ func TestQueue(t *testing.T) {
 	if _, queued, err := r.m.SendWith(bg, id, "five", "网页", true); queued || err != nil {
 		t.Errorf("steer: queued %v, %v", queued, err)
 	}
+	// "five" is the fifth message: the session's title goes after it (titleNow); the user's block
+	// is the words alone.
 	r.waitState(id, "the joined reply", func(s *api.SessionState) bool { return said(s, "ok: five") })
+	if !strings.Contains(r.inLog(id), `five\n\nSession title: \"one WAIT\"`) {
+		t.Errorf("no title after five: %s", r.inLog(id))
+	}
+	if b := r.messages(id); !slices.ContainsFunc(b, func(b api.Block) bool { return b.Text == "five" }) {
+		t.Errorf("five's block: %+v", b[len(b)-4:])
+	}
 	if b := r.messages(id); b[len(b)-2].Text != "ok: four HOLD" {
 		t.Errorf("five did not join four's turn: %+v", b[len(b)-4:])
 	}

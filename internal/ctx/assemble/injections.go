@@ -1,5 +1,7 @@
 package assemble
 
+import "slices"
+
 // What Iridium gives agents, each as an Injection. An error is a fragment missing or its slots
 // not matching: a broken build, which the tests catch.
 
@@ -37,4 +39,28 @@ func Attachment(path string) (Injection, error) {
 // with it, or Iridium's for none.
 func Denied(message, ask string) (Injection, error) {
 	return build(KindToolResult, deniedPieces(message, ask)...)
+}
+
+// TitleNow is the line put after a message now and then (every few turns, and after a
+// compaction): the session's title as it is, so that the agent sees it beside the work at hand
+// and renames the session when the subject has moved on (kumo, 2026-11-26). "": none yet.
+func TitleNow(title string) (Injection, error) {
+	if title == "" {
+		return build(KindMessage, text(idTitleNone))
+	}
+	return build(KindMessage, text(idTitleNow, "title", title))
+}
+
+// TitleNowOf is TitleNow for channel ch, one the agent is in beside its own session: which
+// channel it is said, the agent's own being "self" to it.
+func TitleNowOf(title, ch string) (Injection, error) {
+	if title == "" {
+		return build(KindMessage, text(idTitleNoneOf, "channel", ch))
+	}
+	return build(KindMessage, text(idTitleNowOf, "title", title, "channel", ch))
+}
+
+// Then is in with more after it, as one: in's kind.
+func (in Injection) Then(more Injection) Injection {
+	return Injection{kind: in.kind, parts: append(slices.Clone(in.parts), more.parts...)}
 }

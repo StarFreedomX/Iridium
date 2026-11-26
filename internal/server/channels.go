@@ -2297,6 +2297,48 @@ func by0(list []deliver.Agent, id string) (deliver.Agent, bool) {
 	return deliver.Agent{}, false
 }
 
+// titleNow is the channel's title to put after message said as agent me (session to) gets it,
+// when it is due (session.TitleDue: every few messages, after a compaction): to one agent only,
+// the first the message calls by @ (any it reaches, called by none); not once people named it
+// (kumo, 2026-11-26).
+func (s *Server) titleNow(ch, to, said string, list []deliver.Agent, me channel.Member) (assemble.Injection, bool) {
+	var nicks []string
+	for _, a := range list {
+		nicks = append(nicks, a.Nick)
+	}
+	if at := deliver.Mentions(said, nicks); len(at) > 0 && !strings.EqualFold(at[0], me.Nick) {
+		return assemble.Injection{}, false
+	}
+	if !s.m.TitleDue(to) {
+		return assemble.Injection{}, false
+	}
+	over, err := s.st.Overlays()
+	if err != nil {
+		return assemble.Injection{}, false
+	}
+	o := over[ch]
+	if o.Name != "" && !o.AgentNamed {
+		return assemble.Injection{}, false
+	}
+	title := o.Name
+	if title == "" {
+		if c := s.m.Called(ch); c != ch {
+			title = c
+		}
+	}
+	var t assemble.Injection
+	if ch == to {
+		t, err = assemble.TitleNow(title)
+	} else {
+		t, err = assemble.TitleNowOf(title, ch)
+	}
+	if err != nil {
+		return assemble.Injection{}, false
+	}
+	s.m.TitleGiven(to)
+	return t, true
+}
+
 // whoOf is the name a message's author goes by in the channel: an agent's nick, a person's tag.
 func whoOf(m channel.Message, by map[string]channel.Member) string {
 	if id, ok := store.SessionOfMember(m.Author); ok {
@@ -2433,6 +2475,11 @@ func (s *Server) deliverAs(ctx context.Context, ch, to string, seq int64, said, 
 	}
 	if err != nil {
 		return false, err
+	}
+	if react == nil {
+		if t, ok := s.titleNow(ch, to, said, list, me); ok {
+			in = in.Then(t)
+		}
 	}
 	id := session.NewInputID()
 	rec := in.Record()

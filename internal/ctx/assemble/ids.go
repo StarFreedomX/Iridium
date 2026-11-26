@@ -9,6 +9,10 @@ const (
 	idShellIR          = "shell.ir"           // a command line at a computer reaches the Iridium there, with its host's rights
 	idNames            = "names"              // how words name a session or a folder
 	idTitle            = "title"              // title the session
+	idTitleNow         = "title.now"          // after a message, now and then: the session's title as it is
+	idTitleNone        = "title.none"         // the same for a session with none yet
+	idTitleNowOf       = "title.now-channel"  // the same, of a channel the agent is in beside its own
+	idTitleNoneOf      = "title.none-channel" // and of one with none yet
 	idLang             = "lang"               // the user's language: {{language}}
 	idLangZh           = "lang.zh"            // a language's name, for lang
 	idLangEn           = "lang.en"
