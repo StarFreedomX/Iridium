@@ -27,11 +27,11 @@ func (u *ui) makePicker() {
 		Title: "Iridium", Width: pickerW, Height: pickerH, DisableResize: true, DisableMaximize: true,
 		URL: themed("/"), Page: pageOptions("", "", 0),
 	}))
-	guard(w, "")
+	guard(w.Page(), "")
 	if runtime.GOOS != "darwin" && len(u.icon) > 0 {
 		_ = w.SetIcon(u.icon)
 	}
-	u.named(w, "picker")
+	u.named(w.Page(), "picker")
 	u.hideOnClose(w)
 	u.mu.Lock()
 	u.picker = w
@@ -48,7 +48,7 @@ func (u *ui) showPicker() {
 		return
 	}
 	c, _ := loadConfig()
-	reply(p, u.pageState(c))
+	reply(p.Page(), u.pageState(c))
 	u.keepOnScreen() // left on a screen taken away: on the main one
 	// On the screen of the window used last (kumo, 2026-11-22: it came back on the screen it was
 	// last on, away from where one works), in the middle of it.
@@ -73,7 +73,7 @@ func (u *ui) tellPicker(st map[string]any) {
 	p := u.picker
 	u.mu.Unlock()
 	if p != nil {
-		reply(p, st)
+		reply(p.Page(), st)
 	}
 }
 
@@ -85,24 +85,18 @@ func (u *ui) openIn(address, link string) {
 		link = address + "/"
 	}
 	u.mu.Lock()
-	var w *mygo.Window
-	for _, x := range u.wins {
-		if u.shows[u.names[x]] == address {
-			w = x
-			break
-		}
-	}
+	p := u.paneOn(address)
 	u.mu.Unlock()
 	_, _ = updateConfig(func(c *Config) { c.Current = address })
 	go func() {
-		if w == nil {
+		if p == nil {
 			u.newWindow(address, link)
 		} else {
 			if !home {
-				_ = w.Page().LoadURL(themed(link))
+				_ = p.page().LoadURL(themed(link))
 			}
-			w.Show()
-			w.Focus()
+			p.win.Show()
+			p.win.Focus()
 		}
 		u.picker.Hide()
 	}()
@@ -113,9 +107,9 @@ func (u *ui) openIn(address, link string) {
 func (u *ui) vacate(name string) {
 	u.mu.Lock()
 	var w *mygo.Window
-	for _, x := range u.wins {
-		if u.names[x] == name {
-			w = x
+	for _, p := range u.panes {
+		if p.name == name {
+			w = p.win
 		}
 	}
 	u.mu.Unlock()
@@ -130,9 +124,9 @@ func (u *ui) gone(address string) {
 	u.mu.Lock()
 	var names []string
 	left := 0
-	for _, x := range u.wins {
-		if n := u.names[x]; u.shows[n] == address {
-			names = append(names, n)
+	for _, p := range u.panes {
+		if u.shows[p.name] == address {
+			names = append(names, p.name)
 		} else {
 			left++
 		}

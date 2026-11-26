@@ -47,21 +47,21 @@ func (u *ui) updateChanged() {
 	was := u.toldReady
 	u.toldReady = ready
 	type shown struct {
-		w      *mygo.Window
+		p      *mygo.Page
 		server string
 	}
-	var ws []shown
-	for _, w := range u.wins {
-		ws = append(ws, shown{w, u.shows[u.names[w]]})
+	var ps []shown
+	for _, pane := range u.panes {
+		ps = append(ps, shown{pane.page(), u.shows[pane.name]})
 	}
 	u.mu.Unlock()
 	if ready == was {
 		return
 	}
 	c, _ := loadConfig()
-	for _, s := range ws {
-		if s.server != "" {
-			reply(s.w, u.hello(c, s.server))
+	for _, s := range ps {
+		if s.server != "" && s.p != nil {
+			reply(s.p, u.hello(c, s.server))
 		}
 	}
 }

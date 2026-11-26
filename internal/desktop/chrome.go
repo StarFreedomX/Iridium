@@ -30,12 +30,12 @@ func bare(o mygo.WindowOptions) mygo.WindowOptions {
 }
 
 // winKey is a window key pressed in a page: min, full (a Mac's full screen), max
-// (maximised or back), close, reload.
-func (u *ui) winKey(w *mygo.Window, key string) {
-	if w == nil {
+// (maximised or back), close, reload. The keys are the window's the page is in.
+func (u *ui) winKey(p *mygo.Page, key string) {
+	if p == nil || p.Window() == nil {
 		return
 	}
-	name := u.nameOf(w)
+	w, name := p.Window(), u.nameOf(p)
 	switch key {
 	case "min":
 		w.Minimize()
@@ -51,20 +51,20 @@ func (u *ui) winKey(w *mygo.Window, key string) {
 			w.Close()
 		}
 	case "reload":
-		u.reload(w)
+		u.reload(p)
 	}
 }
 
-// followMax tells w's page whether w is full screen (a Mac) or maximised, as it changes: its key
-// is drawn as it is.
-func followMax(w *mygo.Window) {
+// followMax tells page p whether its window w is full screen (a Mac) or maximised, as it changes:
+// its key is drawn as it is.
+func followMax(w *mygo.Window, p *mygo.Page) {
 	tell := func() {
 		go func() {
 			full := w.IsMaximized()
 			if runtime.GOOS == "darwin" {
 				full = w.IsFullScreen()
 			}
-			reply(w, map[string]any{"max": full})
+			reply(p, map[string]any{"max": full})
 		}()
 	}
 	w.OnMaximize(tell)
@@ -75,23 +75,23 @@ func followMax(w *mygo.Window) {
 }
 
 // reload loads the page in w again (⌘R, Ctrl+R, F5; kumo, 2026-11-22).
-func (u *ui) reload(w *mygo.Window) {
-	if w != nil && u.nameOf(w) != "ask" {
-		appLog()("reload %q", u.nameOf(w))
-		go w.Page().Reload()
+func (u *ui) reload(p *mygo.Page) {
+	if p != nil && u.nameOf(p) != "ask" {
+		appLog()("reload %q", u.nameOf(p))
+		go p.Reload()
 	}
 }
 
 // closePage is ⌘W, Ctrl+W (kumo, 2026-11-22): the page in front shut, not the window; only from
 // the page's first one (nothing open) the window. The page says which (appkey.tsx closePage); one
 // that cannot, an Iridium from before, is taken back to its first page by its address.
-func (u *ui) closePage(w *mygo.Window) {
-	if w == nil {
+func (u *ui) closePage(p *mygo.Page) {
+	if p == nil {
 		return
 	}
-	switch u.nameOf(w) {
+	switch u.nameOf(p) {
 	case "picker":
-		go w.Hide()
+		go p.Window().Hide()
 		return
 	case "ask", "":
 		return
@@ -99,10 +99,10 @@ func (u *ui) closePage(w *mygo.Window) {
 	go func() {
 		// A page from before (no __irClosePage): an open chat or settings page goes back to the
 		// first page, as the new pages do; from the first page the window closes.
-		v, err := w.Page().Eval(`if(window.__irClosePage){window.__irClosePage();return "page"}
+		v, err := p.Eval(`if(window.__irClosePage){window.__irClosePage();return "page"}
 var h=location.hash.replace(/^#/,"");if(h&&h!=="/"){location.hash="#/";return "home"}
 window._wails.invoke("ir:win:close");return "window"`)
-		appLog()("close page in %q: %v %v", u.nameOf(w), v, err)
+		appLog()("close page in %q: %v %v", u.nameOf(p), v, err)
 	}()
 }
 
@@ -121,9 +121,9 @@ func (u *ui) retitle(address, title string) {
 	}
 	u.mu.Lock()
 	var ws []*mygo.Window
-	for _, w := range u.wins {
-		if u.shows[u.names[w]] == address {
-			ws = append(ws, w)
+	for _, p := range u.panes {
+		if u.shows[p.name] == address {
+			ws = append(ws, p.win)
 		}
 	}
 	u.mu.Unlock()

@@ -33,7 +33,7 @@ func (b *bridge) Invoke(ctx context.Context, msg string) {
 	if p == nil || len(msg) > 1<<20 {
 		return
 	}
-	b.u.message(p.Window(), msg, originOf(p.URL()), b.logf)
+	b.u.message(p, msg, originOf(p.URL()), b.logf)
 }
 
 // originOf is scheme://host[:port] of a page's URL; "": none.
@@ -92,8 +92,8 @@ var replies struct {
 }
 
 // reply hands the page an "ir-app" event with v as its detail.
-func reply(w *mygo.Window, v any) {
-	if w == nil {
+func reply(p *mygo.Page, v any) {
+	if p == nil {
 		return
 	}
 	b, _ := json.Marshal(v)
@@ -109,25 +109,25 @@ func reply(w *mygo.Window, v any) {
 	replies.ch <- func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_, _ = w.Page().EvalContext(ctx, js)
+		_, _ = p.EvalContext(ctx, js)
 	}
 }
 
-// nameOf is a window's name (picker, ask, w1…); "": not one of the app's.
-func (u *ui) nameOf(w *mygo.Window) string {
+// nameOf is a page's name (picker, ask, w1…); "": not one of the app's.
+func (u *ui) nameOf(p *mygo.Page) string {
 	u.mu.Lock()
 	defer u.mu.Unlock()
-	return u.names[w]
+	return u.names[p]
 }
 
-// named records w's name.
-func (u *ui) named(w *mygo.Window, name string) {
+// named records p's name.
+func (u *ui) named(p *mygo.Page, name string) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	if u.names == nil {
-		u.names = map[*mygo.Window]string{}
+		u.names = map[*mygo.Page]string{}
 	}
-	u.names[w] = name
+	u.names[p] = name
 }
 
 // pickFolder asks the person here for one folder, in this computer's own picker.
@@ -145,15 +145,16 @@ func (u *ui) menuBar() *mygo.Menu {
 	click := func(f func()) func(*mygo.MenuItem, *mygo.Window) {
 		return func(*mygo.MenuItem, *mygo.Window) { f() }
 	}
-	// The window the keys are for: the one a menu says, else the one in front.
-	on := func(f func(*mygo.Window)) func(*mygo.MenuItem, *mygo.Window) {
+	// The page the keys are for: the one shown in the window a menu says, else in the one in front.
+	on := func(f func(*mygo.Page)) func(*mygo.MenuItem, *mygo.Window) {
 		return func(it *mygo.MenuItem, w *mygo.Window) {
 			given := w != nil
 			if w == nil {
 				w = mygo.FocusedWindow()
 			}
-			appLog()("key %s %s: window %q (given %v)", it.Label, it.Accelerator, u.nameOf(w), given)
-			f(w)
+			p := u.pageIn(w)
+			appLog()("key %s %s: page %q (given %v)", it.Label, it.Accelerator, u.nameOf(p), given)
+			f(p)
 		}
 	}
 	// ⌘W closes the page in front, the window only from its first page; ⌘R, F5 reload (chrome.go).
@@ -189,10 +190,10 @@ func (u *ui) menuBar() *mygo.Menu {
 	})
 }
 
-// devTools opens or closes the web inspector of w's page (F12).
-func devTools(w *mygo.Window) {
-	if w != nil {
-		go w.Page().ToggleDevTools()
+// devTools opens or closes the web inspector of p (F12).
+func devTools(p *mygo.Page) {
+	if p != nil {
+		go p.ToggleDevTools()
 	}
 }
 
@@ -202,11 +203,11 @@ func (u *ui) zoom(step int) {
 	u.mu.Lock()
 	w := u.win
 	u.mu.Unlock()
-	if w == nil {
+	p := u.pageIn(w)
+	if p == nil {
 		return
 	}
 	go func() {
-		p := w.Page()
 		z := p.ZoomFactor()
 		switch {
 		case step > 0:
@@ -263,8 +264,7 @@ var pageLog = sync.OnceValue(appLog)
 //     window white from then on, its keys dead with the page), the page is loaded again, and
 //     the log says so. Not one gone again within a minute: that page does not stay up, and the
 //     window is left as it is rather than loaded over and over.
-func guard(w *mygo.Window, origin string) {
-	p := w.Page()
+func guard(p *mygo.Page, origin string) {
 	var gone time.Time
 	p.OnRenderProcessGone(func(reason string) {
 		again := time.Since(gone) < time.Minute
@@ -295,7 +295,7 @@ func guard(w *mygo.Window, origin string) {
 		if pct >= 0 {
 			d["pct"] = pct
 		}
-		reply(w, map[string]any{"download": d})
+		reply(p, map[string]any{"download": d})
 	}
 	failed := func(raw, name string, err error) {
 		pageLog()("download %s failed: %v; in the browser instead", pathOf(raw), err)
