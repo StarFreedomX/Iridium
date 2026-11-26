@@ -52,6 +52,7 @@ type ui struct {
 	panes     []*pane               // the Iridiums' pages in them (pane.go)
 	shows     map[string]string     // each pane's (by name) Iridium, as its page says
 	names     map[*mygo.Page]string // each page's name (picker, ask, w1…): mygo's have none
+	lamps     map[string]railLamps  // what each Iridium's page last said for the rail (rail.go)
 	nwin      int
 	toldReady bool // the Iridiums' pages told an update is ready (updateChanged)
 	quitting  bool // the app quits: its windows of their own are opened again at the next start
@@ -401,6 +402,21 @@ func (u *ui) message(p *mygo.Page, msg, origin string, logf func(string, ...any)
 		u.retitle(server, arg)
 		c, _ := loadConfig()
 		reply(p, u.hello(c, server))
+	case "status":
+		// What the rail shows of it (web/src/railstatus.ts): running, asks, unread.
+		var l railLamps
+		if json.Unmarshal([]byte(arg), &l) == nil {
+			u.mu.Lock()
+			if u.lamps == nil {
+				u.lamps = map[string]railLamps{}
+			}
+			changed := u.lamps[server] != l
+			u.lamps[server] = l
+			u.mu.Unlock()
+			if changed {
+				u.railRefresh()
+			}
+		}
 	case "theme":
 		// The day or night chosen on an Iridium's page (auto: the system's), the app's own pages
 		// and every Iridium's after it the same (kumo, 2026-11-22).

@@ -44,6 +44,15 @@ type railItem struct {
 	asks               int
 }
 
+// railLamps is what an Iridium's page says for the rail (web/src/railstatus.ts): something
+// running, sessions waiting on you, something unread. None said (an Iridium from before, or its
+// page not loaded yet): nothing lit.
+type railLamps struct {
+	Running bool `json:"running"`
+	Asks    int  `json:"asks"`
+	Unread  bool `json:"unread"`
+}
+
 // railState is the rail as drawn: its Iridiums, which is shown, and the colors.
 type railState struct {
 	items []railItem
@@ -132,6 +141,13 @@ func (u *ui) railRefresh() {
 		} else {
 			page = m.home.view.Load()
 		}
+		// Said by a page still there: one closed (its window, logged out) says nothing any more.
+		lamps := map[string]railLamps{}
+		for _, a := range u.shows {
+			if l, ok := u.lamps[a]; ok {
+				lamps[a] = l
+			}
+		}
 		// In a window of its own; true: that window the app's one in front.
 		away := map[string]bool{}
 		for _, p := range u.panes {
@@ -158,6 +174,9 @@ func (u *ui) railRefresh() {
 				}
 				front, ok := away[a]
 				it.away, it.awayFront = ok, front
+				if l, ok := lamps[a]; ok && it.loggedIn {
+					it.running, it.asks, it.unread = l.Running, max(l.Asks, 0), l.Unread
+				}
 				rail.items = append(rail.items, it)
 			}
 			if l := c.local(); l != nil && !c.HideLocal && len(rail.items) > 1 {
@@ -196,6 +215,8 @@ func (m *mainWin) content(u *ui) mygo.Content {
 }
 
 var (
+	// irLetters: web/src/ui.tsx IrMark's "Ir", in the text's color, on the 64 of its square.
+	irLetters = mui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64"><path d="M20 18h6v28h-6zM32 28h5.6v3.2c1.4-2.4 3.6-3.6 6.4-3.6v5.8c-3.8 0-6.2 1.6-6.2 6V46H32z" fill="currentColor"/></svg>`))
 	iconPlus  = mui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>`))
 	iconLocal = mui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h8"/><path d="M10 19v-3.96 3.15"/><path d="M7 19h5"/><rect width="6" height="10" x="16" y="12" rx="2"/></svg>`))
 )
@@ -271,6 +292,9 @@ func (m *mainWin) railIcon(c *mui.Context, u *ui, r *railState, it railItem) {
 				if !it.loggedIn {
 					img.Grayscale()
 				}
+			} else if it.local {
+				// Iridium's mark (web/src/ui.tsx IrMark), its letters alone: the icon is its ground.
+				mui.Icon(c, irLetters).Size(railIcon, railIcon)
 			} else {
 				size := float32(16)
 				if utf8.RuneCountInString(it.letter) > 1 {

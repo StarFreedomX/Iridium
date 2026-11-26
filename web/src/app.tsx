@@ -42,6 +42,7 @@ import { usePlaces } from "./reorder";
 import { reloadAgain } from "./upgrade";
 import { cn, IrMark, kept, keep, params, PHONE, useMedia, useMinute, DialogPortal, MenuPortal } from "./ui";
 import { watchUnread } from "./unread";
+import { tellRail } from "./railstatus";
 import { warmUp } from "./warm";
 import { openGame, useGameOpen } from "./game/open";
 
@@ -249,6 +250,7 @@ export function App() {
     if (!list || listFromDevice()) return;
     // Not those the list leaves out (a group at another machine no one opened): no count for them.
     unread.current?.take(list.filter((s) => !tree.unlisted.has(s.id)), meNow ?? LOCAL_ME);
+    tellRail(list.filter((s) => !tree.unlisted.has(s.id)));
     watchTurns(list, turns.current, open);
   }, [list, meNow?.id]);
   // The chats you may open next, warmed (src/warm.ts).
