@@ -729,7 +729,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
   type Shape = { x: number; y: number; rad: number; turn: number; ring: boolean; fade: number; hue: number; w: number };
   let pops: Spark[] = [];
   // The second ring of a press, on its way.
-  let lx = 0, ly = 0, lensOn = false, lastPop = 0;
+  let lx = 0, ly = 0, lensOn = false;
   /** way: which way it goes (none: any); fall: how fast it comes to fall, px a second each second;
    *  hue GLINT: of light, not a colour. */
   const pop = (x: number, y: number, ring: boolean, speed: number, size: number, way = Math.random() * Math.PI * 2, fall = 0, life = 0, hue = Math.random() * 360) => {
@@ -758,7 +758,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
   const sped = (u: number) => (u < 0.85 ? Math.pow(u / 0.85, 2.4) * 0.8 : 0.8 + 0.2 * (1 - (1 - (u - 0.85) / 0.15) ** 2));
   let rk: Rocket | null = null;
   let path: { x: number; y: number; t: number }[] = [];
-  let looked = 0, held = false;
+  let looked = 0, held = false, heldAt = 0, lastHeld = 0;
   /** The pointer's way, its corners only (Ramer–Douglas–Peucker, eps px). */
   const corners = (pts: { x: number; y: number }[], eps: number): [number, number][] => {
     const keep = new Uint8Array(pts.length);
@@ -862,6 +862,12 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
     }
     // Held down (kumo, 2026-11-25): more of them all the while, and the band let out that way.
     if (sl.on()) sl.step(dt * 1000);
+    // Held: stars flung out all round it, a few at a time, evenly, for as long as it is.
+    else if (held && lensOn && now - heldAt > 260 && now - lastHeld > 150) {
+      lastHeld = now;
+      const a0 = Math.random() * 6.2832;
+      for (let j = 0; j < 3; j++) pop(lx, ly, false, 150 + Math.random() * 130, 24 + Math.random() * 16, a0 + j * 2.0944 + (Math.random() - 0.5) * 0.6, 120);
+    }
     if (flow > 0 && !frozen) for (let r = 0; r < rows; r++) off[r] = (((off[r]! + speed[r]! * flow * pace(pw) * dt) % len) + len) % len;
     // The figure's place, size and strength glide to what is asked: the cells read anew each frame.
     const [gx, gs] = goal();
@@ -1132,17 +1138,16 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
         const z = zigzag();
         if (z) launch(z);
       }
-      if (moved > 6 && now - lastPop > 140) {
-        lastPop = now;
-        pop(x, y, false, 10 + Math.random() * 20, 30 + Math.random() * 22);
-      }
+      // A pointer only passing leaves nothing (kumo, 2026-11-26): stars come of a press, and more
+      // of them while it is held.
       kick();
     },
     tap(x, y) {
       if (still || !W) return;
       (lx = x), (ly = y), (lensOn = true);
-      // Nothing comes of a press alone any more (kumo, 2026-11-26): stars are left by a pointer's
-      // way, and by a zigzag drawn pressed.
+      // A press: a few stars out from it (kumo, 2026-11-26). Not in the game, where it is a cut.
+      if (!sl.on()) for (let j = 0; j < 4; j++) pop(x, y, false, 90 + Math.random() * 110, 26 + Math.random() * 16);
+      heldAt = lastHeld = performance.now();
       kick();
     },
     hold(on) {
