@@ -462,6 +462,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
     const dt = Math.min(50, now - ringAt);
     ringAt = now;
     if (ringK < 0.01 || !rows) return;
+    const ringIn = ringK * ringK * (3 - 2 * ringK);
     // What is stirred goes on to its neighbours, less each time, and dies away.
     const dec = Math.exp(-dt / 700);
     for (let j = 0; j < RN; j++) stir2[j] = Math.max(stir[j]!, (stir[(j + 1) % RN]! + stir[(j + RN - 1) % RN]!) * 0.49) * dec;
@@ -525,7 +526,8 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
         rz[i] = z2;
         ru[i] = iu;
         // In front, strong; behind, faint.
-        ra[i] = Math.min(1, ((0.62 + 0.38 * (z2 / R)) * lum + e * 0.4 + white) * ringK);
+        // Coming and going, all of it by as much: not its strongest cells full till the last.
+        ra[i] = Math.min(1, (0.62 + 0.38 * (z2 / R)) * lum + e * 0.4 + white) * ringIn;
         rw[i] = white;
         rh[i] = hue0 + vn * 30;
       }
@@ -672,6 +674,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
         // A star, ring or the rocket over this cell: the cell's own character in its colour.
         let lv = lr ? lit[i]! : 0;
         const rv = rr ? ra[i]! : 0;
+        let ca = clamp(cur.a[i]!) * (env + (1 - env) * (fm[i] ?? 0)) * dim;
         if (rv > 0) {
           // The ring's cell: in the ring's colour; a star over it stirs the ring there, and is not
           // drawn over it.
@@ -680,7 +683,13 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
           const h3 = hueAt3(rh[i]!), wq = rw[i]!;
           // (white on a dark page; on a light one the sun's own gold: black there was ugly, kumo 2026-11-26)
           const g0 = dark ? 255 : 255, g1 = dark ? 255 : 160, g2 = dark ? 255 : 0;
-          (cr = HUES[h3]! + (g0 - HUES[h3]!) * wq), (cg = HUES[h3 + 1]! + (g1 - HUES[h3 + 1]!) * wq), (cb = HUES[h3 + 2]! + (g2 - HUES[h3 + 2]!) * wq);
+          const qr = HUES[h3]! + (g0 - HUES[h3]!) * wq, qg = HUES[h3 + 1]! + (g1 - HUES[h3 + 1]!) * wq, qb = HUES[h3 + 2]! + (g2 - HUES[h3 + 2]!) * wq;
+          // Over what is there (a face coming or going), by its own strength: the cell's own
+          // opacity was its before, and the ring stood full on a face till it was gone, and came
+          // full at once (kumo, 2026-11-26).
+          const a = rv + ca * (1 - rv), u = rv / (a || 1);
+          (cr = cr + (qr - cr) * u), (cg = cg + (qg - cg) * u), (cb = cb + (qb - cb) * u);
+          ca = a;
         }
         // One of the game's faces over this cell: its colour, and nothing else's.
         const sv = lr ? sp[i]! : 0;
@@ -693,7 +702,7 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
             (cr += (HUES[h3]! - cr) * m), (cg += (HUES[h3 + 1]! - cg) * m), (cb += (HUES[h3 + 2]! - cb) * m);
           }
         }
-        const k2 = Math.min(24, Math.round(Math.max(clamp(cur.a[i]!) * (env + (1 - env) * (fm[i] ?? 0)) * dim, lv * 0.95, sv ? (sv >>> 24) / 255 : rv) * 24)) | ((cr >> 3) << 5) | ((cg >> 3) << 10) | ((cb >> 3) << 15) | (sv ? 1 << 20 : 0);
+        const k2 = Math.min(24, Math.round(Math.max(ca, lv * 0.95, sv ? (sv >>> 24) / 255 : 0) * 24)) | ((cr >> 3) << 5) | ((cg >> 3) << 10) | ((cb >> 3) << 15) | (sv ? 1 << 20 : 0);
         if (k2 !== key) {
           flush();
           run = "";

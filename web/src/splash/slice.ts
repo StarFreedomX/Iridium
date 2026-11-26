@@ -247,15 +247,10 @@ export function slicer(E: Env) {
       for (const q of things) {
         if (!q.cut && q.bomb) {
           // What is not to be cut, plain to see as that (kumo, 2026-11-26: more of a bomb): it goes
-          // red and back, a red line about it as it does; a fuse from its top, alight at its end.
-          const hot = ((T / 230) | 0) % 2 === 0, w = q.s.w * cw, h = q.s.h * E.row, x0 = q.x - w / 2, y0 = q.y - h / 2;
+          // red and back; a fuse from its top, alight at its end. No line about it (kumo: the mark
+          // as it is, its size the same).
+          const hot = ((T / 230) | 0) % 2 === 0, w = q.s.w * cw, y0 = q.y - (q.s.h * E.row) / 2;
           stamp(q.s, q.x, q.y, 0, 0, 0, hot ? RED : 0);
-          if (hot) {
-            block(x0 - 2 * cw, y0 - 2 * E.row, q.s.w + 4, 1, RED);
-            block(x0 - 2 * cw, y0 + h + E.row, q.s.w + 4, 1, RED);
-            block(x0 - 4 * cw, y0 - E.row, 2, q.s.h + 2, RED);
-            block(x0 + w + 2 * cw, y0 - E.row, 2, q.s.h + 2, RED);
-          }
           for (let j = 1; j <= 4; j++) block(q.x + w * 0.2 + j * 2 * cw, y0 - (j + 2) * E.row, 2, 1, FUSE);
           const fx = q.x + w * 0.2 + 10 * cw, fy = y0 - 7 * E.row, f = (T / 70) | 0;
           block(fx, fy, 2, 1, ink());
