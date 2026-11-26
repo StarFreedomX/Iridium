@@ -23,6 +23,9 @@ export type FavItem = {
   line: string;
   updatedAt: number;
   color?: Color;
+  /** The channel's or agent's own face (small data: URL), so another Iridium's list shows it
+   *  without cross-origin cookies. */
+  face?: string;
 };
 export type FavServer = { title: string; face?: string; local?: boolean };
 export type Cross = { self: string; order: string[]; items: Record<string, FavItem[]>; servers: Record<string, FavServer> };

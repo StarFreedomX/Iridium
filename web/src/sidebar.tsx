@@ -613,6 +613,7 @@ export function Sidebar(p: Props) {
   // the rows cut in half); the box kept, the list in it keeping its own width.
   return (
     <div
+      data-ir-side=""
       inert={p.shut || undefined}
       className={cn("relative h-full shrink-0", p.shut && "overflow-hidden")}
       style={{ width: p.shut ? 0 : width }}
@@ -1105,18 +1106,71 @@ function RowFace({ s, group, solo, unread, quiet }: { s: Session; group?: { id: 
   );
 }
 
+// Small data: URLs of this Iridium's favorited sessions' faces (by their versioned URL), so
+// another Iridium's sidebar shows the channel's or agent's real face without cross-origin cookies.
+const favFaceCache = new Map<string, string>();
+const favFaceLoading = new Set<string>();
+function readFavFace(src: string, done: () => void): string {
+  const hit = favFaceCache.get(src);
+  if (hit !== undefined) return hit;
+  if (favFaceLoading.has(src) || typeof fetch !== "function" || typeof createImageBitmap !== "function") return "";
+  favFaceLoading.add(src);
+  void fetch(src)
+    .then((r) => (r.ok ? r.blob() : null))
+    .then(async (blob) => {
+      if (!blob) return "";
+      const bmp = await createImageBitmap(blob);
+      try {
+        const s = Math.min(bmp.width, bmp.height);
+        const cv = document.createElement("canvas");
+        cv.width = 72;
+        cv.height = 72;
+        cv.getContext("2d")?.drawImage(bmp, (bmp.width - s) / 2, (bmp.height - s) / 2, s, s, 0, 0, 72, 72);
+        const out = cv.toDataURL("image/webp", 0.82);
+        return out.startsWith("data:image/") ? out : cv.toDataURL("image/jpeg", 0.82);
+      } finally {
+        bmp.close();
+      }
+    })
+    .then((data) => {
+      favFaceCache.set(src, data);
+      if (data) done();
+    })
+    .catch(() => favFaceCache.set(src, ""))
+    .finally(() => favFaceLoading.delete(src));
+  return "";
+}
+
+/** The versioned face URL of session s (channel's own, else solo agent's, else session's), or ""
+ *  when the server says it has none. */
+function favFaceUrl(s: Session, faces: Record<string, string> | undefined, count: number): string {
+  const ch = faces?.[`c:${s.id}`];
+  if (ch) return `/v1/internal/channels/${encodeURIComponent(s.id)}/avatar?of=channel&v=${ch}`;
+  const soloId = s.bare && s.agents?.length === 1 ? s.agents[0]!.session : s.id;
+  const own = faces?.[soloId];
+  if (own) return `/v1/internal/channels/${encodeURIComponent(soloId)}/avatar?v=${own}`;
+  if (ch === "" && own === "") return "";
+  if (ch !== "") return `/v1/internal/channels/${encodeURIComponent(s.id)}/avatar?of=channel&v=n${count}`;
+  return "";
+}
+
 /** This Iridium's favorites told to the desktop app (crossfav.ts), as their rows show them: again
  *  as they change, or what is unread does. Nothing in a browser. */
 function useTellFavs(favs: Session[]) {
   const inApp = !!useApp();
+  const faces = useCarried<Record<string, string>>("faces");
+  const avatars = useCarried<number>("avatars") ?? 0;
   const [tick, setTick] = useState(0);
   useEffect(() => onUnread(() => setTick((n) => n + 1)), []);
   useEffect(() => {
     if (!inApp) return;
+    const bump = () => setTick((n) => n + 1);
     tellFavs(
       favs.map((s) => {
         const speaker = s.last?.nick || s.agents?.find((a) => a.session === s.id)?.nick || agentName(s.agent);
         const at = atOf(s.id);
+        const src = favFaceUrl(s, faces, avatars);
+        const face = src ? readFavFace(src, bump) : "";
         return {
           id: s.id,
           title: titleOf(s),
@@ -1129,6 +1183,7 @@ function useTellFavs(favs: Session[]) {
           line: s.last ? (s.last.role === "user" ? (saidNow(s.last, s) ?? "") : `${speaker}: ${s.last.text}`) : s.bare ? "" : agentName(s.agent),
           updatedAt: s.updatedAt,
           color: s.color || undefined,
+          face: face || undefined,
         } satisfies FavItem;
       }),
     );
@@ -1179,7 +1234,7 @@ function CrossRow({ k, item, srv, place }: { k: string; item: FavItem; srv: FavS
         aria={`${item.title}, ${srv.title}${item.unread ? `, ${t("status.unreadCount", { n: badge(item.unread) })}` : ""}`}
         icon={
           <span className="relative grid size-9 place-items-center rounded-full bg-fill">
-            <Logo agent={item.agent as Agent} size={20} />
+            {item.face ? <img src={item.face} alt="" draggable={false} className="size-9 rounded-full object-cover" /> : <Logo agent={item.agent as Agent} size={20} />}
             {item.unread > 0 && (
               <span
                 className={cn("g-pop absolute -top-1 -right-1.5 grid h-4 min-w-4 place-items-center rounded-full px-1 text-[10px] leading-none font-semibold tabular-nums", item.quiet && !item.at ? "bg-ink-4" : "bg-err")}

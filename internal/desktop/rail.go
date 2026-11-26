@@ -499,8 +499,20 @@ func railTip(c *mui.Context, at mui.Element, label string, p railPalette) {
 	})
 }
 
+// syncFaces fetches each Iridium's face in the background and refreshes the rail and favorites if
+// any changed (since the app opens straight into an Iridium without opening the built-in page).
+func (u *ui) syncFaces() {
+	c, _ := loadConfig()
+	if _, changed := refreshFaces(c); changed {
+		u.railRefresh()
+		u.favsTell()
+		u.redraw()
+	}
+}
+
 // reloadServer loads address's page again, wherever it is.
 func (u *ui) reloadServer(address string) {
+	go u.syncFaces()
 	u.mu.Lock()
 	var ps []*mygo.Page
 	for _, p := range u.panes {

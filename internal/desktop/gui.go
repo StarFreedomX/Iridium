@@ -201,6 +201,7 @@ func gui(o Options) int {
 	}
 	go u.upd.run()
 	go u.probe()
+	go u.syncFaces()
 	if err := mygo.App.Run(); err != nil {
 		logf("%v", err)
 		return 1
@@ -576,10 +577,12 @@ func (u *ui) local(p *mygo.Page, verb, arg string) {
 		reply(p, state(c))
 		// The list opened: a newer release looked for (not again for a while), told as it comes.
 		go u.upd.check(false)
-		// The Iridiums' faces, fetched afresh; the list drawn again if one changed.
+		// The Iridiums' faces, fetched afresh; the list and rail drawn again if one changed.
 		go func() {
 			if c, changed := refreshFaces(c); changed {
 				reply(p, state(c))
+				u.railRefresh()
+				u.favsTell()
 			}
 		}()
 	case "update":

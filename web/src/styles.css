@@ -824,6 +824,11 @@ html[data-gaming="1"] body {
 html[data-ir-part="side"] main {
   display: none !important;
 }
+html[data-ir-part="side"] [data-ir-side],
+html[data-ir-part="side"] aside {
+  width: 100% !important;
+}
+html[data-ir-part="chat"] [data-ir-side],
 html[data-ir-part="chat"] aside {
   display: none !important;
 }
