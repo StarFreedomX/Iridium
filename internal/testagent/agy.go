@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 )
 
@@ -13,6 +14,12 @@ const AgyVersion = "1.5.9"
 
 // AgyNoEcho, set in the environment, makes the fake agy say no prompt back, as agy 1.5.10 does.
 const AgyNoEcho = "IRIDIUM_FAKE_AGY_NOECHO"
+
+// AgySteer, in a prompt, has it answered the fake agy answers as agy does one another joins mid-turn
+// (live 2026-11-26): it writes the start of a code block and holds the answer; the next prompt
+// that comes has the held one answered at once (end_turn, with usage) while the block is still
+// being written, the rest of the block, then, at its next step (a thought), "ok" for the new one.
+const AgySteer = "steer:"
 
 // Agy is a fake `agy acp`: it opens a session and answers each prompt with its words echoed and
 // "ok", with usage, as agy 1.5.9 does (not echoed with $IRIDIUM_FAKE_AGY_NOECHO). Enough for a session to be made and talked to, which is
@@ -56,6 +63,7 @@ func Agy() int {
 		}
 	}
 	n := 0
+	var held json.RawMessage // a steer: prompt's id, its answer held
 	for in.Scan() {
 		var m struct {
 			ID     json.RawMessage `json:"id"`
@@ -95,6 +103,20 @@ func Agy() int {
 			}
 			result = map[string]any{"configOptions": config()}
 		case "session/prompt":
+			if held == nil && len(m.Params.Prompt) > 0 && strings.Contains(m.Params.Prompt[0].Text, AgySteer) {
+				held = m.ID
+				update(sid, map[string]any{"sessionUpdate": "agent_message_chunk", "content": map[string]any{"type": "text", "text": "Here:\n```go\nfunc ma"}})
+				continue
+			}
+			if held != nil {
+				send(map[string]any{"jsonrpc": "2.0", "id": held, "result": map[string]any{"stopReason": "end_turn", "usage": map[string]any{"inputTokens": 90, "outputTokens": 1}}})
+				held = nil
+				update(sid, map[string]any{"sessionUpdate": "agent_message_chunk", "content": map[string]any{"type": "text", "text": "in() {}\n```"}})
+				update(sid, map[string]any{"sessionUpdate": "agent_thought_chunk", "content": map[string]any{"type": "text", "text": "a new message"}})
+				update(sid, map[string]any{"sessionUpdate": "agent_message_chunk", "content": map[string]any{"type": "text", "text": "ok"}})
+				result = map[string]any{"stopReason": "end_turn", "usage": map[string]any{"inputTokens": 90, "outputTokens": 1}}
+				break
+			}
 			for _, p := range m.Params.Prompt {
 				if p.Type == "text" && os.Getenv(AgyNoEcho) == "" && !update(sid, map[string]any{"sessionUpdate": "user_message_chunk", "content": map[string]any{"type": "text", "text": p.Text}}) {
 					return 1

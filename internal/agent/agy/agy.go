@@ -162,6 +162,11 @@ type Driver struct {
 	// joined: prompts sent while a turn was already running, held until the running prompt ends
 	// or their echo arrives so we do not cut a message being streamed in half.
 	joined []joinedPrompt
+	// due: how many of joined agy took in (it answered the prompt before them, end_turn at once)
+	// while a message or thought was still being written. agy answers at once, as the prompt
+	// arrives, not where the model reads it: that is at its next step, so they are recorded where
+	// what is being written ends, not inside it (a word or a code fence cut in two).
+	due int
 	// autoAllow: in-flight auto-permission response writes; Send waits for them before writing
 	// session/prompt so agy does not refuse a mid-turn prompt while waiting for a permission.
 	autoAllow []chan struct{}
@@ -224,6 +229,7 @@ func (d *Driver) reset() {
 	d.state = agent.Idle
 	d.starting, d.loading = false, false
 	d.waiting, d.outstanding, d.asks, d.echoes, d.joined, d.autoAllow = nil, nil, nil, nil, nil, nil
+	d.due = 0
 	d.inFlight = map[string]inflightPrompt{}
 	d.sent.id, d.sent.text = "", ""
 	d.text.Reset()
@@ -1135,8 +1141,12 @@ func (d *Driver) response(f *frame, replay bool) {
 		last = s.Usage != nil || s.StopReason != "end_turn"
 	}
 	if !last {
-		d.sealLocked() // one joined the turn: it comes in here (agy 1.5.10 says no more of it)
-		d.flushJoinedLocked("")
+		// One joined the turn (agy 1.5.10 says no more of it). It comes in where what is being
+		// written ends (sealLocked), at once if nothing is.
+		d.due++
+		if d.text.Len() == 0 && d.thought.Len() == 0 {
+			d.sealLocked()
+		}
 		return
 	}
 	d.sealLocked()
@@ -1428,6 +1438,10 @@ func (d *Driver) sealLocked() {
 			d.emitLocked(agent.MessageDone{Text: text})
 		}
 	}
+	for ; d.due > 0 && len(d.joined) > 0; d.due-- {
+		d.flushJoinedLocked("")
+	}
+	d.due = 0
 }
 
 func (d *Driver) record(e transcript.Entry) { d.emitLocked(agent.Record{Entry: e}) }

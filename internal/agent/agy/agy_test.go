@@ -361,6 +361,7 @@ func TestNoEcho(t *testing.T) {
 	r.next("session/prompt")
 	r.feed(
 		`{"jsonrpc":"2.0","result":{"stopReason":"end_turn"},"id":"in-1"}`,
+		upd(`{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"asked for second"}}`), // the model's next step
 		upd(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"second"}}`),
 		`{"jsonrpc":"2.0","result":{"stopReason":"end_turn","usage":{"inputTokens":5,"outputTokens":2}},"id":"in-2"}`,
 	)
@@ -369,7 +370,7 @@ func TestNoEcho(t *testing.T) {
 	for _, e := range records(evs) {
 		kinds = append(kinds, e.Kind+":"+e.Text)
 	}
-	if want := []string{"assistant:1 2 3", "user:then say second", "assistant:second"}; !slices.Equal(kinds, want) {
+	if want := []string{"assistant:1 2 3", "user:then say second", "thinking:asked for second", "assistant:second"}; !slices.Equal(kinds, want) {
 		t.Errorf("records %v, want %v", kinds, want)
 	}
 	if tk := find[agent.Taken](evs); len(tk) != 1 || tk[0].InputID != "in-2" {
@@ -384,8 +385,9 @@ func TestNoEcho(t *testing.T) {
 }
 
 // A prompt sent while the agent is mid-sentence streaming does not split the assistant message
-// in half: subsequent chunks append to the same message until the running prompt ends or calls
-// a tool.
+// in half: agy answers the running prompt at once (end_turn, no usage) as the new one arrives,
+// but the model reads it only at its next step, so the chunks after that answer still belong to
+// the same message and the prompt is recorded where the message ends.
 func TestSteerMidSentenceDoesNotSplitMessage(t *testing.T) {
 	r := newRig(t)
 	r.open("")
@@ -396,24 +398,60 @@ func TestSteerMidSentenceDoesNotSplitMessage(t *testing.T) {
 	r.feed(upd(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"reading docs/前端设计"}}`))
 	send(t, r.d, "in-2", "push to test")
 	r.next("session/prompt")
-	// More chunks of the same sentence arrive before agy finishes in-1 or calls a tool.
 	r.feed(
 		upd(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"规范.md。"}}`),
 		`{"jsonrpc":"2.0","result":{"stopReason":"end_turn"},"id":"in-1"}`,
-		upd(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"got it"}}`),
+		upd(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" got it"}}`),
 		`{"jsonrpc":"2.0","result":{"stopReason":"end_turn","usage":{"inputTokens":5,"outputTokens":2}},"id":"in-2"}`,
 	)
 	evs := r.take()
 	md := find[agent.MessageDone](evs)
-	if len(md) != 2 || md[0].Text != "reading docs/前端设计规范.md。" || md[1].Text != "got it" {
+	if len(md) != 1 || md[0].Text != "reading docs/前端设计规范.md。 got it" {
 		t.Fatalf("MessageDone split: %+v", md)
 	}
 	var kinds []string
 	for _, e := range records(evs) {
 		kinds = append(kinds, e.Kind+":"+e.Text)
 	}
-	if want := []string{"assistant:reading docs/前端设计规范.md。", "user:push to test", "assistant:got it"}; !slices.Equal(kinds, want) {
+	if want := []string{"assistant:reading docs/前端设计规范.md。 got it", "user:push to test"}; !slices.Equal(kinds, want) {
 		t.Fatalf("records %v, want %v", kinds, want)
+	}
+}
+
+// Live 2026-11-26: a prompt sent while agy writes a code block is answered at once (the running
+// prompt's end_turn, 170 ms later) with the block still being written. The message
+// is not cut there (inside a word and a code fence): it goes on whole, and the prompt is recorded
+// at the model's next step (here a tool call), between that message and what follows.
+func TestJoinedMidCodeFenceRecordedAtNextStep(t *testing.T) {
+	r := newRig(t)
+	r.open("")
+	r.take()
+	send(t, r.d, "in-1", "write it")
+	r.next("session/prompt")
+	r.take()
+	r.feed(upd(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Here:\n` + "```" + `go\nfunc ma"}}`))
+	send(t, r.d, "in-2", "@Neon also check tests")
+	r.next("session/prompt")
+	r.feed(`{"jsonrpc":"2.0","result":{"stopReason":"end_turn","usage":{"inputTokens":9,"outputTokens":3}},"id":"in-1"}`)
+	evs := r.take()
+	if md := find[agent.MessageDone](evs); len(md) != 0 {
+		t.Fatalf("message cut as the prompt was answered: %+v", md)
+	}
+	if rs := records(evs); len(rs) != 0 {
+		t.Fatalf("recorded inside the message: %+v", rs)
+	}
+	r.feed(
+		upd(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"in() {}\n`+"```"+`"}}`),
+		upd(`{"sessionUpdate":"tool_call","toolCallId":"c1","name":"run_command","status":"in_progress","kind":"execute","title":"go test","rawInput":{"CommandLine":"go test"}}`),
+		`{"jsonrpc":"2.0","result":{"stopReason":"end_turn","usage":{"inputTokens":5,"outputTokens":2}},"id":"in-2"}`,
+	)
+	evs = r.take()
+	var kinds []string
+	for _, e := range records(evs) {
+		kinds = append(kinds, e.Kind+":"+e.Text)
+	}
+	if want := []string{"assistant:Here:\n```go\nfunc main() {}\n```", "user:@Neon also check tests", "tool:"}; !slices.Equal(kinds, want) {
+		t.Fatalf("records %q, want %q", kinds, want)
 	}
 }
 
