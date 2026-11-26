@@ -127,7 +127,8 @@ function picture(src: string): Promise<HTMLImageElement | null> {
   if (!p) {
     p = new Promise((done) => {
       const img = new Image();
-      img.onload = () => done(img.naturalWidth ? img : null);
+      // Decoded before it is given: drawn the first time it would be decoded then, the frame held.
+      img.onload = () => img.decode().then(() => done(img.naturalWidth ? img : null), () => done(img.naturalWidth ? img : null));
       img.onerror = () => done(null);
       img.src = src;
     });
@@ -212,6 +213,9 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
   // Iridium's letters drawn: their cells' colours flow through the rainbow each frame (kumo,
   // 2026-11-25: a gradient that moves).
   let rainbow = false;
+  // Whether the ring is to be there: as soon as a figure is asked for, not as its pictures have
+  // come (kumo, 2026-11-26: the ring stood on while a face loaded, then was gone at once).
+  let ringAsk = false;
   let fig: Fig | null = null, photo = false, drawnKey = "", asked = 0;
   let t0 = -1e9, flowTo = 0, last = 0, raf = 0, first = true, dead = false;
 
@@ -226,12 +230,18 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
     return `rgb(${ink.join(",")})`;
   };
 
-  /** The figure on the square (src); photo: a picture, its tones kept, not a flat mark. */
-  const paint = async (f: Fig | null): Promise<boolean> => {
-    const css = inkNow();
-    rainbow = false;
+  /** The pictures a figure is drawn from, loaded. */
+  const load = async (f: Fig | null) => {
     const face = (f?.src ? await picture(f.src) : null) ?? (f?.alt ? await picture(f.alt) : null);
     const img = face ?? (f?.agent === "agy" ? await picture(AGY_DATA_URI) : null);
+    return { face, img };
+  };
+  /** The figure on the square (src), at once: what is read from it is never half the last one and
+   *  half this (kumo, 2026-11-26: the letters were read again while a face loaded, and came out in
+   *  colour). True: a picture, its tones kept, not a flat mark. */
+  const paint = (f: Fig | null, face: HTMLImageElement | null, img: HTMLImageElement | null): boolean => {
+    const css = inkNow();
+    rainbow = false;
     sg.clearRect(0, 0, SRC, SRC);
     if (img && face) {
       const s = Math.min(img.naturalWidth, img.naturalHeight);
@@ -574,21 +584,9 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
         cg.clip();
         cg.drawImage(face, (face.naturalWidth - m) / 2, (face.naturalHeight - m) / 2, m, m, 0, 0, SRC, SRC);
       } else {
-        // A mark as it is, nothing put under it (kumo, 2026-11-26: what is clear in it is clear; a
-        // grey ground about it was not the mark's).
-        // But a line round it, as a face has its rim: one thing, to be cut (kumo).
-        cg.strokeStyle = dark ? "rgba(255,255,255,0.75)" : "rgba(0,0,0,0.7)";
-        cg.lineWidth = SRC * 0.05;
-        cg.beginPath();
-        cg.arc(SRC / 2, SRC / 2, SRC * 0.465, 0, 7);
-        cg.stroke();
-        if (img) cg.drawImage(img, SRC * 0.16, SRC * 0.16, SRC * 0.68, SRC * 0.68);
-        else if (!who.agent) return null;
-        else {
-          cg.translate(SRC * 0.08, SRC * 0.08);
-          cg.scale(0.84, 0.84);
-          if (!mark(cg, who.agent, css)) return null;
-        }
+        // A mark as it is: nothing under it, no line round it (kumo, 2026-11-26: the real one).
+        if (img) cg.drawImage(img, SRC * 0.1, SRC * 0.1, SRC * 0.8, SRC * 0.8);
+        else if (!who.agent || !mark(cg, who.agent, css)) return null;
       }
       const w = Math.max(6, Math.round(size / cw)), h = Math.max(4, Math.round(size / ROW));
       // Down by halves: one step from SRC skips pixels.
@@ -635,8 +633,6 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
     g.font = FONTS(1);
     g.textBaseline = "top";
     const now = performance.now();
-    // The rainbow's place now: across the figure, moving on as time goes.
-    const shift = still ? 0 : now * 0.06, fx0 = px - ps / 2, span = ps || 1;
     // A face at rest: only the rows and columns about it are drawn, the code beyond its rim being
     // none (kumo, 2026-11-25: the whole pane was gone over each frame for it, and it lagged).
     const rim = photo && !leaving && now - t0 > spreadNow + TURN + 400 ? ps * 0.6 : 0;
@@ -662,7 +658,6 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
       if (!lr && rim && Math.abs(ym - py) > rim) continue;
       const k0 = rim && !lr ? Math.max(0, Math.floor((px - rim) / cw)) : 0;
       const k1 = rim && !lr ? Math.min(cols, Math.ceil((px + rim) / cw) + 1) : cols;
-      const hue0 = (ym - py) * 0.4 - shift;
       let run = "", at = 0, key = -1;
       const flush = () => {
         if (!run || !(key & 31)) return;
@@ -690,11 +685,6 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
         // One of the game's faces over this cell: its colour, and nothing else's.
         const sv = lr ? sp[i]! : 0;
         if (sv) (cr = sv & 255), (cg = (sv >> 8) & 255), (cb = (sv >> 16) & 255), (lv = lv > 0 && litHue[i] === GLINT ? lv : 0);
-        const fmi = rainbow && !sv ? (fm[i] ?? 0) : 0;
-        if (fmi > 0) {
-          const h3 = hueAt3((((k + 0.5 - f) * cw - fx0) / span) * 300 + hue0);
-          (cr += (HUES[h3]! - cr) * fmi), (cg += (HUES[h3 + 1]! - cg) * fmi), (cb += (HUES[h3 + 2]! - cb) * fmi);
-        }
         if (lv > 0) {
           const m = Math.min(1, lv * 1.4);
           if (litHue[i]! === GLINT) (cr += (255 - cr) * m), (cg += ((dark ? 255 : 170) - cg) * m), (cb += ((dark ? 255 : 0) - cb) * m);
@@ -914,8 +904,8 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
     }
     wasTurning = turning;
     // The ring there where Iridium's letters would be (no agent to draw), coming and going.
-    const ringOn = rainbow && !leaving && !left && (!sl.on() || sl.going()) ? 1 : 0;
-    ringK += (ringOn - ringK) * (1 - Math.exp(-dt / (sl.on() ? 0.9 : 0.35)));
+    const ringOn = ringAsk && !leaving && !left && (!sl.on() || sl.going()) ? 1 : 0;
+    ringK += (ringOn - ringK) * (1 - Math.exp(-dt / (sl.on() ? 0.9 : 0.4)));
     if (Math.abs(ringOn - ringK) < 0.005) ringK = ringOn;
     draw();
     calm = ringK < 0.01 && !sl.on() && !burst && !turning && !gliding && !pops.length && !lensOn && !rk && !held && Math.abs(vel - want) < 0.02;
@@ -949,9 +939,12 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
 
   const show = (f: Fig | null, snap: boolean) => {
     const n = ++asked;
-    void paint(f).then((isPhoto) => {
+    ringAsk = !f?.src && !f?.alt && !(f?.agent && ["claude", "codex", "pi", "dsh", "agy"].includes(f.agent));
+    kick();
+    void load(f).then(({ face, img }) => {
       if (n !== asked || dead || leaving || left) return;
-      photo = isPhoto;
+      photo = paint(f, face, img);
+      ringAsk = rainbow;
       drawnKey = f?.key ?? "";
       turn(snap);
     });
