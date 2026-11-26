@@ -6,27 +6,28 @@
 // centred and faint; the agent's words as Markdown with the files they name; tool calls and
 // thoughts folded to a line.
 import { LongWords } from "./longwords";
-import { FORWARD_CARD, ForwardHead, ForwardRow, Forwards } from "./forwardcard";
-import { msgWords, splitForwards, withForwards } from "./forward";
+import { Forwards } from "./forwardcard";
+import { splitForwards } from "./forward";
 import { FOLD_AT, linesOf } from "./channel/folds";
 import { Archive, ArchiveRestore, ArrowUpRight, BookOpen, Bot, BotMessageSquare, ChartColumn, ChevronRight, CircleStop, CircleX, Clock, CloudDownload, CloudUpload, Cpu, Earth, FileCode, FileDiff, FilePen, Files as FilesIcon, FileText, FlaskConical, FolderGit2, FolderOpen, Folders, FoldVertical, GitBranch, GitCommitHorizontal, GitPullRequest, Globe, Hammer, History, Hourglass, KeyRound, Laptop, Link2, List, ListChecks, LoaderCircle, LockKeyhole, MessageCircleQuestionMark, MessageSquarePlus, Monitor, MonitorSmartphone, MousePointerClick, Network, Package, PencilLine, Plug, RotateCcw, RotateCw, Search, Send, ServerCog, SlidersHorizontal, Smartphone, SquareTerminal, Terminal, Trash2, type LucideIcon, UserRound, Workflow as WorkflowIcon, Wrench, X } from "lucide-react";
 import { Copyable } from "./copyable";
 import { Dispatch, Sent as SentTo, TaskBack } from "./dispatched";
 import { handBack, toldOf } from "./dispatch";
 import { Children, forwardRef, memo, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { givenTurn, linkNicks, type GivenTurn } from "./channel/lib";
+import { givenTurn, linkNicks } from "./channel/lib";
+import { AfterContext, ChannelContext } from "./context";
+import { parseGiven, type GivenRec } from "./given";
 import { reactionLine } from "./react";
 import { Nicks, NickWords } from "./channel/nick";
 import { Face as ChannelFace } from "./channel/face";
 import { CARD_POP } from "./channel/profilecard";
-import type { Relay } from "../satori";
 import { Popover } from "@base-ui/react/popover";
 import { api } from "../api/client";
 import type { Block, Device, FileRef, Result } from "../api/types.gen";
 import type { Sent } from "../chats";
 import { errText, toast } from "../toast";
 import { t } from "../i18n";
-import { agentName, Avatar, Badge, cn, IconKey, IrMark, Logo, own, PopSurface, tilde, Tip, titleOf, useEver, useLongPress, useMenuAt, PopoverPortal } from "../ui";
+import { agentName, Avatar, Badge, cn, IconKey, Logo, own, PopSurface, tilde, Tip, titleOf, useEver, useLongPress, useMenuAt, PopoverPortal } from "../ui";
 import { useHome, useMachines } from "../data";
 import { LocalMark } from "../me";
 import { go } from "../route";
@@ -479,91 +480,47 @@ export const Assistant = memo(function Assistant({ b, session, draft }: { b: Blo
   );
 });
 
-/** A call from another channel the agent is in, in its own record (the user, 2026-11-13): not
- *  folded. On the left, as Iridium's: the channel and the message's number (a key to go there);
- *  what it forwarded, as a card of messages (Satori's forward, satori.ts relays): those said
- *  there since the agent last read it, the one that called it last; where the channel's standing
- *  words were given this time, a key to read them. Without the record (relay), the words that
- *  called it and all that was added, as written. Then what the agent did and said (children). */
-export function Relayed({ given, relay, name, time, onJump, children }: { given: GivenTurn; relay?: Relay; name: string; time?: number; onJump: (id: string) => void; children?: ReactNode }) {
-  const ch = { ...given.channel!, name };
-  const [rules, setRules] = useState(false);
-  const head = `${t("channel.relayed", { name: ch.name })} · #${given.seq}`;
-  const row = useWhenRow();
-  return (
-    <div className="flex min-w-0 flex-col gap-5">
-      <div {...row} className={cn(row.className, "flex min-w-0 items-start gap-2.5")}>
-        <span className="grid size-7 shrink-0 place-items-center rounded-full bg-fill text-ink">
-          <IrMark size={14} />
-        </span>
-        <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-          <div className="flex h-4 min-w-0 items-baseline gap-1.5 text-xs">
-            <span className="shrink-0 font-medium text-ink-2">Iridium</span>
-            {ch.id ? (
-              <button type="button" onClick={() => onJump(ch.id)} className="flex min-w-0 items-baseline gap-1 text-ink-4 hover:text-ink-2">
-                <span className="min-w-0 truncate">{head}</span>
-                <ArrowUpRight size={11} className="shrink-0 self-center" />
-              </button>
-            ) : (
-              <span className="min-w-0 truncate text-ink-4">{head}</span>
-            )}
-            <When time={time} />
-          </div>
-          {relay ? (
-            <div className={FORWARD_CARD}>
-              <div className="mb-1.5 flex items-center gap-1.5 text-xs text-ink-3">
-                <ForwardHead n={relay.msgs.length} />
-                {relay.full && relay.context && (
-                  <button type="button" aria-expanded={rules} onClick={() => setRules(!rules)} className="flex shrink-0 items-center gap-0.5 rounded-sm text-ink-3 hover:text-ink-2">
-                    {t("channel.rules")}
-                    <ChevronRight size={12} className={cn("transition-transform duration-(--dur-2)", rules && "rotate-90")} />
-                  </button>
-                )}
-              </div>
-              {relay.full && relay.context && (
-                <div inert={!rules || undefined} aria-hidden={!rules || undefined} className="g-reveal" data-open={rules ? "" : undefined}>
-                  <div className="min-h-0 overflow-hidden">
-                    <p className="m-0 mb-2 border-l-2 border-dashed border-edge pl-2.5 font-mono text-xs leading-5 whitespace-pre-wrap text-ink-3 [overflow-wrap:anywhere]">{relay.context}</p>
-                  </div>
-                </div>
-              )}
-              <div className="flex min-w-0 flex-col gap-1">
-                {relay.msgs.map((m, i) => {
-                  const last = i === relay.msgs.length - 1;
-                  // A forward said in the channel, as its lines (forward.ts).
-                  const w = msgWords(m);
-                  const text = withForwards(w.words, w.forwards);
-                  return (
-                    <ForwardRow key={m.id} who={m.who} dim={!last} clamp={!last}>
-                      <span className={cn(m.turn && "italic")}>{last ? <Worded text={text} /> : text}</span>
-                    </ForwardRow>
-                  );
-                })}
-              </div>
-            </div>
-          ) : (
-            <>
-              <p className="m-0 max-w-[min(560px,100%)] self-start rounded-xl rounded-tl-sm bg-fill px-3.5 py-2 text-md whitespace-pre-wrap [overflow-wrap:anywhere]">
-                <Worded text={given.words} />
-              </p>
-              {given.context && (
-                <div className="max-w-[min(640px,100%)] border-l-2 border-dashed border-edge pl-3">
-                  <div className="mb-0.5 text-xs text-ink-4">{t("channel.supplement")}</div>
-                  <p className="m-0 font-mono text-xs leading-5 whitespace-pre-wrap text-ink-3 [overflow-wrap:anywhere]">{given.context}</p>
-                </div>
-              )}
-            </>
-          )}
-        </div>
+/** A message of the agent's record as it was given it (Said's given): the whole text, its
+ *  sender's tag and all; a channel's message as its head ("[kumo] #12: words") in the bubble and
+ *  its <channel-context> under it (context.tsx), then what came after the block. */
+function AsGiven({ b, rec, src, session, onJump, card, menu, left }: { b: Block; rec: GivenRec; src: Source; session: string; onJump: (id: string) => void; card?: (b: Block) => ReactNode; menu?: (b: Block) => FaceMenu | undefined; left?: (b: Block) => boolean }) {
+  const g = rec.kind === "turn-prefix" ? parseGiven(rec.text, rec.heads) : null;
+  const words = g ? g.head : rec.text;
+  const under = g && (
+    <>
+      <ChannelContext g={g} />
+      <AfterContext text={g.after} />
+    </>
+  );
+  const files = b.files?.map((f) => <Attached key={f.ref} session={session} f={f} />);
+  if (src.kind === "iridium")
+    return (
+      <div className="flex min-w-0 flex-col items-center gap-2">
+        <Line icon={<RotateCcw size={12} />}>{words}</Line>
+        {under}
       </div>
-      {children}
-    </div>
+    );
+  if (src.kind === "letter")
+    return (
+      <div className="flex min-w-0 flex-col items-end gap-2">
+        <Letter src={src} text={words} time={b.time} onJump={onJump}>
+          {files}
+        </Letter>
+        {under}
+      </div>
+    );
+  return (
+    <YouBubble text={words} who={src} time={b.time} card={card?.(b)} menu={menu?.(b)} left={left?.(b)} words={<NickWords text={words} />} under={under || undefined}>
+      {files}
+    </YouBubble>
   );
 }
 
 /** card: what a person's face opens (their card, chat.tsx), for one not the one looking. left:
- *  another person's words, on the left: only the one looking is on the right (kumo, 2026-11-16). */
-export function Said({ b, session, cwd, source, onJump, card, menu, left }: { b: Shown; session: string; cwd: string; source: (b: { from?: string; fromTerminal?: string; fromDevice?: Device }) => Source; onJump: (id: string) => void; card?: (b: Block) => ReactNode; menu?: (b: Block) => FaceMenu | undefined; left?: (b: Block) => boolean }) {
+ *  another person's words, on the left: only the one looking is on the right (kumo, 2026-11-16).
+ *  given: what the agent was given as the block, kept (given.ts; a channel member's agent's
+ *  record): shown as it was given, verbatim. */
+export function Said({ b, session, cwd, source, onJump, card, menu, left, given: givenAs }: { b: Shown; session: string; cwd: string; source: (b: { from?: string; fromTerminal?: string; fromDevice?: Device }) => Source; onJump: (id: string) => void; card?: (b: Block) => ReactNode; menu?: (b: Block) => FaceMenu | undefined; left?: (b: Block) => boolean; given?: (b: Block) => GivenRec | undefined }) {
   // In the record of the channel's own session, a block is a message of the channel too: reacted
   // to and taken back as one (react.tsx). Not in another's record shown here (an agent's work).
   const named = useContext(Nicks);
@@ -571,6 +528,8 @@ export function Said({ b, session, cwd, source, onJump, card, menu, left }: { b:
   switch (b.kind) {
     case "user": {
       const src = source(b);
+      const rec = givenAs?.(b);
+      if (rec) return <AsGiven b={b} rec={rec} src={src} session={session} onJump={onJump} card={card} menu={menu} left={left} />;
       const text = b.text ?? "";
       // A reaction its agent was given, alone in its channel: who put which emoji on what.
       const rl = src.kind === "iridium" ? reactionLine(text) : null;
@@ -578,7 +537,7 @@ export function Said({ b, session, cwd, source, onJump, card, menu, left }: { b:
       if (src.kind === "iridium") return <Line icon={<RotateCcw size={12} />}>{text}</Line>;
       // The server writes each attachment as a line "[附件] `path`" (absolute): the file shows as itself instead.
       // A channel's message as the agent was given it (chat/channel/lib givenTurn): its words
-      // alone (one of a channel it is in beside its own is Relayed's, chat.tsx).
+      // alone, where what it was given is not kept (AsGiven).
       const given = givenTurn(text);
       const paths = new Set(b.files?.map((f) => f.path));
       const words = given ? given.words : paths.size ? withoutFiles(text, paths) : text;

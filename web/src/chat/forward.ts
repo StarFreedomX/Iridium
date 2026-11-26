@@ -1,6 +1,5 @@
 // Merged forwards in what is said (Satori's <message forward>, docs/channels.md "元素"): a channel
-// keeps one as written; the page draws it as the card an agent's own record draws a relay with
-// (said.tsx Relayed), pure here for tests. Each message of it: who said it, its words, and the
+// keeps one as written; the page draws it as a card (forwardcard.tsx), pure here for tests. Each message of it: who said it, its words, and the
 // forwards inside it, opened level by level.
 import { parse, type El } from "../satori";
 

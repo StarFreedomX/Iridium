@@ -8,8 +8,7 @@
 import { Menu } from "@base-ui/react/menu";
 import { Popover } from "@base-ui/react/popover";
 import { useQueryClient } from "@tanstack/react-query";
-import { useQuery } from "../../api/query";
-import { AtSign, MessageCircle, Box, Check, ChevronRight, CircleStop, FoldVertical, Mail, PencilLine, ScrollText, ShieldCheck, UserMinus } from "lucide-react";
+import { AtSign, MessageCircle, Box, Check, CircleStop, FoldVertical, Mail, PencilLine, ScrollText, ShieldCheck, UserMinus } from "lucide-react";
 import { useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 import { api } from "../../api/client";
 import { stopTurn } from "../live";
@@ -22,14 +21,13 @@ import { errText, toast } from "../../toast";
 import { openChat } from "../../route";
 import { agentName, cn, Lamp, own, PopSurface, sessionStatusText, useEver, useLongPress, useMenuAt, usePointAnchor, MenuPortal } from "../../ui";
 import { levelName } from "../effort";
-import { LongWords } from "../longwords";
 import { MODEL_POPUP, SessionModels, useModelMenu, useMode } from "../meters";
 import { EditBody } from "./edit";
 import { Face } from "./face";
 import { prefetchEdit } from "./gate";
 import { useAhead } from "../../prefetch";
 import { memberError } from "./key";
-import { describeGivenParts, givenKind, givenText, ownAgent, type AgentRow, type DescribedPart, type GivenKind } from "./lib";
+import { ownAgent, type AgentRow } from "./lib";
 import { memberMenu, type MenuKey } from "./menu";
 import { recvWords, useRecvName, useRecvOptions } from "./recv";
 import { fromOf, hasMore, recvLabel, toggle, withFrom } from "./scripts";
@@ -227,8 +225,8 @@ function WakePick({ channel, a, set, i }: { channel: string; a: AgentRow; set: (
 }
 
 /** What a member's menu asks with a card or a popover at its anchor: 移出 (asked first),
- *  注入记录, 编辑资料. */
-export type AskKind = "remove" | "given" | "edit";
+ *  编辑资料. */
+export type AskKind = "remove" | "edit";
 export type Ask = { kind: AskKind; a: AgentRow };
 
 /** The cards and the popover a member's menu opens, at anchor (the face; the members' key for
@@ -244,9 +242,6 @@ export function MemberAsks({ channel, anchor, asked, done }: { channel: string; 
   return (
     <>
       <RemoveAsk channel={channel} member={x.a.member} nick={x.a.nick} anchor={anchor} open={open("remove")} onOpenChange={set} />
-      <At anchor={anchor} open={open("given")} onOpenChange={set} className="flex max-h-[min(720px,var(--available-height))] w-[min(720px,calc(100vw-16px))] flex-col">
-        <Given a={x.a} />
-      </At>
       {/* 编辑资料 from the menu: out of the face (or the members' key), as the card's own. */}
       <At anchor={anchor} open={open("edit")} onOpenChange={set} className={CARD_POP}>
         <EditBody editing={{ channel, agent: x.a.session }} done={done} />
@@ -285,7 +280,7 @@ function MemberMenu({ at, close, ...items }: { at: { x: number; y: number } | nu
  *  model, effort and mode are its session's own, set as the one-agent chat's keys set them.
  *  may: the one looking is of the channel's people; else only what reads is offered. call:
  *  "@nick" into the composer; record: its session's record, where the page has its own way
- *  there; ask: 清空, 移出, 注入记录, opened by the one who draws the menu (MemberAsks). */
+ *  there; ask: 移出, 编辑资料, opened by the one who draws the menu (MemberAsks). */
 export function MemberItems({ channel, a, may, call, record, ask }: { channel: string; a: AgentRow; may: boolean; call?: (nick: string) => void; record?: (session: string) => void; ask: (kind: AskKind) => void }) {
   const real = useSession(a.session);
   const row = useList()?.find((x) => x.id === a.session);
@@ -294,14 +289,11 @@ export function MemberItems({ channel, a, may, call, record, ask }: { channel: s
   return <Items channel={channel} a={a} s={s} may={may} call={call} record={record} ask={ask} />;
 }
 
-/** 注入记录's list (Given). */
-const injectionsQ = (session: string) => ({ queryKey: ["injections", session], queryFn: () => api.injections(session), retry: false });
-
 function Items({ channel, a, s, may, call, record, ask }: Parameters<typeof MemberItems>[0] & { s: LiveSession }) {
   useLang();
   const qc = useQueryClient();
-  // What its items open in the popover at its face, asked as the menu opens: 注入记录, 编辑资料.
-  useAhead(() => (void qc.prefetchQuery({ ...injectionsQ(a.session), staleTime: 5_000 }), prefetchEdit(qc, channel, a.session, true)), [a.session, channel]);
+  // What its items open in the popover at its face, asked as the menu opens: 编辑资料.
+  useAhead(() => prefetchEdit(qc, channel, a.session, true), [a.session, channel]);
   const mode = useMode(s);
   const m = useModelMenu(s);
   const mine = ownAgent(channel, a);
@@ -437,95 +429,5 @@ export function RemoveAsk({ channel, member, nick, anchor, open, onOpenChange }:
         />
       </div>
     </At>
-  );
-}
-
-const stamp = (ms: number, lang: string) => new Date(ms).toLocaleString(lang === "zh" ? "zh-CN" : "en", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" });
-
-/** 注入记录 (kumo, 2026-11-16: what it got, all of it): everything its agent was given, the newest
- *  first: its system prompt, each channel's message with what came with it, each other line
- *  (a message, Iridium's own), what its ir was answered with. Each as it got it, whole, folded
- *  when long; where its parts came from under 来源. Inside the popover at its face (At). */
-function Given({ a }: { a: AgentRow }) {
-  const lang = useLang();
-  const q = useQuery({ ...injectionsQ(a.session), staleTime: 0 });
-  const label = (k: GivenKind, seq?: number) => (k === "turn" ? (seq ? `#${seq}` : "—") : t(k === "system" ? "channel.givenSystem" : k === "ir" ? "channel.givenIr" : "channel.givenMessage"));
-  return (
-    <>
-      <div className="flex h-10 shrink-0 items-center gap-2 px-3.5">
-        <Face id={a.session} agent={a.agent} size={18} logo={16} />
-        <span className="min-w-0 flex-1 truncate text-sm font-semibold">
-          {t("channel.given")} · {a.nick}
-        </span>
-      </div>
-      <div className="no-bar min-h-0 flex-1 overflow-y-auto px-3.5 pb-3.5">
-        {q.error ? <p className="m-0 py-6 text-center text-sm text-err">{errText(q.error)}</p> : q.data && !q.data.length ? <p className="m-0 py-6 text-center text-sm text-ink-3">{t("channel.givenNone")}</p> : null}
-        <ol className="m-0 flex list-none flex-col gap-4 p-0">
-          {q.data?.map((g) => {
-            const kind = givenKind(g.record);
-            const text = givenText(g.record);
-            return (
-              <li key={g.id} className="g-fade">
-                <div className="flex items-baseline gap-2 text-sm">
-                  <span className="font-semibold tabular-nums">{label(kind, g.seq)}</span>
-                  <span className="text-xs text-ink-3 tabular-nums">{stamp(g.at, lang)}</span>
-                </div>
-                {text && (
-                  <div className="mt-1.5 rounded-md bg-fill px-2.5 py-2">
-                    <LongWords fold lines={text.split("\n").length}>
-                      <pre className="m-0 font-mono text-xs leading-5 break-words whitespace-pre-wrap text-ink">{text}</pre>
-                    </LongWords>
-                  </div>
-                )}
-                <Sources parts={describeGivenParts(g.record, lang === "en" ? "en" : "zh")} open={!text} />
-              </li>
-            );
-          })}
-        </ol>
-      </div>
-    </>
-  );
-}
-
-/** Composition of an injection: grouped human-readable items, key values, cited message numbers;
- *  folded under 组成 when the full text is shown (open: it is all there is). Raw template ids
- *  stay available via hover tooltip. */
-function Sources({ parts, open: first }: { parts: DescribedPart[]; open: boolean }) {
-  const [open, setOpen] = useState(first);
-  if (!parts.length) return null;
-  return (
-    <div className="mt-1">
-      {!first && (
-        <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="flex items-center gap-0.5 rounded-sm text-xs text-ink-3 hover:text-ink-2">
-          {t("channel.givenSources")}
-          <ChevronRight size={12} className={cn("transition-transform duration-(--dur-2)", open && "rotate-90")} />
-        </button>
-      )}
-      <div inert={!open || undefined} aria-hidden={!open || undefined} className="g-reveal" data-open={open ? "" : undefined}>
-        <div className="min-h-0 overflow-hidden">
-          <ul className="m-0 mt-1 flex list-none flex-col gap-1 p-0">
-            {parts.map((p, i) => (
-              <li key={i} title={p.raw} className="rounded-md bg-fill px-2.5 py-1.5">
-                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                  <span className="text-xs font-medium text-ink">{p.label}</span>
-                  {p.detail && <span className="min-w-0 break-words text-xs text-ink-2">{p.detail}</span>}
-                  {p.refs?.map((r) => (
-                    <span key={r} className="text-xs text-ink-2 tabular-nums">
-                      {r}
-                    </span>
-                  ))}
-                </div>
-                {p.values?.map(([k, val], j) => (
-                  <div key={`${k}-${j}`} className="mt-0.5 flex gap-2 text-xs">
-                    <span className="shrink-0 text-ink-3">{k}</span>
-                    <span className="min-w-0 break-words whitespace-pre-wrap text-ink-2">{val}</span>
-                  </div>
-                ))}
-              </li>
-            ))}
-          </ul>
-        </div>
-      </div>
-    </div>
   );
 }
