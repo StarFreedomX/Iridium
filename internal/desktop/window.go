@@ -105,9 +105,9 @@ func (u *ui) syncRuntime(logf func(string, ...any)) {
 	}
 }
 
-// keepFrame: a window on an Iridium opens where and as large as one was last (Config.Frame, given
-// as it is made), and that is kept as w moves and resizes.
-func (u *ui) keepFrame(w *mygo.Window) {
+// keepFrame: a window opens where and as large as it was last (the main window's Config.Frame, an
+// Iridium's own Config.Away), given as it is made; keep is given that as w moves and resizes.
+func (u *ui) keepFrame(w *mygo.Window, keep func(Frame)) {
 	var mu sync.Mutex
 	var t *time.Timer
 	save := func() {
@@ -125,7 +125,7 @@ func (u *ui) keepFrame(w *mygo.Window) {
 			}
 			x, y := w.Position()
 			ww, h := w.Size()
-			_, _ = updateConfig(func(c *Config) { c.Frame = Frame{X: x, Y: y, W: ww, H: h} })
+			keep(Frame{X: x, Y: y, W: ww, H: h})
 		})
 	}
 	w.OnMove(save)

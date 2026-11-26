@@ -38,6 +38,7 @@ export type AppState = {
   };
   title?: string; // this Iridium's name in the app (its windows' titles); "": Iridium
   os?: string; // the app's system: darwin, windows, linux
+  rail?: boolean; // the app's own key is its window's rail (internal/desktop/rail.go): none here
   error?: string; // what the last ask came to
   notice?: string;
   code?: string; // a browser login's code to check

@@ -169,19 +169,32 @@ func (u *ui) menuBar() *mygo.Menu {
 		{Label: "缩小", Accelerator: "CmdOrCtrl+-", Click: click(func() { u.zoom(-1) })},
 		{Label: "实际大小", Accelerator: "CmdOrCtrl+0", Click: click(func() { u.zoom(0) })},
 	}
+	// The rail's (mainwin.go): ⌘1–⌘9 its first nine (not hidden: GTK runs no hidden item's key);
+	// ⌘, 本机与授权. Ctrl+Tab and Ctrl+Shift+Tab are the pages' (railKeysJS): GTK keeps them.
+	servers := []*item{}
+	for i := range 9 {
+		servers = append(servers, &item{Label: fmt.Sprintf("第 %d 台", i+1), Accelerator: fmt.Sprintf("CmdOrCtrl+%d", i+1),
+			Click: click(func() { go u.railPick(i) })})
+	}
+	view = append(view, mygo.Separator(), &item{Label: "服务器", Submenu: servers})
 	if runtime.GOOS != "darwin" {
-		return mygo.NewMenu([]*item{{Label: "文件", Submenu: []*item{closeItem}}, {Label: "显示", Submenu: view}})
+		file := []*item{
+			{Label: "本机与授权", Accelerator: "CmdOrCtrl+,", Click: click(func() { go u.showHome("local") })},
+			{Label: "添加服务器…", Accelerator: "CmdOrCtrl+N", Click: click(func() { go u.showHome("add") })},
+			closeItem,
+		}
+		return mygo.NewMenu([]*item{{Label: "文件", Submenu: file}, {Label: "显示", Submenu: view}})
 	}
 	view = append(view, mygo.Separator(), &item{Role: mygo.RoleToggleFullScreen})
 	return mygo.NewMenu([]*item{
 		{Label: "Iridium", Submenu: []*item{
 			{Role: mygo.RoleAbout}, mygo.Separator(),
-			{Label: "设置…", Accelerator: "CmdOrCtrl+,", Click: click(func() { go u.showPicker() })}, mygo.Separator(),
+			{Label: "本机与授权…", Accelerator: "CmdOrCtrl+,", Click: click(func() { go u.showHome("local") })}, mygo.Separator(),
 			{Role: mygo.RoleHide}, {Role: mygo.RoleHideOthers}, {Role: mygo.RoleUnhide}, mygo.Separator(),
 			{Role: mygo.RoleQuit},
 		}},
 		{Label: "文件", Submenu: []*item{
-			{Label: "打开服务器…", Accelerator: "CmdOrCtrl+N", Click: click(func() { go u.showPicker() })},
+			{Label: "添加服务器…", Accelerator: "CmdOrCtrl+N", Click: click(func() { go u.showHome("add") })},
 			closeItem,
 		}},
 		{Role: mygo.RoleEditMenu},

@@ -45,9 +45,7 @@ func (u *ui) winKey(p *mygo.Page, key string) {
 		w.ToggleFullScreen()
 	case "close":
 		appLog()("window %q closed by its page's key", name)
-		if name == "picker" {
-			w.Hide()
-		} else if name != "ask" {
+		if name != "ask" {
 			w.Close()
 		}
 	case "reload":
@@ -55,16 +53,18 @@ func (u *ui) winKey(p *mygo.Page, key string) {
 	}
 }
 
-// followMax tells page p whether its window w is full screen (a Mac) or maximised, as it changes:
-// its key is drawn as it is.
-func followMax(w *mygo.Window, p *mygo.Page) {
+// followMax tells the pages in w (pages: those there now) whether w is full screen (a Mac) or
+// maximised, as it changes: their key is drawn as it is.
+func followMax(w *mygo.Window, pages func() []*mygo.Page) {
 	tell := func() {
 		go func() {
 			full := w.IsMaximized()
 			if runtime.GOOS == "darwin" {
 				full = w.IsFullScreen()
 			}
-			reply(p, map[string]any{"max": full})
+			for _, p := range pages() {
+				reply(p, map[string]any{"max": full})
+			}
 		}()
 	}
 	w.OnMaximize(tell)
@@ -90,8 +90,21 @@ func (u *ui) closePage(p *mygo.Page) {
 		return
 	}
 	switch u.nameOf(p) {
-	case "picker":
-		go p.Window().Hide()
+	case homeName:
+		// The app's own page: back to the Iridium shown before, else the window closes.
+		go func() {
+			c, _ := loadConfig()
+			u.mu.Lock()
+			m := u.main
+			here := m != nil && m.panes[c.current()] != nil
+			u.mu.Unlock()
+			switch {
+			case here:
+				u.showServer(c.current(), "")
+			case m != nil:
+				m.win.Close()
+			}
+		}()
 		return
 	case "ask", "":
 		return

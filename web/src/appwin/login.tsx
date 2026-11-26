@@ -26,7 +26,6 @@ import {
   SquareTerminal,
   Trash2,
   UserRound,
-  X,
 } from "lucide-react";
 import { Menu } from "@base-ui/react/menu";
 import { type ReactNode, useEffect, useRef, useState } from "react";
@@ -35,6 +34,7 @@ import { Crop } from "../profile";
 import { agentName, cn, CopyKey, FaceChangeOver, IconKey, IrMark, Logo, SureKey, Switch, Tip, usePointAnchor, MenuPortal } from "../ui";
 import { ask, clipboardKeys, followTheme, onAnswer, whenReady } from "./bridge";
 import { Fold, useFolding } from "./fold";
+import { WinKeyPair } from "../winkey";
 
 type Link = { up: boolean; rtt?: number; since: string };
 type Server = {
@@ -63,6 +63,7 @@ type Pub = {
   error: string;
 };
 type State = {
+  os?: string; // the app's system: darwin, windows, linux
   servers: Server[];
   current?: string; // the Iridium the window in front shows
   me?: Me;
@@ -102,15 +103,24 @@ function UpdateKey({ st }: { st: State }) {
 }
 
 type Note = { text: string; error?: boolean; server?: string };
-type Part = "who" | "servers" | { server: string };
+type Part = "who" | "add" | "local" | { server: string };
+
+/** The part the app asks for (internal/desktop/mainwin.go showHome): who, add, local,
+ *  grant:<address>; null: none said. */
+function partOf(v: string): Part | null {
+  if (v === "who" || v === "add" || v === "local") return v;
+  if (v.startsWith("grant:")) return { server: v.slice(6) };
+  return null;
+}
 
 const FADE = 160; // ms, out then in
 
 export function Login() {
   const [st, setSt] = useState<State | null>(null);
   const [part, setPart] = useState<Part | null>(
-    location.hash === "#servers" ? "servers" : null,
+    partOf(location.hash.replace(/^#/, "")),
   );
+  const [full, setFull] = useState(false); // the window maximised or full screen
   const [me, setMe] = useState<Me>({});
   const [busy, setBusy] = useState(""); // a server being logged in to; "+" one typed; "local"
   const [note, setNote] = useState<Note | null>(null);
@@ -118,11 +128,16 @@ export function Login() {
   useEffect(() => {
     const stop = onAnswer((d) => {
       followTheme(d);
+      if (typeof d.max === "boolean") setFull(d.max);
+      if (typeof d.view === "string") {
+        const p = partOf(d.view);
+        if (p) (setNote(null), setPart(p));
+      }
       if (Array.isArray(d.servers)) {
         const s = d as unknown as State;
         setSt(s);
         if (s.me) setMe((m) => ({ ...s.me, ...m }));
-        setPart((p) => p ?? (s.servers.length === 0 ? "who" : "servers"));
+        setPart((p) => p ?? (s.servers.length === 0 ? "who" : "add"));
       }
       const server = typeof d.server === "string" ? d.server : undefined;
       if (typeof d.code === "string") {
@@ -153,23 +168,29 @@ export function Login() {
 
   return (
     <div className="h-full bg-paper text-ink select-none [&_*:focus-visible]:outline-none">
-      {/* The window's top strip, no title bar on any system (kumo, 2026-11-22): the mark and
-          the name at the left, its close key at the right, the window dragged by it. */}
+      {/* The window's top bar, as an Iridium's page's (no title bar on any system: kumo,
+          2026-11-22): the part's name at the left (the mark too on the first page, which has no
+          rail beside it), the window's keys at the right, the window dragged by it. */}
       <header
         data-app-drag
-        className="fixed inset-x-0 top-0 z-10 flex h-9 items-center gap-1.5 bg-paper pr-1.5 pl-3.5 text-[13px] font-semibold tracking-tight"
+        className="fixed inset-x-0 top-0 z-10 flex h-12 items-center gap-1.5 bg-paper pr-2 pl-4 text-sm font-semibold tracking-tight"
       >
-        <IrMark size={15} className="text-ink" />
-        <span className="flex-1">Iridium</span>
+        {part === "who" && <IrMark size={15} className="text-ink" />}
+        <span className="flex-1">
+          {part === "who"
+            ? "Iridium"
+            : part === "add"
+              ? "添加服务器"
+              : part
+                ? "本机与授权"
+                : ""}
+        </span>
         {st && <UpdateKey st={st} />}
-        {/* Close alone: it is never full screen (kumo, 2026-11-22: no minimise). */}
-        <IconKey
-          label="关闭"
-          onClick={() => ask("ir:win:close")}
-          className="size-7"
-        >
-          <X size={15} />
-        </IconKey>
+        <WinKeyPair
+          mac={st?.os === "darwin"}
+          full={full}
+          ask={(v) => ask("ir:win:" + v)}
+        />
       </header>
       <main
         className={cn(
@@ -181,8 +202,8 @@ export function Login() {
           <Swap id={typeof part === "object" ? "s:" + part.server : part}>
             <div
               className={cn(
-                "flex w-[min(380px,calc(100vw-24px))] flex-col",
-                part === "who" ? "py-16" : "pt-11 pb-6",
+                "flex w-[min(420px,calc(100vw-24px))] flex-col",
+                part === "who" ? "py-16" : "pt-16 pb-6",
               )}
             >
               {part === "who" ? (
@@ -209,17 +230,26 @@ export function Login() {
                   }}
                   more={() => (
                     keepMe({ ...me, name: me.name?.trim() ?? "" }),
-                    go("servers")
+                    go("add")
                   )}
                 />
-              ) : part === "servers" ? (
+              ) : part === "add" ? (
+                <Servers
+                  mode="add"
+                  st={st}
+                  busy={busy}
+                  note={note}
+                  login={login}
+                  back={st.servers.length === 0 ? () => go("who") : undefined}
+                />
+              ) : part === "local" ? (
                 <>
                   <Servers
+                    mode="local"
                     st={st}
                     busy={busy}
                     note={note}
                     login={login}
-                    back={st.servers.length === 0 ? () => go("who") : undefined}
                   />
                   <Grants st={st} open={(s) => go({ server: s.url })} />
                 </>
@@ -227,7 +257,7 @@ export function Login() {
                 <ServerPage
                   s={st.servers.find((s) => s.url === part.server)}
                   agents={st.agents ?? []}
-                  back={() => go("servers")}
+                  back={() => go("local")}
                 />
               )}
             </div>
@@ -517,12 +547,16 @@ function Account({ s }: { s: Server }) {
 
 /** The picker's list: 此电脑, each Iridium, 添加服务器. */
 function Servers({
+  mode,
   st,
   busy,
   note,
   login,
   back,
 }: {
+  /** add: 添加服务器 (the rail's +): the field, and those not logged in to, to log in;
+   *  local: 本机与授权's 此电脑 (the rail's foot). Those logged in to are the rail's. */
+  mode: "add" | "local";
   st: State;
   busy: string;
   note: Note | null;
@@ -530,15 +564,19 @@ function Servers({
   back?: () => void;
 }) {
   const local = st.servers.find((s) => s.local);
-  const remote = st.servers.filter((s) => !s.local);
+  const remote =
+    mode === "add"
+      ? st.servers.filter((s) => !s.local && (!s.loggedIn || busy === s.url))
+      : [];
   const rows = useFolding(remote, (s) => s.url);
   const on = !!local && st.server !== false;
   const p = st.publicState;
-  const [adding, setAdding] = useState(false);
+  const [adding, setAdding] = useState(mode === "add");
   const [address, setAddress] = useState("");
   const field = useRef<HTMLInputElement>(null);
   useEffect(() => {
-    if (busy !== "+" && !note?.error) (setAddress(""), setAdding(false));
+    if (busy !== "+" && !note?.error)
+      (setAddress(""), setAdding(mode === "add"));
   }, [busy]); // eslint-disable-line react-hooks/exhaustive-deps
   const mineOf = (url?: string) =>
     note && url && note.server === url ? note : null;
@@ -558,9 +596,8 @@ function Servers({
         </button>
       )}
 
-      <Heading>服务器</Heading>
-      {/* Hidden from the tray's 此电脑 › 隐藏 (kumo, 2026-11-23): neither it nor what unfolds under it. */}
-      <Fold state={st.hideLocal ? "out" : "in"}>
+      {mode === "local" && <Heading>此电脑</Heading>}
+      <Fold state={mode === "local" ? "in" : "out"}>
         {/* 此电脑 (kumo, 2026-11-22): one row. Its lamp and state, the public address after it; at
           its right two keys, no switches: 公网访问 (lit when on) and run or stop. Stopping, and
           closing the public address, are pressed twice (docs/前端设计规范.md "确认在原处"). */}
@@ -599,17 +636,6 @@ function Servers({
           onClick={local && on ? () => ask("ir:open:" + local.url) : undefined}
           end={
             <>
-              {/* 隐藏, as another Iridium's 移除 is (there as the row is pointed at): it leaves the
-                  list, back from 添加服务器's key (kumo, 2026-11-23). Nothing of it stops. */}
-              <span className="opacity-0 transition-opacity duration-(--dur-1) group-hover:opacity-100 focus-within:opacity-100">
-                <IconKey
-                  label="隐藏"
-                  onClick={() => ask("ir:hidelocal:on")}
-                  className="size-7"
-                >
-                  <EyeOff size={14} />
-                </IconKey>
-              </span>
               {on &&
                 (p?.busy ? (
                   <span className="grid size-8 place-items-center">
@@ -673,7 +699,26 @@ function Servers({
             <Row icon={<span />} title={p?.error} tone="text-err" />
           </Fold>
         </Fold>
+        {/* In the rail or not (Config.HideLocal; the tray's 此电脑 › 隐藏): nothing of it stops. */}
+        <Fold state={local ? "in" : "out"}>
+          <Row
+            icon={
+              <span className="grid size-9 place-items-center text-ink-2">
+                <EyeOff size={16} />
+              </span>
+            }
+            title={<span className="font-normal">在左侧栏显示此电脑</span>}
+            end={
+              <Switch
+                label="在左侧栏显示此电脑"
+                on={!st.hideLocal}
+                onChange={(v) => ask("ir:hidelocal:" + (v ? "off" : "on"))}
+              />
+            }
+          />
+        </Fold>
       </Fold>
+      {mode === "add" && rows.length > 0 && <Heading>未登录</Heading>}
       {rows.map(({ item: s, key, state }) => {
         const mine = mineOf(s.url);
         const naming = menu.renaming === s.url;
@@ -744,7 +789,7 @@ function Servers({
       ])}
       {/* 添加服务器: pressed, a field in its place for an address or an invite link; a paste is
           handled as it lands. No field waits with the focus in it (kumo, 2026-11-22). */}
-      {adding ? (
+      {mode === "local" ? null : adding ? (
         <form
           className="flex min-h-13 items-center gap-3 rounded-md pr-2 pl-2"
           onSubmit={(e) => (e.preventDefault(), login(address.trim(), "+"))}
@@ -754,10 +799,14 @@ function Servers({
           </span>
           <input
             ref={field}
-            autoFocus
             value={address}
             onChange={(e) => setAddress(e.target.value)}
-            onBlur={() => !address.trim() && busy !== "+" && setAdding(false)}
+            onBlur={() =>
+              mode !== "add" &&
+              !address.trim() &&
+              busy !== "+" &&
+              setAdding(false)
+            }
             onPaste={(e) => {
               const v = e.clipboardData.getData("text").trim();
               if (!v) return;
@@ -770,7 +819,8 @@ function Servers({
                 e,
                 (v) => (setAddress(v), v.trim() && login(v.trim(), "+")),
               );
-              if (e.key === "Escape") (setAddress(""), setAdding(false));
+              if (e.key === "Escape")
+                (setAddress(""), setAdding(mode === "add"));
             }}
             placeholder="服务器地址或邀请链接"
             spellCheck={false}

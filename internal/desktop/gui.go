@@ -47,14 +47,14 @@ type ui struct {
 
 	mu        sync.Mutex
 	waiting   bool                  // this computer's Iridium is waited for: shown once it runs
-	picker    *mygo.Window          // the small window of the Iridiums (picker.go)
-	wins      []*mygo.Window        // the windows on Iridiums, the one in front (win) among them
+	main      *mainWin              // the main window (mainwin.go); nil: closed
+	wins      []*mygo.Window        // the windows (the main one, Iridiums' own), the one in front (win) among them
 	panes     []*pane               // the Iridiums' pages in them (pane.go)
 	shows     map[string]string     // each pane's (by name) Iridium, as its page says
 	names     map[*mygo.Page]string // each page's name (picker, ask, w1…): mygo's have none
 	nwin      int
 	toldReady bool // the Iridiums' pages told an update is ready (updateChanged)
-	quitting  bool // the app quits: the picker closes then, not only hides
+	quitting  bool // the app quits: its windows of their own are opened again at the next start
 }
 
 func gui(o Options) int {
@@ -161,7 +161,7 @@ func gui(o Options) int {
 		}
 	})
 	mygo.App.WhenReady(func() {
-		u.makePicker()
+		go u.startWindows()
 		// A screen taken away: the windows on it come back to the main one.
 		mygo.Screen.OnDisplaysChanged(func() { go u.keepOnScreen() })
 		icon, tmpl := trayIcon, false
@@ -266,12 +266,12 @@ func (u *ui) startLocal(address string, logf func(string, ...any)) {
 		u.switchTo(address)
 		return
 	}
-	// The picker's row says how it went.
+	// The app's own page says how it went.
 	st := u.pageState(c)
 	if err != nil {
 		st["error"], st["server"] = "未能启动："+err.Error(), address
 	}
-	u.tellPicker(st)
+	reply(u.homePage(), st)
 }
 
 // useLocal puts this computer's Iridium in the list (asked from a page: kumo, 2026-11-22, the
@@ -297,18 +297,51 @@ func (u *ui) localStatus() string {
 	return st
 }
 
-// show brings the app forward: the window in front; with none, the picker (not the Iridium used
-// last: a Mac asks for this as the app is opened too, and a large window came beside the picker).
+// show brings the app forward: the window in front; with none, the main window again, on the
+// Iridium used last.
 func (u *ui) show() {
 	u.mu.Lock()
 	w := u.win
 	u.mu.Unlock()
 	if w == nil {
-		u.showPicker()
+		u.startWindows()
 		return
 	}
 	w.Show()
 	w.Focus()
+}
+
+// startWindows opens the main window as the app starts (or comes back with none open): on the
+// Iridium used last, else the first in the rail; with none in the list, the app's first page
+// (who one is); and the Iridiums' windows of their own left open last time.
+func (u *ui) startWindows() {
+	c, _ := loadConfig()
+	if len(c.Servers) == 0 {
+		u.showHome("who")
+		return
+	}
+	u.mu.Lock()
+	first := u.main == nil && len(u.wins) == 0
+	u.mu.Unlock()
+	if first {
+		u.openAway(c)
+	}
+	// In the main window: not one in a window of its own.
+	at := c.current()
+	if s := c.server(at); s == nil || c.HideLocal && s.Local || c.away(at) != nil {
+		at = ""
+		for _, a := range u.railOrder(c) {
+			if c.away(a) == nil {
+				at = a
+				break
+			}
+		}
+	}
+	if at == "" {
+		u.showHome("add")
+	} else {
+		u.switchTo(at)
+	}
 }
 
 // message is what a page sends (window._wails.invoke). The address page (the app's own) adds an
@@ -332,7 +365,7 @@ func (u *ui) message(p *mygo.Page, msg, origin string, logf func(string, ...any)
 		return
 	}
 	logf("message %s from %q", verb, origin)
-	if name := u.nameOf(p); server != "" && name != "control" && name != "ask" && name != "picker" {
+	if name := u.nameOf(p); server != "" && name != "control" && name != "ask" && name != homeName {
 		u.mu.Lock()
 		{
 			if u.shows == nil {
@@ -341,6 +374,16 @@ func (u *ui) message(p *mygo.Page, msg, origin string, logf func(string, ...any)
 			u.shows[name] = server
 		}
 		u.mu.Unlock()
+	}
+	if verb == "rail" {
+		// Ctrl+Tab, Ctrl+Shift+Tab in a page of the main window (railKeysJS).
+		u.mu.Lock()
+		inMain := u.main != nil && p.Window() == u.main.win
+		u.mu.Unlock()
+		if inMain && (ownPage(origin) || server != "") {
+			go u.railStep(arg == "prev")
+		}
+		return
 	}
 	if server == "" {
 		// Not an Iridium's page: the app's own login page (assets), or nothing.
@@ -363,6 +406,7 @@ func (u *ui) message(p *mygo.Page, msg, origin string, logf func(string, ...any)
 		// and every Iridium's after it the same (kumo, 2026-11-22).
 		if arg == "dark" || arg == "light" || arg == "auto" {
 			_, _ = updateConfig(func(c *Config) { c.Theme = arg })
+			u.railRefresh()
 		}
 	case "me":
 		// Who the window is there, for the app's own page.
@@ -375,27 +419,21 @@ func (u *ui) message(p *mygo.Page, msg, origin string, logf func(string, ...any)
 			})
 		}
 	case "home":
-		// The app's key: the app's own window (the picker), 服务器 and 授权操作; pressed again, it
-		// goes (kumo, 2026-11-22).
-		if u.picker.IsVisible() {
-			u.picker.Hide()
-		} else {
-			u.showPicker()
-		}
+		// The app's key of a page that does not know of the rail (one from before): 本机与授权.
+		go u.showHome("local")
 	case "needlogin":
 		// The Iridium's login page, in the app: the app's own instead (its passkey is in the browser).
 		// Its window is given up (a window shows an Iridium's page only); the picker logs in, at
 		// once: the window gone and nothing more looked like a crash, the login only at the next
 		// press (QGI, 2026-11-23, an Iridium first opened in a new app).
 		if _, err := updateConfig(func(c *Config) { c.Current = server; c.server(server).LoggedIn = false }); err == nil {
-			u.vacate(u.nameOf(p))
-			u.showPicker()
-			u.mu.Lock()
-			pk := u.picker
-			u.mu.Unlock()
-			if pk != nil {
-				go u.login(pk.Page(), server)
-			}
+			go func() {
+				u.gone(server)
+				u.showHome("add")
+				if hp := u.homePage(); hp != nil {
+					u.login(hp, server)
+				}
+			}()
 		}
 	case "hello":
 		reply(p, u.hello(c, server))
@@ -480,10 +518,9 @@ func (u *ui) local(p *mygo.Page, verb, arg string) {
 	case "hidelocal":
 		// 此电脑 out of the list (its row's 隐藏) or back (添加服务器's key; kumo, 2026-11-23), as
 		// the tray's 此电脑 › 隐藏. Nothing of it starts or stops.
-		_, _ = updateConfig(func(c *Config) { c.HideLocal = arg == "on" })
+		u.hideLocal(arg == "on")
 		c, _ := loadConfig()
 		reply(p, state(c))
-		u.redraw()
 	case "title":
 		// An Iridium's name in this app, from the picker (any Iridium, of any version).
 		var t struct{ URL, Title string }
@@ -518,10 +555,8 @@ func (u *ui) local(p *mygo.Page, verb, arg string) {
 			go u.upd.check(true)
 		}
 	case "open":
-		// The picker's row pressed: that Iridium's window (kumo, 2026-11-22).
-		u.switchTo(arg)
-	case "close":
-		u.picker.Hide()
+		// An Iridium's row pressed: it is shown.
+		go u.switchTo(arg)
 	case "local":
 		if err := u.useLocal(appLog()); err != nil {
 			reply(p, map[string]string{"error": err.Error()})
@@ -691,7 +726,7 @@ func (u *ui) login(p *mygo.Page, arg string) {
 			}
 			c.Current = a
 		})
-		// The picker's wait is over: its spinner and its code go (kumo, 2026-11-22: it spun
+		// The page's wait is over: its spinner and its code go (kumo, 2026-11-22: it spun
 		// on after the login, and the next 添加服务器 began spinning at once).
 		c, _ := loadConfig()
 		st := state(c)
@@ -766,7 +801,9 @@ func (u *ui) hello(c Config, server string) map[string]any {
 		title = s.Title
 	}
 	return u.upd.view().fields(map[string]any{"app": "ir-app", "version": version.Short(version.Version), "name": name, "servers": list, "hasLocal": c.local() != nil, "server": !c.NoServer,
-		"public": publicOn(), "publicState": u.pub.view(), "title": title, "os": runtime.GOOS})
+		"public": publicOn(), "publicState": u.pub.view(), "title": title, "os": runtime.GOOS,
+		// The app's own key is the rail's (mainwin.go): the page draws none (web/src/appkey.tsx).
+		"rail": true})
 }
 
 // terms are what a page may ask to change of this computer for its Iridium: narrowing is done at
@@ -918,19 +955,19 @@ func (u *ui) switchTo(address string) {
 	}
 	if s.Local {
 		if st, _ := u.here.get(); st != localRunning {
-			// Not running yet: the picker says so, and its window comes once it runs.
+			// Not running yet: 本机与授权 says so, and it is shown once it runs.
 			_, _ = updateConfig(func(c *Config) { c.Current = address; c.NoServer = false })
 			u.mu.Lock()
 			u.waiting = true
 			u.mu.Unlock()
 			u.here.set(localStarting, nil)
-			u.showPicker()
+			u.showHome("local")
 			go u.startLocal(address, appLog())
 			return
 		}
 	}
 	if !s.LoggedIn && !(s.Local && loopback(s.URL)) {
-		u.showPicker() // logged in to there
+		u.showHome("add") // logged in to there
 		return
 	}
 	u.openIn(address, "")
@@ -985,7 +1022,8 @@ func (u *ui) redraw() {
 		t0 := time.Now()
 		c, _ := loadConfig()
 		st := u.pageState(c)
-		u.tellPicker(st)
+		reply(u.homePage(), st)
+		u.railRefresh()
 		t1 := time.Now()
 		u.drawMenu(c)
 		if d := time.Since(t1); d > 30*time.Millisecond {
@@ -1015,10 +1053,7 @@ func (u *ui) drawMenu(c Config) {
 	// pressed, its window; the picker to add one), then 授权操作 (each Iridium logged in to, ticked
 	// when it may work on this computer).
 	// 隐藏: 此电脑 out of the picker's list, the tray keeping it (kumo, 2026-11-23).
-	hide := check("隐藏", c.HideLocal, func() {
-		_, _ = updateConfig(func(c *Config) { c.HideLocal = !c.HideLocal })
-		u.redraw()
-	})
+	hide := check("隐藏", c.HideLocal, func() { go u.hideLocal(!c.HideLocal) })
 	m := []*item{{Label: "服务器", Disabled: true}}
 	if l := c.local(); l != nil {
 		state := u.localStatus()
@@ -1057,7 +1092,7 @@ func (u *ui) drawMenu(c Config) {
 	}
 	// One key for a window on another Iridium, or one added (kumo, 2026-11-23: 添加服务器… and
 	// 打开窗口 were one thing): the picker.
-	m = append(m, &item{Label: "新建窗口…", Click: click(func() { go u.showPicker() })}, mygo.Separator(), &item{Label: "授权操作", Disabled: true})
+	m = append(m, &item{Label: "添加服务器…", Click: click(func() { go u.showHome("add") })}, mygo.Separator(), &item{Label: "授权操作", Disabled: true})
 	for _, s := range c.Servers {
 		if s.Local || !s.LoggedIn {
 			continue
@@ -1163,8 +1198,10 @@ func (u *ui) probe() {
 	for _, step := range strings.Split(steps, ",") {
 		time.Sleep(3 * time.Second)
 		switch step {
-		case "picker":
-			u.showPicker()
+		case "picker", "add":
+			u.showHome("add")
+		case "local":
+			u.showHome("local")
 		case "open":
 			c, _ := loadConfig()
 			u.switchTo(c.current())
@@ -1178,10 +1215,9 @@ func (u *ui) probe() {
 func (u *ui) trayClick(t *mygo.Tray, right bool) {
 	u.mu.Lock()
 	m, open := u.trayMenu, len(u.wins) > 0
-	p := u.picker
 	u.mu.Unlock()
-	if !right && !open && (p == nil || !p.IsVisible()) {
-		go u.showPicker()
+	if !right && !open {
+		go u.show()
 		return
 	}
 	if m == nil {

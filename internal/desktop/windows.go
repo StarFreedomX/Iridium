@@ -1,26 +1,24 @@
 package desktop
 
 import (
-	"fmt"
 	"runtime"
 	"slices"
 
 	"github.com/egoist/mygo"
 )
 
-// Windows on Iridiums (kumo, 2026-11-22): as many as wanted, each on its own Iridium, opened from
-// the picker (picker.go); the one in front is u.win (nil: none), and the app's next start ticks
-// the one used last (Config.Current). Each is an ordinary window, made as it is shown and gone as
-// it is closed: none is kept hidden. With none left the app stays in the tray.
+// An Iridium's window of its own (mainwin.go): its page alone, no rail; opened from its menu in
+// the main window's rail (在新窗口打开), where and as large as it was last. Closed, the Iridium is
+// in the main window again. The one in front of all the app's windows is u.win (nil: none), and
+// the app's next start shows the one used last (Config.Current). With none left the app stays in
+// the tray.
 
 // watch takes p's window among the windows: in front as it is focused, its Iridium then the last
-// used, its page given the keyboard.
+// used, its page given the keyboard; the rail shows it framed, and darker as it is in front.
 func (u *ui) watch(p *pane) {
 	w, name := p.win, p.name
-	u.named(p.page(), name)
 	u.mu.Lock()
 	u.wins = append(u.wins, w)
-	u.panes = append(u.panes, p)
 	u.win = w
 	u.mu.Unlock()
 	w.OnFocus(func() {
@@ -39,10 +37,12 @@ func (u *ui) watch(p *pane) {
 				}
 			})
 		}
+		u.railRefresh()
 	})
 	w.OnClosed(func() {
 		u.mu.Lock()
-		defer u.mu.Unlock()
+		at := u.shows[name]
+		quitting := u.quitting
 		u.wins = slices.DeleteFunc(u.wins, func(x *mygo.Window) bool { return x == w })
 		for _, x := range u.panes {
 			if x.win == w {
@@ -57,22 +57,35 @@ func (u *ui) watch(p *pane) {
 				u.win = u.wins[n-1]
 			}
 		}
+		u.mu.Unlock()
+		// Closed by the person: back in the main window at the next start (quitting keeps it).
+		if !quitting && at != "" {
+			go func() {
+				_, _ = updateConfig(func(c *Config) { c.setAway(at, false, Frame{}) })
+				u.railRefresh()
+			}()
+		}
 	})
-	u.keepFrame(w)
+	u.keepFrame(w, func(f Frame) {
+		u.mu.Lock()
+		at := u.shows[name]
+		u.mu.Unlock()
+		if at != "" {
+			_, _ = updateConfig(func(c *Config) {
+				if c.away(at) != nil {
+					c.setAway(at, true, f)
+				}
+			})
+		}
+	})
 }
 
-// newWindow opens a window on address, at link: where and as large as one was last, a little off
-// the one in front if there is one.
+// newWindow opens a window of its own on address, at link: where and as large as it was last,
+// else a little off the one in front.
 func (u *ui) newWindow(address, link string) {
 	c, _ := loadConfig()
 	u.mu.Lock()
-	u.nwin++
-	name := fmt.Sprintf("w%d", u.nwin)
 	front := u.win
-	if u.shows == nil {
-		u.shows = map[string]string{}
-	}
-	u.shows[name] = address
 	u.mu.Unlock()
 	title := "Iridium"
 	if s := c.server(address); s != nil {
@@ -80,7 +93,7 @@ func (u *ui) newWindow(address, link string) {
 	}
 	// No title bar on any system (chrome.go): the page goes up to the window's top, its own keys
 	// at its top right. The window is the app's own UI, the page a web view in it (pane.go).
-	p := &pane{name: name}
+	p := &pane{}
 	opts := bare(mygo.WindowOptions{
 		Title: title, Width: 1200, Height: 800, MinWidth: 360, MinHeight: 480,
 		Content: p.content(),
@@ -88,10 +101,10 @@ func (u *ui) newWindow(address, link string) {
 	if runtime.GOOS != "darwin" {
 		opts.AutoHideMenuBar = true // the menu only for its keys (bridge.go menuBar)
 	}
-	if f := c.Frame; f.W >= 360 && f.H >= 480 {
+	if a := c.away(address); a != nil && a.Frame.W >= 360 && a.Frame.H >= 480 {
+		f := a.Frame
 		opts.Width, opts.Height, opts.X, opts.Y = f.W, f.H, f.X, f.Y
-	}
-	if front != nil {
+	} else if front != nil {
 		x, y := front.Position()
 		opts.Width, opts.Height = front.Size()
 		opts.X, opts.Y = x+28, y+28
@@ -108,24 +121,17 @@ func (u *ui) newWindow(address, link string) {
 	if runtime.GOOS != "darwin" && len(u.icon) > 0 {
 		_ = w.SetIcon(u.icon)
 	}
-	v, err := w.NewWebView(mygo.WebViewOptions{
-		URL: themed(link),
-		// Trusted: this pane's Iridium, no other (Wails took any origin's message and looked).
-		Page: pageOptions(originOf(address), css(pageCSS)+pageJS, c.Zoom),
-	})
-	if err != nil {
-		appLog()("window %q: %v", name, err)
+	if err := u.newPane(p, w, address, link); err != nil {
+		appLog()("window on %s: %v", address, err)
 		w.Close()
 		return
 	}
-	p.win = w
-	p.view.Store(v)
 	w.Invalidate()
-	guard(v.Page(), originOf(address))
 	u.watch(p)
-	followMax(w, v.Page())
+	followMax(w, func() []*mygo.Page { return []*mygo.Page{p.page()} })
 	w.Focus()
-	v.Focus()
+	p.view.Load().Focus()
+	u.railRefresh()
 }
 
 // onScreen: is enough of r on a screen there now to take hold of it (its top strip, which drags
@@ -151,9 +157,6 @@ func onScreen(r mygo.Rectangle) bool {
 func (u *ui) keepOnScreen() {
 	u.mu.Lock()
 	ws := append([]*mygo.Window(nil), u.wins...)
-	if u.picker != nil {
-		ws = append(ws, u.picker)
-	}
 	u.mu.Unlock()
 	wa := mygo.Screen.PrimaryDisplay().WorkArea
 	for _, w := range ws {
