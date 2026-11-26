@@ -574,16 +574,19 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
         cg.clip();
         cg.drawImage(face, (face.naturalWidth - m) / 2, (face.naturalHeight - m) / 2, m, m, 0, 0, SRC, SRC);
       } else {
-        // A mark on a round ground of its own, faint: a thing to cut, not a few strokes.
-        cg.fillStyle = dark ? "rgba(255,255,255,0.3)" : "rgba(0,0,0,0.42)";
+        // A mark as it is, nothing put under it (kumo, 2026-11-26: what is clear in it is clear; a
+        // grey ground about it was not the mark's).
+        // But a line round it, as a face has its rim: one thing, to be cut (kumo).
+        cg.strokeStyle = dark ? "rgba(255,255,255,0.75)" : "rgba(0,0,0,0.7)";
+        cg.lineWidth = SRC * 0.05;
         cg.beginPath();
-        cg.arc(SRC / 2, SRC / 2, SRC * 0.48, 0, 7);
-        cg.fill();
-        if (img) cg.drawImage(img, SRC * 0.15, SRC * 0.15, SRC * 0.7, SRC * 0.7);
+        cg.arc(SRC / 2, SRC / 2, SRC * 0.465, 0, 7);
+        cg.stroke();
+        if (img) cg.drawImage(img, SRC * 0.16, SRC * 0.16, SRC * 0.68, SRC * 0.68);
         else if (!who.agent) return null;
         else {
-          cg.translate(SRC * 0.06, SRC * 0.06);
-          cg.scale(0.88, 0.88);
+          cg.translate(SRC * 0.08, SRC * 0.08);
+          cg.scale(0.84, 0.84);
           if (!mark(cg, who.agent, css)) return null;
         }
       }
@@ -609,7 +612,6 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
       for (let j = 0; j < w * h; j++) {
         const a = d[j * 4 + 3]!;
         if (a < 24) continue;
-        // A face's cells whole; a mark's faint ground as faint as it is.
         let r = d[j * 4]!, g2 = d[j * 4 + 1]!, b = d[j * 4 + 2]!;
         if (!dark && who) {
           // On a light page (kumo, 2026-11-26: faint there): its colours deeper and stronger, a
