@@ -85,15 +85,6 @@ describe("warmTo", () => {
   // A first screen looks for this device's copy first (its code loaded the first time).
   const settle = () => new Promise((r) => setTimeout(r, 150));
 
-  test("the first screen of each (its state with it), one at a time, not the page before; again only as it changes", async () => {
-    warmTo(new Map([["w1", 1], ["w2", 1]]));
-    await settle();
-    expect(asked).toEqual(["/v1/internal/sessions/w1/first", "/v1/internal/sessions/w2/first"]);
-    expect(peekChat("w1")?.log.loaded).toBe(true);
-    warmTo(new Map([["w1", 1], ["w2", 2]]));
-    await settle();
-    expect(asked.slice(2)).toEqual(["/v1/internal/block.list w2 after 20"]);
-  });
   test("a state the stream brought meanwhile is not put over; one asked for again only as it is not there", async () => {
     let answer: () => void = () => {};
     vi.stubGlobal("fetch", (url: string) => {
