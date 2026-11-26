@@ -29,9 +29,11 @@ import { manages, useMachines, useMe, useSaidLine, useUpdate } from "./data";
 import { agentName, ago, cn, fine, IconKey, IrMark, keep, kept, Lamp, lampOf, Logo, own, sessionStatusText, statusText, tilde, Tip, titleOf, useEver, untitled, useLongPress, useMenuAt, useMinute, usePointAnchor, MenuPortal } from "./ui";
 import { AppName } from "./appkey";
 import { MAKING, patchSessions } from "./pending";
-import { clearFavorites, isFavorite, placeFavorite, setFavorite, setFavoritesColor, setFavoritesName, useFavorites, useFavoritesColor, useFavoritesName } from "./favorites";
+import { clearFavorites, favoriteAt, isFavorite, placeFavorite, setFavorite, setFavoritesColor, setFavoritesName, useFavorites, useFavoritesColor, useFavoritesName } from "./favorites";
+import { crossAsk, crossOrder, favKey, keyId, keyServer, tellFavs, tellSide, useCross, type FavItem, type FavServer } from "./crossfav";
+import { useApp } from "./irapp";
 import { PLACE_DRAG, SESSION_DRAG } from "./chat/refs";
-import { badge, isQuiet, setQuiet, useAt, useQuiet, useUnread } from "./unread";
+import { atOf, badge, isQuiet, onUnread, setQuiet, unreadOf, useAt, useQuiet, useUnread } from "./unread";
 import { Face, FaceStack } from "./chat/channel/face";
 import { CloudBadge, MachineFace, shownPath, useLate, useMachine, type Machine } from "./machines";
 import { getCarried, setCarried, useCarried, useLink, useList } from "./store";
@@ -87,7 +89,9 @@ type Props = {
  *  user, 2026-11-06). The width is --sidebar-w on the page too: the settings dialog sizes by it. */
 const WIDTH = { min: 220, max: 640, start: 292 };
 const WIDTH_KEY = "ir.sidebarWidth";
-const clampWidth = (w: number) => Math.round(Math.min(WIDTH.max, innerWidth * 0.6, Math.max(WIDTH.min, w)));
+// Beside another page in the desktop app (crossfav.ts, part side) the page is the list alone, as
+// wide as it: no share of the page's width to keep for the chat.
+const clampWidth = (w: number) => Math.round(Math.min(WIDTH.max, document.documentElement.dataset.irPart === "side" ? Infinity : innerWidth * 0.6, Math.max(WIDTH.min, w)));
 
 /** The line to the main pane, fading out toward its top and its foot; dragged, it sets how wide
  *  the sidebar is, within WIDTH; a double click puts it back; ← → by a step on the keyboard. */
@@ -193,6 +197,47 @@ export function Sidebar(p: Props) {
     const s = everyone?.find((x) => x.id === id);
     return s && !s.archived && !s.subagent ? [s] : [];
   });
+  // In the desktop app, every Iridium's favorites in one order (crossfav.ts): this one's told to
+  // the app, the others' drawn among them, each with its Iridium's face after its name.
+  useTellFavs(favs);
+  const cross = useCross();
+  useEffect(() => void (cross && tellSide(width)), [width, !!cross]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Dragged by the app's own line while beside another page (its own line hidden then).
+  useEffect(() => {
+    const h = (e: Event) => {
+      const v = clampWidth((e as CustomEvent<number>).detail);
+      setWidth(v);
+      keep(WIDTH_KEY, String(v));
+    };
+    window.addEventListener("ir-side-width", h);
+    return () => window.removeEventListener("ir-side-width", h);
+  }, []);
+  type Fav = { key: string; s: Session; item?: never; srv?: never } | { key: string; s?: never; item: FavItem; srv: FavServer };
+  const mixed: Fav[] | null = cross
+    ? (() => {
+        const own = new Map(favs.map((s) => [favKey(cross.self, s.id), s]));
+        const others = new Map(Object.entries(cross.items).flatMap(([server, items]) => (server === cross.self || !cross.servers[server] ? [] : items.map((it) => [favKey(server, it.id), { item: it, srv: cross.servers[server]! }] as const))));
+        const out: Fav[] = [];
+        for (const k of cross.order) {
+          const s = own.get(k);
+          if (s) (out.push({ key: k, s }), own.delete(k));
+          else if (others.has(k)) out.push({ key: k, ...others.get(k)! });
+        }
+        for (const [k, s] of own) out.push({ key: k, s });
+        return out;
+      })()
+    : null;
+  // A row dropped among them (one of them, or one of this Iridium's from anywhere): the order told
+  // to the app, which has each Iridium put its own so; one not favoured yet is, here.
+  const placeCross = useCallback(
+    (dragged: string, target: string, edge: Edge) => {
+      if (!cross || !mixed) return;
+      const dk = dragged.includes("#") ? dragged : favKey(cross.self, dragged);
+      if (!dragged.includes("#") && !isFavorite(dragged)) setFavorite(dragged, true);
+      crossOrder(favoriteAt(mixed.map((f) => f.key), dk, target, edge));
+    },
+    [cross, mixed],
+  );
   const favOpen = p.expanded(FAV);
   const shape = [favs.length ? `${favOpen}:${favOpen ? favs.map((s) => s.id).join(",") : ""}` : "", loose.map((c) => c.id).join(","), ...p.tree.workspaces.map((w) => `${w.key}:${p.expanded(w.key)}:${foldShape(roots(w), w.key)}:${allFolders(tops(w)).map((f) => `${f.key}${p.expanded(f.key)}${foldShape(f.sessions, f.key)}`).join(",")}`), archOpen, p.tree.archived.length, archShown].join("|");
   useMoves(list, true)(shape);
@@ -464,7 +509,33 @@ export function Sidebar(p: Props) {
         <DropLine list={list} />
         {/* My favorites, first (favorites.ts): there while it holds any. A session dragged from
             anywhere onto its row goes first in it, onto one of its rows beside that one. */}
-        {favs.length > 0 && (
+        {mixed && mixed.length > 0 && (
+          <div className="mt-1" role="group">
+            <FavHead open={favOpen} onToggle={() => p.toggle(FAV)} first={favs[0]?.id ?? ""} />
+            {favOpen &&
+              mixed.map((f) =>
+                f.s ? (
+                  <SessionRow
+                    key={`fav:${f.s.id}`}
+                    s={f.s}
+                    depth={0}
+                    flip={`fav:${f.s.id}`}
+                    selected={p.selected === f.s.id}
+                    onSelect={p.onSelect}
+                    chatCode={p.chatCode}
+                    kidsAt={!!p.tree.kids.get(f.s.id)?.length || !!p.tree.runs.get(f.s.id)?.length}
+                    asked={asked.has(f.s.id)}
+                    lane={FAV}
+                    anyLane
+                    place={(id, target, edge) => placeCross(id, favKey(cross!.self, target.id), edge)}
+                  />
+                ) : (
+                  <CrossRow key={`fav:${f.key}`} k={f.key} item={f.item} srv={f.srv} place={placeCross} />
+                ),
+              )}
+          </div>
+        )}
+        {!mixed && favs.length > 0 && (
           <div className="mt-1" role="group">
             <FavHead open={favOpen} onToggle={() => p.toggle(FAV)} first={favs[0]!.id} />
             {favOpen &&
@@ -1025,6 +1096,130 @@ function RowFace({ s, group, solo, unread, quiet }: { s: Session; group?: { id: 
         </span>
       )}
     </span>
+  );
+}
+
+/** This Iridium's favorites told to the desktop app (crossfav.ts), as their rows show them: again
+ *  as they change, or what is unread does. Nothing in a browser. */
+function useTellFavs(favs: Session[]) {
+  const inApp = !!useApp();
+  const [tick, setTick] = useState(0);
+  useEffect(() => onUnread(() => setTick((n) => n + 1)), []);
+  useEffect(() => {
+    if (!inApp) return;
+    tellFavs(
+      favs.map((s) => {
+        const speaker = s.last?.nick || s.agents?.find((a) => a.session === s.id)?.nick || agentName(s.agent);
+        const at = atOf(s.id);
+        return {
+          id: s.id,
+          title: titleOf(s),
+          untitled: untitled(s) || undefined,
+          agent: s.agent,
+          status: lampOf(s),
+          unread: unreadOf(s.id),
+          quiet: isQuiet(s.id) || undefined,
+          at: at ? (at.everyone ? "all" : "me") : undefined,
+          line: s.last ? (s.last.role === "user" ? (saidNow(s.last, s) ?? "") : `${speaker}: ${s.last.text}`) : s.bare ? "" : agentName(s.agent),
+          updatedAt: s.updatedAt,
+          color: s.color || undefined,
+        } satisfies FavItem;
+      }),
+    );
+  });
+  void tick;
+}
+
+/** Another Iridium's face, as a machine's is after a row's name (MachineFace): its own, else its
+ *  name's first letter. */
+function ServerFace({ srv, size = 14, className }: { srv: FavServer; size?: number; className?: string }) {
+  return srv.face ? (
+    <img src={srv.face} alt="" width={size} height={size} className={cn("shrink-0 rounded-full object-cover", className)} />
+  ) : (
+    <span className={cn("grid shrink-0 place-items-center rounded-full bg-fill-2 text-[9px] leading-none font-semibold text-ink-2", className)} style={{ width: size, height: size }}>
+      {srv.local ? "Ir" : [...srv.title][0]?.toUpperCase()}
+    </span>
+  );
+}
+
+/** A favorite of another Iridium (crossfav.ts), as a session's row is drawn (SessionRow): its
+ *  agent's mark, its unread count on it, its name with its Iridium's face after it, who said what
+ *  last, its time or its lamp. Pressed, it is shown beside this list (the app's assemble.go);
+ *  its menu: 打开, 在新窗口打开, 取消收藏 (taken off that Iridium's favorites). Dragged among the
+ *  favorites, it moves there. */
+function CrossRow({ k, item, srv, place }: { k: string; item: FavItem; srv: FavServer; place: (dragged: string, target: string, edge: Edge) => void }) {
+  useLang();
+  const now = useMinute();
+  const [menuAt, setMenuAt] = useMenuAt();
+  const anchor = usePointAnchor(menuAt);
+  const server = keyServer(k);
+  const id = keyId(k);
+  const busy = BUSY.has(item.status);
+  const fresh = item.unread > 0 && (!item.quiet || !!item.at) && item.status === "idle";
+  const when = item.updatedAt > 0 && <span className={cn("text-xs whitespace-nowrap tabular-nums", fresh ? "font-medium text-ink" : "text-ink-4")}>{ago(item.updatedAt, now, true)}</span>;
+  const dim = useDragged("s", k);
+  const items: MenuItem[] = [
+    { icon: <ChevronRight size={15} />, label: t("menu.openHere"), run: () => crossAsk("open", server, id) },
+    { icon: <Copy size={15} />, label: t("menu.openWindow"), run: () => crossAsk("away", server, id) },
+    { icon: <BookmarkMinus size={15} />, label: t("menu.unfavorite"), run: () => crossAsk("drop", server, id) },
+  ];
+  return (
+    <>
+      <Row
+        depth={0}
+        flip={`fav:${k}`}
+        selected={false}
+        onClick={() => crossAsk("open", server, id)}
+        aria={`${item.title}, ${srv.title}${item.unread ? `, ${t("status.unreadCount", { n: badge(item.unread) })}` : ""}`}
+        icon={
+          <span className="relative grid size-9 place-items-center rounded-full bg-fill">
+            <Logo agent={item.agent as Agent} size={20} />
+            {item.unread > 0 && (
+              <span
+                className={cn("g-pop absolute -top-1 -right-1.5 grid h-4 min-w-4 place-items-center rounded-full px-1 text-[10px] leading-none font-semibold tabular-nums", item.quiet && !item.at ? "bg-ink-4" : "bg-err")}
+                style={{ color: "rgb(255 255 255 / 0.92)", boxShadow: "0 0 0 1.5px var(--row-bg, var(--paper))" }}
+              >
+                {badge(item.unread)}
+              </span>
+            )}
+          </span>
+        }
+        label={
+          <span className="flex min-w-0 items-baseline">
+            <Marked color={item.color}>{item.untitled ? <span className="text-ink-3">{item.title}</span> : item.title}</Marked>
+            <Tip label={srv.title} side="bottom">
+              <ServerFace srv={srv} className="ml-1.5 -translate-y-[1.5px] self-center" />
+            </Tip>
+          </span>
+        }
+        end={busy || item.status !== "idle" ? <Lamp status={item.status} /> : when || undefined}
+        sub={item.at ? <><span className="text-err">{t(item.at === "all" ? "row.atAll" : "row.atMe")}</span>{item.line ? ` ${item.line}` : ""}</> : item.line}
+        face
+        dim={dim}
+        extra={{
+          onContextMenu: (e: React.MouseEvent) => {
+            if (!own(e)) return;
+            e.preventDefault();
+            setMenuAt({ x: e.clientX, y: e.clientY });
+          },
+          draggable: fine(),
+          onDragStart: (e: React.DragEvent) => {
+            e.dataTransfer.setData("text/plain", item.title);
+            e.dataTransfer.effectAllowed = "move";
+            startDrag({ kind: "s", id: k, lane: FAV }, e.currentTarget as HTMLElement);
+          },
+          onDragEnd: endDrag,
+          ...dropTarget("s", k, FAV, (d: Dragged, edge) => place(d.id, k, edge), undefined, true),
+        }}
+      />
+      <Menu.Root open={menuAt !== null} onOpenChange={(o) => !o && setMenuAt(null)}>
+        <MenuPortal>
+          <Menu.Positioner anchor={anchor} side="bottom" align="start" sideOffset={4} collisionPadding={8} className="z-50">
+            <MenuItems items={items} />
+          </Menu.Positioner>
+        </MenuPortal>
+      </Menu.Root>
+    </>
   );
 }
 

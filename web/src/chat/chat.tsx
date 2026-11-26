@@ -12,6 +12,7 @@ import { keepPreviousData } from "@tanstack/react-query";
 import { api } from "../api/client";
 import { useQuery } from "../api/query";
 import { AppKey, WinKeys } from "../appkey";
+import { AssembledChip } from "../assembled";
 import { chatOf, firstScreen, fresh, stateAhead, type Draft as Drafted } from "../chats";
 import { newChannel } from "../create";
 import { LOCAL_ME, useMachines, useMe, useWhoList, useWorkspaces } from "../data";
@@ -256,6 +257,7 @@ const Bar = memo(function Bar({ s, onSheet, onMe, onSide, onBack, recordOnly }: 
                   {titleOf(s)}
                 </h1>
               )}
+              <AssembledChip />
             </>
           )}
           {/* A phone's link, after the name (kumo, 2026-11-25): its round trip grows and shrinks

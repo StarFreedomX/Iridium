@@ -122,6 +122,8 @@ window.addEventListener("ir-app", (e) => {
     download?: Download;
   };
   if (d.download) return showDownload(d.download);
+  // Favorites and the pages side by side: crossfav.ts's, not the app's state.
+  if ("favs" in d || "favput" in d || "favdrop" in d || "assemble" in d || "sidebarW" in d) return;
   // The window maximised or not (chrome.go followMax): its key's look alone.
   if (typeof d.max === "boolean") {
     max = d.max;

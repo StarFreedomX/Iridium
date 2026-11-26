@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -402,6 +403,19 @@ func (u *ui) message(p *mygo.Page, msg, origin string, logf func(string, ...any)
 		u.retitle(server, arg)
 		c, _ := loadConfig()
 		reply(p, u.hello(c, server))
+	case "favs":
+		// Its favorites (favs.go), for every page's list.
+		u.favsSaid(server, arg)
+	case "favorder":
+		u.favsOrder(arg)
+	case "fav":
+		u.favAsk(p, server, arg)
+	case "assemble":
+		go u.assembledSaid(server, arg)
+	case "sidebar":
+		if w, err := strconv.Atoi(arg); err == nil {
+			u.sideSaid(server, w)
+		}
 	case "status":
 		// What the rail shows of it (web/src/railstatus.ts): running, asks, unread.
 		var l railLamps
@@ -453,6 +467,10 @@ func (u *ui) message(p *mygo.Page, msg, origin string, logf func(string, ...any)
 		}
 	case "hello":
 		reply(p, u.hello(c, server))
+		reply(p, u.favsPayload(c, server))
+		if a := u.partOf(server, p); a["assemble"].(map[string]any)["part"] != "" {
+			reply(p, a)
+		}
 	case "switch":
 		for _, s := range c.Servers {
 			if s.URL == arg {

@@ -103,9 +103,9 @@ function patchFavorites(p: FavoritesPatch, shown: Partial<Favorites>) {
 
 const now = () => mine ?? queryClient.getQueryData<Favorites>(KEY)?.channels ?? NONE;
 
-/** Makes my favorites list: drawn so at once, then put; what the server says back goes into the
+/** Makes my favorites list (the desktop app asks it too: crossfav.ts): drawn so at once, then put; what the server says back goes into the
  *  cache before the local list gives way to it, so the list never steps back. A failed put: as it was. */
-function put(list: string[]) {
+export function put(list: string[]) {
   mine = list;
   emit();
   void queryClient.cancelQueries({ queryKey: KEY });

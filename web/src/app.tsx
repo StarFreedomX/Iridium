@@ -43,6 +43,7 @@ import { reloadAgain } from "./upgrade";
 import { cn, IrMark, kept, keep, params, PHONE, useMedia, useMinute, DialogPortal, MenuPortal } from "./ui";
 import { watchUnread } from "./unread";
 import { tellRail } from "./railstatus";
+import { usePart } from "./crossfav";
 import { warmUp } from "./warm";
 import { openGame, useGameOpen } from "./game/open";
 
@@ -182,7 +183,9 @@ function useExpanded() {
 
 export function App() {
   useLang();
-  const phone = useMedia(PHONE);
+  // Shown beside another page in the desktop app (crossfav.ts): never a phone's, however narrow.
+  const part = usePart().part;
+  const phone = useMedia(PHONE) && !part;
   // The settings' steps out of the address with the sidebar shown (route.ts quietDialog).
   quietDialog(!phone);
   // On a phone, whether the sidebar's sheet is out, and how tall it is: the chat keeps its newest

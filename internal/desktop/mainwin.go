@@ -31,8 +31,15 @@ type mainWin struct {
 	panes map[string]*pane // each Iridium's page here, by address
 	shown string           // the Iridium shown; "": the home
 	view  string           // the home's part: who, add, local, grant:<address>
+	left  string           // assembled (assemble.go): the Iridium whose list is beside shown's chat
+	sideW map[string]int   // each Iridium's list's width as its page says it
 
 	draw mainDraw // what the window draws (main thread only)
+	// grip: the line between two pages side by side, dragged (main thread only): to w.
+	grip struct {
+		on bool
+		w  float32
+	}
 	edit railEdit // a name being given in the rail (main thread only)
 	// editing: a field of the rail has the keyboard, which the window coming to the front (as the
 	// rail's menu closes) does not give the page.
@@ -41,8 +48,12 @@ type mainWin struct {
 
 // mainDraw is what the main window draws, set on the main thread (win.Update).
 type mainDraw struct {
-	page *mygo.WebView // the page shown
-	rail *railState    // nil: no rail (no Iridium in the list)
+	page  *mygo.WebView // the page shown
+	left  *mygo.WebView // assembled: the page whose list is beside it; nil: none
+	leftW float32       // its width
+	leftS string        // its Iridium
+	zoom  float32       // the pages' zoom: their points to the window's
+	rail  *railState    // nil: no rail (no Iridium in the list)
 }
 
 // homeName is the home's page's name (u.names).
@@ -157,6 +168,7 @@ func (u *ui) mainWindow() *mainWin {
 // showServer shows address in the main window, at link ("": as its page is; its first page if
 // it has none yet): in its window of its own if it has one.
 func (u *ui) showServer(address, link string) {
+	u.unassemble()
 	if w := u.awayWindow(address); w != nil {
 		if link != "" {
 			if p := u.pageIn(w); p != nil {
@@ -209,6 +221,7 @@ func (u *ui) showServer(address, link string) {
 // showHome shows the app's own page in the main window, at part view (who, add, local,
 // grant:<address>).
 func (u *ui) showHome(view string) {
+	u.unassemble()
 	m := u.mainWindow()
 	if m == nil {
 		return
@@ -309,13 +322,22 @@ func (u *ui) leave(address string) {
 	u.mu.Lock()
 	m := u.main
 	var p *pane
-	shown := false
+	shown, assembled := false, false
 	if m != nil {
 		p = m.panes[address]
 		delete(m.panes, address)
 		shown = m.shown == address
+		assembled = m.left != "" && (m.left == address || shown)
 	}
 	u.mu.Unlock()
+	if assembled {
+		u.unassemble()
+		u.mu.Lock()
+		if m.left == "" && m.shown != address && m.panes[m.shown] == nil {
+			shown = true
+		}
+		u.mu.Unlock()
+	}
 	if m == nil {
 		return
 	}

@@ -135,11 +135,19 @@ func (u *ui) railRefresh() {
 		c, _ := loadConfig()
 		u.mu.Lock()
 		shown, view := m.shown, m.view
-		var page *mygo.WebView
+		var page, left *mygo.WebView
 		if p := m.panes[shown]; shown != "" && p != nil {
 			page = p.view.Load()
 		} else {
 			page = m.home.view.Load()
+		}
+		leftW := float32(sideWidth)
+		if p := m.panes[m.left]; m.left != "" && p != nil {
+			left = p.view.Load()
+			if w := m.sideW[m.left]; w > 0 {
+				leftW = float32(w)
+			}
+			shown = m.left // the rail stays on the list's
 		}
 		// Said by a page still there: one closed (its window, logged out) says nothing any more.
 		lamps := map[string]railLamps{}
@@ -183,7 +191,17 @@ func (u *ui) railRefresh() {
 				rail.line = 1
 			}
 		}
-		m.win.Update(func() { m.draw = mainDraw{page: page, rail: rail} })
+		zoom := float32(1)
+		if c.Zoom > 0 {
+			zoom = float32(c.Zoom)
+		}
+		leftS := ""
+		if left != nil {
+			leftS = m.left
+		}
+		m.win.Update(func() {
+			m.draw = mainDraw{page: page, left: left, leftW: leftW * zoom, leftS: leftS, zoom: zoom, rail: rail}
+		})
 	}()
 }
 
@@ -203,12 +221,23 @@ func railDark(c Config) bool {
 func (m *mainWin) content(u *ui) mygo.Content {
 	return mui.View(func(c *mui.Context) {
 		d := m.draw
-		mui.Row(c).Fill().AlignItems(mui.Stretch).Children(func() {
+		root := mui.Row(c).Fill().AlignItems(mui.Stretch)
+		root.Children(func() {
 			if d.rail != nil {
 				m.railView(c, u, d.rail)
 			}
+			if d.left != nil {
+				// Assembled (assemble.go): the left page's list, as wide as it, beside the chat.
+				mui.WebView(c, d.left).Width(d.leftW)
+				m.gripView(c, u, d)
+			}
 			if d.page != nil {
 				mui.WebView(c, d.page).Grow(1).MinWidth(0)
+			}
+			if m.grip.on {
+				// While the line is dragged the app's UI covers the pages: the pointer, past the
+				// line, would be theirs, and the drag lost.
+				mui.Box(c).Absolute().Left(0).Top(0).Fill().Cursor(mui.CursorResizeEW).Background(mui.RGBA(0, 0, 0, 0.004))
 			}
 		})
 	})
@@ -220,6 +249,45 @@ var (
 	iconPlus  = mui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>`))
 	iconLocal = mui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h8"/><path d="M10 19v-3.96 3.15"/><path d="M7 19h5"/><rect width="6" height="10" x="16" y="12" rx="2"/></svg>`))
 )
+
+// gripView draws the line between two pages side by side, which drags the left one's width: a
+// pointer leaving a page while it drags its own line goes to the page beside it (WebKitGTK), so
+// the app's own UI drags it. While it is dragged a line shows where it goes; let go, both pages
+// take their widths once (no page laid out at every step), and the left page keeps it as its
+// list's (sidebarW). Pressed twice, as the page's own line: the width it starts at.
+func (m *mainWin) gripView(c *mui.Context, u *ui, d mainDraw) {
+	edge, ink := railDay.edge, railDay.ink3
+	if d.rail != nil {
+		edge, ink = d.rail.pal.edge, d.rail.pal.ink3
+	}
+	lo, hi := 220*d.zoom, 640*d.zoom
+	// The grip, 7 points wide over the line, its own place in the row given back to the pages
+	// beside it (a child of a box 1 point wide is not pressed outside that point).
+	h := mui.Box(c).Width(7).MarginX(-3).ZIndex(1).Cursor(mui.CursorResizeEW).Background(mui.RGBA(0, 0, 0, 0.004))
+	if dx, _, ok := h.Dragged(); ok {
+		if !m.grip.on {
+			m.grip.on, m.grip.w = true, d.leftW
+		}
+		m.grip.w += dx
+	}
+	if _, _, ok := h.DragEnded(); ok && m.grip.on {
+		w := min(max(m.grip.w, lo), hi)
+		m.grip.on = false
+		server, zoom := d.leftS, d.zoom
+		go u.sideSet(server, int(w/zoom+0.5))
+	}
+	if h.DoubleClicked() {
+		server := d.leftS
+		go u.sideSet(server, sideWidth)
+	}
+	h.Children(func() {
+		mui.Box(c).Absolute().Left(3).Top(0).Width(1).FillHeight().Background(edge)
+		if m.grip.on {
+			at := min(max(m.grip.w, lo), hi) - d.leftW
+			mui.Box(c).Absolute().Left(3 + at - 1).Top(0).Width(2).FillHeight().Background(ink)
+		}
+	})
+}
 
 // railView draws the rail.
 func (m *mainWin) railView(c *mui.Context, u *ui, r *railState) {

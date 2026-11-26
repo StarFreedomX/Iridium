@@ -819,3 +819,16 @@ html[data-gaming="1"] body {
     animation-duration: 1ms;
   }
 }
+
+/* The desktop app's two pages side by side (crossfav.ts, internal/desktop/assemble.go): this one's
+   list alone, the other's chat alone. */
+html[data-ir-part="side"] main {
+  display: none !important;
+}
+html[data-ir-part="chat"] aside {
+  display: none !important;
+}
+/* Its line is the app's then (internal/desktop/rail.go gripView). */
+html[data-ir-part="side"] aside [role="separator"][aria-orientation="vertical"] {
+  display: none !important;
+}
