@@ -615,6 +615,17 @@ func (s *Server) interrupt(w http.ResponseWriter, r *http.Request) {
 		s.calls.take(id, func(called) bool { return true })
 		unlock()
 	}
+	// Who asked (kumo, 2026-11-26: a turn stopped and no one had pressed anything): a browser's
+	// login, an agent's own ir (its session), an app, the host. No secret in it.
+	c := callerOf(r)
+	who := c.App
+	if c.Name != "" {
+		who += " " + c.Name
+	}
+	if c.session != "" {
+		who += " agent " + c.session
+	}
+	s.logf("server: %s: interrupt asked by %s", id, who)
 	s.done(w, s.m.Interrupt(ctx, id))
 }
 
