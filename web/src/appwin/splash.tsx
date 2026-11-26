@@ -45,14 +45,27 @@ export function AppSplash({ className }: { className?: string }) {
       if (t?.closest?.("button, a, input, form, header")) return;
       const [x, y] = at(ev);
       if (x < 0 || y < 0 || x > el.clientWidth || y > el.clientHeight) return;
+      if (ev.pointerType !== "touch") {
+        if (document.activeElement instanceof HTMLElement && document.activeElement.matches("input, textarea")) {
+          document.activeElement.blur();
+        }
+        ev.preventDefault();
+        window.getSelection()?.removeAllRanges();
+      }
+      document.documentElement.dataset.slicing = "1";
       e.tap(x, y);
       e.hold(true);
     };
-    const free = () => e.hold(false);
+    const free = () => {
+      delete document.documentElement.dataset.slicing;
+      e.hold(false);
+    };
     window.addEventListener("pointermove", move, { passive: true });
     document.addEventListener("pointerleave", leave);
-    window.addEventListener("pointerdown", press, { passive: true });
+    window.addEventListener("pointerdown", press, { passive: false });
     window.addEventListener("pointerup", free, { passive: true });
+    window.addEventListener("pointercancel", free, { passive: true });
+    window.addEventListener("blur", free);
     return () => {
       ro.disconnect();
       tone.disconnect();
@@ -60,6 +73,9 @@ export function AppSplash({ className }: { className?: string }) {
       document.removeEventListener("pointerleave", leave);
       window.removeEventListener("pointerdown", press);
       window.removeEventListener("pointerup", free);
+      window.removeEventListener("pointercancel", free);
+      window.removeEventListener("blur", free);
+      delete document.documentElement.dataset.slicing;
       e.stop();
     };
   }, [still]);

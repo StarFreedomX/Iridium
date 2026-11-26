@@ -767,7 +767,6 @@ html[data-playing="1"] body {
 html[data-playing="1"] main {
   touch-action: none;
 }
-
 /* The ⋯ menu's Game (game/overlay.tsx): the pane's bar goes up and its composer down, faded, the
    page between them left as it is under the game's veil (not html[data-playing], which takes the
    whole page away); they come back the same way after. */
@@ -831,4 +830,20 @@ html[data-ir-part="chat"] aside {
 /* Its line is the app's then (internal/desktop/rail.go gripView). */
 html[data-ir-part="side"] aside [role="separator"][aria-orientation="vertical"] {
   display: none !important;
+}
+
+/* Holding or playing on the splash (splash.tsx, appwin/splash.tsx; kumo, 2026-11-26): never start
+   text selection or show an I-beam cursor over labels underneath. */
+html[data-playing="1"],
+html[data-playing="1"] *,
+html[data-slicing="1"],
+html[data-slicing="1"] * {
+  user-select: none;
+  -webkit-user-select: none;
+}
+html[data-playing="1"] main,
+html[data-playing="1"] main *,
+html[data-slicing="1"],
+html[data-slicing="1"] * {
+  cursor: default;
 }
