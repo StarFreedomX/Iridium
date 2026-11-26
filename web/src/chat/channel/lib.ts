@@ -462,9 +462,15 @@ const GLUE_PARTS = new Set([
   "prompts:channel.quote-end",
   "prompts:channel.reaction-end",
   "prompts:activity.sep",
+  "prompts:iridium.open",
+  "prompts:iridium.close",
+  "prompts:links",
+  "prompts:runtime",
+  "prompts:self.section",
+  "prompts:self.persona",
 ]);
 
-const CLI_PARTS = new Set(["prompts:host.intro", "prompts:remote.intro", "prompts:remote.intro-bare", "irhelp:agent", "irhelp:remote", "irhelp:layers"]);
+const CLI_PARTS = new Set(["prompts:host.intro", "prompts:remote.intro", "prompts:remote.intro-bare", "prompts:cli", "prompts:cli.host", "prompts:cli.remote", "prompts:cli.discover", "irhelp:agent", "irhelp:remote", "irhelp:layers"]);
 const ACTIVITY_PREFIX = "prompts:activity.";
 
 const valOf = (p: GivenPart, key: string): string => p.values.find(([k]) => k === key)?.[1] ?? "";
@@ -473,6 +479,8 @@ const cleanFrom = (s: string): string => s.replace(/^[,\s，]+/, "").trim();
 const PART_LABELS: Record<string, [string, string]> = {
   "prompts:host.secrets-files": ["密钥与文件规则", "Secrets & file links"],
   "prompts:host.manual": ["手动审批说明", "Manual approval guide"],
+  "prompts:shell.ir": ["远端 ir 说明", "Remote ir guide"],
+  "prompts:links.files": ["文件链接", "File links"],
   "prompts:where.host": ["运行环境", "Environment"],
   "prompts:where.remote": ["远程运行环境", "Remote environment"],
   "prompts:names": ["链接格式", "Link syntax"],
@@ -665,7 +673,20 @@ export function describeGivenParts(record: unknown, lang: "zh" | "en" = "zh"): D
       if (name || channel) vals.push([pick(["频道", "Channel"]), name && channel && name !== channel ? `${name} (${channel})` : name || channel]);
       if (you) vals.push([pick(["称呼", "Nick"]), you]);
       i++;
-      const sub = new Set(["prompts:channel.context.place", "prompts:channel.context.away", "prompts:channel.context.scripts", "prompts:channel.context.recv"]);
+      const sub = new Set([
+        "prompts:channel.context.place",
+        "prompts:channel.context.away",
+        "prompts:channel.context.scripts",
+        "prompts:channel.context.recv",
+        "prompts:channel.context.rules",
+        "prompts:channel.context.rule-own",
+        "prompts:channel.context.rule-guest",
+        "prompts:channel.context.rule-guest-bare",
+        "prompts:channel.context.rule-work",
+        "prompts:channel.context.rule-mention",
+        "prompts:channel.context.rule-tight",
+        "prompts:channel.context.rule-tight-bare",
+      ]);
       while (i < parts.length && sub.has(parts[i]!.source)) {
         raws.push(parts[i]!.source);
         i++;
