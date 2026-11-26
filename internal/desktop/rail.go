@@ -289,10 +289,11 @@ func (m *mainWin) gripView(c *mui.Context, u *ui, d mainDraw) {
 	})
 }
 
-// railView draws the rail.
+// railView draws the rail. Its foot keeps 16 points: on Windows a frameless window's last points
+// may be under its frame's edge.
 func (m *mainWin) railView(c *mui.Context, u *ui, r *railState) {
 	p := r.pal
-	mui.Column(c).Width(railW).Background(p.bg).AlignItems(mui.Center).PaddingY(10).Gap(4).DragWindow().Children(func() {
+	mui.Column(c).Width(railW).Background(p.bg).AlignItems(mui.Center).Padding(10, 0, 16, 0).Gap(4).DragWindow().Children(func() {
 		for i, it := range r.items {
 			if i == r.line && r.line > 0 {
 				mui.Box(c.Key("line")).Size(28, 2).Radius(1).Background(p.edge).Margin(4, 0, 4, 0)

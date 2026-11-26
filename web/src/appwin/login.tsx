@@ -8,10 +8,10 @@
 //  - one Iridium's 授权操作: 命令行, each agent, 文件夹.
 // A part is drawn once its state is there, never before.
 import {
+  ArrowRight,
   CircleArrowUp,
   ChevronLeft,
   ChevronRight,
-  CornerDownLeft,
   PencilLine,
   EyeOff,
   Folder,
@@ -23,6 +23,7 @@ import {
   Play,
   Plus,
   ShieldCheck,
+  Ticket,
   SquareTerminal,
   Trash2,
   UserRound,
@@ -31,9 +32,10 @@ import { Menu } from "@base-ui/react/menu";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import type { Agent } from "../api/types.gen";
 import { Crop } from "../profile";
-import { agentName, cn, CopyKey, FaceChangeOver, IconKey, IrMark, Logo, SureKey, Switch, Tip, usePointAnchor, MenuPortal } from "../ui";
+import { agentName, cn, CopyKey, FaceChangeOver, IconKey, IrMark, Logo, SureKey, Switch, Tip, useMedia, usePointAnchor, MenuPortal } from "../ui";
 import { ask, clipboardKeys, followTheme, onAnswer, whenReady } from "./bridge";
 import { Fold, useFolding } from "./fold";
+import { AppSplash } from "./splash";
 import { WinKeyPair } from "../winkey";
 
 type Link = { up: boolean; rtt?: number; since: string };
@@ -157,6 +159,12 @@ export function Login() {
   }, []);
 
   const go = (p: Part) => (setNote(null), setPart(p));
+  // 本机与授权 in two columns when there is room (820 points and more), else one at a time.
+  const wide = useMedia("(min-width: 820px)");
+  const granted = st?.servers.filter((s) => !s.local && s.loggedIn) ?? [];
+  // The Iridium shown at the right: the one asked for (#grant:), else the first.
+  const asked = part && typeof part === "object" ? part.server : undefined;
+  const chosen = granted.some((s) => s.url === asked) ? asked : granted[0]?.url;
   const login = (to: string, key: string) => {
     if (busy || !to) return;
     setBusy(key);
@@ -196,71 +204,88 @@ export function Login() {
         className={cn(
           "no-bar flex h-full flex-col items-center overflow-y-auto",
           part === "who" && "justify-center",
+          part === "add" && "w-full",
         )}
       >
         {st && part && (
-          <Swap id={typeof part === "object" ? "s:" + part.server : part}>
-            <div
-              className={cn(
-                "flex w-[min(420px,calc(100vw-24px))] flex-col",
-                part === "who" ? "py-16" : "pt-16 pb-6",
-              )}
-            >
-              {part === "who" ? (
-                <Who
-                  me={me}
-                  setMe={setMe}
-                  keepMe={keepMe}
-                  sysName={st.sysName ?? ""}
-                  entering={
-                    busy === "local" ||
-                    st.servers.some((s) => s.local && s.status === "启动中")
-                  }
-                  note={note}
-                  enter={() => {
-                    setBusy("local");
-                    setNote(null);
-                    ask(
-                      "ir:enter:" +
-                        JSON.stringify({
-                          ...me,
-                          name: me.name?.trim() || st.sysName,
-                        }),
-                    );
-                  }}
-                  more={() => (
-                    keepMe({ ...me, name: me.name?.trim() ?? "" }),
-                    go("add")
-                  )}
-                />
-              ) : part === "add" ? (
-                <Servers
-                  mode="add"
-                  st={st}
-                  busy={busy}
-                  note={note}
-                  login={login}
-                  back={st.servers.length === 0 ? () => go("who") : undefined}
-                />
-              ) : part === "local" ? (
-                <>
-                  <Servers
-                    mode="local"
-                    st={st}
-                    busy={busy}
+          <Swap id={wide && part !== "who" && part !== "add" ? "local" : typeof part === "object" ? "s:" + part.server : part}>
+            {part === "add" ? (
+              <AddPage
+                st={st}
+                busy={busy}
+                note={note}
+                login={login}
+                back={st.servers.length === 0 ? () => go("who") : undefined}
+              />
+            ) : wide && part !== "who" ? (
+              // 本机与授权, wide (otae-c, 霓虹, 2026-11-26): 此电脑 and 授权操作 at the left, the
+              // Iridium chosen there at the right, whole; none to grant to: the left alone.
+              <div className={cn("grid w-[min(880px,calc(100vw-48px))] gap-8 pt-16 pb-6", granted.length ? "grid-cols-[minmax(0,1fr)_minmax(0,1fr)]" : "max-w-[420px] grid-cols-1")}>
+                <div className="flex min-w-0 flex-col">
+                  <Servers mode="local" st={st} busy={busy} note={note} login={login} />
+                  <Grants st={st} shown={chosen ?? ""} open={(s) => go({ server: s.url })} />
+                </div>
+                {granted.length > 0 && (
+                  <div className="flex min-w-0 flex-col">
+                    <Heading>授权设置</Heading>
+                    <ServerPage s={st.servers.find((s) => s.url === chosen)} agents={st.agents ?? []} />
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div
+                className={cn(
+                  "flex w-[min(420px,calc(100vw-24px))] flex-col",
+                  part === "who" ? "py-16" : "pt-16 pb-6",
+                )}
+              >
+                {part === "who" ? (
+                  <Who
+                    me={me}
+                    setMe={setMe}
+                    keepMe={keepMe}
+                    sysName={st.sysName ?? ""}
+                    entering={
+                      busy === "local" ||
+                      st.servers.some((s) => s.local && s.status === "启动中")
+                    }
                     note={note}
-                    login={login}
+                    enter={() => {
+                      setBusy("local");
+                      setNote(null);
+                      ask(
+                        "ir:enter:" +
+                          JSON.stringify({
+                            ...me,
+                            name: me.name?.trim() || st.sysName,
+                          }),
+                      );
+                    }}
+                    more={() => (
+                      keepMe({ ...me, name: me.name?.trim() ?? "" }),
+                      go("add")
+                    )}
                   />
-                  <Grants st={st} open={(s) => go({ server: s.url })} />
-                </>
-              ) : (
-                <ServerPage
-                  s={st.servers.find((s) => s.url === part.server)}
-                  agents={st.agents ?? []}
-                  back={() => go("local")}
-                />
-              )}
-            </div>
+                ) : part === "local" ? (
+                  <>
+                    <Servers
+                      mode="local"
+                      st={st}
+                      busy={busy}
+                      note={note}
+                      login={login}
+                    />
+                    <Grants st={st} open={(s) => go({ server: s.url })} />
+                  </>
+                ) : (
+                  <ServerPage
+                    s={st.servers.find((s) => s.url === part.server)}
+                    agents={st.agents ?? []}
+                    back={() => go("local")}
+                  />
+                )}
+              </div>
+            )}
           </Swap>
         )}
       </main>
@@ -285,7 +310,7 @@ function Swap({ id, children }: { id: string; children: ReactNode }) {
     <div
       key={shown.id}
       className={cn(
-        "transition-opacity ease-(--ease-out)",
+        "flex w-full flex-col items-center transition-opacity ease-(--ease-out)",
         out ? "opacity-0" : "g-fade opacity-100",
       )}
       style={{ transitionDuration: `${FADE}ms` }}
@@ -429,6 +454,7 @@ function Row({
   onClick,
   onContextMenu,
   tone,
+  active,
 }: {
   icon: ReactNode;
   title: ReactNode;
@@ -437,6 +463,7 @@ function Row({
   onClick?: () => void;
   onContextMenu?: (e: React.MouseEvent) => void;
   tone?: string;
+  active?: boolean; // the one shown beside the list
 }) {
   const body = (
     <>
@@ -457,6 +484,7 @@ function Row({
       className={cn(
         "group flex min-h-13 items-center gap-1 rounded-md pr-2",
         onClick && "hover:bg-fill",
+        active && "bg-fill",
       )}
     >
       {onClick ? (
@@ -514,7 +542,16 @@ function Face({ s, size = 36 }: { s: Server; size?: number }) {
   // The Iridium's own face (GET /v1/internal/face, set in its 应用管理), not who one is there (kumo,
   // 2026-11-23: as a game's server list, the server's picture, the name one's own): round; none
   // set, Iridium's mark in the circle. No mark on a face set here: every one is an Iridium.
-  if (!s.face) return <IrMark size={size} round className="text-ink" />;
+  // None set: its name's first letter in a grey circle, as the app's rail draws it.
+  if (!s.face)
+    return (
+      <span
+        className="grid shrink-0 place-items-center rounded-full bg-fill-2 font-semibold text-ink-2"
+        style={{ width: size, height: size, fontSize: size * 0.4 }}
+      >
+        {[...(s.title || s.host)][0]?.toUpperCase()}
+      </span>
+    );
   return (
     <img
       src={s.face}
@@ -571,13 +608,6 @@ function Servers({
   const rows = useFolding(remote, (s) => s.url);
   const on = !!local && st.server !== false;
   const p = st.publicState;
-  const [adding, setAdding] = useState(mode === "add");
-  const [address, setAddress] = useState("");
-  const field = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    if (busy !== "+" && !note?.error)
-      (setAddress(""), setAdding(mode === "add"));
-  }, [busy]); // eslint-disable-line react-hooks/exhaustive-deps
   const mineOf = (url?: string) =>
     note && url && note.server === url ? note : null;
   const localNote = mineOf(local?.url);
@@ -787,97 +817,149 @@ function Servers({
           run: () => ask("ir:remove:" + url),
         },
       ])}
-      {/* 添加服务器: pressed, a field in its place for an address or an invite link; a paste is
-          handled as it lands. No field waits with the focus in it (kumo, 2026-11-22). */}
-      {mode === "local" ? null : adding ? (
-        <form
-          className="flex min-h-13 items-center gap-3 rounded-md pr-2 pl-2"
-          onSubmit={(e) => (e.preventDefault(), login(address.trim(), "+"))}
-        >
-          <span className="grid size-9 shrink-0 place-items-center text-ink-2">
-            <Plus size={16} />
-          </span>
-          <input
-            ref={field}
-            value={address}
-            onChange={(e) => setAddress(e.target.value)}
-            onBlur={() =>
-              mode !== "add" &&
-              !address.trim() &&
-              busy !== "+" &&
-              setAdding(false)
-            }
-            onPaste={(e) => {
-              const v = e.clipboardData.getData("text").trim();
-              if (!v) return;
-              e.preventDefault();
-              setAddress(v);
-              login(v, "+");
-            }}
-            onKeyDown={(e) => {
-              clipboardKeys(
-                e,
-                (v) => (setAddress(v), v.trim() && login(v.trim(), "+")),
-              );
-              if (e.key === "Escape")
-                (setAddress(""), setAdding(mode === "add"));
-            }}
-            placeholder="服务器地址或邀请链接"
-            spellCheck={false}
-            autoCapitalize="off"
-            autoComplete="url"
-            className="h-9 min-w-0 flex-1 rounded-md bg-fill px-2.5 text-sm outline-none select-text placeholder:text-ink-3"
-          />
-          {/* Its key (kumo, 2026-11-23): an address typed, as Enter; none, with 此电脑 hidden,
-              此电脑 back. Pressed, the field keeps the focus: it would go, and the key with it. */}
-          {busy === "+" ? (
-            <LoaderCircle
-              size={16}
-              className="shrink-0 animate-spin text-ink-3"
-            />
-          ) : address.trim() ? (
-            <IconKey
-              label="连接"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => login(address.trim(), "+")}
-            >
-              <CornerDownLeft size={15} />
-            </IconKey>
-          ) : st.hideLocal ? (
-            <IconKey
-              label="添加此电脑"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => (ask("ir:hidelocal:off"), setAdding(false))}
-            >
-              <Monitor size={15} />
-            </IconKey>
-          ) : null}
-        </form>
-      ) : (
-        <Row
-          icon={<Plus size={16} className="text-ink-2" />}
-          title={<span className="font-normal text-ink-2">添加服务器</span>}
-          onClick={() => setAdding(true)}
-        />
-      )}
-      <Fold state={note && !note.server ? "in" : "out"}>
-        <p
-          className={cn(
-            "m-0 px-2 pt-1 pl-14 text-xs",
-            note?.error ? "text-err" : "text-ink-3",
-          )}
-        >
-          {note?.text}
-        </p>
-      </Fold>
     </>
+  );
+}
+
+/** 添加服务器 (the rail's +; otae-c, 霓虹, 2026-11-26): the Iridium pages' splash over a field for
+ *  an address or an invite link, in the middle of the page; what came of it under the field; those
+ *  in the list not logged in to under that, to log in. */
+function AddPage({
+  st,
+  busy,
+  note,
+  login,
+  back,
+}: {
+  st: State;
+  busy: string;
+  note: Note | null;
+  login: (to: string, key: string) => void;
+  back?: () => void;
+}) {
+  return (
+    <div className="flex min-h-full w-full flex-col items-center px-6 pt-12 pb-8">
+      <AppSplash className="h-[clamp(180px,38vh,340px)] w-full max-w-[720px] shrink-0" />
+      <div className="flex w-full max-w-[460px] flex-col">
+        <AddField st={st} busy={busy} login={login} />
+        <Fold state={note && !note.server ? "in" : "out"}>
+          <p
+            className={cn(
+              "m-0 px-4 pt-2 text-center text-xs",
+              note?.error ? "text-err" : "text-ink-3",
+            )}
+          >
+            {note?.text}
+          </p>
+        </Fold>
+        <div className="mt-6 flex flex-col">
+          <Servers mode="add" st={st} busy={busy} note={note} login={login} />
+        </div>
+        {back && (
+          <button
+            type="button"
+            onClick={back}
+            className="g-press mt-4 flex items-center gap-1 self-center rounded-md px-2 py-1 text-sm text-ink-3 hover:text-ink"
+          >
+            <ChevronLeft size={16} />
+            返回
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** The field of 添加服务器: one card 48 points high, as the composer's. Its mark says what is in
+ *  it (an invite link, an address); its key at the right connects, as Enter does; a paste is
+ *  handled as it lands. No field waits with the focus in it (kumo, 2026-11-22). Empty, with 此电脑
+ *  hidden, its key brings 此电脑 back. */
+function AddField({
+  st,
+  busy,
+  login,
+}: {
+  st: State;
+  busy: string;
+  login: (to: string, key: string) => void;
+}) {
+  const [address, setAddress] = useState("");
+  useEffect(() => {
+    if (busy === "") setAddress("");
+  }, [busy]);
+  const v = address.trim();
+  const invite = /\/_ir\/join/.test(v);
+  const go = (to: string) => to && login(to, "+");
+  return (
+    <form
+      className="flex h-12 items-center gap-2 rounded-xl border border-edge bg-paper pr-1.5 pl-3.5 shadow-[0_1px_3px_rgb(0_0_0/0.05)] transition-[border-color] focus-within:border-ink-4"
+      onSubmit={(e) => (e.preventDefault(), go(v))}
+    >
+      <span className="grid size-5 shrink-0 place-items-center text-ink-3">
+        {invite ? <Ticket size={16} /> : <Globe size={16} />}
+      </span>
+      <input
+        value={address}
+        onChange={(e) => setAddress(e.target.value)}
+        onPaste={(e) => {
+          const p = e.clipboardData.getData("text").trim();
+          if (!p) return;
+          e.preventDefault();
+          setAddress(p);
+          go(p);
+        }}
+        onKeyDown={(e) => {
+          clipboardKeys(e, (x) => (setAddress(x), x.trim() && go(x.trim())));
+          if (e.key === "Escape") setAddress("");
+        }}
+        placeholder="服务器地址或邀请链接"
+        aria-label="服务器地址或邀请链接"
+        spellCheck={false}
+        autoCapitalize="off"
+        autoComplete="url"
+        className="h-full min-w-0 flex-1 bg-transparent text-sm outline-none select-text placeholder:text-ink-3"
+      />
+      {/* Pressed, the field keeps the focus: it would go, and the key with it. */}
+      {busy === "+" ? (
+        <span className="grid size-9 shrink-0 place-items-center">
+          <LoaderCircle size={16} className="animate-spin text-ink-3" />
+        </span>
+      ) : !v && st.hideLocal ? (
+        <IconKey
+          label="添加此电脑"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => ask("ir:hidelocal:off")}
+          className="size-9 rounded-lg"
+        >
+          <Monitor size={16} />
+        </IconKey>
+      ) : (
+        <button
+          type="submit"
+          aria-label="连接"
+          disabled={!v}
+          onMouseDown={(e) => e.preventDefault()}
+          className="g-press grid size-9 shrink-0 place-items-center rounded-lg bg-ink text-paper transition-opacity disabled:opacity-25"
+        >
+          <ArrowRight size={16} />
+        </button>
+      )}
+    </form>
   );
 }
 
 /** 授权操作: the Iridiums this computer lets work here, as many as wanted, each with its link and
  *  its switch; › to what it may do here. Those not logged in to are not here: nothing can be
  *  granted to them yet; with none, the part is not there. */
-function Grants({ st, open }: { st: State; open: (s: Server) => void }) {
+function Grants({
+  st,
+  open,
+  shown,
+}: {
+  st: State;
+  open: (s: Server) => void;
+  shown?: string; // beside the list (wide): the one shown, its row pressed shows it
+}) {
   const rows = useFolding(
     st.servers.filter((s) => !s.local && s.loggedIn),
     (s) => s.url,
@@ -893,6 +975,8 @@ function Grants({ st, open }: { st: State; open: (s: Server) => void }) {
         return (
           <Fold key={key} state={state}>
             <Row
+              active={shown === s.url}
+              onClick={shown !== undefined ? () => open(s) : undefined}
               icon={<Face s={s} />}
               title={
                 menu.renaming === s.url ? (
@@ -919,9 +1003,11 @@ function Grants({ st, open }: { st: State; open: (s: Server) => void }) {
                       )
                     }
                   />
-                  <IconKey label={s.host} onClick={() => open(s)}>
-                    <ChevronRight size={16} />
-                  </IconKey>
+                  {shown === undefined && (
+                    <IconKey label={s.host} onClick={() => open(s)}>
+                      <ChevronRight size={16} />
+                    </IconKey>
+                  )}
                 </>
               }
             />
@@ -1095,7 +1181,7 @@ function ServerPage({
 }: {
   s?: Server;
   agents: string[];
-  back: () => void;
+  back?: () => void; // none: beside the list (wide), no 返回
 }) {
   if (!s) return null;
   const terms = (t: object) =>
@@ -1105,14 +1191,16 @@ function ServerPage({
   const l = linkOf(s);
   return (
     <>
-      <button
-        type="button"
-        onClick={back}
-        className="g-press mb-2 flex items-center gap-1 self-start rounded-md px-1 py-1 text-sm text-ink-2 hover:text-ink"
-      >
-        <ChevronLeft size={16} />
-        返回
-      </button>
+      {back && (
+        <button
+          type="button"
+          onClick={back}
+          className="g-press mb-2 flex items-center gap-1 self-start rounded-md px-1 py-1 text-sm text-ink-2 hover:text-ink"
+        >
+          <ChevronLeft size={16} />
+          返回
+        </button>
+      )}
       <Row
         icon={<Face s={s} />}
         title={<Retitle s={s} />}
