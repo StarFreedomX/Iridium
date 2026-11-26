@@ -138,6 +138,11 @@ export function briefBlocks(blocks: readonly Block[]): Block[] {
       if (b.text?.trim()) out.push({ at: b.at, kind: "thinking", ...(b.time ? { time: b.time } : {}), text: "…" });
       continue;
     }
+    // A compaction in it is kept, small: the line says it with its steps (work.tsx).
+    if (b.kind === "system" && b.event === "compact") {
+      out.push({ at: b.at, kind: "system", event: b.event, ...(b.time ? { time: b.time } : {}), ...(b.compact ? { compact: b.compact } : {}) });
+      continue;
+    }
     if (b.kind !== "tool") continue;
     const r = b.result ?? (b.id ? results.get(b.id) : undefined);
     out.push({

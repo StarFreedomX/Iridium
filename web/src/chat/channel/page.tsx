@@ -386,7 +386,10 @@ export function ChannelPage({ id, sheet = 0, bar, record }: { id: string; sheet?
   // The asks open, as the channel's messages say (an ask's message carries it while it is open).
   const asks = useMemo(() => openAsks(log.msgs, agents.map((a) => ({ session: a.session, asks: stateAt(a.session)?.asks ?? [] }))), [log.msgs, agents.map((a) => `${a.session}:${(stateAt(a.session)?.asks ?? []).map((x) => x.requestId).join(",")}`).join(" ")]);
   const asking = agents.some((a) => !!asks.get(a.session)?.length) || agents.some((a) => confirms.some((c) => c.session === a.session && c.kind !== "ask")) || secretHere;
-  const compacting = soloState?.status === "compacting";
+  // A compaction is said on the agent's own line of work, with its steps (work.tsx; kumo,
+  // 2026-11-26); the rule across the channel only where there is no such line going (a /compact
+  // of the channel's one agent with no turn of its own).
+  const compacting = soloState?.status === "compacting" && !log.msgs.some((m) => m.work?.running);
   const compactSince = useRef(0);
   if (!compacting) compactSince.current = 0;
   else if (soloState?.compactingSince) compactSince.current = soloState.compactingSince;

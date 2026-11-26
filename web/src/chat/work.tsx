@@ -6,9 +6,10 @@
 // one a row, read from the agent's own record over the lines the work spans; a step pressed, its
 // card (input, output, diff) from that row. Which lines are open is kept in this browser.
 import { Popover } from "@base-ui/react/popover";
-import { ChevronRight, Plug } from "lucide-react";
+import { ChevronRight, FoldVertical, Plug } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode, type RefObject } from "react";
-import type { Block } from "../api/types.gen";
+import type { Block, SessionState } from "../api/types.gen";
+import { useCarried } from "../store";
 import { t, useLang } from "../i18n";
 import { cn, keep, kept, PHONE, PopSurface, useEver } from "../ui";
 import { moveDown } from "./stick";
@@ -18,10 +19,32 @@ import { cmdOfCall, isShell, type Cmd } from "./cmd";
 import { diffSum, foldLine, kindOf, runCmds, type Step } from "./fold";
 import { StopKey } from "./live";
 import { Pictures } from "./pictures";
-import { DiffStat, KindIcon, lasted, ROW, StepCard, StepLine, tookOf, wholeAhead } from "./said";
+import { DiffStat, KindIcon, lasted, ROW, StepCard, StepLine, tok, took, tookOf, wholeAhead } from "./said";
 import { allStepsOf, readSteps, spanBlocks, spanSub, stepsOf } from "./spans";
 
 export { allStepsOf, readSteps, stepsOf };
+
+/** A compaction as one of the line's steps (kumo, 2026-11-26: a tool's row with its icon, each
+ *  agent's own, not a rule across the channel): going on, the seconds so far, counted from when it
+ *  began; done, the context before and after it. */
+function Compact({ since, done }: { since?: number; done?: Block }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (done) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [!!done]);
+  const c = done?.compact;
+  const says = done ? (c?.before ? (c.after ? `${tok(c.before)} → ${tok(c.after)}` : tok(c.before)) : "") : since && now - since >= 3000 ? took(now - since) : "";
+  const label = t(done ? (c?.auto ? "sys.compactAuto" : "sys.compact") : "sys.compacting");
+  return (
+    <span role={done ? undefined : "status"} title={done ? [label, c?.ms ? took(c.ms) : ""].filter(Boolean).join(" · ") : undefined} className="g-fade flex shrink-0 items-center gap-1.5 whitespace-nowrap">
+      <FoldVertical size={14} aria-hidden className={cn("shrink-0", done ? "text-ink-3" : "animate-pulse text-(--compact)")} />
+      {!done && <span className="text-ink-2">{label}</span>}
+      {says && <span className="text-xs tabular-nums">{says}</span>}
+    </span>
+  );
+}
 
 /** What a line's steps are narrowed to: the calls by one name ("": thinking), of one sort of
  *  shell command where its icons are apart, the failed ones apart too. */
@@ -192,6 +215,10 @@ export function WorkLine({ channel, n, session, work, did, span, may, esc }: { c
       document.removeEventListener("pointercancel", cancel, true);
     };
   }, [card?.open, card?.key, card?.el]);
+  // Its compactions: the one going on now (the agent's own state), and those in what it did.
+  const st = useCarried<SessionState>(`session:${session}`);
+  const compacting = running && st?.status === "compacting";
+  const compacted = useMemo(() => (blocks ?? []).filter((b) => b.kind === "system" && b.event === "compact"), [blocks]);
   const parts = did && !work ? didParts(did) : [];
   // An older message's span read and nothing in it: no line.
   if (!work && !parts.length && !runs.length) return null;
@@ -278,6 +305,10 @@ export function WorkLine({ channel, n, session, work, did, span, may, esc }: { c
             )
           )}
         </button>
+        {compacted.map((b) => (
+          <Compact key={b.at} done={b} />
+        ))}
+        {compacting && <Compact since={st?.compactingSince} />}
         {/* What was done, by its sorts, as before (kumo, 2026-11-24): each pressed opens its own
             steps alone. */}
         {!one && runs.length > 0 && all && (
