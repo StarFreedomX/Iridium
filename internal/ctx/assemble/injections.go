@@ -51,6 +51,15 @@ func TitleNow(title string) (Injection, error) {
 	return build(KindMessage, text(idTitleNow, "title", title))
 }
 
+// TitleNowOf is TitleNow for channel ch, one the agent is in beside its own session: which
+// channel it is said, the agent's own being "self" to it.
+func TitleNowOf(title, ch string) (Injection, error) {
+	if title == "" {
+		return build(KindMessage, text(idTitleNoneOf, "channel", ch))
+	}
+	return build(KindMessage, text(idTitleNowOf, "title", title, "channel", ch))
+}
+
 // Then is in with more after it, as one: in's kind.
 func (in Injection) Then(more Injection) Injection {
 	return Injection{kind: in.kind, parts: append(slices.Clone(in.parts), more.parts...)}

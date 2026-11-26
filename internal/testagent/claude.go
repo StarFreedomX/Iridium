@@ -10,12 +10,17 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/kumoSleeping/iridium/internal/hold"
 )
+
+// titleLine is the session's or a channel's title put after a message now and then
+// (assemble.TitleNow): not its words.
+var titleLine = regexp.MustCompile(`\n\n(?:Session|Channel \S+) title: `)
 
 // TinyPNG is a 2×1 black PNG (base64), the picture a PICTURE turn's Read gives; TinyHandle names
 // it in an agent's own store.
@@ -131,7 +136,9 @@ func Claude() int {
 	}
 	unprefixed := func(text string) string {
 		// The session's title put after a message now and then (assemble.TitleNow): not its words.
-		text, _, _ = strings.Cut(text, "\n\nSession title: ")
+		if i := titleLine.FindStringIndex(text); i != nil {
+			text = text[:i[0]]
+		}
 		if _, rest, ok := strings.Cut(text, "] "); ok && strings.HasPrefix(text, "[") {
 			return rest
 		}
@@ -210,8 +217,8 @@ func Claude() int {
 	}()
 	var pending map[string]any // the message waiting on an ask
 	asked := 0
-	var waiting map[string]any // a WAIT turn
-	holding := false           // a HOLD turn: it ends once a message joins it
+	var waiting map[string]any        // a WAIT turn
+	holding := false                  // a HOLD turn: it ends once a message joins it
 	steerFor := 50 * time.Millisecond // how long a held turn goes on once a message joined it
 	var steered []map[string]any
 	var later []map[string]any // LATER messages waiting for the turn's end
@@ -377,8 +384,8 @@ func Claude() int {
 			}
 			begin(f)
 			// A session's title put after a message now and then (assemble.TitleNow): not its words.
-			if i := strings.Index(text, "\n\nSession title: "); i >= 0 {
-				text = text[:i]
+			if i := titleLine.FindStringIndex(text); i != nil {
+				text = text[:i[0]]
 			}
 			// A channel's message: its words are before its context.
 			if i := strings.Index(text, "\n\n<channel-context>"); i >= 0 {
@@ -534,4 +541,3 @@ func modeOf(args []string) string {
 	}
 	return "default"
 }
-

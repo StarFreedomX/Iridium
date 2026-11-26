@@ -49,7 +49,7 @@ func fromSource(b *api.Block, text, sender, tag string) {
 
 // titleNow is the line Iridium puts after a message now and then (internal/ctx/assemble TitleNow,
 // prompts title.now, title.none): the session's title, for the agent, not part of the words.
-var titleNow = regexp.MustCompile(`\n\nSession title: (?:"[^\n]*"|none yet)$`)
+var titleNow = regexp.MustCompile(`\n\n(?:Session|Channel \S+) title: (?:"[^\n]*"|none yet)$`)
 
 // withoutTitleNow is a message Iridium wrote without the title line after it.
 func withoutTitleNow(text string) string { return titleNow.ReplaceAllString(text, "") }

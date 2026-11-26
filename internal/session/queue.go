@@ -157,6 +157,31 @@ func (h *Hosted) write(ctx context.Context, in store.Input, images []agent.Image
 // the first message following a compaction (assemble.TitleNow).
 const titleEvery = 5
 
+// channelTurn is how a channel's message given to an agent begins (assemble.ChannelTurn,
+// ChannelReaction): its number.
+var channelTurn = regexp.MustCompile(`^#\d+[: ]`)
+
+// TitleDue: the title is due after the next message to session id (titleNow's rule), for a
+// channel's message, which the server makes. TitleGiven tells it was put after one.
+func (m *Manager) TitleDue(id string) bool {
+	h, err := m.get(id)
+	if err != nil {
+		return false
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.titleAfterCompact || h.titleTurns+1 >= titleEvery
+}
+
+// TitleGiven: the title goes after the message about to be written to session id.
+func (m *Manager) TitleGiven(id string) {
+	if h, err := m.get(id); err == nil {
+		h.mu.Lock()
+		h.titleTurns, h.titleAfterCompact = -1, false // the message's write counts it: 0
+		h.mu.Unlock()
+	}
+}
+
 // titleNow is the line with the session's title to put after a message of words, when it is due:
 // every titleEvery messages and after a compaction; only where the agent titles the session (not
 // in a channel with other agents, whose title is people's), and not once the user named it.
@@ -169,7 +194,9 @@ func (h *Hosted) titleNow(words string) (assemble.Injection, bool) {
 	due := h.titleAfterCompact || h.titleTurns >= titleEvery
 	shown := h.said.title
 	h.mu.Unlock()
-	if !due || h.meta.ForChannel || h.m.inChannel(h.id) {
+	// A channel's message (#n…): the server says the title there, to one agent of those called
+	// (TitleDue).
+	if !due || channelTurn.MatchString(words) || h.meta.ForChannel || h.m.inChannel(h.id) {
 		return assemble.Injection{}, false
 	}
 	over, err := h.m.o.Store.Overlays()
