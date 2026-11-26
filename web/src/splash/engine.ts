@@ -212,7 +212,9 @@ export function splash(cv: HTMLCanvasElement, still: boolean, fine = false): Spl
   const goal = (): [number, number] => (cx < 0 ? [W / 2, Math.min((whT < 0 ? H : whT) * 0.92, W * 0.7)] : [cx, most]);
   // Iridium's letters drawn: their cells' colours flow through the rainbow each frame (kumo,
   // 2026-11-25: a gradient that moves).
-  let rainbow = false;
+  // (so before anything is painted too: no code shown about nothing as the page loads; kumo,
+  // 2026-11-26: grey code each time the page was loaded)
+  let rainbow = true;
   // Whether the ring is to be there: as soon as a figure is asked for, not as its pictures have
   // come (kumo, 2026-11-26: the ring stood on while a face loaded, then was gone at once).
   let ringAsk = false;
