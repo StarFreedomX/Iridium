@@ -147,7 +147,44 @@ func (h *Hosted) write(ctx context.Context, in store.Input, images []agent.Image
 	if err != nil {
 		return err
 	}
+	if t, ok := h.titleNow(in.Text); ok {
+		line = line.Then(t)
+	}
 	return h.writeLine(ctx, in, line, images)
+}
+
+// titleEvery: a session's title is put after every this many messages to its agent, and after
+// the first message following a compaction (assemble.TitleNow).
+const titleEvery = 5
+
+// titleNow is the line with the session's title to put after a message of words, when it is due:
+// every titleEvery messages and after a compaction; only where the agent titles the session (not
+// in a channel with other agents, whose title is people's), and not once the user named it.
+func (h *Hosted) titleNow(words string) (assemble.Injection, bool) {
+	if strings.HasPrefix(words, "/") {
+		return assemble.Injection{}, false
+	}
+	h.mu.Lock()
+	h.titleTurns++
+	due := h.titleAfterCompact || h.titleTurns >= titleEvery
+	shown := h.said.title
+	h.mu.Unlock()
+	if !due || h.meta.ForChannel || h.m.inChannel(h.id) {
+		return assemble.Injection{}, false
+	}
+	over, err := h.m.o.Store.Overlays()
+	if err != nil {
+		return assemble.Injection{}, false
+	}
+	o := over[h.id]
+	h.mu.Lock()
+	h.titleTurns, h.titleAfterCompact = 0, false
+	h.mu.Unlock()
+	if o.Name != "" && !o.AgentNamed {
+		return assemble.Injection{}, false
+	}
+	t, err := assemble.TitleNow(cmp.Or(o.Name, shown))
+	return t, err == nil
 }
 
 // writeLine gives the agent line, input in as the agent is to see it (assemble.Message),

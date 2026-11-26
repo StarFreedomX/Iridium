@@ -146,6 +146,10 @@ type Hosted struct {
 	lastFrom  string // who sent the last message: whose turn an agent's own turn is counted to
 	lastVia   string // the session whose agent sent it, if one did
 	compact   bool   // the last message was /compact: the compaction that follows was asked for
+	// titleTurns: messages since the session's title was last put after one (titleNow);
+	// titleAfterCompact: a compaction since, the title is put after the next.
+	titleTurns        int
+	titleAfterCompact bool
 	turnFrom  string // who began the running turn
 	turnVia   string // the session whose agent began it, if one did
 	draftN    int
@@ -958,7 +962,7 @@ func (h *Hosted) onEvent(e agent.Event) {
 		if !e.Failed {
 			later(h.refreshContext)
 			note(Notice{Kind: NoticeCompacted, Asked: h.compact})
-			h.compact = false
+			h.compact, h.titleAfterCompact = false, true
 		}
 	case agent.ProtocolError:
 		h.logf("protocol: %s: %s", e.Reason, e.Detail)

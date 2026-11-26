@@ -130,6 +130,8 @@ func Claude() int {
 		return f["message"].(map[string]any)["content"].([]any)[0].(map[string]any)["text"].(string)
 	}
 	unprefixed := func(text string) string {
+		// The session's title put after a message now and then (assemble.TitleNow): not its words.
+		text, _, _ = strings.Cut(text, "\n\nSession title: ")
 		if _, rest, ok := strings.Cut(text, "] "); ok && strings.HasPrefix(text, "[") {
 			return rest
 		}
@@ -374,6 +376,10 @@ func Claude() int {
 				continue
 			}
 			begin(f)
+			// A session's title put after a message now and then (assemble.TitleNow): not its words.
+			if i := strings.Index(text, "\n\nSession title: "); i >= 0 {
+				text = text[:i]
+			}
 			// A channel's message: its words are before its context.
 			if i := strings.Index(text, "\n\n<channel-context>"); i >= 0 {
 				text = text[:i]
