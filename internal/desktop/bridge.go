@@ -161,6 +161,7 @@ func (u *ui) menuBar() *mygo.Menu {
 	view := []*item{
 		{Label: "重新载入", Accelerator: "CmdOrCtrl+R", Click: on(u.reload)},
 		{Label: "重新载入", Accelerator: "F5", Hidden: true, Click: on(u.reload)},
+		{Label: "开发者工具", Accelerator: "F12", Hidden: true, Click: on(devTools)},
 		mygo.Separator(),
 		{Label: "放大", Accelerator: "CmdOrCtrl+=", Click: click(func() { u.zoom(+1) })},
 		{Label: "放大", Accelerator: "CmdOrCtrl+Plus", Hidden: true, Click: click(func() { u.zoom(+1) })},
@@ -186,6 +187,13 @@ func (u *ui) menuBar() *mygo.Menu {
 		{Label: "显示", Submenu: view},
 		{Role: mygo.RoleWindowMenu},
 	})
+}
+
+// devTools opens or closes the web inspector of w's page (F12).
+func devTools(w *mygo.Window) {
+	if w != nil {
+		go w.Page().ToggleDevTools()
+	}
 }
 
 // zoom makes the window in front's page larger (+1), smaller (-1) or as it was (0), and keeps it
@@ -216,7 +224,9 @@ func (u *ui) zoom(step int) {
 // pageOptions is a window's page: the shim, and what else is put in it; trusted, besides the app's
 // own pages, origin (an Iridium's window: that Iridium).
 func pageOptions(origin, extra string, zoom float64) mygo.PageOptions {
-	o := mygo.PageOptions{PreloadScript: shim + extra, ZoomFactor: zoom}
+	// The web inspector in every build, release ones too (mygo's production builds leave it out):
+	// F12 opens it (kumo, 2026-11-26).
+	o := mygo.PageOptions{PreloadScript: shim + extra, ZoomFactor: zoom, DevTools: mygo.DevToolsEnabled}
 	if origin != "" {
 		o.TrustedOrigins = []string{origin}
 	}
