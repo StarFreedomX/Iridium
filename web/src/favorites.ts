@@ -125,6 +125,11 @@ export function put(list: string[]) {
 
 export const isFavorite = (id: string) => now().includes(id);
 
+/** Whether the session opened is in sight among my favorites (their block open, it among them):
+ *  its own group and folders are then not opened for it (otae-c, 2026-11-26: opened from the
+ *  favorites, its folder far below opened too). */
+export const inOpenFavorites = (id: string, open: boolean, favs: readonly string[]) => open && favs.includes(id);
+
 /** Favoured (last of them) or taken off. */
 export const setFavorite = (id: string, on: boolean) => {
   const was = now();

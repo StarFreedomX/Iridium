@@ -29,7 +29,7 @@ import { manages, useMachines, useMe, useSaidLine, useUpdate } from "./data";
 import { agentName, ago, cn, fine, IconKey, IrMark, keep, kept, Lamp, lampOf, Logo, own, sessionStatusText, statusText, tilde, Tip, titleOf, useEver, untitled, useLongPress, useMenuAt, useMinute, usePointAnchor, MenuPortal } from "./ui";
 import { AppName } from "./appkey";
 import { MAKING, patchSessions } from "./pending";
-import { clearFavorites, favoriteAt, isFavorite, placeFavorite, setFavorite, setFavoritesColor, setFavoritesName, useFavorites, useFavoritesColor, useFavoritesName } from "./favorites";
+import { clearFavorites, favoriteAt, inOpenFavorites, isFavorite, placeFavorite, setFavorite, setFavoritesColor, setFavoritesName, useFavorites, useFavoritesColor, useFavoritesName } from "./favorites";
 import { crossAsk, crossOrder, favKey, keyId, keyServer, tellFavs, tellSide, useCross, type FavItem, type FavServer } from "./crossfav";
 import { useApp } from "./irapp";
 import { PLACE_DRAG, SESSION_DRAG } from "./chat/refs";
@@ -323,8 +323,14 @@ export function Sidebar(p: Props) {
   // group and folders opened, the list scrolled to it. A session in a group far down was opened
   // and nowhere to be seen (kumo, 2026-11-23). A row already in sight stays where it is.
   const selListed = listed.has(p.selected) && !hungAt.has(p.selected);
+  // Opened from my favorites (in sight there): its row there in sight, its group left as it is.
+  const selFav = inOpenFavorites(p.selected, favOpen, favs.map((s) => s.id));
   useEffect(() => {
     if (!selListed || p.searching) return;
+    if (selFav) {
+      requestAnimationFrame(() => list.current?.querySelector(`[data-flip="${CSS.escape(`fav:${p.selected}`)}"]`)?.scrollIntoView({ block: "nearest", behavior: "smooth" }));
+      return;
+    }
     const { tree, expanded, toggle } = now.current;
     const w = tree.workspaces.find((x) => x.rows.some((r) => (r.kind === "session" ? r.s.id === p.selected : folderSessions(r.f).some((s) => s.id === p.selected))));
     if (!w) return;
