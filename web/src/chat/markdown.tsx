@@ -14,9 +14,10 @@ import { cn } from "../ui";
 import { Linked, LinkFiles } from "./files";
 import { Code } from "./hl";
 import { NamedLink } from "./mention";
-import { nickOfURL } from "./channel/lib";
-import { NickLink } from "./channel/nick";
+import { nickOfURL, seqOfURL } from "./channel/lib";
+import { NickLink, SeqLink } from "./channel/nick";
 import { draftWords, fromSatori, refOf } from "./refs";
+import { useTyped } from "./typed";
 
 function CodeBlock({ className, children }: ComponentProps<"code"> & ExtraProps) {
   const [copied, setCopied] = useState(false);
@@ -89,6 +90,9 @@ export const MARKDOWN: Partial<StreamdownProps> = {
       // An agent of the channel called by its nick (chat/channel: lib.ts linkNicks).
       const nick = nickOfURL(p.href);
       if (nick) return <NickLink nick={nick} />;
+      // A message of the channel by its number (lib.ts linkNicks: refSpans).
+      const seq = seqOfURL(p.href);
+      if (seq) return <SeqLink n={seq} />;
       const r = typeof p.href === "string" ? markdownRef(p.href, textOf(p.children)) : undefined;
       return r ? <NamedLink m={r} /> : <defaultComponents.a {...p} />;
     },
@@ -99,7 +103,7 @@ export const MARKDOWN: Partial<StreamdownProps> = {
   remarkPlugins: [...Object.values(defaultRemarkPlugins), literalFolderPaths],
   rehypePlugins: [],
   tableMaxHeight: 0,
-  urlTransform: (url, key, node) => (linkID(url) || markdownRef(url, "") || nickOfURL(url) ? url : defaultUrlTransform(url, key, node)),
+  urlTransform: (url, key, node) => (linkID(url) || markdownRef(url, "") || nickOfURL(url) || seqOfURL(url) ? url : defaultUrlTransform(url, key, node)),
   allowElement: (e) => e.tagName !== "a" || /^(https?|ir):/i.test(String(e.properties.href ?? "")),
   unwrapDisallowed: true,
 };
@@ -137,10 +141,12 @@ export const Markdown = memo(function Markdown({ text, className, session, files
  *  draft is (Streamdown's own way with what grows), and still so once it is whole, so that the
  *  pieces drawn stay as they are when the draft becomes its block. live: words still come. */
 export function Streamed({ text, live, className, session, files }: { text: string; live: boolean; className?: string; session: string; files?: FileRef[] }) {
+  // Typed out as it comes (typed.ts).
+  const shown = useTyped(text, live);
   return (
     <LinkFiles session={session} files={files ?? []}>
-      <Streamdown {...MARKDOWN} isAnimating={live} className={cn("prose-ir min-w-0 text-md", className)}>
-        {text}
+      <Streamdown {...MARKDOWN} isAnimating={live || shown !== text} className={cn("prose-ir min-w-0 text-md", className)}>
+        {shown}
       </Streamdown>
     </LinkFiles>
   );

@@ -31,7 +31,6 @@ import (
 	"github.com/kumoSleeping/iridium/internal/hub"
 	"github.com/kumoSleeping/iridium/internal/joinscript"
 	"github.com/kumoSleeping/iridium/internal/pricing"
-	"github.com/kumoSleeping/iridium/internal/push"
 	"github.com/kumoSleeping/iridium/internal/remote"
 	"github.com/kumoSleeping/iridium/internal/satori"
 	"github.com/kumoSleeping/iridium/internal/session"
@@ -46,6 +45,9 @@ type Server struct {
 	// personas: the agents' hosts' personas, kept a while (personas.go).
 	personas      personasCache
 	browserRanges browserRangeLog // recently logged 206 range reads (file_browser.go)
+	// choosing: the kinds whose choices are being asked for behind a reply (agentChoices), by
+	// choicesKey.
+	choosing sync.Map
 
 	cfg config.Config
 	m   *session.Manager
@@ -77,8 +79,6 @@ type Server struct {
 	pairs    *pairs     // apps asking to pair (pairing.go)
 	vault    *vault     // the credentials' masks and allowed uses (routes_secrets.go)
 
-	// Push, if set before Handler, is Web Push (routes_push.go).
-	Push *push.Service
 	// Discover and Folders, if set, serve the workspaces and the folder picker (routes_discover.go).
 	Discover *discover.Index
 	Folders  discover.Folders
@@ -91,15 +91,17 @@ type Server struct {
 	bin     *joinscript.Binaries
 	binOnce sync.Once
 
-	files *files.Service   // routes_files.go
-	sat   *satori.Service  // /v1/: Satori with ir (satori.go)
-	ch    *channel.Service // what is said in the channels (docs/channels.md)
-	chain chains           // each channel's run of agents passing messages on (channels.go)
+	files  *files.Service   // routes_files.go
+	sat    *satori.Service  // /v1/: Satori with ir (satori.go)
+	ch     *channel.Service // what is said in the channels (docs/channels.md)
+	chain  chains           // each channel's run of agents passing messages on (channels.go)
+	goneOn goOns            // the paused messages a person went on with (channels.go goOn)
 
 	viewers viewers // who is looking at each channel now (channels.go)
 	dms     dms     // the channels that are two people's (channels.go)
 	calls   calls   // the channels each agent was called in by a subscription (channels.go)
 	answers answers // what each agent writes, said in turn where it was called (channels.go)
+	twins   twins   // the messages of other channels that are ones agents are saying in their own (liveSaid)
 	recalls recalls // the channels a message was taken back in (reactions.go)
 	// channelsSeq: the state "channels", up by one at each change of a channel's members.
 	channelsSeq atomic.Int64
@@ -115,7 +117,7 @@ type Server struct {
 	faceSeen map[string]string
 	faceDue  bool
 	faceIDs  string // the hosted channels in the list, as last seen (faces.go facesOnList)
-	// cardsSeq: the state "cards", up by one at each change of a card (its name, intro, face).
+	// cardsSeq: the state "cards", up by one at each change of a card (its name, face).
 	cardsSeq atomic.Int64
 	// listDue: the list of sessions is to be made again shortly (listSoon).
 	listDue atomic.Bool
@@ -123,6 +125,9 @@ type Server struct {
 	// state "roles", when a role does.
 	memorySeq atomic.Int64
 	rolesSeq  atomic.Int64
+	// favoritesSeq: the state "favorites", up by one when anyone's favorites change; each page
+	// asks again for its own (favorites.go).
+	favoritesSeq atomic.Int64
 	// stopList stops giving Satori the session list (its channel events).
 	stopList func()
 
@@ -154,23 +159,30 @@ func New(cfg config.Config, m *session.Manager, h *hub.Hub, logf func(string, ..
 	s.reloadSecrets()
 	m.SetAnnotate(s.files.AnnotateBlocks) // a page of messages and a state's tail name files
 	s.ch = channel.New(s.st, m, logf)
+	// Known to have a message taken back before it is written: an agent given something between
+	// the two was told of none, then never (recalledFor; TestReactionsAndRecall, one run in twenty).
+	s.ch.OnRecall = s.recalls.add
 	s.sat = satori.New(satoriBackend{s}, logf)
 	s.sat.Channels(s.ch)
 	s.sat.OnSaid(s.routeSaid)
+	s.sat.OnAsk(s.askCalls) // manual.go
+	s.sat.OnLive(s.liveSaid)
+	s.sat.OnLiveGone(s.liveGone)
 	// A turn's start and end in order with what its agent wrote (answers), so that its words
 	// are said where it was called before the call closes.
 	s.sat.OnTaken(s.answers.took)
-	s.sat.OnTurnStart(func(id string) { s.answers.add(id, func() { s.turnBegan(id) }) })
-	s.sat.OnTurnEnd(func(id, _ string, _ []string) {
-		taken := s.answers.given(id)
-		s.answers.add(id, func() { s.turnEnded(id, taken) })
+	s.sat.OnTurnStart(func(id string) { s.answers.add(id, func() { s.twins.drop(id); s.turnBegan(id) }) })
+	s.sat.OnTurnEnd(func(id, _ string, _ []string, background bool) {
+		taken, self := s.answers.ended(id)
+		s.answers.add(id, func() { s.turnEnded(id, taken, self, background) })
 	})
-	m.SetInChannel(s.multi)
+	m.SetInChannel(s.inSharedChannel)
 	m.SetChannelOf(s.channelOf)
 	m.SetSpawned(s.spawnedOf)
-	m.SetBare(s.bareChannels)
+	m.SetBare(s.bareChannels, s.bareChannel)
 	m.SetChannelLast(s.channelLast)
 	s.ch.OnAdded(s.channelAdded)
+	s.ch.OnList(s.channelListChanged)
 	m.SetCleared(s.cleared)
 	m.SetCreated(func(ctx context.Context, id string, req api.NewSession) error {
 		c, _ := ctx.Value(cardCaller{}).(caller)
@@ -181,10 +193,15 @@ func New(cfg config.Config, m *session.Manager, h *hub.Hub, logf func(string, ..
 	s.sat.Keep(satoriKeeper{s.st})
 	m.Watch(s.sat.Notice)
 	m.Watch(s.faceFollows)
+	// Each agent turn's tools counted: turns of words alone passed on are paused (deliver.MaxIdle).
+	m.Watch(s.chain.saw)
+	// A call held for its agent's background tasks is let go once they are over (calls.settle).
+	m.Watch(s.tasksChanged)
 	lctx, lstop := context.WithCancel(context.Background())
 	s.stopList = lstop
 	go s.watchList(lctx)
 	go s.cronLoop(lctx)
+	go s.missedLoop(lctx)
 	s.wireNeeds()
 	if err := s.openGate(); err != nil {
 		s.initErr = err
@@ -231,9 +248,11 @@ func (s *Server) Handler(local bool) http.Handler {
 	mux.HandleFunc("GET /v1/internal/sessions/{id}", s.masked(s.get))
 	mux.HandleFunc("GET /v1/internal/sessions/{id}/first", s.first)
 	mux.HandleFunc("GET /v1/internal/sessions/{id}/image", s.image)
-	mux.HandleFunc("POST /v1/internal/sessions/{id}/interrupt", s.use(s.interrupt))
+	mux.HandleFunc("POST /v1/internal/sessions/{id}/interrupt", s.stopping(s.interrupt))
+	mux.HandleFunc("POST /v1/internal/sessions/{id}/tasks/{task}/stop", s.use(s.stopTask))
 	mux.HandleFunc("POST /v1/internal/sessions/{id}/stop", s.use(s.stop))
-	mux.HandleFunc("POST /v1/internal/sessions/{id}/release", s.use(s.release))
+	mux.HandleFunc("POST /v1/internal/sessions/{id}/manual", s.use(s.askManual)) // manual.go
+	mux.HandleFunc("GET /v1/internal/sessions/{id}/manual", s.use(s.manualState))
 	// The session's agent's own commands (an app sets its menu from them).
 	mux.HandleFunc("GET /v1/internal/sessions/{id}/commands", func(w http.ResponseWriter, r *http.Request) {
 		st, err := s.m.State(r.PathValue("id"))
@@ -245,13 +264,12 @@ func (s *Server) Handler(local bool) http.Handler {
 	})
 	s.appRoutes(mux)
 	s.secretRoutes(mux)
+	s.githubRoutes(mux)
 	s.updateRoutes(mux)
 	s.settingsRoutes(mux)
 	s.sessionRoutes(mux)
-	s.publicRoutes(mux)  // publiclink.go
 	s.channelRoutes(mux) // channels.go
 	s.voiceRoutes(mux)
-	s.pushRoutes(mux)
 	mux.HandleFunc("GET /v1/internal/exec", s.execConnect)
 	s.pairRoutes(mux)
 	s.serverFaceRoutes(mux)
@@ -398,9 +416,13 @@ func (s *Server) create(ctx context.Context, c caller, req api.NewSession) (stri
 	if id != "" && err == nil && setup != nil {
 		err = s.setUp(ctx, c, id, *setup, first)
 	} else if id != "" && err == nil {
-		// Its people as any new channel's (DefaultPeople).
+		// Its people as any new channel's (DefaultPeople); its agent woken by its maker's words.
 		if err := s.setNewPeople(c, id, nil); err != nil {
 			s.logf("server: %s: its people: %v", id, err)
+		}
+		on := makerOn(c)
+		if _, err := s.ch.Change(id, store.AgentMember(id), nil, &on, s.harnessOf); err != nil {
+			s.logf("server: %s: its subscriptions: %v", id, err)
 		}
 	}
 	if id != "" {
@@ -448,19 +470,83 @@ func (s *Server) sendAs(ctx context.Context, c caller, from, id string, req api.
 		return s.sayCommand(c, from, id, req)
 	}
 	// A channel of several agents: said there, given to those it wakes (channels.go). A command
-	// is the agent's own that it is sent to, as ever.
+	// is the sole agent's own when the channel has one agent.
 	command := strings.HasPrefix(strings.TrimSpace(req.Text), "/")
 	if _, own := s.ch.Own(id); own {
-		command = false // no agent of its own to run one: words as any
+		// In a bare channel with exactly one agent, /clear replaces that agent session in place
+		// (keeping the channel and its history) and agent slash commands route straight to it.
+		if solo := s.soloAgent(id); command && solo != "" {
+			if session.IsClear(req.Text) {
+				if err := s.checkSend(c, solo); err != nil {
+					return api.SendReply{}, err
+				}
+				if err := s.inChannel(c, id); err != nil {
+					return api.SendReply{}, err
+				}
+				via := c.session
+				if via == "" && c.socket {
+					via = req.Caller
+				}
+				nid, err := s.m.Clear(ctx, solo, from)
+				if nid != "" && nid != solo {
+					if err := s.st.SetOpener(nid, c.ID()); err != nil {
+						s.logf("server: opener of %s: %v", nid, err)
+					}
+					s.noteOrigin(c, nid, via)
+				}
+				return api.SendReply{Session: id, Command: true}, err
+			}
+			if s.m.IsCommand(solo, req.Text) {
+				if err := s.checkSend(c, solo); err != nil {
+					return api.SendReply{}, err
+				}
+				if err := s.inChannel(c, id); err != nil {
+					return api.SendReply{}, err
+				}
+				via := c.session
+				if via == "" && c.socket {
+					via = req.Caller
+				}
+				s.noteOrigin(c, solo, via)
+				text, images, err := s.files.Message(id, req.Text, req.Attachments)
+				if err != nil {
+					return api.SendReply{}, fileErr{err}
+				}
+				if req.ID == "" {
+					req.ID = session.NewInputID()
+				}
+				input, queued, err := s.m.SendAs(ctx, solo, req.ID, satori.ForwardWords(text), from, true, images...)
+				if err != nil {
+					return api.SendReply{}, err
+				}
+				return api.SendReply{Input: input, Queued: queued, Command: s.m.RunsItself(solo, text)}, nil
+			}
+		}
+		command = false // no sole agent to run it: words as any
 	}
 	// Among several, only a command of the channel's own agent is its alone; words that merely
 	// begin with a slash ("/home/x is broken @codex") are said in the channel as any.
 	if s.multi(id) && !(command && s.m.IsCommand(id, req.Text)) {
 		return s.sendChannel(ctx, c, from, id, req)
 	}
-	// One agent: the message it answers as quoted lines before the words.
+	// One agent: woken as among several (docs/channels.md "订阅事件"): by what names it or by one
+	// of its subscriptions; else said in its channel and held for it, given before what next
+	// wakes it. Its own commands, and another session's agent writing to it, reach it as ever.
+	held, texts := "", []api.Trigger(nil)
+	if !c.byAgent() && !(command && s.m.IsCommand(id, req.Text)) && !session.IsClear(req.Text) {
+		woken, t := s.wakesOwn(id, c, req.Text)
+		if !woken {
+			return s.sendChannel(ctx, c, from, id, req)
+		}
+		held, texts = s.heldWords(id), t
+	}
+	// Keep the original words and quote ref for the channel log; prepend quoted lines only to
+	// what is handed to the agent.
+	rawText := req.Text
+	var quote int64
 	if req.Quote > 0 {
 		if q, ok := s.ch.Get(id, req.Quote); ok {
+			quote = q.Seq
 			req.Text = quoted(satori.ForwardWords(q.Text)) + req.Text
 		}
 		req.Quote = 0
@@ -502,10 +588,10 @@ func (s *Server) sendAs(ctx context.Context, c caller, from, id string, req api.
 		if tag := s.m.SourceTag(from); tag != "" {
 			u.Name = tag // the name the agent sees it under
 		}
-		seq = s.sat.Input(st.Session, req.ID, req.Text, u, c.ID(), channel.Data{Device: s.deviceOfCaller(c)})
+		seq = s.sat.Input(st.Session, req.ID, rawText, u, c.ID(), channel.Data{Device: s.deviceOfCaller(c), Quote: quote, Files: s.files.Refs(id, req.Attachments)})
 	}
-	named := s.names(id, seq, req.Text, readerOf(c)) // the logins it names (ats.go)
-	input, queued, err := s.m.SendAs(ctx, id, req.ID, satori.ForwardWords(text), from, true, images...)
+	named := s.names(id, seq, rawText, readerOf(c)) // the logins it names (ats.go)
+	input, queued, err := s.m.SendAs(ctx, id, req.ID, held+satori.ForwardWords(text)+s.onText(texts), from, true, images...)
 	if err != nil {
 		if seq != 0 {
 			s.ch.Unsay(id, seq) // not sent: not said
@@ -514,7 +600,7 @@ func (s *Server) sendAs(ctx context.Context, c caller, from, id string, req api.
 		return api.SendReply{}, err
 	}
 	if seq != 0 {
-		go s.heard(id, seq, req.Text, readerOf(c), u.Name, s.chain.of(id, "")) // its scripts
+		go s.heard(id, seq, rawText, readerOf(c), u.Name, s.chain.of(id, "")) // its scripts
 	}
 	if input == session.HandedInput {
 		return api.SendReply{Desktop: true, Seq: seq}, nil
@@ -526,43 +612,48 @@ func (s *Server) interrupt(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 	id := r.PathValue("id")
-	// An agent ending its own turn (ir api POST internal/sessions/self/interrupt; kumo,
+	// An agent ending its own turn (ir api POST internal/sessions/<its id>/interrupt; kumo,
 	// 2026-11-16): called with nothing to say, it says nothing. The calls it was answering are
 	// closed as answered: nothing is said for it, no line that it said nothing.
 	if c := callerOf(r); c.session != "" && c.session == id {
 		unlock := s.chain.lock(id)
-		s.calls.take(id, func(called) bool { return true })
+		// Not one held for a background task: its report is yet to come (calls.settle).
+		s.calls.take(id, func(c called) bool { return !c.Held })
 		unlock()
 	}
+	// Who asked (kumo, 2026-11-26: a turn stopped and no one had pressed anything): a browser's
+	// login, an agent's own ir (its session), an app, the host. No secret in it.
+	c := callerOf(r)
+	who := c.App
+	if c.Name != "" {
+		who += " " + c.Name
+	}
+	if c.session != "" {
+		who += " agent " + c.session
+	}
+	s.logf("server: %s: interrupt asked by %s", id, who)
 	s.done(w, s.m.Interrupt(ctx, id))
+}
+
+// stopTask stops one background task of a session's agent (api.Task.Stop).
+func (s *Server) stopTask(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	id := r.PathValue("id")
+	s.logf("server: %s: task %s stop asked", id, r.PathValue("task"))
+	err := s.m.StopTask(ctx, id, r.PathValue("task"))
+	if errors.Is(err, session.ErrBadRequest) {
+		fail(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.done(w, err)
 }
 
 func (s *Server) stop(w http.ResponseWriter, r *http.Request) {
 	s.done(w, s.m.Stop(r.Context(), r.PathValue("id")))
 }
 
-// release allows a step auto mode denied (session/release.go). Only a person may: an agent's ir
-// releasing its own denied steps would undo what the classifier is for.
-func (s *Server) release(w http.ResponseWriter, r *http.Request) {
-	c := callerOf(r)
-	if c.agent || (c.socket && c.session != "") {
-		forbid(w, errors.New("only a person may release a step auto mode denied"))
-		return
-	}
-	var req api.Release
-	if !readJSON(w, r, &req) {
-		return
-	}
-	if req.ToolUseID == "" {
-		fail(w, http.StatusBadRequest, "name the call: toolUseId")
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), time.Minute)
-	defer cancel()
-	s.done(w, s.m.Release(ctx, r.PathValue("id"), req.ToolUseID, req.Dismiss))
-}
-
-var stateKey = regexp.MustCompile(`^(list|quota|guilds|needs|pairing|update|terminals|machines|voice|channels|avatars|faces|ats|memory|roles|(session|context|reads|viewers):[0-9a-zA-Z_-]{1,128})$`)
+var stateKey = regexp.MustCompile(`^(list|guilds|needs|pairing|update|terminals|machines|voice|channels|avatars|faces|ats|memory|roles|favorites|cards|scripts|(session|context|reads|viewers):[0-9a-zA-Z_-]{1,128})$`)
 
 // stateKeys splits the states a WATCH asks for into those it carries and those it leaves
 // out (unknown, or not this caller's: needs and pairing are a person's on ir_web or at the
@@ -624,11 +715,11 @@ func (s *Server) done(w http.ResponseWriter, err error) {
 	reply(w, http.StatusOK, map[string]any{"ok": true})
 }
 
-// fault answers with err, knowing the errors of the session settings, the queue and push; the
+// fault answers with err, knowing the errors of the session settings and the queue; the
 // rest as s.error does.
 func (s *Server) fault(w http.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, session.ErrBadRequest), errors.Is(err, push.ErrBadSubscription), errors.Is(err, push.ErrBadRule):
+	case errors.Is(err, session.ErrBadRequest):
 		fail(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, store.ErrNoInput):
 		refuse(w, http.StatusUnprocessableEntity, "no_such_input", err.Error())

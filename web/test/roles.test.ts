@@ -1,7 +1,6 @@
 // Roles (src/roles.tsx): a role's line, and what starting as one sends.
 import { describe, expect, test } from "vitest";
 import type { Model, Role } from "../src/api/types.gen";
-import { startRequest } from "../src/create";
 import { setLang } from "../src/i18n";
 import { effortName, picked, roleLine, roleModel, roleStart } from "../src/roles";
 
@@ -9,7 +8,7 @@ const fish: Role = { id: "r1", name: "大肥鱼", agent: "dsh", model: "deepseek
 const started = picked(fish, { effort: "high" });
 const models: Model[] = [
   { value: "deepseek/pro", name: "Pro", default: true },
-  { value: "deepseek/flash", name: "Flash", effortNames: { ultra: "Ultra" } },
+  { value: "deepseek/flash", name: "Flash", effortNames: { future: "Future" } },
   { value: "alias", name: "Alias", resolved: "deepseek/full-id" },
 ] as Model[];
 
@@ -33,8 +32,8 @@ describe("a role's line", () => {
     expect(roleLine({ id: "r2", name: "x", agent: "claude" })).toBe("Claude");
   });
   test("an effort the page has no name for: the model's name of it, else as it is", () => {
-    expect(effortName("ultra", models[1])).toBe("Ultra");
-    expect(effortName("ultra")).toBe("ultra");
+    expect(effortName("future", models[1])).toBe("Future");
+    expect(effortName("future")).toBe("future");
   });
 });
 
@@ -51,12 +50,5 @@ describe("starting as a role", () => {
   });
   test("the role as it would start", () => {
     expect(picked(fish, { effort: "max", model: "" })).toMatchObject({ model: "deepseek/flash", effort: "max" });
-  });
-  test("a new session's request: the role's agent in the folder, with the role", () => {
-    expect(startRequest("dsh", "/home/x", 3, undefined, ["ir_web/*"], roleStart(fish, { effort: "low" }))).toEqual({ agent: "dsh", cwd: "/home/x", workspace: 3, members: { people: ["ir_web/*"] }, role: "r1", effort: "low" });
-    expect(startRequest("dsh", "C:\\Code", undefined, "m1", undefined, roleStart(fish))).toEqual({ agent: "dsh", cwd: "C:\\Code", machine: "m1", role: "r1" });
-  });
-  test("with no role, as before", () => {
-    expect(startRequest("claude", "~")).toEqual({ agent: "claude", cwd: "~" });
   });
 });

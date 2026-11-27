@@ -11,7 +11,6 @@ import (
 
 	"github.com/kumoSleeping/iridium/internal/api"
 	"github.com/kumoSleeping/iridium/internal/config"
-	"github.com/kumoSleeping/iridium/internal/push"
 )
 
 // The settings page's fields: read, changed in part, saved to the config file beside what the
@@ -28,38 +27,28 @@ func TestSettings(t *testing.T) {
 			t.Fatal(err)
 		}
 		s.ConfigPath = path
-		var err error
-		s.Push, err = push.Open(push.Options{StateDir: cfg.StateDir, Store: s.st, Manager: s.m, Logf: t.Logf, Save: func(on bool) error {
-			return s.SaveConfig(func(c *config.Config) { c.Push = on })
-		}})
-		if err != nil {
-			t.Fatal(err)
-		}
 	})
 	var st api.Settings
 	l.want(200, "web", "GET", "/v1/internal/settings", nil, &st)
-	if st.IdleReap != "1h" || !st.CrashResume || !st.QuotaResume || st.Push || len(st.QuotaHidden) != 0 || st.Modes == nil || st.Lang != "" || !st.AutoUpdate {
+	if st.IdleReap != "1h" || len(st.QuotaHidden) != 0 || st.Modes == nil || st.Lang != "" {
 		t.Fatalf("defaults: %+v", st)
 	}
 
-	off, reap, hidden := false, "15m", []string{"claude:me@example.com:weekly:", "claude:me@example.com:weekly:"}
+	reap, hidden := "15m", []string{"claude:me@example.com:weekly:", "claude:me@example.com:weekly:"}
 	fr, zh := "fr", "zh"
 	l.want(400, "web", "PUT", "/v1/internal/settings", api.SettingsPatch{Lang: &fr}, nil)
-	l.want(200, "web", "PUT", "/v1/internal/settings", api.SettingsPatch{IdleReap: &reap, CrashResume: &off, QuotaHidden: &hidden, Modes: map[string]string{"claude": "plan", "codex": "untrusted"}, Lang: &zh, AutoUpdate: &off}, &st)
-	if st.AutoUpdate {
-		t.Fatalf("automatic updates still on: %+v", st)
-	}
-	if st.IdleReap != "15m" || st.CrashResume || !st.QuotaResume || len(st.QuotaHidden) != 1 || st.Modes["claude"] != "plan" || st.Modes["codex"] != "untrusted" || st.Lang != "zh" {
+	l.want(200, "web", "PUT", "/v1/internal/settings", api.SettingsPatch{IdleReap: &reap, QuotaHidden: &hidden, Modes: map[string]string{"claude": "plan", "codex": "untrusted"}, Lang: &zh}, &st)
+	if st.IdleReap != "15m" || len(st.QuotaHidden) != 1 || st.Modes["claude"] != "plan" || st.Modes["codex"] != "untrusted" || st.Lang != "zh" {
 		t.Fatalf("after the change: %+v", st)
 	}
-	if tu := l.s.m.Tuned(); tu.IdleReap != 15*time.Minute || tu.CrashResume || !tu.QuotaResume || tu.Modes["claude"] != "plan" {
+	if tu := l.s.m.Tuned(); tu.IdleReap != 15*time.Minute || tu.Modes["claude"] != "plan" {
 		t.Fatalf("not in force: %+v", tu)
 	}
 	saved, err := config.Load(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if saved.IdleReap.D() != 15*time.Minute || saved.CrashResume || saved.Modes["codex"] != "untrusted" || len(saved.QuotaHidden) != 1 || !slices.Equal(saved.FolderRoots, []string{l.work}) || saved.Lang != "zh" || !saved.Update.Manual {
+	if saved.IdleReap.D() != 15*time.Minute || saved.Modes["codex"] != "untrusted" || len(saved.QuotaHidden) != 1 || !slices.Equal(saved.FolderRoots, []string{l.work}) || saved.Lang != "zh" {
 		t.Fatalf("file: %+v", saved)
 	}
 
@@ -72,27 +61,15 @@ func TestSettings(t *testing.T) {
 		t.Errorf("new session's mode %q, want plan", ss.Mode)
 	}
 	// Its agent is told the user's language.
-	if b, err := os.ReadFile(filepath.Join(state, "hold", created, "system-prompt.md")); err != nil || !strings.Contains(string(b), "web settings: Chinese.") {
+	if b, err := os.ReadFile(filepath.Join(state, "hold", created, "system-prompt.md")); err != nil || !strings.Contains(string(b), "- User's language: Chinese\n") {
 		t.Errorf("system prompt %q %v", b, err)
 	}
 
-	// A mode back to the agent's own; push on through the settings is push on.
-	on := true
+	// A mode back to the agent's own.
 	st = api.Settings{} // decoding into a map adds to it
-	l.want(200, "web", "PUT", "/v1/internal/settings", api.SettingsPatch{Modes: map[string]string{"claude": ""}, Push: &on}, &st)
-	if _, ok := st.Modes["claude"]; ok || !st.Push || !l.s.Push.Enabled() {
-		t.Fatalf("mode cleared, push on: %+v", st)
-	}
-	var ps api.PushState
-	l.want(200, "web", "GET", "/v1/internal/web/push", nil, &ps)
-	if !ps.Enabled {
-		t.Fatal("GET /v1/internal/push says off")
-	}
-	// PUT /v1/internal/push is the same switch.
-	l.want(200, "web", "PUT", "/v1/internal/web/push", api.PushSwitch{Enabled: false}, nil)
-	l.want(200, "web", "GET", "/v1/internal/settings", nil, &st)
-	if saved, _ = config.Load(path); st.Push || saved.Push {
-		t.Fatalf("push off: settings %v, file %v", st.Push, saved.Push)
+	l.want(200, "web", "PUT", "/v1/internal/settings", api.SettingsPatch{Modes: map[string]string{"claude": ""}}, &st)
+	if _, ok := st.Modes["claude"]; ok {
+		t.Fatalf("mode cleared: %+v", st)
 	}
 
 	// Refused: a bad duration, a mode the agent has not, an agent there is none of.
@@ -108,20 +85,20 @@ func TestSettings(t *testing.T) {
 
 	// A channel sees none of it; an agent's ir reads but does not change it.
 	var tok api.Token
-	tok = l.newApp("bot", false)
+	tok = l.newApp("bot")
 	l.want(403, tok.Token, "GET", "/v1/internal/settings", nil, nil)
-	l.want(403, tok.Token, "PUT", "/v1/internal/settings", api.SettingsPatch{CrashResume: &on}, nil)
+	l.want(403, tok.Token, "PUT", "/v1/internal/settings", api.SettingsPatch{IdleReap: &never}, nil)
 	l.want(200, "agent", "GET", "/v1/internal/settings", nil, nil)
-	l.want(403, "agent", "PUT", "/v1/internal/settings", api.SettingsPatch{CrashResume: &on}, nil)
+	l.want(403, "agent", "PUT", "/v1/internal/settings", api.SettingsPatch{IdleReap: &never}, nil)
 
 	// Changes at once from many pages, and the daemon reading them meanwhile: no race.
 	var wg sync.WaitGroup
+	reaps := []string{"1h", "15m"}
 	for i := range 8 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			v := i%2 == 0
-			l.do("web", "PUT", "/v1/internal/settings", api.SettingsPatch{QuotaResume: &v}, nil)
+			l.do("web", "PUT", "/v1/internal/settings", api.SettingsPatch{IdleReap: &reaps[i%2]}, nil)
 			_ = l.s.m.Tuned()
 		}()
 	}

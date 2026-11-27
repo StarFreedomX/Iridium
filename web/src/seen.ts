@@ -2,8 +2,7 @@
 // what it is on drawn, seen or not: WebKit by its size, so a conversation gliding as one thing
 // took 1.3 GB more than at rest, each glide again, till the page was killed (kumo, 2026-11-23). So
 // nothing that may be taller than the screen a few times over is moved whole: what is seen of it
-// is, and what is not seen is not moved at all. For the conversation's glide (chat/stick.tsx)
-// and rows changing places (moves.ts).
+// is, and what is not seen is not moved at all. For rows changing places (moves.ts).
 
 /** What of box is seen between top and bottom (the viewport's px): its rows; of a row taller than
  *  tall, what is seen of its own rows, as far down as it is only a box around them. ordered: box's

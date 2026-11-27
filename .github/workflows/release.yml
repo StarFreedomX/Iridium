@@ -18,39 +18,7 @@ permissions:
 # minutes, and the Mac waited for it.
 jobs:
   check:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4 # the web's checks, and the node executor under test
-        with:
-          node-version: 24
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: false
-      # ci.yml's cache, from main; a tag's own would serve no later tag, so none is saved here.
-      - uses: actions/cache/restore@v4
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: go-${{ runner.os }}-${{ hashFiles('go.mod', 'go.sum') }}
-          restore-keys: go-${{ runner.os }}-
-      - name: web
-        working-directory: web
-        run: |
-          npm ci --no-audit --no-fund
-          npm run check
-      - name: go
-        run: |
-          scripts/check-types.sh
-          go vet ./...
-          GOOS=darwin GOARCH=arm64 go vet ./...
-          GOOS=windows GOARCH=amd64 go vet ./...
-          go test ./...
+    uses: ./.github/workflows/check.yml
 
   build:
     strategy:

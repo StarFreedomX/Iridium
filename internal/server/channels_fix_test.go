@@ -5,14 +5,17 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/kumoSleeping/iridium/internal/api"
 	"github.com/kumoSleeping/iridium/internal/channel"
+	"github.com/kumoSleeping/iridium/internal/deliver"
 	"github.com/kumoSleeping/iridium/internal/gate"
 	"github.com/kumoSleeping/iridium/internal/satori"
+	"github.com/kumoSleeping/iridium/internal/session"
 )
 
 // An agent woken in a channel acts for whoever woke it: its ir has that login's rights, not
@@ -28,7 +31,7 @@ func TestChannelWakeOrigin(t *testing.T) {
 	if o, ok := l.s.originOf(second); !ok || !o.Host() {
 		t.Fatalf("the second agent's turn before anyone woke it: %+v %v", o, ok)
 	}
-	bot := l.newApp("bot", true).Token
+	bot := l.newApp("bot").Token
 	l.want(200, "web", "PUT", "/v1/internal/channels/"+ch+"/people", api.People{People: []string{"*"}}, nil)
 	code, r := l.send(bot, ch, api.Send{Text: "@claude2 from the bot"})
 	if code != 200 {
@@ -84,26 +87,10 @@ func (l *live) noCalls(id string) {
 	}
 }
 
-// quotaOut waits until session id's agent is out of quota, Iridium waiting for it to come back:
-// what is sent to it meanwhile waits in its queue.
-func (l *live) quotaOut(id string) {
-	l.t.Helper()
-	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
-		var st api.SessionState
-		if l.do("web", "GET", "/v1/internal/sessions/"+id, nil, &st); st.QuotaUntil != 0 && st.Status != api.StatusRunning {
-			return
-		}
-		if time.Now().After(deadline) {
-			l.t.Fatalf("%s is not waiting for its quota", id)
-		}
-	}
-}
-
 // A call waits for the turn that takes its message. Sent while the agent is in a turn of its
 // own, the message joins that turn (kumo, 2026-11-19: nothing waits for a turn's end): the call
 // is answered by it, what the agent writes from then on said in the channel as it writes it.
-// Sent while the quota is out it waits in the queue: the turn that ended is not its answer, and
-// the call stays open until it is taken.
+// Refused for its quota, the agent is not waited for: the next message goes to it at once.
 func TestChannelCallWaitsForItsTurn(t *testing.T) {
 	t.Parallel()
 	l, ch, second := two(t)
@@ -119,32 +106,28 @@ func TestChannelCallWaitsForItsTurn(t *testing.T) {
 	l.noCalls(second)
 	l.idle(second)
 
-	if code, _ := l.send("web", second, api.Send{Text: "more of its own QUOTA LONG"}); code != 200 {
+	if code, _ := l.send("web", second, api.Send{Text: "more of its own QUOTA"}); code != 200 {
 		t.Fatalf("send to the second: %d", code)
 	}
-	l.quotaOut(second)
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		var st api.SessionState
+		if l.do("web", "GET", "/v1/internal/sessions/"+second, nil, &st); st.Status != api.StatusRunning && st.Last != nil && st.Last.Text == "You've hit your limit" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("not refused for its quota")
+		}
+	}
 	code, r = l.send("web", ch, api.Send{Text: "@claude2 once it is back"})
-	if code != 200 || !r.Queued {
+	if code != 200 || r.Queued {
 		t.Fatalf("a message for an agent out of quota: %d %+v", code, r)
 	}
-	var st api.SessionState
-	if l.want(200, "web", "GET", "/v1/internal/sessions/"+second, nil, &st); len(st.Queue) != 1 {
-		t.Fatalf("the queue: %+v", st.Queue)
-	}
-	l.s.calls.mu.Lock()
-	open := len(l.s.calls.load(second))
-	l.s.calls.mu.Unlock()
-	if open != 1 {
-		t.Errorf("%d calls open while the message waits", open)
-	}
+	l.waitSaid("web", ch, " @claude2 ", fmt.Sprintf("ok: #%d: @claude2 once it is back", r.Seq))
 	for _, m := range l.said("web", ch) {
 		if strings.Contains(m, "hit your limit") || strings.Contains(m, "more of its own") {
 			t.Errorf("another turn's reply said in the channel: %s", m)
 		}
 	}
-	// Taken (sent now, as the quota's return would): its turn's reply is the answer.
-	l.want(200, "web", "POST", "/v1/internal/sessions/"+second+"/queue/"+st.Queue[0].ID+"/steer", nil, nil)
-	l.waitSaid("web", ch, " @claude2 ", fmt.Sprintf("ok: #%d: @claude2 once it is back", r.Seq))
 	l.noCalls(second)
 }
 
@@ -159,9 +142,16 @@ func TestChannelAnswerAsWritten(t *testing.T) {
 		t.Fatalf("send: %d", code)
 	}
 	l.waitSaid("web", ch, " @claude2 ", "That is all of it.")
-	all, err := l.s.ch.Between(ch, r.Seq, 0, 200)
-	if err != nil {
-		t.Fatal(err)
+	// There as it is written; its turn's reply once the turn has ended.
+	var all []channel.Message
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(30 * time.Millisecond) {
+		var err error
+		if all, err = l.s.ch.Between(ch, r.Seq, 0, 200); err != nil {
+			t.Fatal(err)
+		}
+		if slices.ContainsFunc(all, func(m channel.Message) bool { return m.Author == "agent:"+second && m.D.Final }) || time.Now().After(deadline) {
+			break
+		}
 	}
 	var got []string
 	for _, m := range all {
@@ -256,8 +246,8 @@ func TestChannelRelayStopped(t *testing.T) {
 	// One line of agents: a person calls the second alone, into a turn of its own that runs,
 	// naming someone nobody is called yet; the channel's own agent takes that name meanwhile.
 	// The fake agents echo: the second's reply names the first, whose echo names the second...
-	at, helper := api.Recv{}, "helper"
-	l.want(200, "web", "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+ch, api.MemberPatch{Recv: &at}, nil)
+	at, helper := []api.Trigger{}, "helper"
+	l.want(200, "web", "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+ch, api.MemberPatch{On: &at}, nil)
 	if code, _ := l.send("web", second, api.Send{Text: "its own work WAIT"}); code != 200 {
 		t.Fatalf("send to the second: %d", code)
 	}
@@ -267,7 +257,7 @@ func TestChannelRelayStopped(t *testing.T) {
 		t.Fatalf("send: %d %+v", code, r)
 	}
 	l.want(200, "web", "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+ch, api.MemberPatch{Nick: &helper}, nil)
-	all := l.waitSaid("web", ch, "iridium", "未转交 #")
+	all := l.waitSaid("web", ch, "iridium", "已暂停 #")
 	time.Sleep(300 * time.Millisecond)
 	all = l.said("web", ch)
 	var stoppedAt string
@@ -275,8 +265,8 @@ func TestChannelRelayStopped(t *testing.T) {
 		if strings.Contains(m, "被叫起") {
 			t.Errorf("a reply that was said is told as none: %s", m)
 		}
-		if _, rest, ok := strings.Cut(m, "未转交 #"); ok {
-			stoppedAt, _, _ = strings.Cut(rest, "：")
+		if _, rest, ok := strings.Cut(m, "已暂停 #"); ok {
+			stoppedAt = strings.TrimSpace(rest)
 		}
 	}
 	// The message not passed on is there, said for the second agent (the fifth in the row).
@@ -289,6 +279,27 @@ func TestChannelRelayStopped(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("the reply not passed on (#%s) is not in the channel:\n%s", stoppedAt, strings.Join(all, "\n"))
+	}
+	// A person goes on (继续): said so, once; an agent may not.
+	var seq int64
+	fmt.Sscan(stoppedAt, &seq)
+	l.want(403, "agent-in:"+second, "POST", "/v1/internal/channels/"+ch+"/continue", api.Read{Seq: seq}, nil)
+	l.want(200, "web", "POST", "/v1/internal/channels/"+ch+"/continue", api.Read{Seq: seq}, nil)
+	l.waitSaid("web", ch, "iridium", fmt.Sprintf("已继续 #%d", seq))
+	l.want(409, "web", "POST", "/v1/internal/channels/"+ch+"/continue", api.Read{Seq: seq}, nil)
+}
+
+// An agent stops another agent's turn in a channel they are both in, naming it by its nick.
+func TestInterruptPeerByNick(t *testing.T) {
+	t.Parallel()
+	l, ch, second := two(t)
+	l.want(200, "agent-in:"+second, "POST", "/v1/internal/sessions/claude/interrupt", nil, nil)
+	l.want(200, "agent-in:"+second, "POST", "/v1/internal/sessions/@claude/interrupt", nil, nil)
+	if id := l.s.peerByNick(caller{session: second}, "claude"); id != ch {
+		t.Errorf("claude is %q, not the channel's agent %s", id, ch)
+	}
+	if id := l.s.peerByNick(caller{session: second}, "nobody"); id != "" {
+		t.Errorf("nobody is %q", id)
 	}
 }
 
@@ -311,6 +322,19 @@ func TestChainsByChannel(t *testing.T) {
 	next := c.person("ch1", "you")
 	if got := c.of("ch1", "a"); got.hop != 0 || got.origin != "you" || got.epoch != next.epoch {
 		t.Errorf("after a person spoke: %+v", got)
+	}
+	// Turns of words alone count as idle, one with a tool called begins that anew.
+	from := deliver.From{Session: "a"}
+	if got := c.reach(from, link{hop: 2, idle: 2}); got.hop != 3 || got.idle != 3 {
+		t.Errorf("words alone: %+v", got)
+	}
+	c.saw(session.Notice{Kind: session.NoticeTool, Session: "a"})
+	if got := c.reach(from, link{hop: 2, idle: 2}); got.hop != 3 || got.idle != 0 {
+		t.Errorf("a tool called: %+v", got)
+	}
+	c.saw(session.Notice{Kind: session.NoticeTurnStart, Session: "a"})
+	if got := c.reach(from, link{hop: 2, idle: 2}); got.idle != 3 {
+		t.Errorf("a new turn, no tool yet: %+v", got)
 	}
 	// What was on its way as the person spoke belongs to the run that is over.
 	c.pass("ch1", "a", link{epoch: lk.epoch, hop: 4})
@@ -343,8 +367,8 @@ func TestChannelSeenOnlyWhatWasGiven(t *testing.T) {
 
 	// Its turn runs; it is called into it; someone speaks meanwhile (to nobody: the channel's
 	// own agent takes only what names it); its reply is said for it.
-	at := api.Recv{}
-	l.want(200, "web", "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+ch, api.MemberPatch{Recv: &at}, nil)
+	at := []api.Trigger{}
+	l.want(200, "web", "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+ch, api.MemberPatch{On: &at}, nil)
 	if code, _ := l.send("web", second, api.Send{Text: "its own work WAIT"}); code != 200 {
 		t.Fatalf("send to the second: %d", code)
 	}
@@ -353,14 +377,20 @@ func TestChannelSeenOnlyWhatWasGiven(t *testing.T) {
 	if code != 200 || call.Queued {
 		t.Fatalf("a message joining its turn: %d %+v", code, call)
 	}
-	code, between := l.send("web", ch, api.Send{Text: "said meanwhile"})
-	if code != 200 {
-		t.Fatalf("send meanwhile: %d", code)
+	// Another agent speaks meanwhile (without @ing claude2, so neither woken nor overheard).
+	var betweenMsgs []satori.Message
+	l.wantSat(200, "agent-in:"+ch, "message.create", map[string]any{"channel_id": ch, "content": "said meanwhile"}, &betweenMsgs)
+	var betweenSeq int64
+	if len(betweenMsgs) > 0 {
+		betweenSeq, _ = strconv.ParseInt(betweenMsgs[0].ID, 10, 64)
+	}
+	if betweenSeq == 0 {
+		t.Fatalf("send meanwhile: %+v", betweenMsgs)
 	}
 	l.waitSaid("web", ch, " @claude2 ", fmt.Sprintf("ok: #%d: @claude2 join in", call.Seq))
 	l.noCalls(second)
-	if seen := l.seenOf(ch, second); seen >= between.Seq {
-		t.Errorf("read to %d by the reply said for it; said meanwhile is %d, never given", seen, between.Seq)
+	if seen := l.seenOf(ch, second); seen >= betweenSeq {
+		t.Errorf("read to %d by the reply said for it; said meanwhile is %d, never given", seen, betweenSeq)
 	}
 	code, next := l.send("web", ch, api.Send{Text: "@claude2 once more"})
 	if code != 200 {
@@ -374,12 +404,13 @@ func TestChannelRecvAfterRefusal(t *testing.T) {
 	t.Parallel()
 	l, ch, second := two(t)
 	l.want(200, "web", "PUT", "/v1/internal/channels/"+ch+"/people", api.People{People: []string{"*"}}, nil)
-	every := api.Recv{"*"}
-	l.want(200, "agent-in:"+second, "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+second, api.MemberPatch{Recv: &every}, nil)
-	// A Bot with no right to Claude names it: refused.
-	bot := l.newApp("bot", false).Token
+	every := onFrom("*")
+	l.want(200, "agent-in:"+second, "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+second, api.MemberPatch{On: &every}, nil)
+	// A Bot whose perms leave Claude out names it: refused.
+	bot := l.newApp("bot").Token
+	l.want(200, "socket", "PUT", "/v1/internal/apps/bot/perms", api.Perms{Agents: []string{"codex"}, Scope: []string{"*"}}, nil)
 	if code, _ := l.send(bot, ch, api.Send{Text: "@claude for you"}); code != 403 {
-		t.Fatalf("a Bot without Claude names it: %d", code)
+		t.Fatalf("a Bot without the right to Claude names it: %d", code)
 	}
 	code, r := l.send("web", ch, api.Send{Text: "the next one said"})
 	if code != 200 {
@@ -544,7 +575,7 @@ func TestChannelJoinFullAndRolledBack(t *testing.T) {
 	}
 	// A session there is that does not join (what it would receive is no such thing): the nick
 	// asked for it is not set.
-	l.want(400, "web", "POST", "/v1/internal/channels/"+other+"/members", api.NewMember{Session: ch, Nick: "newname", Recv: api.Recv{"bogus"}}, nil)
+	l.want(422, "web", "POST", "/v1/internal/channels/"+other+"/members", api.NewMember{Session: ch, Nick: "newname", On: onFrom("bogus")}, nil)
 	other = ch
 	if nick := l.s.ch.Nick(other); nick == "newname" {
 		t.Errorf("the nick of one that did not join: %q", nick)
@@ -572,53 +603,12 @@ func TestChannelSlashWords(t *testing.T) {
 	}
 }
 
-// A message of a channel of several agents that waits in the queue of the agent it woke is
-// changed and taken back there, though the agent has it under an input of its own.
-func TestChannelQueuedEdited(t *testing.T) {
-	t.Parallel()
-	l, ch, second := two(t)
-	queue := func() []api.Queued {
-		var st api.SessionState
-		l.do("web", "GET", "/v1/internal/sessions/"+second, nil, &st)
-		return st.Queue
-	}
-	// Only what is sent while the quota is out waits (a command aside): words for an agent in a
-	// turn join it.
-	if code, _ := l.send("web", second, api.Send{Text: "its own work QUOTA LONG"}); code != 200 {
-		t.Fatalf("send to the second: %d", code)
-	}
-	l.quotaOut(second)
-	code, r := l.send("web", ch, api.Send{Text: "@claude2 the first words"})
-	if code != 200 || !r.Queued {
-		t.Fatalf("a message for an agent out of quota: %d %+v", code, r)
-	}
-	before := l.seenOf(ch, second)
-	l.wantSat(200, "web", "message.update", map[string]any{"channel_id": ch, "message_id": fmt.Sprint(r.Seq), "content": "@claude2 other words"}, nil)
-	if q := queue(); len(q) != 1 || !strings.HasPrefix(q[0].Text, fmt.Sprintf("#%d: @claude2 other words\n\n<channel-context>", r.Seq)) {
-		t.Fatalf("the queue after the change: %+v", q)
-	}
-	if all := l.said("web", ch); !strings.HasSuffix(all[len(all)-1], "@claude2 other words") {
-		t.Errorf("the channel after the change: %s", all[len(all)-1])
-	}
-	// By the input it was sent as, too; taken back, the agent was never given it.
-	l.wantSat(200, "web", "message.delete", map[string]any{"channel_id": ch, "message_id": r.Input}, nil)
-	if q := queue(); len(q) != 0 {
-		t.Fatalf("the queue after it was taken back: %+v", q)
-	}
-	l.noCalls(second)
-	if seen := l.seenOf(ch, second); seen >= before || seen >= r.Seq {
-		t.Errorf("its place after the message was taken back: %d (%d with it)", seen, before)
-	}
-	l.wantSat(422, "web", "message.delete", map[string]any{"channel_id": ch, "message_id": fmt.Sprint(r.Seq)}, nil)
-	l.want(200, "web", "POST", "/v1/internal/sessions/"+second+"/interrupt", nil, nil)
-}
-
 // Two people's channel is seen by exactly the two, whatever folders anyone may see; the same
 // two asking at once get the same one.
 func TestDirectSeenByItsTwo(t *testing.T) {
 	t.Parallel()
 	l := start(t)
-	bot := l.newApp("bot", true)
+	bot := l.newApp("bot")
 	// The Bot sees one folder only: not the home folder the channel is listed in.
 	scope, _ := json.Marshal(api.Perms{Agents: []string{"*"}, Scope: []string{"local:" + l.work}})
 	if err := l.s.st.SetAppPerms(bot.App.ID, scope); err != nil {
@@ -662,7 +652,7 @@ func TestDirectSeenByItsTwo(t *testing.T) {
 		t.Errorf("listed to its two: the Bot %v, the host %v", listed(bot.Token), listed("socket"))
 	}
 	// Anyone else, though it sees every folder: not there.
-	other := l.newApp("other", true).Token
+	other := l.newApp("other").Token
 	if code := l.asLogin(other, "", "GET", "/v1/internal/channels/"+dm+"/members", nil, nil); code != 422 {
 		t.Errorf("one who is not of the two reads its members: %d", code)
 	}
@@ -776,8 +766,9 @@ func TestChannelMemberRights(t *testing.T) {
 		l.want(403, as, "DELETE", "/v1/internal/channels/"+ch+"/members/agent:"+second, nil, nil)
 		l.want(200, as, "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+second, api.MemberPatch{Nick: &nick}, nil)
 	}
-	// A Bot with no right to Claude is one of the people, and may not rename a Claude session.
-	bot := l.newApp("bot", false).Token
+	// A Bot whose perms leave Claude out is one of the people, and may not rename a Claude session.
+	bot := l.newApp("bot").Token
+	l.want(200, "socket", "PUT", "/v1/internal/apps/bot/perms", api.Perms{Agents: []string{"codex"}, Scope: []string{"*"}}, nil)
 	other := "bots"
 	if code := l.asLogin(bot, "", "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+second, api.MemberPatch{Nick: &other}, nil); code != 403 {
 		t.Errorf("a nick set by one with no right to the session: %d", code)
@@ -793,22 +784,45 @@ func TestChannelMemberRights(t *testing.T) {
 	}
 }
 
-// A session that is its agent's alone is read to its end by that agent, whatever the agent
-// was set to receive: everything said there is sent to it.
+// A session that is its agent's alone: what wakes it is as among several (its subscriptions);
+// what did not is given with what next does, and it has read to the end then.
 func TestReadsOfOneAgent(t *testing.T) {
 	t.Parallel()
 	l := start(t)
 	ch := l.create(200, "web", api.NewSession{Agent: api.AgentClaude, Cwd: l.work, Text: "first"})
 	l.waitReply("web", ch, "ok: first")
-	at := api.Recv{}
-	l.want(200, "web", "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+ch, api.MemberPatch{Recv: &at}, nil)
+	at := []api.Trigger{}
+	l.want(200, "web", "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+ch, api.MemberPatch{On: &at}, nil)
 	if code, _ := l.send("web", ch, api.Send{Text: "more"}); code != 200 {
 		t.Fatalf("send: %d", code)
 	}
-	l.waitReply("web", ch, "ok: more")
+	// Only @ now (kumo, 2026-11-23: a set of one agent's was not minded): held, given with what
+	// names it next.
+	l.send("web", ch, api.Send{Text: "@claude and"})
+	l.waitSaid("web", ch, "ok: Said here since you were last woken", ": more", "Now:\n@claude and")
 	var reads api.ChannelReads
 	l.want(200, "web", "GET", "/v1/internal/channels/"+ch+"/reads", nil, &reads)
 	if len(reads.Readers) != 1 || reads.Readers[0].Seq != reads.End || reads.End < 4 {
 		t.Errorf("reads: %+v", reads)
+	}
+}
+
+// A page at the host (the local page, a tool through the socket) is Iridium itself: not among
+// who is looking at a channel, as it is not among its readers; a person on ir_web is.
+func TestViewersNotHost(t *testing.T) {
+	t.Parallel()
+	l := start(t)
+	done := l.s.viewing(caller{Identity: localIdentity}, "ch")
+	if v := l.s.viewersOf("ch"); len(v) != 0 {
+		t.Errorf("the host looking: %+v", v)
+	}
+	done()
+	web := l.s.viewing(caller{Identity: gate.Identity{App: gate.WebApp, Login: "u1", Name: "u1"}}, "ch")
+	if v := l.s.viewersOf("ch"); len(v) != 1 || v[0].Member != "ir_web/u1" && !strings.HasSuffix(v[0].Member, "/u1") {
+		t.Errorf("a person looking: %+v", v)
+	}
+	web()
+	if v := l.s.viewersOf("ch"); len(v) != 0 {
+		t.Errorf("gone: %+v", v)
 	}
 }

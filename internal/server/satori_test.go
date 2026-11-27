@@ -107,7 +107,7 @@ func TestSatori(t *testing.T) {
 		empty := t.TempDir()
 		s.Discover = discover.New(discover.Options{ClaudeDir: cfg.ClaudeHome, CodexHome: empty, PiSessions: empty, DshHome: empty, Store: s.st, Hub: s.hub, Procs: discover.ProcFS{Root: empty}, Logf: t.Logf})
 	})
-	app := l.newApp("bridge", true)
+	app := l.newApp("bridge")
 
 	// A login the first time: login_pending, as anywhere; allowed, it speaks.
 	if code, e := l.satoriCall(app, "alice", "login.get", nil, nil); code != 403 || e.Code != "login_pending" {
@@ -157,7 +157,7 @@ func TestSatori(t *testing.T) {
 		t.Errorf("no API: %d %+v", code, e)
 	}
 
-	created := l.create(200, "socket", api.NewSession{Agent: "claude", Cwd: l.work, Members: &api.ChannelSetup{People: []string{"*"}}})
+	created := l.create(200, "socket", api.NewSession{Agent: "claude", Cwd: l.work, Members: &api.ChannelSetup{People: []string{"*"}, On: onFrom("*")}})
 	id := created
 	if code, e := l.satoriCall(app, "alice", "channel.get", map[string]string{"channel_id": "nope"}, nil); code != 422 || e.Code != "no_such_session" {
 		t.Errorf("no session: %d %+v", code, e)
@@ -236,13 +236,24 @@ func TestSatori(t *testing.T) {
 	if code, e := l.satoriCall(app, "alice", "internal/button", map[string]string{"id": ask.Message.ID + "#allow"}, nil); code != 200 {
 		t.Fatalf("press: %d %+v", code, e)
 	}
-	w.event(func(ev satori.Event) bool {
-		return ev.Type == "interaction/button" && ev.Button.ID == ask.Message.ID+"#allow"
-	})
-	w.event(func(ev satori.Event) bool { return ev.Type == "message-updated" && ev.Message.ID == ask.Message.ID })
-	w.event(func(ev satori.Event) bool {
-		return ev.XData != nil && ev.XData.Kind == "reply" && ev.Message.Content == "ok: please ASK"
-	})
+	var gotBtn, gotUpd, gotReply bool
+	for !(gotBtn && gotUpd && gotReply) {
+		w.event(func(ev satori.Event) bool {
+			if ev.Type == "interaction/button" && ev.Button != nil && ev.Button.ID == ask.Message.ID+"#allow" {
+				gotBtn = true
+				return true
+			}
+			if ev.Type == "message-updated" && ev.Message != nil && ev.Message.ID == ask.Message.ID {
+				gotUpd = true
+				return true
+			}
+			if ev.XData != nil && ev.XData.Kind == "reply" && ev.Message != nil && ev.Message.Content == "ok: please ASK" {
+				gotReply = true
+				return true
+			}
+			return false
+		})
+	}
 
 	// Two questions, one of many choices: the presses add up, submit answers.
 	l.satoriCall(app, "alice", "message.create", map[string]string{"channel_id": id, "content": "QUESTION"}, nil)

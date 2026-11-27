@@ -85,7 +85,12 @@ func (s *Service) thumbFile(path string, side int) (string, string, error) {
 	if max(cfg.Width, cfg.Height) <= side && st.Size() <= thumbAsIs {
 		return path, "image/" + format, nil
 	}
-	sum := sha256.Sum256([]byte(fmt.Sprintf("%s\x00%d\x00%d\x00%d", path, st.Size(), st.ModTime().UnixNano(), side)))
+	// A WebP's kept ones made before its tones were read aright (webpTones) are not used again.
+	made := ""
+	if format == "webp" {
+		made = "\x00tones"
+	}
+	sum := sha256.Sum256([]byte(fmt.Sprintf("%s\x00%d\x00%d\x00%d%s", path, st.Size(), st.ModTime().UnixNano(), side, made)))
 	dir := filepath.Join(s.o.State, "thumbs")
 	base := filepath.Join(dir, hex.EncodeToString(sum[:16]))
 	for _, ext := range []string{".jpg", ".png"} {
@@ -143,6 +148,7 @@ func scaled(data []byte, format string, side int) (*image.RGBA, error) {
 	if err != nil {
 		return nil, ErrNotImage
 	}
+	src = webpTones(src, format)
 	b := src.Bounds()
 	w, h := b.Dx(), b.Dy()
 	if l := max(w, h); l > side {
@@ -299,4 +305,52 @@ func hexToBase64(h string) (string, error) {
 		return "", err
 	}
 	return base64.StdEncoding.EncodeToString(b), nil
+}
+
+// webpTones gives a lossy WebP its own tones: its luma and chroma are of the narrow range (16 to
+// 235, 16 to 240; BT.601), and the decoder hands them over as an image.YCbCr, which Go reads as
+// of the whole range: white came out 235, black 16, a screenshot greyer than it is (kumo,
+// 2026-11-25). Any other image is given back as it is.
+func webpTones(img image.Image, format string) image.Image {
+	if format != "webp" {
+		return img
+	}
+	var y *image.YCbCr
+	var alpha []uint8
+	var astride int
+	switch v := img.(type) {
+	case *image.YCbCr:
+		y = v
+	case *image.NYCbCrA:
+		y, alpha, astride = &v.YCbCr, v.A, v.AStride
+	default:
+		return img
+	}
+	b := y.Rect
+	out := image.NewNRGBA(b)
+	clamp := func(v int32) uint8 {
+		if v < 0 {
+			return 0
+		}
+		if v > 255 {
+			return 255
+		}
+		return uint8(v)
+	}
+	for py := b.Min.Y; py < b.Max.Y; py++ {
+		for px := b.Min.X; px < b.Max.X; px++ {
+			yy := (int32(y.Y[y.YOffset(px, py)]) - 16) * 76309
+			ci := y.COffset(px, py)
+			cb, cr := int32(y.Cb[ci])-128, int32(y.Cr[ci])-128
+			o := out.PixOffset(px, py)
+			out.Pix[o] = clamp((yy + 104597*cr + 1<<15) >> 16)
+			out.Pix[o+1] = clamp((yy - 25675*cb - 53279*cr + 1<<15) >> 16)
+			out.Pix[o+2] = clamp((yy + 132201*cb + 1<<15) >> 16)
+			out.Pix[o+3] = 255
+			if alpha != nil {
+				out.Pix[o+3] = alpha[(py-b.Min.Y)*astride+(px-b.Min.X)]
+			}
+		}
+	}
+	return out
 }

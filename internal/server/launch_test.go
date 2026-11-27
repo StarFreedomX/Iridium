@@ -40,7 +40,7 @@ func TestLaunchJoinsChannel(t *testing.T) {
 	}
 	var ms api.ChannelMembers
 	l.want(200, "web", "GET", "/v1/internal/channels/"+parent+"/members", nil, &ms)
-	if i := slices.IndexFunc(ms.Members, func(m api.ChannelMember) bool { return m.Session == child }); i < 0 || len(ms.Members[i].Recv) != 0 || ms.Members[i].Nick == "" {
+	if i := slices.IndexFunc(ms.Members, func(m api.ChannelMember) bool { return m.Session == child }); i < 0 || len(ms.Members[i].On) != 0 || ms.Members[i].Nick == "" {
 		t.Errorf("the launched one as a member: %+v", ms.Members)
 	}
 	l.waitSaid("web", parent, "加入了频道")
@@ -106,7 +106,7 @@ func TestAskInEveryChannel(t *testing.T) {
 	l.want(200, "web", "PUT", "/v1/internal/channels/"+room+"/people", api.People{People: []string{"*"}}, nil)
 
 	// An app with no right to Claude: it cannot use the agent's session.
-	bot := l.newApp("bot", false)
+	bot := l.newApp("bot")
 	var me satori.Meta
 	l.sat(bot.Token, "meta", nil, &me) // its login
 	w := l.satoriDial(nil)

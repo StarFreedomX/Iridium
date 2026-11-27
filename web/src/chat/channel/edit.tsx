@@ -7,21 +7,25 @@
 // changed. The face itself changes the face (docs/前端设计规范.md "点头像就是换头像"): a picture
 // chosen, cropped round as this panel's own avatar is (profile.tsx Crop). Yours (a person's):
 // SelfEdit, this panel's own profile (profile.tsx), in the same frame.
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "../../api/query";
 import { ChevronLeft, LoaderCircle, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api } from "../../api/client";
-import { IntroMax, type Agent, type Profile, type ProfilePatch } from "../../api/types.gen";
-import { asDataURL, BannerThumb, FacePick, Field } from "../../facepick";
+import { type Agent, type Profile, type ProfilePatch } from "../../api/types.gen";
+import { asDataURL, FacePick, Field } from "../../facepick";
+import { FaceGlow } from "../../glow";
 import { PersonaEditor, PersonaRow } from "../../persona";
 import { t, useLang } from "../../i18n";
-import { AvatarCrop, Crop, Profile as Own, ProfileMore } from "../../profile";
+import { AvatarCrop, Crop, Profile as Own } from "../../profile";
 import { openChat } from "../../route";
 import { useCarried, useList } from "../../store";
 import { errText, toast } from "../../toast";
 import { agentName, cn, FaceChangeOver, IconKey, Tip } from "../../ui";
 import type { Editing } from "./editing";
+import { OnSection } from "./onedit";
 import { Face } from "./face";
+import { memoryQ, profileQ } from "./gate";
 import { memberError } from "./key";
 import { validNick } from "./lib";
 
@@ -61,8 +65,10 @@ export function EditBody({ editing, back, done }: { editing: Editing; back?: () 
   useLang();
   const { channel, agent } = editing;
   const qc = useQueryClient();
-  const key = ["profile", channel, agent ?? ""];
-  const q = useQuery({ queryKey: key, queryFn: () => (agent ? api.memberCard(`agent:${agent}`).then((c): Profile => c) : (api.channelProfile(channel) as unknown as Promise<Profile>)), staleTime: 0, retry: false });
+  const pq = profileQ(channel, agent);
+  const key = pq.queryKey;
+  // An agent's: its card, which its face opened, there from the first frame (gate.ts prefetchEdit).
+  const q = useQuery({ ...pq, staleTime: 0, initialData: agent ? () => qc.getQueryData<Profile>(["card", `agent:${agent}`]) : undefined, initialDataUpdatedAt: agent ? () => qc.getQueryState(["card", `agent:${agent}`])?.dataUpdatedAt : undefined });
   useAgain("cards", key);
   const p = q.data;
   const row = useList()?.find((x) => x.id === (agent ?? channel));
@@ -76,10 +82,8 @@ export function EditBody({ editing, back, done }: { editing: Editing; back?: () 
     void qc.invalidateQueries({ queryKey: ["members", channel] });
     void qc.invalidateQueries({ queryKey: ["card"] });
   };
-  // A picture chosen for the face, being cropped (in the popover, as a page of it); one for the
-  // background, its strip being chosen, the same way.
+  // A picture chosen for the face, being cropped (in the popover, as a page of it).
   const [picture, setPicture] = useState<string | null>(null);
-  const [banner, setBanner] = useState<string | null>(null);
   // Its persona open whole, as a page of the popover.
   const [persona, setPersona] = useState(false);
   const file = useRef<HTMLInputElement>(null);
@@ -97,24 +101,6 @@ export function EditBody({ editing, back, done }: { editing: Editing; back?: () 
     return (
       <div className="g-slide">
         <Crop src={picture} onCancel={() => setPicture(null)} onDone={cropped} />
-      </div>
-    );
-  if (banner)
-    return (
-      <div className="g-slide">
-        <Crop
-          banner
-          src={banner}
-          onCancel={() => setBanner(null)}
-          onDone={(b) =>
-            void asDataURL(b)
-              .then((v) => save({ background: v }))
-              .then(
-                () => setBanner(null),
-                (e) => toast(t("profile.background"), { error: true, description: memberError(e) }),
-              )
-          }
-        />
       </div>
     );
   if (persona && agent && p)
@@ -144,10 +130,14 @@ export function EditBody({ editing, back, done }: { editing: Editing; back?: () 
         </div>
       ) : (
         <>
-          {/* As its card shows it: the background, the face on its lower edge; the face is the
-              key that changes it. */}
+          {/* As its card shows it: the banner its face's colours, the face on its lower edge; the
+              face is the key that changes it. */}
           <div className="relative mb-9 h-20 rounded-lg bg-fill-2">
-            {p.background && <img key={p.background} src={p.background} alt="" draggable={false} className="g-fade absolute inset-0 size-full rounded-lg object-cover" />}
+            <span className="absolute inset-0 overflow-hidden rounded-lg">
+              <FaceGlow>
+                <Face id={face} agent={kind} size={56} logo={30} channel={!agent} />
+              </FaceGlow>
+            </span>
             <Tip label={t("profile.avatarChange")}>
               <button type="button" aria-label={t("profile.avatarChange")} onClick={() => file.current?.click()} className="group g-press absolute -bottom-7 left-3.5 grid size-[62px] place-items-center rounded-full bg-paper">
                 <span className="relative grid size-14 place-items-center overflow-hidden rounded-full bg-fill">
@@ -165,7 +155,6 @@ export function EditBody({ editing, back, done }: { editing: Editing; back?: () 
             save={(v) => save(agent ? { nick: v } : { name: v.trim() })}
             explain={memberError}
           />
-          <Field label={t("profile.intro")} value={p.intro ?? ""} max={IntroMax} multi count save={(v) => save({ intro: v })} explain={memberError} />
           {agent && <PersonaRow value={p.persona} open={() => setPersona(true)} />}
           {/* The face's other ways (an emoji, a colour, none); its picture cropped as the face's. */}
           <FacePick
@@ -178,8 +167,8 @@ export function EditBody({ editing, back, done }: { editing: Editing; back?: () 
             set={(v) => save({ avatar: v })}
             upload={chosen}
           />
-          <FacePick label={t("profile.background")} preview={<BannerThumb src={p.background} />} set={(v) => save({ background: v })} upload={(f) => setBanner(URL.createObjectURL(f))} />
           {session && <RoleRow session={session} role={p.role} name={name || agentName(kind)} again={() => void qc.invalidateQueries({ queryKey: key })} channel={channel} />}
+          {session && <OnSection channel={channel} session={session} />}
           {session && <Memories session={session} done={done} />}
         </>
       )}
@@ -188,7 +177,7 @@ export function EditBody({ editing, back, done }: { editing: Editing; back?: () 
 }
 
 /** 编辑资料 of your own card (a person's): this panel's own profile (profile.tsx: the face a key
- *  that changes it, cropped; the name; the intro, the background), in the same frame. */
+ *  that changes it, cropped; the name), in the same frame. */
 export function SelfEdit({ back }: { back?: () => void }) {
   useLang();
   const [picture, setPicture] = useState<string | null>(null);
@@ -201,7 +190,6 @@ export function SelfEdit({ back }: { back?: () => void }) {
   return (
     <Frame back={back}>
       <Own onPicture={setPicture} />
-      <ProfileMore />
     </Frame>
   );
 }
@@ -254,8 +242,9 @@ const day = (ms: number, lang: string) => new Date(ms).toLocaleString(lang === "
 function Memories({ session, done }: { session: string; done: () => void }) {
   const lang = useLang();
   const qc = useQueryClient();
-  const key = ["memory", session];
-  const q = useQuery({ queryKey: key, queryFn: () => api.memory(session), staleTime: 0, retry: false });
+  const mq = memoryQ(session);
+  const key = mq.queryKey;
+  const q = useQuery({ ...mq, staleTime: 0 });
   useAgain("memory", key);
   const [sure, setSure] = useState<number | null>(null);
   useEffect(() => {
@@ -275,7 +264,8 @@ function Memories({ session, done }: { session: string; done: () => void }) {
   return (
     <section className="mt-4 flex flex-col">
       <h2 className="m-0 mb-1 flex h-4 items-center text-xs font-medium text-ink-3">{t("profile.memory")}</h2>
-      {q.error ? <p className="m-0 py-3 text-sm text-err">{errText(q.error)}</p> : q.data && !list.length ? <p className="m-0 py-3 text-sm text-ink-3">{t("profile.memoryNone")}</p> : null}
+      {/* Not come yet: the line "none" would take, kept (the page is whole as it opens). */}
+      {q.error ? <p className="m-0 py-3 text-sm text-err">{errText(q.error)}</p> : !list.length ? <p className={cn("m-0 py-3 text-sm text-ink-3", !q.data && "invisible")}>{t("profile.memoryNone")}</p> : null}
       <ul className="m-0 flex list-none flex-col p-0">
         {list.map((m) => (
           <li key={m.id} className="g-fade flex items-start gap-2 py-1.5">

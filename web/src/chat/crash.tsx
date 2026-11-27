@@ -15,11 +15,12 @@ export function crashParts(error: string): { cause: string; lines: string[] } {
   return { cause, lines: (m[3] ?? "").split(" / ").filter(Boolean) };
 }
 
-export function Crash({ error }: { error: string }) {
+/** at: "said" for an agent's own message of it (the channel's, where it stands as its words). */
+export function Crash({ error, at }: { error: string; at?: "said" }) {
   const [open, setOpen] = useState(false);
   const { cause, lines } = crashParts(error);
   return (
-    <div className="mx-auto flex max-w-full flex-col items-center gap-1.5 text-xs text-ink-3">
+    <div className={cn("flex max-w-full flex-col gap-1.5 text-ink-3", at === "said" ? "items-start text-sm" : "mx-auto items-center text-xs")}>
       <p className="m-0 flex items-center gap-1.5">
         <TriangleAlert size={13} className="shrink-0 text-err" aria-hidden />
         <span>{t("chat.crashed")}</span>

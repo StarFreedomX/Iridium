@@ -86,6 +86,29 @@ func TestShown(t *testing.T) {
 	if clip("a\n b  c", 3) != "a b…" {
 		t.Errorf("clip: %q", clip("a\n b  c", 3))
 	}
+	// message.get and internal/block.get default to whole, multiline content.
+	long := "line 1\n" + strings.Repeat("字", 250) + "\nline 3"
+	mc, err := parseAPI([]string{"message.get", "channel_id=ch", "message_id=1"})
+	if err != nil || mc.clip != 0 {
+		t.Fatalf("message.get parse: %+v %v", mc, err)
+	}
+	if got := show(mc, `{"id":"1","content":"`+strings.ReplaceAll(long, "\n", `\n`)+`"}`); got != "content:\n"+long+"\nid: 1\n" {
+		t.Errorf("message.get multiline: %q", got)
+	}
+	if got := show(mc, `{"id":"1","content":"one line"}`); got != "content: one line\nid: 1\n" {
+		t.Errorf("message.get single line: %q", got)
+	}
+	bc, err := parseAPI([]string{"internal/block.get", "channel_id=ch", "message_id=1"})
+	if err != nil || bc.clip != 0 {
+		t.Fatalf("block.get parse: %+v %v", bc, err)
+	}
+	mcClip, err := parseAPI([]string{"message.get", "channel_id=ch", "message_id=1", "--clip", "6"})
+	if err != nil || mcClip.clip != 6 {
+		t.Fatalf("message.get explicit clip: %+v %v", mcClip, err)
+	}
+	if got := show(mcClip, `{"content":"line 1\nline 2"}`); got != "content: line 1…(+7)\n" {
+		t.Errorf("message.get clipped: %q", got)
+	}
 }
 
 // ir api's arguments: a path or a Satori method, the method, the body, the query.
@@ -117,7 +140,6 @@ func rig(t *testing.T) (config.Config, string) {
 	bin := filepath.Join(root, "bin")
 	os.MkdirAll(bin, 0o700)
 	cfg := config.Default()
-	cfg.CrashResume = false // the crash below must stay one
 	cfg.Listen = "127.0.0.1:0"
 	cfg.StateDir = filepath.Join(root, "state")
 	cfg.Socket = filepath.Join(root, "run", "ir.sock")
@@ -199,7 +221,7 @@ func TestAgentCommands(t *testing.T) {
 		}
 	}
 	prompt, err := os.ReadFile(filepath.Join(cfg.StatePath(), "hold", full, "system-prompt.md"))
-	if err != nil || !strings.Contains(string(prompt), "This session is hosted by Iridium.") || !strings.Contains(string(prompt), "ir api [METHOD]") {
+	if err != nil || !strings.Contains(string(prompt), "Hosted by Iridium.") || !strings.Contains(string(prompt), "ir api [METHOD]") {
 		t.Errorf("system prompt %q %v", prompt, err)
 	}
 
@@ -337,8 +359,9 @@ func TestAgentCommands(t *testing.T) {
 	if r := ir("api", "channel.update", "channel_id="+sid, "data.name=agent's"); r.code != 1 || !strings.Contains(r.err, "用户起的名") {
 		t.Errorf("a name over the user's: %+v", r)
 	}
-	if r := ir("api", "channel.update", "channel_id=self", "data.name=own"); r.code != 1 || !strings.Contains(r.err, "no such session") {
-		t.Errorf("self, not a session: %+v", r)
+	// self is no id: refused, the id to write in its place told.
+	if r := ir("api", "channel.update", "channel_id=self", "data.name=own"); r.code != 1 || !strings.Contains(r.err, "this session is caller-session") {
+		t.Errorf("self: %+v", r)
 	}
 	if r := ir("api", "internal/sessions/ffffffff", "--wait"); r.code != 1 || !strings.Contains(r.err, "no such session") {
 		t.Errorf("unknown id: %+v", r)

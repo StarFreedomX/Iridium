@@ -297,11 +297,14 @@ func (b satoriBackend) Workspaces() ([]api.Workspace, error) {
 // Sees: every session, until S2's scopes (decision 17: the login's within its app's).
 // Sees: the session is in the login's scope within its app's (S2).
 func (b satoriBackend) Sees(c satori.Caller, id string) bool {
-	st, err := b.s.m.State(id)
-	if err != nil {
-		return false
-	}
-	return b.s.seenBy(callerAs(c), st.Session)
+	// Where it is alone, not its whole state: asked for every event of every connection.
+	at, ok := b.s.m.Where(id)
+	return ok && b.s.seenBy(callerAs(c), at)
+}
+
+// SeesListed: Sees, of a row of the list.
+func (b satoriBackend) SeesListed(c satori.Caller, ss api.Session) bool {
+	return b.s.seenBy(callerAs(c), ss)
 }
 
 func (b satoriBackend) Messages(id string, before, after int64) (api.MessagePage, error) {
@@ -361,8 +364,8 @@ func (b satoriBackend) Send(ctx context.Context, c satori.Caller, id, text strin
 
 func (b satoriBackend) Answer(ctx context.Context, c satori.Caller, a api.CardAnswer) error {
 	rest, _ := strings.CutPrefix(a.Card, "ask:")
-	id, _, _ := strings.Cut(rest, ":")
-	if err := b.s.mayAnswer(callerAs(c), id); err != nil {
+	id, request, _ := strings.Cut(rest, ":")
+	if err := b.s.mayAnswerAsk(callerAs(c), id, request); err != nil {
 		return err
 	}
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)

@@ -3,6 +3,7 @@ package satori
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"slices"
@@ -54,6 +55,22 @@ func SessionName(st api.SessionState) string {
 		harness = ""
 	}
 	return AgentName(harness, st)
+}
+
+// ModelID is the model session st runs by its own id, as its harness names it (Claude's resolved
+// id, pi's and dsh's provider/model, Codex's and agy's own); "" not known, or the harness's
+// default. For agents, never a name made for people (kumo, 2026-11-24).
+func ModelID(st api.SessionState) string {
+	id := st.Model
+	for _, m := range st.Models {
+		if m.Value == st.Model && m.Resolved != "" {
+			id = m.Resolved
+		}
+	}
+	if strings.HasPrefix(strings.ToLower(id), "default") {
+		return ""
+	}
+	return id
 }
 
 // AgentName is the name an agent goes by: its harness, the model it runs and the effort, as far
@@ -140,15 +157,29 @@ func (s *Service) logFiles(m channel.Message) []api.FileRef {
 	return out
 }
 
+// fileOwner is the session whose files m's attachments live under: messages sent with ir
+// (_data.paths / _data.attachments) attach to the channel they are sent to; replies taken in
+// from an agent's transcript keep their files under the agent's own session.
+func fileOwner(m channel.Message) string {
+	if m.D.Sent {
+		return m.Channel
+	}
+	return cmp.Or(m.D.Session, m.Channel)
+}
+
 // logMessage is m as c reads it: its files as c's login may fetch them.
 func (s *Service) logMessage(c Caller, m channel.Message, ch *Channel, guild *Guild, seen map[string]*User) Message {
 	out := Message{ID: strconv.FormatInt(m.Seq, 10), Content: s.logContent(m), Channel: ch, Guild: guild,
 		User: s.authorOf(m, seen), CreatedAt: m.At, UpdatedAt: m.Edited, Data: logData(m)}
-	// Its files, of the agent's session that said it, else the channel's own (a person's
-	// attachments: kumo, 2026-11-16).
-	out.Content += fileElements(c.App, c.Login, cmp.Or(m.D.Session, m.Channel), s.logFiles(m))
+	out.Content += fileElements(c.App, c.Login, fileOwner(m), s.logFiles(m))
 	// The files' paths only for the pages (ir_web, the host): an app gets the counts.
-	out.Content += activityElement(s.placed(m), c.Only)
+	out.Content += activityElement(s.placed(m), c.Only) + workElement(m.D.Work)
+	if m.Kind == channel.KindAsk && m.D.Card != "" {
+		if d, ok := out.Data.(LogData); ok {
+			d.Ask = s.openAskData(m.D.Card)
+			out.Data = d
+		}
+	}
 	return out
 }
 
@@ -239,10 +270,16 @@ type LogData struct {
 	Script string `json:"script,omitempty"`
 	// Reactions: the emoji put on it, each with who put it on (docs/channels.md "表情").
 	Reactions []ReactionSum `json:"reactions,omitempty"`
+	// Writing: the agent is writing it now (channel.Data.Writing).
+	Writing bool `json:"writing,omitempty"`
+	// Ask: an ask's message while the ask is open: the ask itself (api.Ask, its words masked),
+	// for a page to put in place of its composer till it is answered (docs/next/ui.md). None once
+	// it is over: the message-updated that says so has none.
+	Ask json.RawMessage `json:"ask,omitempty"`
 }
 
 func logData(m channel.Message) LogData {
-	d := LogData{Kind: m.Kind, Session: m.D.Session, Block: m.D.Block, From: m.D.From, To: m.D.To, Card: m.D.Card, Event: m.D.Event, Quote: m.D.Quote, Device: m.D.Device, Script: m.D.Script}
+	d := LogData{Writing: m.D.Writing, Kind: m.Kind, Session: m.D.Session, Block: m.D.Block, From: m.D.From, To: m.D.To, Card: m.D.Card, Event: m.D.Event, Quote: m.D.Quote, Device: m.D.Device, Script: m.D.Script}
 	switch m.Kind {
 	case channel.KindUser:
 		if !strings.HasPrefix(m.Ref, "b:") {
@@ -283,7 +320,7 @@ func (s *Service) tell(m channel.Message, kind, origin string, denied int) {
 		msg.Content = Escape(s.b.Mask(strings.TrimSpace(m.Text + fmt.Sprintf("\n\n（auto 拦了 %d 步）", denied))))
 	}
 	msg.Content += activityElement(m.D.Activity, false)
-	s.emitOf(st.Session, m.D.Session, Event{Type: "message-created", Message: &msg, User: msg.User}, s.logFiles(m), kind, origin)
+	s.emitOf(st.Session, fileOwner(m), Event{Type: "message-created", Message: &msg, User: msg.User}, s.logFiles(m), kind, origin)
 	// What an agent said in its turn; what it sent with ir went to whom it names as it was sent.
 	if s.onSaid != nil && m.Kind == channel.KindSaid && !m.D.Sent {
 		s.onSaid(m)
@@ -332,7 +369,29 @@ func (s *Service) flush(session, kind, origin string, denied int) {
 	} else if cur, ok := s.log.Get(held.Channel, held.Seq); ok {
 		held = cur // found in the record meanwhile: its files
 	}
-	s.tell(held, kind, origin, denied)
+	s.tellSaid(held, kind, origin, denied)
+}
+
+// tellSaid is tell for what an agent said in its turn: whole, to the connections that take
+// messages whole; to those that take them live (they have it since it began) as it is now.
+func (s *Service) tellSaid(m channel.Message, kind, origin string, denied int) {
+	st, err := s.b.Session(m.Channel)
+	if err != nil {
+		return
+	}
+	msg := Message{ID: strconv.FormatInt(m.Seq, 10), Content: s.logContent(m), User: s.authorOf(m, nil), CreatedAt: m.At, Data: logData(m)}
+	if denied > 0 {
+		msg.Content = Escape(s.b.Mask(strings.TrimSpace(m.Text + fmt.Sprintf("\n\n（auto 拦了 %d 步）", denied))))
+	}
+	live := msg
+	msg.Content += activityElement(m.D.Activity, false)
+	s.emitTo(toWhole, false, st.Session, fileOwner(m), Event{Type: "message-created", Message: &msg, User: msg.User}, s.logFiles(m), kind, origin)
+	live.Content += activityElement(m.D.Activity, false) + workElement(m.D.Work)
+	live.UpdatedAt = time.Now().UnixMilli()
+	s.emitTo(toLive, false, st.Session, fileOwner(m), Event{Type: "message-updated", Message: &live, User: live.User}, s.logFiles(m), kind, origin)
+	if s.onSaid != nil && m.Kind == channel.KindSaid && !m.D.Sent {
+		s.onSaid(m)
+	}
 }
 
 // noteIn writes a line that is not words into channel ch (session's own, or one its agent is
@@ -511,4 +570,35 @@ func (s *Service) messageList(_ context.Context, c Caller, body []byte) (any, er
 	}
 	s.withReactions(c, st.ID, out.Data)
 	return out, nil
+}
+
+// openAskData is the ask of card, as a page takes it, while it is open; nil once it is over.
+func (s *Service) openAskData(card string) json.RawMessage {
+	id := cardSession(card)
+	if id == "" {
+		return nil
+	}
+	st, err := s.b.Session(id)
+	if err != nil {
+		return nil
+	}
+	for _, a := range st.Asks {
+		if cardID(id, a.RequestID) == card {
+			return s.askData(a)
+		}
+	}
+	return nil
+}
+
+// askData is ask a as a message carries it: its words masked.
+func (s *Service) askData(a api.Ask) json.RawMessage {
+	b, err := json.Marshal(a)
+	if err != nil {
+		return nil
+	}
+	masked := s.b.Mask(string(b))
+	if !json.Valid([]byte(masked)) {
+		return nil
+	}
+	return json.RawMessage(masked)
 }

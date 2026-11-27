@@ -24,6 +24,8 @@ export type AppState = {
   name: string; // this computer's
   servers: AppServer[];
   update: string; // a new version downloaded, waiting for a restart; "": none
+  updatePct?: number; // the app's update downloading: how far
+  updateError?: string; // its download failed
   hasLocal?: boolean; // this computer's own Iridium is in the list
   server?: boolean; // this computer's own Iridium is on (ir server on|off)
   public?: boolean; // it is on the internet (公网访问)
@@ -36,6 +38,7 @@ export type AppState = {
   };
   title?: string; // this Iridium's name in the app (its windows' titles); "": Iridium
   os?: string; // the app's system: darwin, windows, linux
+  rail?: boolean; // the app's own key is its window's rail (internal/desktop/rail.go): none here
   error?: string; // what the last ask came to
   notice?: string;
   code?: string; // a browser login's code to check
@@ -91,7 +94,7 @@ function showDownload(d: Download) {
   const title = t(d.state === "done" ? "app.downloaded" : d.state === "canceled" ? "app.downloadCanceled" : "app.downloadFailed");
   const description = d.state === "failed" ? t("app.inBrowser") : d.name;
   const timeout = d.state === "failed" ? 8000 : 2500;
-  const data = { mark: d.state === "done" ? "download" as const : undefined, error: d.state === "failed" };
+  const data = { mark: d.state === "done" ? "download" as const : undefined, error: d.state === "failed", file: d.state !== "failed" };
   if (was) toasts.update(was.toastId, { title, description, timeout, data });
   else toast(title, { description, timeout, ...data });
 }
@@ -102,6 +105,8 @@ window.addEventListener("ir-app", (e) => {
     download?: Download;
   };
   if (d.download) return showDownload(d.download);
+  // Favorites and the pages side by side: crossfav.ts's, not the app's state.
+  if ("favs" in d || "favput" in d || "favdrop" in d || "assemble" in d || "sidebarW" in d) return;
   // The window maximised or not (chrome.go followMax): its key's look alone.
   if (typeof d.max === "boolean") {
     max = d.max;

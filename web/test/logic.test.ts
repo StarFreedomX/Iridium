@@ -69,6 +69,15 @@ describe("folded", () => {
     const shown = folded([b("0.0", "user", { text: "go" }), b("5.0", "thinking", { text: "  " }), b("10.0", "tool", { id: "a", name: "Bash", input: "{}" })]);
     expect(shown.map((s) => s.kind)).toEqual(["user", "running"]);
   });
+  test("a stretch that is over has no call running: one left without a result is a step of its fold", () => {
+    const blocks = [b("0.0", "user", { text: "go" }), b("10.0", "tool", { id: "a", name: "Bash", input: JSON.stringify({ command: "set -e; ./push" }) })];
+    const done = folded(blocks, false);
+    expect(done.map((s) => s.kind)).toEqual(["user", "fold"]);
+    expect(done[1]?.kind === "fold" && done[1].steps.map((s) => s.id)).toEqual(["a"]);
+    expect(done.some((s) => s.kind === "running")).toBe(false);
+    // Its turn going on, the same call runs on its own.
+    expect(folded(blocks).map((s) => s.kind)).toEqual(["user", "running"]);
+  });
 });
 
 describe("argOf", () => {
@@ -187,6 +196,13 @@ describe("sourceOf", () => {
     expect(sourceOf("ir:s2", "p", me, terminals, sessions, ws, { parent: undefined })).toMatchObject({ name: `${t("session.new")} · Iri` }); // here unsorted, its field left out
     expect(sourceOf("ir:gone1234567", "local", me, terminals, sessions)).toEqual({ kind: "letter", name: "gone1234", channel: false });
     expect(sourceOf("Iridium", "Iridium", me, terminals, sessions)).toEqual({ kind: "iridium" });
+  });
+  test("bare channel and spawned solo agent letters resolve their custom face and title", () => {
+    const bare = { id: "ch1", agent: "" as Session["agent"], bare: true, cwd: "/w", name: "refactor", status: "idle", hosted: true, live: false, updatedAt: 0, agents: [{ session: "ag1", agent: "agy", nick: "Neon" }] } as Session;
+    const spawned = { id: "ag1", agent: "agy", cwd: "/w", status: "idle", hosted: true, live: false, updatedAt: 0, spawned: { by: "local", channel: "ch1" } } as Session;
+    const all = [...sessions, bare, spawned];
+    expect(sourceOf("ir:ag1", "me", me, terminals, all)).toEqual({ kind: "letter", name: "refactor", channel: false, agent: "agy", session: "ch1", face: "ag1", where: "/w" });
+    expect(sourceOf("ir:ch1", "me", me, terminals, all)).toEqual({ kind: "letter", name: "refactor", channel: false, agent: "agy", session: "ch1", face: "ag1", where: "/w" });
   });
   test("a subagent's prompt is its parent's: by the parent's name, a workflow's with its name", () => {
     expect(sourceOf(undefined, undefined, me, terminals, sessions, ws, { subagent: true, parent: "s2", workspace: 3 })).toEqual({ kind: "letter", name: t("session.new"), channel: false, agent: "claude", session: "s2", where: "/home/k/Iridium" });
@@ -500,7 +516,7 @@ describe("composer", () => {
     expect(matching(cs, "压缩").map((c) => c.name)).toEqual(["compact"]);
     expect(matching(cs, "ntex").map((c) => c.name)).toEqual(["context"]);
     // Every agent has the common ones (the user, 2026-11-06: Codex had none); described here.
-    const pi = { ...S("a", "/w"), agent: "pi" as const, asks: [], tasks: [], denials: [], queue: [], end: 0, proc: 0 };
+    const pi = { ...S("a", "/w"), agent: "pi" as const, asks: [], tasks: [], queue: [], end: 0, proc: 0 };
     expect(commandsOf(pi).map((c) => c.name)).toEqual(["clear", "compact", "context", "model", "mode"]);
     const codex = commandsOf({ ...pi, agent: "codex", commands: [{ name: "clear" }, { name: "compact" }, { name: "effort" }, { name: "review", description: "own" }] });
     expect(codex.map((c) => [c.name, !!c.description])).toEqual([["clear", true], ["compact", true], ["effort", true], ["review", true]]);

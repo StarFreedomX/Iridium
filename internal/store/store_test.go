@@ -23,6 +23,15 @@ func open(t *testing.T) (*Store, string) {
 	return s, path
 }
 
+func reopen(t *testing.T, path string) *Store {
+	t.Helper()
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
 func TestSchemaAndWAL(t *testing.T) {
 	s, path := open(t)
 	if v, err := s.Version(); err != nil || v != len(schema) {
@@ -310,7 +319,7 @@ func TestMoveAgentProfile(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	if err := s.SetProfile(ChannelProfileKey("a"), Profile{Intro: "tests", Avatar: "🧪"}); err != nil {
+	if err := s.SetProfile(ChannelProfileKey("a"), Profile{Persona: "tests", Avatar: "🧪"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.AddMemory(Memory{Owner: s.MemoryOwner("a"), Text: "short answers", Session: "a"}); err != nil {
@@ -322,7 +331,7 @@ func TestMoveAgentProfile(t *testing.T) {
 	if err := s.MoveAgent("b", "c"); err != nil {
 		t.Fatal(err)
 	}
-	if p := s.Profile(ChannelProfileKey("c")); p.Intro != "tests" || p.Avatar != "🧪" || s.Profile(ChannelProfileKey("a")) != (Profile{}) {
+	if p := s.Profile(ChannelProfileKey("c")); p.Persona != "tests" || p.Avatar != "🧪" || s.Profile(ChannelProfileKey("a")) != (Profile{}) {
 		t.Errorf("the card: %+v", p)
 	}
 	if ms, _ := s.Memories(s.MemoryOwner("c"), 0); len(ms) != 1 || ms[0].Text != "short answers" {
@@ -377,5 +386,70 @@ func TestInputDevice(t *testing.T) {
 	}
 	if q, _ := s.Queued("a"); len(q) != 1 || q[0].Device != "" {
 		t.Fatalf("queued %+v", q)
+	}
+}
+
+// An agent's receive set becomes its subscriptions (migration 47): one message subscription of
+// those it named, none of none; a person's row as it was.
+func TestReceiveSetsBecomeSubscriptions(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "iridium.db")
+	full := schema
+	t.Cleanup(func() { schema = full })
+	schema = full[:46]
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, r := range [][3]string{{"a", "*", "all"}, {"a", "agent:a", `["*"]`}, {"a", "agent:b", `[]`}, {"a", "agent:c", `["agent:a","ir_web/k"]`}, {"a", "agent:d", ""}} {
+		if _, err := s.db.Exec(`INSERT INTO channel_members (channel, member, recv, joined_at) VALUES (?, ?, ?, ?)`, r[0], r[1], r[2], i+1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s.Close()
+	schema = full
+	if s, err = Open(path); err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	ms, err := s.ChannelMembers("a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, m := range ms {
+		got[m.Member] = m.Triggers
+	}
+	want := map[string]string{"*": "all", "agent:a": `[{"message":{"from":["*"]}}]`, "agent:b": "[]", "agent:c": `[{"message":{"from":["agent:a","ir_web/k"]}}]`, "agent:d": "[]"}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("%s: %s, want %s", k, got[k], v)
+		}
+	}
+}
+
+// Overlay is what Overlays has under the session, read alone; nothing for one with none.
+func TestOverlayOne(t *testing.T) {
+	t.Parallel()
+	s, err := Open(filepath.Join(t.TempDir(), "iridium.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if err := s.SetName("a", "named"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`INSERT INTO pins (session, at) VALUES ('a', 1); INSERT INTO session_colors (session, color) VALUES ('a', 'red');
+		INSERT INTO session_order (session, at) VALUES ('b', 2.5); INSERT INTO openers (session, terminal, at) VALUES ('b', 't', 1);
+		INSERT INTO names (session, name, auto) VALUES ('b', 'by its agent', 1); INSERT INTO assignments (session, workspace, manual, at) VALUES ('b', NULL, 1, 1)`); err != nil {
+		t.Fatal(err)
+	}
+	all, err := s.Overlays()
+	if err != nil || len(all) != 2 {
+		t.Fatalf("all: %+v %v", all, err)
+	}
+	for _, id := range []string{"a", "b", "none"} {
+		if got := s.Overlay(id); got != all[id] {
+			t.Errorf("%s: %+v, of all %+v", id, got, all[id])
+		}
 	}
 }

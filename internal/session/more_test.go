@@ -2,11 +2,11 @@ package session
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -80,7 +80,15 @@ func TestQueue(t *testing.T) {
 	if _, queued, err := r.m.SendWith(bg, id, "five", "网页", true); queued || err != nil {
 		t.Errorf("steer: queued %v, %v", queued, err)
 	}
+	// "five" is the fifth message: the session's title goes after it (titleNow); the user's block
+	// is the words alone.
 	r.waitState(id, "the joined reply", func(s *api.SessionState) bool { return said(s, "ok: five") })
+	if !strings.Contains(r.inLog(id), `five\n\nSession title: \"one WAIT\"`) {
+		t.Errorf("no title after five: %s", r.inLog(id))
+	}
+	if b := r.messages(id); !slices.ContainsFunc(b, func(b api.Block) bool { return b.Text == "five" }) {
+		t.Errorf("five's block: %+v", b[len(b)-4:])
+	}
 	if b := r.messages(id); b[len(b)-2].Text != "ok: four HOLD" {
 		t.Errorf("five did not join four's turn: %+v", b[len(b)-4:])
 	}
@@ -385,10 +393,12 @@ func TestRuleMatches(t *testing.T) {
 	}
 }
 
-// An agent naming its session (ir api channel.update channel_id=self data.name=…, the older ir
-// rename) is never asked about; anything chained to it is.
+// An agent naming its session or a channel it is in (ir api channel.update channel_id=<id>
+// data.name=…, the older ir rename) is never asked about; anything chained to it is, and so is
+// self, which ir takes no more.
 func TestRenamesOnly(t *testing.T) {
 	t.Parallel()
+	in := func(ch string) bool { return ch == "s1" || ch == "c1" }
 	for cmd, want := range map[string]bool{
 		`ir rename "会话命名"`:      true,
 		`ir rename x`:           true,
@@ -400,95 +410,39 @@ func TestRenamesOnly(t *testing.T) {
 		"ir rename x\nls":       false,
 		`ir ls`:                 false,
 		`irx rename x`:          false,
-		`ir api channel.update channel_id=self data.name="会话 命名"`:                true,
-		`ir api channel.update data.name=x channel_id=self`:                      true,
-		`ir api channel.update channel_id=self`:                                  false,
-		`ir api channel.update channel_id=1a2b data.name=x`:                      false,
-		`ir api channel.update channel_id=self data.name=x _data.archived:=true`: false,
-		`ir api channel.update channel_id=self data.name=x && rm -rf ~`:          false,
-		`ir api message.create channel_id=self data.name=x`:                      false,
+		`ir api channel.update channel_id=s1 data.name="会话 命名"`:                true,
+		`ir api channel.update data.name=x channel_id=c1`:                      true,
+		`ir api channel.update channel_id=s1`:                                  false,
+		`ir api channel.update channel_id=1a2b data.name=x`:                    false,
+		`ir api channel.update channel_id=self data.name=x`:                    false,
+		`ir api channel.update data.name=x`:                                    false,
+		`ir api channel.update channel_id=s1 channel_id=x data.name=x`:         false,
+		`ir api channel.update channel_id=s1 data.name=x _data.archived:=true`: false,
+		`ir api channel.update channel_id=s1 data.name=x && rm -rf ~`:          false,
+		`ir api message.create channel_id=s1 data.name=x`:                      false,
 	} {
-		if got := renamesOnly(api.Ask{Kind: "permission", Tool: "Bash", Input: map[string]any{"command": cmd}}); got != want {
+		if got := renamesOnly(api.Ask{Kind: "permission", Tool: "Bash", Input: map[string]any{"command": cmd}}, in); got != want {
 			t.Errorf("%q: %v", cmd, got)
 		}
 	}
-	if renamesOnly(api.Ask{Kind: "question", Input: map[string]any{"command": "ir rename x"}}) {
+	if renamesOnly(api.Ask{Kind: "question", Input: map[string]any{"command": "ir rename x"}}, in) {
 		t.Error("a question")
 	}
 }
 
-// A crash mid-turn: Claude is started again with CLAUDE_CODE_RESUME_INTERRUPTED_TURN and runs the
-// turn again itself; no recovery prompt.
-func TestCrashResumed(t *testing.T) {
+// A crash mid-turn is not continued: the session stays with its error until the next message.
+func TestCrashNotContinued(t *testing.T) {
 	t.Parallel()
 	r := newRig(t, nil)
 	id, _ := r.m.Create(bg, api.NewSession{Cwd: r.cwd, Text: "please crash"}, "网页")
-	s := r.waitState(id, "the turn run again", func(s *api.SessionState) bool { return said(s, "ok: continued") && s.Status == api.StatusIdle })
-	if s.Proc != 2 || s.Error != "" {
-		t.Errorf("state: %+v", s)
+	s := r.waitState(id, "the crash", func(s *api.SessionState) bool { return !s.Live && s.Status == api.StatusError })
+	time.Sleep(300 * time.Millisecond)
+	if s, _ = r.m.State(id); s.Proc != 1 || s.Live {
+		t.Errorf("went on after the crash: %+v", s)
 	}
 	spec, _ := os.ReadFile(filepath.Join(r.cfg.StatePath(), "hold", id, hold.FileSpec))
-	if !strings.Contains(string(spec), "CLAUDE_CODE_RESUME_INTERRUPTED_TURN=1") {
+	if strings.Contains(string(spec), "CLAUDE_CODE_RESUME_INTERRUPTED_TURN") {
 		t.Errorf("spec: %s", spec)
-	}
-	if strings.Contains(r.inLog(id), RecoveryPrompt) {
-		t.Error("a recovery prompt went to an agent that ran the turn again itself")
-	}
-}
-
-// An agent that does not run the turn again gets Iridium's recovery prompt, shown as Iridium's
-// own line.
-func TestCrashRecoveryPrompt(t *testing.T) {
-	t.Parallel()
-	r := newRig(t, nil)
-	id, _ := r.m.Create(bg, api.NewSession{Cwd: r.cwd, Text: "please crash!"}, "网页")
-	r.waitState(id, "the recovery", func(s *api.SessionState) bool { return said(s, "ok: "+RecoveryPrompt) })
-	b := r.messages(id)
-	var line *api.Block
-	for i := range b {
-		if b[i].Kind == api.BlockKindSystem && b[i].Event == api.SystemEventIridium {
-			line = &b[i]
-		}
-	}
-	if line == nil || line.Text != RecoveryPrompt {
-		t.Fatalf("blocks: %+v", b)
-	}
-	if !strings.Contains(r.inLog(id), `"[Iridium] `+RecoveryPrompt+`"`) {
-		t.Errorf("in.log: %s", r.inLog(id))
-	}
-}
-
-// Three crashes in ten minutes and it is not continued again.
-func TestCrashBreaker(t *testing.T) {
-	t.Parallel()
-	r := newRig(t, nil)
-	id, _ := r.m.Create(bg, api.NewSession{Cwd: r.cwd, Text: "please crashloop"}, "网页")
-	s := r.waitState(id, "the breaker", func(s *api.SessionState) bool { return s.Proc == 3 && !s.Live && s.Status == api.StatusError })
-	time.Sleep(300 * time.Millisecond)
-	if s, _ = r.m.State(id); s.Proc != 3 {
-		t.Errorf("went on past the breaker: %+v", s)
-	}
-}
-
-// Refused for the quota: Iridium waits for it to come back, then says "继续"; in a second session
-// a message meanwhile waits, and goes instead of "继续".
-func TestQuotaResume(t *testing.T) {
-	t.Parallel()
-	r := newRig(t, func(_ *config.Config, o *Options) { o.QuotaStagger = -1 })
-	id, _ := r.m.Create(bg, api.NewSession{Cwd: r.cwd, Text: "QUOTA"}, "网页")
-	queued, _ := r.m.Create(bg, api.NewSession{Cwd: r.cwd, Text: "QUOTA"}, "网页")
-	s := r.waitState(id, "the wait", func(s *api.SessionState) bool { return s.QuotaUntil != 0 })
-	if s.QuotaUntil < time.Now().UnixMilli() {
-		t.Errorf("until %d", s.QuotaUntil)
-	}
-	r.waitState(queued, "the wait", func(s *api.SessionState) bool { return s.QuotaUntil != 0 })
-	if _, queued, _ := r.m.SendWith(bg, queued, "later", "网页", false); !queued {
-		t.Error("not queued while out of quota")
-	}
-	r.waitState(id, "going on", func(s *api.SessionState) bool { return said(s, "ok: "+QuotaPrompt) && s.QuotaUntil == 0 })
-	r.waitState(queued, "the queue sent", func(s *api.SessionState) bool { return said(s, "ok: later") })
-	if strings.Contains(r.inLog(queued), QuotaPrompt) {
-		t.Error("继续 went though a message waited")
 	}
 }
 
@@ -504,15 +458,13 @@ func TestCarried(t *testing.T) {
 		t.Errorf("tail %+v context %+v", s.Tail, s.Context)
 	}
 	waitFor(t, "the quota", func() bool {
-		var q api.Quota
-		json.Unmarshal(r.hub.Get("quota"), &q)
+		q := r.m.Quota()
 		return len(q.Agents) == 1 && q.Agents[0].Account == "user@example.com" && q.Agents[0].Live
 	})
 	r.m.Stop(bg, id)
 	r.waitState(id, "the stop", func(s *api.SessionState) bool { return !s.Live })
 	waitFor(t, "the quota kept, not live", func() bool {
-		var q api.Quota
-		json.Unmarshal(r.hub.Get("quota"), &q)
+		q := r.m.Quota()
 		return len(q.Agents) == 1 && !q.Agents[0].Live && len(q.Agents[0].Windows) == 1
 	})
 	// A new daemon has both from the disk: TestContextAndQuotaAfterRestart.
@@ -558,10 +510,10 @@ func TestSendAsOnce(t *testing.T) {
 // chained to it, its words an argument or a quoted here-document.
 func TestSpeaksOnly(t *testing.T) {
 	t.Parallel()
-	in := func(ch string) bool { return ch == "self" || ch == "c1" }
+	in := func(ch string) bool { return ch == "s1" || ch == "c1" }
 	for cmd, want := range map[string]bool{
 		`ir api message.create channel_id=c1 content="done, see the file"`:               true,
-		`ir api message.create channel_id=self _data.text=ok`:                            true,
+		`ir api message.create channel_id=s1 _data.text=ok`:                              true,
 		`ir api message.create content="@claude2 look" channel_id=c1`:                    true,
 		"ir api message.create channel_id=c1 content='words; $(rm -rf ~) `x` | y\nmore'": true, // single quotes: the shell reads none of it
 		"ir api message.create channel_id=c1 content='it'\\''s fine'":                    true,
@@ -599,17 +551,17 @@ func TestSpeaksOnly(t *testing.T) {
 // "表情"): one command, its channel, its message's number and one emoji, nothing else.
 func TestReactsOnly(t *testing.T) {
 	t.Parallel()
-	in := func(ch string) bool { return ch == "self" || ch == "c1" }
+	in := func(ch string) bool { return ch == "s1" || ch == "c1" }
 	for cmd, want := range map[string]bool{
-		`ir api reaction.create channel_id=c1 message_id=12 emoji=👍`:            true,
-		`ir api reaction.create emoji_id=🎉 channel_id=self message_id=3`:        true,
-		`ir api reaction.create channel_id=c1 message_id=12 emoji='❤️'`:          true,
-		`ir api reaction.create channel_id=c2 message_id=12 emoji=👍`:            false, // not a channel it is in
-		`ir api reaction.create channel_id=c1 message_id=x emoji=👍`:             false,
-		`ir api reaction.create channel_id=c1 message_id=12`:                    false,
-		`ir api reaction.create channel_id=c1 message_id=12 emoji=👍 user_id=x`:  false,
+		`ir api reaction.create channel_id=c1 message_id=12 emoji=👍`:           true,
+		`ir api reaction.create emoji_id=🎉 channel_id=s1 message_id=3`:         true,
+		`ir api reaction.create channel_id=c1 message_id=12 emoji='❤️'`:        true,
+		`ir api reaction.create channel_id=c2 message_id=12 emoji=👍`:           false, // not a channel it is in
+		`ir api reaction.create channel_id=c1 message_id=x emoji=👍`:            false,
+		`ir api reaction.create channel_id=c1 message_id=12`:                   false,
+		`ir api reaction.create channel_id=c1 message_id=12 emoji=👍 user_id=x`: false,
 		`ir api reaction.create channel_id=c1 message_id=12 emoji=👍; rm -rf ~`: false,
-		`ir api reaction.delete channel_id=c1 message_id=12 emoji=👍`:            false,
+		`ir api reaction.delete channel_id=c1 message_id=12 emoji=👍`:           false,
 	} {
 		if got := reactsOnly(api.Ask{Kind: "permission", Tool: "Bash", Input: map[string]any{"command": cmd}}, in); got != want {
 			t.Errorf("%q: %v", cmd, got)

@@ -16,6 +16,10 @@
     <script src="/theme.js"></script>
   </head>
   <body>
+    <!-- The desktop app puts a strip of window keys over a page that draws none of its own
+         (internal/desktop/chrome.go): this page draws its own once the app has said hello, and
+         says so from its first frame, or the strip came and went over each start. -->
+    <i data-win-keys="page" hidden></i>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

@@ -1,21 +1,22 @@
-// What a message's menu does to it besides 引用 and 复制 (docs/channels.md "表情" "撤回"): its
-// top, two rows of the emoji pressed lately, then 更多, the whole table in a menu of its own; its
-// foot, 撤回 (pressed once it turns red, the second press takes the message back for everyone).
+// What a message's menu does to it besides 引用 and 复制 (docs/channels.md "表情" "撤回"): at
+// its foot, one row of the emoji pressed lately ending in 更多 (its icon), the whole table in a
+// menu of its own (kumo, 2026-11-25: three rows made one, at the foot); over that row, 撤回
+// (pressed once it turns red, the second press takes the message back for everyone).
 // Under the message, its reactions: each emoji with how many put it on, yours marked; the emoji
 // pressed puts yours on or takes it off, the count (or a long press, a right click) shows who.
 import { Menu } from "@base-ui/react/menu";
 import { Popover } from "@base-ui/react/popover";
-import { ChevronRight, SmilePlus, Undo2 } from "lucide-react";
+import { SmilePlus, Undo2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { sat } from "../api/client";
 import { LOCAL_ME, useApps, useMe } from "../data";
 import { t } from "../i18n";
 import { useList } from "../store";
 import { errText, toast } from "../toast";
-import { Avatar, cn, own, PopSurface, useLongPress } from "../ui";
+import { Avatar, cn, own, PopSurface, useLongPress, MenuPortal } from "../ui";
 import { Face } from "./channel/face";
 import { acts } from "./copyable";
-import { EMOJI, recentEmoji, ROW, ROWS, usedEmoji } from "./emoji";
+import { EMOJI, recentEmoji, ROW, usedEmoji } from "./emoji";
 import { refOf, useBlockSeq, useReactions, type BlockOf, type ReactionSum, type Reactor } from "./reactions";
 
 export { reactionLine, recalls } from "./reactions";
@@ -26,7 +27,7 @@ export { reactionLine, recalls } from "./reactions";
  *  bubble with a face beside it (left, right), its reactions under the bubble. */
 export type Act = { channel: string; seq?: number; key?: BlockOf; may: boolean; side?: "left" | "right" };
 
-const ITEM = "flex h-8 cursor-default items-center gap-2.5 rounded-md px-2.5 text-base outline-none select-none data-highlighted:bg-fill pointer-coarse:h-11";
+const ITEM = "flex h-8 cursor-default items-center gap-2.5 rounded-md px-2.5 text-base outline-none select-none data-highlighted:bg-fill pointer-coarse:h-9";
 const POPUP = "g-unfold glass thick float rounded-lg text-ink outline-none";
 
 /** act's number, as given or as its block is known; and what the server is to be told it is by. */
@@ -50,7 +51,7 @@ function toggle(act: Act, id: string, emoji: string, on: boolean) {
 }
 const failed = (e: unknown) => void toast(errText(e), { error: true });
 
-/** The menu's top: two rows of the emoji pressed lately, then 更多. */
+/** The menu's foot: one row, the emoji pressed lately and 更多's icon at its end. */
 export function ReactRows({ act }: { act: Act }) {
   const { seq, id } = useTarget(act);
   const list = useReactions(act.channel, seq);
@@ -65,28 +66,26 @@ export function ReactRows({ act }: { act: Act }) {
   );
   return (
     <>
-      <div className="grid grid-cols-6 justify-items-center">{recent.slice(0, ROW * ROWS).map(key)}</div>
-      <Menu.SubmenuRoot>
-        <Menu.SubmenuTrigger className={ITEM}>
-          <span className="text-ink-2">
-            <SmilePlus size={15} />
-          </span>
-          <span className="min-w-0 flex-1 truncate">{t("top.more")}</span>
-          <ChevronRight size={14} className="shrink-0 text-ink-4" />
-        </Menu.SubmenuTrigger>
-        <Menu.Portal>
-          <Menu.Positioner className="z-50" sideOffset={4} collisionPadding={8}>
-            <Menu.Popup className={cn(POPUP, "no-bar max-h-[min(360px,var(--available-height))] w-[min(300px,calc(100vw-16px))] overflow-y-auto p-1.5")}>
-              {EMOJI.map((g, i) => (
-                <div key={g.key} className={cn("grid grid-cols-8 justify-items-center", i > 0 && "mt-1 border-t border-edge pt-1")}>
-                  {g.list.map(key)}
-                </div>
-              ))}
-            </Menu.Popup>
-          </Menu.Positioner>
-        </Menu.Portal>
-      </Menu.SubmenuRoot>
       <div className="mx-1 my-1 border-t border-edge" />
+      <div className="grid grid-cols-6 justify-items-center">
+        {recent.slice(0, ROW - 1).map(key)}
+        <Menu.SubmenuRoot>
+          <Menu.SubmenuTrigger aria-label={t("top.more")} className="grid size-8 cursor-default place-items-center rounded-md text-ink-2 outline-none select-none data-highlighted:bg-fill data-popup-open:bg-fill pointer-coarse:size-10">
+            <SmilePlus size={17} />
+          </Menu.SubmenuTrigger>
+          <MenuPortal>
+            <Menu.Positioner className="z-50" sideOffset={4} collisionPadding={8}>
+              <Menu.Popup className={cn(POPUP, "no-bar max-h-[min(360px,var(--available-height))] w-[min(300px,calc(100vw-16px))] overflow-y-auto p-1.5")}>
+                {EMOJI.map((g, i) => (
+                  <div key={g.key} className={cn("grid grid-cols-8 justify-items-center", i > 0 && "mt-1 border-t border-edge pt-1")}>
+                    {g.list.map(key)}
+                  </div>
+                ))}
+              </Menu.Popup>
+            </Menu.Positioner>
+          </MenuPortal>
+        </Menu.SubmenuRoot>
+      </div>
     </>
   );
 }
@@ -129,12 +128,17 @@ export function Reactions({ act }: { act: Act }) {
     return () => cancelAnimationFrame(f);
   }, [list.length > 0]);
   if (!shown.length) return null;
+  // Under a bubble (a person's: side given), riding its lower edge (kumo, 2026-11-26): up over it
+  // by 6px (its padding is 8, the words clear), a ring of the page's colour about each; a little
+  // in from its corner, many in a row and onto more as they need. An agent's words have no edge
+  // to ride: close under them.
+  const ride = !!act.side;
   return (
-    <div className="g-reveal" data-open={open && list.length ? "" : undefined}>
+    <div className={cn("g-reveal relative", ride && "-mt-2")} data-open={open && list.length ? "" : undefined}>
       <div className="min-h-0 overflow-hidden">
-        <div className={cn("flex flex-wrap gap-1 pt-1.5", act.side === "left" && "pl-[38px]", act.side === "right" && "justify-end pr-[38px]")}>
+        <div className={cn("flex flex-wrap gap-1", ride ? "py-0.5" : "pt-1", act.side === "left" && "pl-[46px]", act.side === "right" && "justify-end pr-[46px]")}>
           {shown.map((r) => (
-            <Chip key={r.emoji} r={r} on={r.users.some(mine)} press={act.may && id ? () => toggle(act, id, r.emoji, r.users.some(mine)) : undefined} />
+            <Chip key={r.emoji} r={r} on={r.users.some(mine)} ring={ride} press={act.may && id ? () => toggle(act, id, r.emoji, r.users.some(mine)) : undefined} />
           ))}
         </div>
       </div>
@@ -144,7 +148,7 @@ export function Reactions({ act }: { act: Act }) {
 
 /** One emoji under a message: pressed, yours on or off; its count (a long press, a right click
  *  on it) shows who put it on. */
-function Chip({ r, on, press }: { r: ReactionSum; on: boolean; press?: () => void }) {
+function Chip({ r, on, ring, press }: { r: ReactionSum; on: boolean; ring?: boolean; press?: () => void }) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLSpanElement>(null);
   const lp = useLongPress(() => setOpen(true));
@@ -161,7 +165,7 @@ function Chip({ r, on, press }: { r: ReactionSum; on: boolean; press?: () => voi
           e.preventDefault();
           setOpen(true);
         }}
-        className={cn("g-fade inline-flex h-6 items-center rounded-full text-xs select-none [-webkit-touch-callout:none] pointer-coarse:h-7", on ? "bg-fill-2 text-ink shadow-[inset_0_0_0_0.5px_var(--edge)]" : "bg-fill text-ink-3")}
+        className={cn("g-fade inline-flex h-6 items-center rounded-full text-xs select-none [-webkit-touch-callout:none] pointer-coarse:h-7", on ? "bg-fill-2 text-ink shadow-[inset_0_0_0_0.5px_var(--edge)]" : "bg-fill text-ink-3", ring && "ring-2 ring-paper")}
       >
         <button type="button" disabled={!press} onClick={press} aria-label={r.emoji} aria-pressed={on} className="g-press grid h-full place-items-center pr-1 pl-2 text-sm leading-none">
           {r.emoji}
@@ -175,7 +179,7 @@ function Chip({ r, on, press }: { r: ReactionSum; on: boolean; press?: () => voi
           {r.emoji} {r.count}
         </div>
         {r.users.map((u) => (
-          <div key={u.id} className="flex h-8 items-center gap-2.5 px-2.5 text-base pointer-coarse:h-11">
+          <div key={u.id} className="flex h-8 items-center gap-2.5 px-2.5 text-base pointer-coarse:h-9">
             <ReactorFace u={u} />
             <span className="min-w-0 flex-1 truncate">{u.name || u.id}</span>
           </div>

@@ -6,20 +6,7 @@ import "github.com/kumoSleeping/iridium/internal/ctx/assemble"
 
 // SystemPrompt is the system prompt of a session hosted here.
 func SystemPrompt(lang string) string {
-	in, err := assemble.System(assemble.Where{Lang: lang})
-	if err != nil {
-		panic(err)
-	}
-	return in.String()
-}
-
-var (
-	RecoveryPrompt = own(assemble.Recovery)
-	QuotaPrompt    = own(assemble.QuotaBack)
-)
-
-func own(f func() (assemble.Injection, error)) string {
-	in, err := f()
+	in, err := assemble.System(assemble.Where{Session: "s1", Lang: lang})
 	if err != nil {
 		panic(err)
 	}

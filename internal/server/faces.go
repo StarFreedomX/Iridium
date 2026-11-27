@@ -99,7 +99,7 @@ func (s *Server) facesNow() map[string]string {
 		}
 		_, v, _ := avatarIn(src, x.ID, st)
 		out[x.ID] = v
-		_, v, _ = s.channelFaceIn(src, x.ID, st, false)
+		_, v, _ = s.channelFaceIn(src, x.ID, st)
 		out["c:"+x.ID] = v
 	}
 	return out

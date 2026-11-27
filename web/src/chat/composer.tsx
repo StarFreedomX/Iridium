@@ -8,14 +8,16 @@
 // sessions, this machine's groups, each machine's workspaces, a folder by its path; a session's or
 // a group's row dropped here names one too, on a phone the list alone: a link where the caret is,
 // the box showing its mark and its name, one piece a Backspace takes whole (the user, 2026-11-12;
-// refs.ts boxed, edited). Only a reference: nothing delivered, no one notified, nothing
+// refs.ts boxed, edited); in an empty box, an attachment, two presses each (bsattach.ts). Only a reference: nothing delivered, no one notified, nothing
 // granted. Shift+Tab cycles the approval mode; Esc stops the turn. The draft is kept on
 // this device; files pasted, dropped or attached go up in chunks while you type, a picture in its
 // own shape under a veil drawn back as it goes; nothing is sent till all are up.
 import { ArrowUp, Box, Brain, ChartPie, Circle, CircleCheck, Eraser, FileCode2, FileText, FoldVertical, Gauge, LoaderCircle, Paperclip, Reply, ShieldCheck, X, type LucideIcon } from "lucide-react";
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useQueries } from "../api/queries";
+import { useQuery } from "../api/query";
 import { forwardRef, Fragment, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import type { Agent, Command, Script, SessionState as LiveSession } from "../api/types.gen";
+import { MARK_FOR, press } from "./bsattach";
 import { ScriptFace, useScripts } from "./channel/script";
 import { runShell, shellLine, useShellable } from "./shell";
 import { api, missing } from "../api/client";
@@ -25,7 +27,7 @@ import { errText, toast } from "../toast";
 import { stopTurn } from "./live";
 import { useList } from "../store";
 import { useHome, useMachines, useWorkspaces } from "../data";
-import { ago, agentName, cn, fine, IconKey, keep, kept, tilde, Tip, titleOf, useMinute } from "../ui";
+import { ago, agentName, cn, fine, IconKey, keep, kept, OwnPopup, SHELL, SHELL_LINE, tilde, Tip, titleOf, useMinute } from "../ui";
 import { MentionMarks, mentionOf, PlaceIcon, SessionFace } from "./mention";
 import { atWord } from "./refs";
 import { boxAt, boxed, edited, outOf, wordsAt } from "./boxed";
@@ -139,33 +141,43 @@ type Props = {
   cleared: (id: string) => void;
   /** Unseen: the mode and model keys whose menus /mode and /model open (chat.tsx Under). */
   tools?: ReactNode;
-  /** A channel of several agents (chat/channel): these, which an @ lists and calls by nick; no /
-   *  commands, no command lines, nothing of one agent's own. */
+  /** When the channel has exactly one agent, its session: enables agent slash commands, /model,
+   *  /mode, /clear, /stop, Shift+Tab mode cycling and Esc to stop its turn. */
+  solo?: LiveSession;
+  /** The channel's agents, which @ lists and calls by nick. */
   nicks?: AgentRow[];
   /** The message being answered (Satori's <quote>): shown over the words, sent with them;
    *  unquote: put it away (Esc, or once sent). */
   quote?: { n: number; who: string; text: string };
   unquote?: () => void;
-  /** The channel's people and apps, which @ names beside its agents (peers, the user, 2026-11-13);
-   *  in one agent's chat (no nicks), all its @ lists: the agent by its nick, the people. */
+  /** The channel's people and apps, which @ names beside its agents (peers, the user, 2026-11-13). */
   people?: AgentRow[];
 };
 
 /** The names that call more than one in a channel (internal/deliver AllMembers, AllAgents), as
  *  rows of the @ list. */
 const everyoneRows = (): AgentRow[] => [
-  { session: "", member: "*", agent: "" as Agent, nick: ALL_MEMBERS, name: t("channel.atMembers"), status: "idle", recv: [] },
-  { session: "", member: "agent:*", agent: "" as Agent, nick: ALL_AGENTS, name: t("channel.atAgents"), status: "idle", recv: [] },
+  { session: "", member: "*", agent: "" as Agent, nick: ALL_MEMBERS, name: t("channel.atMembers"), status: "idle", on: [] },
+  { session: "", member: "agent:*", agent: "" as Agent, nick: ALL_AGENTS, name: t("channel.atAgents"), status: "idle", on: [] },
 ];
 
-export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s, turn, onSent, onSentDone, cycleMode, openModel, openMode, openUsage, openContext, cleared, tools, nicks, quote, unquote, people }, ref) {
-  const multi = !!nicks;
+export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s, solo, turn, onSent, onSentDone, cycleMode, openModel, openMode, openUsage, openContext, cleared, tools, nicks, quote, unquote, people }, ref) {
+  const hasSolo = !!solo;
+  const multi = (nicks?.length ?? 0) > 1;
   // The quote as last shown: its row keeps its words while it shuts.
   const lastQuote = useRef(quote);
   if (quote) lastQuote.current = quote;
   const shownQuote = quote ?? lastQuote.current;
   const [text, setText] = useState(() => kept(draftKey(s.id)) ?? "");
   const atts = useSyncExternalStore(subscribeUnsent, () => unsent.get(s.id) ?? NO_ATTS);
+  // The attachment a Backspace in the empty box marked (bsattach.ts): a second takes it; it goes
+  // by itself after a while.
+  const [picked, setPicked] = useState<string | null>(null);
+  useEffect(() => {
+    if (!picked) return;
+    const id = setTimeout(() => setPicked(null), MARK_FOR);
+    return () => clearTimeout(id);
+  }, [picked]);
   const sid = s.id;
   const setAtts = (f: (a: Att[]) => Att[]) => setUnsent(sid, f);
   const [busy, setBusy] = useState(false);
@@ -179,9 +191,18 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
   const [caret, setCaret] = useState<number | null>(null);
   const box = useRef<HTMLTextAreaElement>(null);
   const picker = useRef<HTMLInputElement>(null);
+  // The system's chooser asked for once: not again within a moment of its being asked for, nor of
+  // its answer (kumo, 2026-11-25: on Android two of them came up, one over the other).
+  const pickedAt = useRef(0);
+  const pickFiles = () => {
+    if (Date.now() - pickedAt.current < 800) return;
+    pickedAt.current = Date.now();
+    picker.current?.click();
+  };
   // What @ may name: each is one piece in the box, as a session named is (kumo, 2026-11-21).
   const nameKey = [...(nicks ?? []).map((a) => a.nick), ...(people ?? []).map((p) => p.nick)].join("\n");
-  const names = useMemo(() => [...nameKey.split("\n"), ...(multi ? [ALL_MEMBERS, ALL_AGENTS] : [])].filter(Boolean), [nameKey, multi]);
+  const hasEveryone = multi || (nicks !== undefined && ((nicks.length + (people?.length ?? 0)) > 1));
+  const names = useMemo(() => [...nameKey.split("\n"), ...(hasEveryone ? [ALL_MEMBERS, ALL_AGENTS] : [])].filter(Boolean), [nameKey, hasEveryone]);
   const shownBox = boxed(text, names);
   const marked = shownBox.refs.length > 0;
   // Where the box's caret was last: an arrow stepping into a name goes on past it (boxed.ts outOf).
@@ -196,6 +217,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
   });
 
   const type = (v: string) => {
+    setPicked(null);
     setText(v);
     keep(draftKey(s.id), v || null);
     setAt(null);
@@ -205,7 +227,14 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
     const el = box.current;
     if (!el) return;
     el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 220)}px`;
+    const need = el.scrollHeight;
+    el.style.height = `${Math.min(need, 220)}px`;
+    // No scrollbar till the words are more than the box holds (kumo, 2026-11-26: it showed as a
+    // line was added, the box scrolled to its caret a moment before it grew, and stayed all the
+    // while words kept coming, as they do spoken): nothing to scroll, none drawn, the words at
+    // their top.
+    el.style.overflowY = need > 220 ? "auto" : "hidden";
+    if (need <= 220 && el.scrollTop) el.scrollTop = 0;
   };
   // Before it is painted: a frame after, the composer was still as tall as the words just sent
   // while their bubble was already above it.
@@ -301,25 +330,22 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
   const sizable = shownAtts.some((a) => a.small !== null);
   const wholeSize = shownAtts.reduce((n, a) => n + (a.small !== null ? a.orig.size : 0), 0);
 
-  const commands = commandsOf(s);
-  // The commands of the channel's scripts (docs/channels.md "脚本"): "/name" goes to the script,
-  // in a channel of several too.
+  const commands = solo ? commandsOf(solo) : [];
+  // The commands of the channel's scripts (docs/channels.md "命令"): "/name" goes to the script.
   const scriptCmds = scriptCommands(useScripts(s.id));
-  // Nothing typed after the /: the common ones first, then the agent's own, then the scripts',
-  // under their heads.
-  const cmds: Cmd[] = multi ? scriptCmds : [...commands.filter(isCommon), ...commands.filter((c) => !isCommon(c)), ...scriptCmds];
+  // Nothing typed after the /: with a sole agent, common + agent commands + channel scripts;
+  // otherwise channel scripts alone.
+  const cmds: Cmd[] = hasSolo ? [...commands.filter(isCommon), ...commands.filter((c) => !isCommon(c)), ...scriptCmds] : scriptCmds;
   const list = /^\/\S*$/.test(text) && text !== shut ? (text === "/" ? cmds : matching(cmds, text.slice(1))) : [];
   const sessions = useList();
   const machines = useMachines();
   const workspaces = useWorkspaces().data ?? [];
   const home = useHome().data; // ~ typed after the @ is this; named, a whole path
-  // & names a session or a place; @ calls a member of a channel of several, by nick, or all of
-  // them (Satori's <at>; the user, 2026-11-13).
+  // & names a session or a place; @ calls a member of the channel, by nick, or all of them.
   const open = caret !== null && text !== shut && !list.length;
   const word = open ? atWord(text, caret, "&") : null;
-  const nickWord = (multi || !!people?.length) && open ? atWord(text, caret) : null;
-  // The names of all only among several agents.
-  const nickOpts = nickWord ? matchAgents([...(nicks ?? []), ...(people ?? []), ...(multi ? everyoneRows() : [])], nickWord.q) : [];
+  const nickWord = (!!nicks?.length || !!people?.length) && open ? atWord(text, caret) : null;
+  const nickOpts = nickWord ? matchAgents([...(nicks ?? []), ...(people ?? []), ...(hasEveryone ? everyoneRows() : [])], nickWord.q) : [];
   const nickSel = nickOpts.length ? Math.min(at ?? 0, nickOpts.length - 1) : 0;
   const call = (r: AgentRow) => {
     if (!nickWord) return;
@@ -375,18 +401,19 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
   const empty = !text.trim() && !atts.length;
   const shellable = useShellable(s);
 
-  /** Page-handled commands: true when done here. */
+  /** Page-handled commands for the channel's sole agent: true when done here. */
   const own = (words: string) => {
+    if (!solo) return false;
     const w = words.trim().toLowerCase();
     if (w === "/model" || w === "/effort") return (type(""), openModel(), true);
     if (w === "/mode") return (type(""), openMode(), true);
     if (w === "/usage") return (type(""), openUsage(), true);
-    if (w === "/stop") return (type(""), void stopTurn(s.id), true);
+    if (w === "/stop") return (type(""), void stopTurn(solo.id), true);
     if (w === "/clear" || w === "/new") return (type(""), void clear(), true);
     if (w === "/context") {
       if (openContext()) return (type(""), true);
       // Claude says it itself; the others have nothing to say before a turn.
-      if (s.agent !== "claude") return (type(""), toast(t("cmd.noContext")), true);
+      if (solo.agent !== "claude") return (type(""), toast(t("cmd.noContext")), true);
     }
     return false;
   };
@@ -406,15 +433,15 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
   const go = async () => {
     if (busy || uploading || empty) return;
     if (atts.some((a) => a.error)) return toast(t("err.upload"), { error: true });
-    // $ and a command line: run at the session's machine, not sent to the agent (shell.tsx).
-    const line = shellable && !multi && !atts.length ? shellLine(text) : null;
+    // $ and a command line: run at the channel's machine, not sent to an agent (shell.tsx).
+    const line = shellable && !atts.length ? shellLine(text) : null;
     if (line) {
       type("");
       setBusy(true);
       return void runShell(s, line).finally(() => setBusy(false));
     }
     const typed = text.trim();
-    if (!multi && !atts.length && own(typed)) return;
+    if (hasSolo && !atts.length && own(typed)) return;
     // The words as they are, the links in them what the agent reads.
     const words = typed;
     // A picture's copy here stays: the bubble shows it while sending, and once landed till the
@@ -423,7 +450,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
     // A picture's size goes with it: its bubble keeps its place before it is drawn.
     const files = atts.map((a) => ({ ref: a.ref!, name: a.file.name, type: a.file.type, size: a.file.size, url: a.url, ...(a.w && a.h ? { w: a.w, h: a.h } : {}) }));
     // Its id chosen here: the transcript's block is found by it as it comes, whenever the answer does.
-    const sent: Sent = { key: crypto.randomUUID(), text: words, files, from: 0, input: crypto.randomUUID(), ...(quote ? { quote: quote.n } : {}) };
+    const sent: Sent = { key: crypto.randomUUID(), made: Date.now(), text: words, files, from: 0, input: crypto.randomUUID(), ...(quote ? { quote: quote.n } : {}) };
     for (const a of atts) other(a);
     // The rows over the box (the answered, the attachments) shut at once as it goes, with the
     // bubble's coming: one move of the conversation, not the bubble's up and theirs down after.
@@ -455,9 +482,9 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
   // The palette beside the composer, not in it: a frosted layer inside another sees only that one.
   return (
     <div className="relative">
-      {list.length > 0 && <Palette list={list} at={Math.min(at ?? 0, list.length - 1)} agent={s.agent} grouped={text === "/"} point={setAt} pick={(c) => (!c.script && own(`/${c.name}`) ? undefined : (type(`/${c.name} `), box.current?.focus()))} />}
-      {atOpen && <AtList sections={sections} at={sel} point={setAt} pick={name} />}
-      {nickOpts.length > 0 && <NickList rows={nickOpts} at={nickSel} point={setAt} pick={call} />}
+      {<Palette open={list.length > 0} list={list} at={Math.min(at ?? 0, list.length - 1)} agent={solo?.agent ?? s.agent} grouped={text === "/"} point={setAt} pick={(c) => (!c.script && own(`/${c.name}`) ? undefined : (type(`/${c.name} `), box.current?.focus()))} />}
+      {<AtList open={atOpen} sections={sections} at={sel} point={setAt} pick={name} />}
+      {<NickList open={nickOpts.length > 0} rows={nickOpts} at={nickSel} point={setAt} pick={call} />}
       {secretish && (
         <SaveSecret
           key={secretish.value}
@@ -470,7 +497,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
           }}
         />
       )}
-    <div className="glass float rest relative @container rounded-[20px]">
+    <div className={cn(SHELL, SHELL_LINE, "rest relative @container")}>
       {/* The message answered: its row opens and shuts as the attachments' does, no × (docs/
           前端设计规范.md): Esc, a Backspace in an empty box, or a press on it put it away. */}
       <div aria-hidden={!quote || undefined} className={cn("g-reveal", snap && "g-snap")} data-open={quote ? "" : undefined}>
@@ -491,7 +518,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
             const going = !a.ref && !a.error;
             return (
               <li key={a.key} className="g-pop relative shrink-0 pt-1.5 pr-1.5">
-                <span className="relative block overflow-hidden rounded-lg shadow-[0_0_0_0.5px_var(--edge)]">
+                <span data-marked={a.key === picked || undefined} className={cn("relative block overflow-hidden rounded-lg shadow-[0_0_0_0.5px_var(--edge)] outline-offset-1 transition-[outline-color] duration-(--dur-2)", a.key === picked ? "outline-2 outline-ink outline-solid" : "outline-2 outline-transparent outline-solid")}>
                   {a.url ? (
                     <Zoom full={a.url} name={a.file.name}>
                       <button type="button" aria-label={`${a.file.name} · ${t("msg.openImage")}`} className="block cursor-zoom-in">
@@ -548,12 +575,13 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
           multiple
           hidden
           onChange={(e) => {
+            pickedAt.current = Date.now();
             attach([...(e.target.files ?? [])]);
             e.target.value = "";
           }}
         />
         {!noFiles && (
-          <IconKey label={t("composer.attach")} onClick={() => picker.current?.click()}>
+          <IconKey label={t("composer.attach")} onClick={pickFiles}>
             <Paperclip size={17} />
           </IconKey>
         )}
@@ -570,7 +598,6 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
           // Its letters clear over what it names: the browser's spelling marks would lie under the
           // marks' names (a title is no misspelling).
           spellCheck={marked ? false : undefined}
-          placeholder={t("composer.placeholder")}
           aria-label={t("composer.placeholder")}
           onChange={(e) => {
             const el = e.target;
@@ -598,8 +625,9 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
             setCaret(wordsAt(shownBox, el.selectionStart));
           }}
           onFocus={(e) => setCaret(wordsAt(shownBox, e.currentTarget.selectionStart))}
-          onBlur={() => setCaret(null)}
-          onCompositionStart={() => setComposing(true)}
+          onBlur={() => (setCaret(null), setPicked(null))}
+          onPointerDown={() => setPicked(null)}
+          onCompositionStart={() => (setComposing(true), setPicked(null))}
           onCompositionEnd={() => setComposing(false)}
           onPaste={(e) => {
             const pasted = [...e.clipboardData.files];
@@ -608,7 +636,16 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
             attach(pasted);
           }}
           onKeyDown={(e) => {
-            if (composing || e.nativeEvent.isComposing || e.keyCode === 229) return;
+            const composes = composing || e.nativeEvent.isComposing || e.keyCode === 229;
+            // Backspace in the empty box: its attachments, two presses each (bsattach.ts); after the
+            // message answered, which one press puts away first.
+            const b = press(picked, { key: e.key, words: text, composing: composes, repeat: e.repeat, keys: quote ? [] : atts.map((a) => a.key) });
+            if (b.marked !== picked) setPicked(b.marked);
+            if (b.ours) {
+              if (b.take) remove(b.take);
+              return e.preventDefault();
+            }
+            if (composes) return;
             const move = shown ? { ArrowDown: 1, ArrowUp: -1 }[e.key] : undefined;
             const now = list.length ? Math.min(at ?? 0, list.length - 1) : nickOpts.length ? nickSel : sel;
             if (move) setAt((now + move + shown) % shown);
@@ -621,11 +658,11 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
             else if (e.key === "ArrowRight" && word && into(opts[sel], e.currentTarget, e.shiftKey || e.ctrlKey || e.metaKey || e.altKey)) enter(opts[sel]!);
             else if ((shown || atOpen) && e.key === "Escape") setShut(text);
             else if (quote && (e.key === "Escape" || (e.key === "Backspace" && !text && e.currentTarget.selectionStart === 0))) unquote?.();
-            else if (e.key === "Tab" && e.shiftKey) cycleMode();
+            else if (e.key === "Tab" && e.shiftKey && hasSolo) cycleMode();
             // Enter sends on a computer (Ctrl or ⌘ with it on a phone); in an empty box it does nothing.
-            // Esc stops the session's own agent's turn, as its stop key does.
+            // Esc stops the sole agent's turn, as its stop key does.
             else if (e.key === "Enter" && !e.shiftKey && (fine() || e.ctrlKey || e.metaKey)) void (empty || go());
-            else if (e.key === "Escape" && turn) void stopTurn(s.id);
+            else if (e.key === "Escape" && solo && turn) void stopTurn(solo.id);
             else return;
             e.preventDefault();
           }}
@@ -664,13 +701,13 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ s,
  *  logo, its title, how long ago; a place's: its folder (a cloud on it at another machine), its
  *  name, its path faint at the end. ↑↓, → into a folder, Enter or Tab on a keyboard, a tap on a
  *  phone. */
-function AtList({ sections, at, pick, point }: { sections: AtSection[]; at: number; pick: (r: AtRow) => void; point: (i: number) => void }) {
+function AtList({ open, sections, at, pick, point }: { open: boolean; sections: AtSection[]; at: number; pick: (r: AtRow) => void; point: (i: number) => void }) {
   const sessions = useList();
   const now = useMinute();
   let i = -1;
   let n = 0;
   return (
-    <div role="listbox" aria-label={t("composer.atList")} className="g-pop glass thick float absolute bottom-full left-2 z-10 mb-2 max-h-[min(360px,50dvh)] w-[400px] max-w-[calc(100%-16px)] origin-bottom-left no-bar overflow-y-auto overscroll-contain rounded-lg p-1.5 text-ink">
+    <OwnPopup open={open} role="listbox" aria-label={t("composer.atList")} className="absolute bottom-full left-2 z-10 mb-2 max-h-[min(360px,50dvh)] w-[400px] max-w-[calc(100%-16px)] no-bar overflow-y-auto overscroll-contain rounded-lg p-1.5 text-ink">
       <div className="g-stagger flex flex-col">
         {sections.map((sec) => (
           <Fragment key={sec.key}>
@@ -691,7 +728,7 @@ function AtList({ sections, at, pick, point }: { sections: AtSection[]; at: numb
                   onPointerMove={() => r.off || on || point(idx)}
                   onClick={() => r.off || pick(r)}
                   style={{ "--i": n++ } as CSSProperties}
-                  className={cn("flex h-8 w-full shrink-0 cursor-default items-center gap-2.5 rounded-md px-2.5 text-left text-base outline-none select-none pointer-coarse:h-11", on && "bg-fill", r.off && "opacity-50")}
+                  className={cn("flex h-8 w-full shrink-0 cursor-default items-center gap-2.5 rounded-md px-2.5 text-left text-base outline-none select-none pointer-coarse:h-9", on && "bg-fill", r.off && "opacity-50")}
                 >
                   {r.kind === "session" ? (
                     <>
@@ -716,7 +753,7 @@ function AtList({ sections, at, pick, point }: { sections: AtSection[]; at: numb
           </Fragment>
         ))}
       </div>
-    </div>
+    </OwnPopup>
   );
 }
 
@@ -751,16 +788,16 @@ const isCommon = (c: Cmd) => !c.script && COMMON.includes(c.name as (typeof COMM
 /** A command of the palette: the agent's, or a script's (its face beside it). */
 type Cmd = Command & { script?: Script };
 /** The commands of a channel's scripts that are on, each its script's intro (or name) as what it does. */
-const scriptCommands = (scripts?: Script[]): Cmd[] => (scripts ?? []).filter((x) => x.enabled).flatMap((x) => x.on.flatMap((tr) => (tr.command ? [{ name: tr.command, description: x.intro || x.name, script: x }] : [])));
+const scriptCommands = (scripts?: Script[]): Cmd[] => (scripts ?? []).filter((x) => x.enabled).flatMap((x) => x.on.flatMap((tr) => (tr.command ? [{ name: tr.command, description: x.name, script: x }] : [])));
 const groupOf = (c: Cmd) => (c.script ? "script" : isCommon(c) ? "common" : "agent");
 
 /** The commands as the page's menus are (the model's, a right press's), not a bar as wide as the
  *  composer over it (the user, 2026-11-09): a card at the box's corner, grown out of the /; a row
  *  each, its icon, its name, what it does faint at its end; while nothing is typed after the /, the
  *  common ones, then the agent's own, each under its head. ↑↓ and Enter or Tab on a keyboard. */
-function Palette({ list, at, agent, grouped, pick, point }: { list: Cmd[]; at: number; agent: Agent; grouped: boolean; pick: (c: Cmd) => void; point: (i: number) => void }) {
+function Palette({ open, list, at, agent, grouped, pick, point }: { open: boolean; list: Cmd[]; at: number; agent: Agent; grouped: boolean; pick: (c: Cmd) => void; point: (i: number) => void }) {
   return (
-    <div role="listbox" aria-label={t("composer.commands")} className="g-pop glass thick float absolute bottom-full left-2 z-10 mb-2 max-h-[min(360px,50dvh)] w-80 max-w-[calc(100%-16px)] origin-bottom-left no-bar overflow-y-auto overscroll-contain rounded-lg p-1.5 text-ink">
+    <OwnPopup open={open} role="listbox" aria-label={t("composer.commands")} className="absolute bottom-full left-2 z-10 mb-2 max-h-[min(360px,50dvh)] w-80 max-w-[calc(100%-16px)] no-bar overflow-y-auto overscroll-contain rounded-lg p-1.5 text-ink">
       <div className="g-stagger flex flex-col">
         {list.map((c, i) => {
           const Icon = isCommon(c) ? CMD_ICONS[c.name as (typeof COMMON)[number]] : undefined;
@@ -777,10 +814,10 @@ function Palette({ list, at, agent, grouped, pick, point }: { list: Cmd[]; at: n
                 onPointerMove={() => i === at || point(i)}
                 onClick={() => pick(c)}
                 style={{ "--i": i } as CSSProperties}
-                className={cn("flex h-8 w-full shrink-0 cursor-default items-center gap-2.5 rounded-md px-2.5 text-left text-base outline-none select-none pointer-coarse:h-11", i === at && "bg-fill")}
+                className={cn("flex h-8 w-full shrink-0 cursor-default items-center gap-2.5 rounded-md px-2.5 text-left text-base outline-none select-none pointer-coarse:h-9", i === at && "bg-fill")}
               >
                 {Icon && <Icon size={15} className="shrink-0 text-ink-2" aria-hidden />}
-                {c.script && <ScriptFace avatar={c.script.avatar} size={15} />}
+                {c.script && <ScriptFace size={15} />}
                 <span className="shrink-0">{c.name}</span>
                 {c.argumentHint && <span className="max-w-[30%] min-w-0 shrink truncate font-mono text-xs text-ink-3">{c.argumentHint}</span>}
                 <span className="min-w-0 flex-1 truncate text-right text-xs text-ink-3">{c.description}</span>
@@ -789,7 +826,7 @@ function Palette({ list, at, agent, grouped, pick, point }: { list: Cmd[]; at: n
           );
         })}
       </div>
-    </div>
+    </OwnPopup>
   );
 }
 

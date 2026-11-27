@@ -38,7 +38,7 @@ func (s *Service) members(ctx context.Context, c Caller, guild, channel string) 
 			return nil, err
 		}
 		for _, ss := range l {
-			if ss.Archived || ss.Subagent || ss.Bare || s.guildOf(ss).ID != guild || !s.b.Sees(c, ss.ID) {
+			if ss.Archived || ss.Subagent || ss.Bare || guildIDOf(ss) != guild || !s.b.SeesListed(c, ss) {
 				continue
 			}
 			u := s.agentOf(ss.ID)

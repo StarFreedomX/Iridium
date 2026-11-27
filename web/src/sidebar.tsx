@@ -5,13 +5,13 @@
 // (the title its agent gave it, plan "会话标题") and, where the tree does not say it, its folder; out
 // of a turn, it ends with how long ago it was. 归档 folded at the bottom, its bin where a group's
 // folder is. A group's row: its name a size up, a faint "+" at its end for a new session there. A
-// row's menu (right click, long-press): pin, rename, stop, archive, 通知 while push is on (push.ts),
-// and at its foot the colour tags (colors.ts); a group's: rename, its path, 通知. The mouse resting
+// row's menu (right click, long-press): pin, rename, stop, archive, and at its foot the colour tags
+// (colors.ts); a group's: rename, its path. The mouse resting
 // on a row fetches its chat ahead.
 import { Menu } from "@base-ui/react/menu";
-import { Archive, ArchiveRestore, ArrowDown, ArrowUp, Bot, Check, ChevronRight, Copy, Ellipsis, Ungroup, Folder, FolderOpen, ListCollapse, Moon, Pencil, Pin, PinOff, Plus, RefreshCw, Square } from "lucide-react";
+import { Archive, ArchiveRestore, Bookmark, BookmarkMinus, BookmarkX, Bot, Check, ChevronRight, Copy, Ellipsis, Ungroup, Folder, FolderOpen, ListCollapse, Moon, Pencil, Pin, PinOff, Plus, RefreshCw, Square, FolderPlus } from "lucide-react";
 import { ConfirmIcon, confirmName, confirmTitle } from "./confirmname";
-import { Fragment, lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactElement, type ReactNode, type RefObject } from "react";
+import { Fragment, lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactElement, type ReactNode, type RefObject } from "react";
 import { api } from "./api/client";
 import type { Agent, Color, Guilds, Need, Session } from "./api/types.gen";
 import { NO_GUILDS, placesOf, withGroupOrder, withMark, type Places } from "./guilds";
@@ -19,22 +19,27 @@ import { colorVar, COLORS, useFolderColors } from "./colors";
 import { ahead, behind } from "./chats";
 import { t, useLang } from "./i18n";
 import { useMoves } from "./motion";
-import { folderLevels, sessionLevels, usePushMenus, wsLevels, type PushLevel } from "./push";
 import { allFolders, folderSessions, foldersHolding, foldMore, groupHolding, machineOf, remotePath, type Folder as FolderNode, type Tree, type WsNode } from "./tree";
 import { createAt, onOpenPlace, type Place } from "./places";
+import { FileBrowserTrigger } from "./filebrowser-trigger";
+import { listKept } from "./chat/channel/adding";
 import { LinkDot } from "./link";
 import { errText, toast } from "./toast";
 import { manages, useMachines, useMe, useSaidLine, useUpdate } from "./data";
-import { agentName, ago, cn, fine, IconKey, IrMark, keep, kept, Lamp, lampOf, Logo, own, sessionStatusText, statusText, tilde, Tip, titleOf, untitled, useLongPress, useMenuAt, useMinute, usePointAnchor } from "./ui";
+import { agentName, ago, cn, fine, IconKey, IrMark, keep, kept, Lamp, lampOf, Logo, own, sessionStatusText, statusText, tilde, Tip, titleOf, useEver, untitled, useLongPress, useMenuAt, useMinute, usePointAnchor, MenuPortal } from "./ui";
 import { AppName } from "./appkey";
+import { MAKING, patchSessions } from "./pending";
+import { clearFavorites, favoriteAt, inOpenFavorites, isFavorite, placeFavorite, setFavorite, setFavoritesColor, setFavoritesName, useFavorites, useFavoritesColor, useFavoritesName } from "./favorites";
+import { crossAsk, crossOrder, favKey, keyId, keyServer, tellFavs, tellSide, useCross, type FavItem, type FavServer } from "./crossfav";
+import { useApp } from "./irapp";
 import { PLACE_DRAG, SESSION_DRAG } from "./chat/refs";
-import { badge, isQuiet, setQuiet, useAt, useQuiet, useUnread } from "./unread";
+import { atOf, badge, isQuiet, onUnread, setQuiet, unreadOf, useAt, useQuiet, useUnread } from "./unread";
 import { Face, FaceStack } from "./chat/channel/face";
 import { CloudBadge, MachineFace, shownPath, useLate, useMachine, type Machine } from "./machines";
-import { getCarried, setCarried, useCarried, useLink, useList } from "./store";
+import { getCarried, setCarried, useCarried, useLink, useList, useListed } from "./store";
 import { channelLamp, isMulti } from "./chat/channel/lib";
 import { useVoiceItem, VoiceDock, VoiceMark } from "./voice/dock";
-import { dropMark, dropTarget, endDrag, listDrop, pinFolder, placeFolder, placeGroup as placeGroupKey, placeSession, sortList, startDrag, useDragged, useOver, type Dragged, type Edge, type Over } from "./reorder";
+import { ANY, dropMark, dropTarget, endDrag, listDrop, pinFolder, placeFolder, placeGroup as placeGroupKey, placeSession, startDrag, touchDrag, useDragged, useOver, type Dragged, type Edge, type Over } from "./reorder";
 
 const STEP = 18;
 /** The deepest a folder is drawn in: those deeper are drawn as deep, the sidebar being narrow. */
@@ -64,7 +69,6 @@ type Props = {
   /** What agents' ir asked this panel for (invites, tokens): under 需要你 too. */
   confirms: Need[];
   onConfirm: (c: Need) => void;
-  createKey: (trigger: ReactElement) => ReactNode;
   filesKey?: ReactNode;
   wsPlus: (ws: WsNode, trigger: ReactElement, open: boolean, setOpen: (o: boolean) => void) => ReactNode;
   me: ReactNode;
@@ -76,13 +80,18 @@ type Props = {
   noFoot?: boolean;
   /** On a phone: the sheet brought out, a place shown in it (openPlace). */
   reveal?: () => void;
+  /** On a computer, folded away to the left (sideshut.ts); onShut: its [Ir] pressed. */
+  shut?: boolean;
+  onShut?: () => void;
 };
 
 /** How wide the sidebar may be dragged, and at first: freely, to 640px or 60% of the window (the
  *  user, 2026-11-06). The width is --sidebar-w on the page too: the settings dialog sizes by it. */
 const WIDTH = { min: 220, max: 640, start: 292 };
 const WIDTH_KEY = "ir.sidebarWidth";
-const clampWidth = (w: number) => Math.round(Math.min(WIDTH.max, innerWidth * 0.6, Math.max(WIDTH.min, w)));
+// Beside another page in the desktop app (crossfav.ts, part side) the page is the list alone, as
+// wide as it: no share of the page's width to keep for the chat.
+const clampWidth = (w: number) => Math.round(Math.min(WIDTH.max, document.documentElement.dataset.irPart === "side" ? Infinity : innerWidth * 0.6, Math.max(WIDTH.min, w)));
 
 /** The line to the main pane, fading out toward its top and its foot; dragged, it sets how wide
  *  the sidebar is, within WIDTH; a double click puts it back; ← → by a step on the keyboard. */
@@ -136,12 +145,16 @@ function Divider({ width, setWidth }: { width: number; setWidth: (w: number) => 
   );
 }
 
+/** The favorites' key in the open-or-folded record, and the lane of their row's drop (none of its kind). */
+const FAV = "fav";
+const FAV_HEAD = "fav-head";
+
 export function Sidebar(p: Props) {
   const machines = useMachines();
   saidNow = useSaidLine();
   const list = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(() => clampWidth(Number(kept(WIDTH_KEY)) || WIDTH.start));
-  useLayoutEffect(() => void document.documentElement.style.setProperty("--sidebar-w", `${p.phone ? 0 : width}px`), [width, p.phone]);
+  useLayoutEffect(() => void document.documentElement.style.setProperty("--sidebar-w", `${p.phone || p.shut ? 0 : width}px`), [width, p.phone, p.shut]);
   const [plusOpen, setPlusOpen] = useState<string | null>(null);
   // A confirmation an agent's ir asked for lights its session's lamp; one of no session listed
   // here is a row of its own at the top (no 需要你 group: the user, 2026-11-08). The sessions a
@@ -177,7 +190,56 @@ export function Sidebar(p: Props) {
   const [archShown, setArchShown] = useState(ARCHIVE_STEP);
   const archOpen = p.expanded("archive");
   useEffect(() => void (!archOpen && setArchShown(ARCHIVE_STEP)), [archOpen]);
-  const shape = [loose.map((c) => c.id).join(","), ...p.tree.workspaces.map((w) => `${w.key}:${p.expanded(w.key)}:${foldShape(roots(w), w.key)}:${allFolders(tops(w)).map((f) => `${f.key}${p.expanded(f.key)}${foldShape(f.sessions, f.key)}`).join(",")}`), archOpen, p.tree.archived.length, archShown].join("|");
+  // My favorites (favorites.ts): those listed, not archived, in my order; none, no block.
+  const favIds = useFavorites();
+  const everyone = useList();
+  const favs = favIds.flatMap((id) => {
+    const s = everyone?.find((x) => x.id === id);
+    return s && !s.archived && !s.subagent ? [s] : [];
+  });
+  // In the desktop app, every Iridium's favorites in one order (crossfav.ts): this one's told to
+  // the app, the others' drawn among them, each with its Iridium's face after its name.
+  useTellFavs(favs);
+  const cross = useCross();
+  useEffect(() => void (cross && tellSide(width)), [width, !!cross]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Dragged by the app's own line while beside another page (its own line hidden then).
+  useEffect(() => {
+    const h = (e: Event) => {
+      const v = clampWidth((e as CustomEvent<number>).detail);
+      setWidth(v);
+      keep(WIDTH_KEY, String(v));
+    };
+    window.addEventListener("ir-side-width", h);
+    return () => window.removeEventListener("ir-side-width", h);
+  }, []);
+  type Fav = { key: string; s: Session; item?: never; srv?: never } | { key: string; s?: never; item: FavItem; srv: FavServer };
+  const mixed: Fav[] | null = cross
+    ? (() => {
+        const own = new Map(favs.map((s) => [favKey(cross.self, s.id), s]));
+        const others = new Map(Object.entries(cross.items).flatMap(([server, items]) => (server === cross.self || !cross.servers[server] ? [] : items.map((it) => [favKey(server, it.id), { item: it, srv: cross.servers[server]! }] as const))));
+        const out: Fav[] = [];
+        for (const k of cross.order) {
+          const s = own.get(k);
+          if (s) (out.push({ key: k, s }), own.delete(k));
+          else if (others.has(k)) out.push({ key: k, ...others.get(k)! });
+        }
+        for (const [k, s] of own) out.push({ key: k, s });
+        return out;
+      })()
+    : null;
+  // A row dropped among them (one of them, or one of this Iridium's from anywhere): the order told
+  // to the app, which has each Iridium put its own so; one not favoured yet is, here.
+  const placeCross = useCallback(
+    (dragged: string, target: string, edge: Edge) => {
+      if (!cross || !mixed) return;
+      const dk = dragged.includes("#") ? dragged : favKey(cross.self, dragged);
+      if (!dragged.includes("#") && !isFavorite(dragged)) setFavorite(dragged, true);
+      crossOrder(favoriteAt(mixed.map((f) => f.key), dk, target, edge));
+    },
+    [cross, mixed],
+  );
+  const favOpen = p.expanded(FAV);
+  const shape = [favs.length ? `${favOpen}:${favOpen ? favs.map((s) => s.id).join(",") : ""}` : "", loose.map((c) => c.id).join(","), ...p.tree.workspaces.map((w) => `${w.key}:${p.expanded(w.key)}:${foldShape(roots(w), w.key)}:${allFolders(tops(w)).map((f) => `${f.key}${p.expanded(f.key)}${foldShape(f.sessions, f.key)}`).join(",")}`), archOpen, p.tree.archived.length, archShown].join("|");
   useMoves(list, true)(shape);
   // Dragged to a new place (reorder.ts): the sessions beside each other, by the key of their
   // group's root or folder, and the groups, as last drawn. The page shows the new order at once.
@@ -194,14 +256,10 @@ export function Sidebar(p: Props) {
     const s = sibs.find((x) => x.id === id);
     if (!s) return;
     const at = placeSession(sibs, s, target, edge);
-    const was = getCarried<Session[]>("list");
-    const shown = was && sortList(was.map((x) => (x.id === id ? { ...x, ...at } : x)));
-    if (shown) setCarried("list", shown);
-    void api.patch(id, { order: at.order, ...(at.pinned !== !!s.pinned ? { pinned: at.pinned } : {}) }).catch((e: unknown) => {
-      if (getCarried("list") === shown) setCarried("list", was);
-      toast(t("err.action"), { error: true, description: errText(e) });
-    });
+    void patchSessions(id, { order: at.order, ...(at.pinned !== !!s.pinned ? { pinned: at.pinned } : {}) }).catch((e: unknown) => toast(t("err.action"), { error: true, description: errText(e) }));
   }, []);
+  // Among my favorites: one of them moved, or one from anywhere put there.
+  const placeFav = useCallback((id: string, target: Session, edge: Edge) => placeFavorite(id, target.id, edge), []);
   // A folder put (dragged, pinned): shown so at once, then told the server.
   const putFolder = useCallback((path: string, at: (was: Places) => { order?: number; pinned?: boolean }) => {
     const was = getCarried<Guilds>("guilds") ?? NO_GUILDS;
@@ -265,14 +323,22 @@ export function Sidebar(p: Props) {
   // group and folders opened, the list scrolled to it. A session in a group far down was opened
   // and nowhere to be seen (kumo, 2026-11-23). A row already in sight stays where it is.
   const selListed = listed.has(p.selected) && !hungAt.has(p.selected);
+  // Opened from my favorites (in sight there): its row there in sight, its group left as it is.
+  const selFav = inOpenFavorites(p.selected, favOpen, favs.map((s) => s.id));
   useEffect(() => {
     if (!selListed || p.searching) return;
+    if (selFav) {
+      requestAnimationFrame(() => list.current?.querySelector(`[data-flip="${CSS.escape(`fav:${p.selected}`)}"]`)?.scrollIntoView({ block: "nearest", behavior: "smooth" }));
+      return;
+    }
     const { tree, expanded, toggle } = now.current;
     const w = tree.workspaces.find((x) => x.rows.some((r) => (r.kind === "session" ? r.s.id === p.selected : folderSessions(r.f).some((s) => s.id === p.selected))));
     if (!w) return;
     if (!expanded(w.key)) toggle(w.key);
     const fs = allFolders(w.rows.flatMap((r) => (r.kind === "folder" ? [r.f] : []))).filter((f) => folderSessions(f).some((s) => s.id === p.selected));
     for (const f of fs) if (!expanded(f.key)) toggle(f.key);
+    // One just made from a row here: the list stays (chat/channel/adding.ts).
+    if (listKept(p.selected)) return;
     requestAnimationFrame(() => list.current?.querySelector(`[data-flip="${CSS.escape(`s:${p.selected}`)}"]`)?.scrollIntoView({ block: "nearest", behavior: "smooth" }));
   }, [p.selected, selListed, p.searching]);
   // A session's row (its subagents have none: kumo, 2026-11-15). The sessions it started (ir new)
@@ -330,12 +396,7 @@ export function Sidebar(p: Props) {
     // A gap after what is open above; folded groups one under another stay close (the user,
     // 2026-11-08).
     const prev = ws[i - 1];
-    const apart = prev ? p.expanded(prev.key) && prev.rows.length > 0 : loose.length > 0;
-    // The groups it moves among, at any machine (not 未归类): one up, one down, from its menu.
-    const lane = ws.filter((x) => x.id !== 0);
-    const k = lane.indexOf(w);
-    const up = k > 0 ? lane[k - 1] : undefined;
-    const down = k >= 0 ? lane[k + 1] : undefined;
+    const apart = prev ? p.expanded(prev.key) && prev.rows.length > 0 : loose.length > 0 || (favs.length > 0 && favOpen);
     // A folder of the group and its sessions; pinned ones above the sessions at the root.
     const firstRoot = roots(w)[0];
     // At a machine no longer paired: no "+" (nowhere to open it).
@@ -350,7 +411,6 @@ export function Sidebar(p: Props) {
         <div key={f.key} role="group">
           <FolderRow
             f={f}
-            ws={w.id}
             depth={at}
             label={level === 0 && w.id === 0 ? <FolderLabel path={f.path} /> : f.name}
             hung={hungOf(folderSessions(f))}
@@ -360,7 +420,7 @@ export function Sidebar(p: Props) {
             lane={lane}
             place={placeFolderAt}
             pin={pinFolderOn}
-            newHere={gone(f.path) ? undefined : () => setPlusOpen(f.key)}
+            newSub={gone(f.path) ? undefined : () => setPlusOpen(f.key)}
             // As a workspace's: not its count, the "+" that opens a session in the folder
             // (the user, 2026-11-06).
             plus={!gone(f.path) && p.wsPlus(
@@ -397,10 +457,9 @@ export function Sidebar(p: Props) {
           open={open}
           onToggle={() => p.toggle(w.key)}
           foldBack={foldBackOf([w.key, ...allFolders(tops(w)).map((x) => x.key)])}
+          newSub={w.id !== 0 && !gone(w.root) ? () => setPlusOpen(w.key) : undefined}
           wkey={w.key}
           place={placeGroup}
-          up={up && (() => placeGroup(w.key, up.key, "top"))}
-          down={down && (() => placeGroup(w.key, down.key, "bottom"))}
           // Not its count: the "+" that opens a session here, at the row's end (the user,
           // 2026-11-06), seen while the group is open or the row hovered (plusKey).
           end={
@@ -435,7 +494,7 @@ export function Sidebar(p: Props) {
       {/* The name at the left, the keys at the right (the user, 2026-11-06); no switch of machines
           (the user, 2026-11-10: a group at another is listed as a session is opened there). */}
       <div className="flex min-w-0 flex-1 items-center gap-2 pl-2">
-        <IrMark size={18} className="text-ink" />
+        {p.onShut ? <SideKey label={t("nav.shut")} onClick={p.onShut} /> : <IrMark size={18} className="text-ink" />}
         {/* In the app, the name this Iridium goes by there, pressed to change (appkey.tsx). */}
         <AppName />
         {/* The link's dot and latency, by the name (the user, 2026-11-08). */}
@@ -445,8 +504,8 @@ export function Sidebar(p: Props) {
     </div>
   );
 
-  return (
-    <aside className={cn("relative flex h-full flex-col select-none [-webkit-touch-callout:none]", p.phone ? "w-full" : "shrink-0")} style={p.phone ? undefined : { width }}>
+  const aside = (
+    <aside className={cn("relative flex h-full flex-col select-none [-webkit-touch-callout:none]", p.phone ? "w-full" : "shrink-0 bg-rail [--row-bg:var(--rail)]")} style={p.phone ? undefined : { width }}>
       {!p.phone && <Divider width={width} setWidth={setWidth} />}
       {head}
       {/* While searching, the jump box in the tree's place; the tree stays mounted, hidden, and
@@ -454,9 +513,59 @@ export function Sidebar(p: Props) {
       {p.searching && <div className="flex min-h-0 flex-1 flex-col">{p.search}</div>}
       <div ref={list} {...listDrop()} hidden={p.searching} onScroll={(e) => void (scrolled.current = e.currentTarget.scrollTop)} className="relative min-h-0 flex-1 no-bar overflow-y-auto px-2 pb-3" role="tree" aria-label={t("nav.sessions")}>
         <DropLine list={list} />
+        {/* My favorites, first (favorites.ts): there while it holds any. A session dragged from
+            anywhere onto its row goes first in it, onto one of its rows beside that one. */}
+        {mixed && mixed.length > 0 && (
+          <div className="mt-1" role="group">
+            <FavHead open={favOpen} onToggle={() => p.toggle(FAV)} first={favs[0]?.id ?? ""} />
+            {favOpen &&
+              mixed.map((f) =>
+                f.s ? (
+                  <SessionRow
+                    key={`fav:${f.s.id}`}
+                    s={f.s}
+                    depth={0}
+                    flip={`fav:${f.s.id}`}
+                    selected={p.selected === f.s.id}
+                    onSelect={p.onSelect}
+                    chatCode={p.chatCode}
+                    kidsAt={!!p.tree.kids.get(f.s.id)?.length || !!p.tree.runs.get(f.s.id)?.length}
+                    asked={asked.has(f.s.id)}
+                    lane={FAV}
+                    anyLane
+                    place={(id, target, edge) => placeCross(id, favKey(cross!.self, target.id), edge)}
+                  />
+                ) : (
+                  <CrossRow key={`fav:${f.key}`} k={f.key} item={f.item} srv={f.srv} place={placeCross} />
+                ),
+              )}
+          </div>
+        )}
+        {!mixed && favs.length > 0 && (
+          <div className="mt-1" role="group">
+            <FavHead open={favOpen} onToggle={() => p.toggle(FAV)} first={favs[0]!.id} />
+            {favOpen &&
+              favs.map((s) => (
+                <SessionRow
+                  key={`fav:${s.id}`}
+                  s={s}
+                  depth={0}
+                  flip={`fav:${s.id}`}
+                  selected={p.selected === s.id}
+                  onSelect={p.onSelect}
+                  chatCode={p.chatCode}
+                  kidsAt={!!p.tree.kids.get(s.id)?.length || !!p.tree.runs.get(s.id)?.length}
+                  asked={asked.has(s.id)}
+                  lane={FAV}
+                  anyLane
+                  place={placeFav}
+                />
+              ))}
+          </div>
+        )}
         {/* 需要你's confirmations: lined up with the groups' folders, apart from the list as a group is. */}
         {loose.length > 0 && (
-          <div className="mt-1" role="group">
+          <div className={favs.length > 0 && favOpen ? "mt-4" : "mt-1"} role="group">
             {loose.map((c) => (
               <Row
                 key={`c:${c.id}`}
@@ -499,19 +608,39 @@ export function Sidebar(p: Props) {
       {!p.noFoot && <Foot me={p.me} />}
     </aside>
   );
+  if (p.phone) return aside;
+  // Shut or opened at once, no slide (kumo, 2026-11-26: two [Ir] Iridium side by side as it slid,
+  // the rows cut in half); the box kept, the list in it keeping its own width.
+  return (
+    <div
+      data-ir-side=""
+      inert={p.shut || undefined}
+      className={cn("relative h-full shrink-0", p.shut && "overflow-hidden")}
+      style={{ width: p.shut ? 0 : width }}
+    >
+      {aside}
+    </div>
+  );
 }
 
-/** The file browser and the "+" for a new workspace. On a phone the keys stand right of the
+/** [Ir], pressed to shut the sidebar (its head) or open it again (the main pane's top bar). */
+export function SideKey({ label, onClick, className }: { label: string; onClick?: () => void; className?: string }) {
+  return (
+    <Tip label={label} side="bottom">
+      <button type="button" aria-label={label} onClick={onClick} className={cn("g-press -m-2 grid shrink-0 place-items-center rounded-md p-2 hover:bg-fill", className)}>
+        <IrMark size={18} className="text-ink" />
+      </button>
+    </Tip>
+  );
+}
+
+/** The file browser (a channel in a folder no group holds is made in it: no "+" here, kumo,
+ *  2026-11-25). On a phone the keys stand right of the
  *  sheet's tabs. The jump box is a keyboard's (nav.searchKey, the user, 2026-11-08). */
-export function HeadKeys(p: Pick<Props, "createKey" | "filesKey">) {
+export function HeadKeys(p: Pick<Props, "filesKey">) {
   return (
     <span className="flex shrink-0 items-center gap-0.5">
       {p.filesKey}
-      {p.createKey(
-        <button type="button" aria-label={t("menu.new")} className="g-press grid size-8 place-items-center rounded-md text-ink-3 hover:bg-fill hover:text-ink-2 data-popup-open:bg-fill data-popup-open:text-ink-2 pointer-coarse:size-10">
-          <Plus size={18} />
-        </button>,
-      )}
     </span>
   );
 }
@@ -651,7 +780,10 @@ function Row({ depth, flip, chevron, expanded, icon, label, end, selected, onCli
         else if (onChevron && ((e.key === "ArrowRight" && chevron === "closed") || (e.key === "ArrowLeft" && chevron === "open"))) (e.preventDefault(), onChevron());
       }}
       className={cn(
-        "group relative flex cursor-default rounded-md pr-2 transition-opacity duration-(--dur-2) select-none hover:bg-fill hover:[--row-bg:var(--fill)]",
+        "group relative flex cursor-default rounded-md pr-2 transition-opacity duration-(--dur-2) select-none",
+        // The row open: white paper lifted off the rail; under the pointer a faint wash of ink (kumo,
+        // 2026-11-27, 设计's 方案一; styles.css --picked); its words as any row's (2026-11-26: no bold).
+        selected ? "g-picked [--row-bg:var(--picked)]" : "hover:g-picked",
         face ? "items-center py-1.5 pointer-coarse:py-2" : two ? "items-start py-[5px] pointer-coarse:py-2" : "h-[30px] items-center pointer-coarse:h-10",
         faded && "opacity-60",
         dim && "opacity-40",
@@ -669,7 +801,7 @@ function Row({ depth, flip, chevron, expanded, icon, label, end, selected, onCli
               "min-w-0 flex-1",
               reveal ? "text-md" : "text-base pointer-coarse:text-md",
               two ? "flex items-baseline leading-5 pointer-coarse:leading-[23px]" : "truncate",
-              selected ? "font-semibold text-ink" : "text-ink",
+              "text-ink",
             )}
           >
             {label}
@@ -707,39 +839,41 @@ function DropLine({ list }: { list: RefObject<HTMLDivElement | null> }) {
 }
 
 /** A group's row; its menu (right click, long-press): its sessions archived, as a folder's (the
- *  user, 2026-11-08: a group is a folder now), rename, its path copied, open or folded, 通知 while
- *  push is on. 未归类 itself (id 0): its sessions archived and its 通知. */
-function WsRow({ flip, id, name, root, sessions, hung, machine, remote, folders, open, onToggle, foldBack, end, wkey, place, up, down }: { flip: string; id: number; name: string; root: string; sessions: Session[]; hung: Session[]; machine?: Machine; remote?: boolean; folders?: boolean; open: boolean; onToggle: () => void; foldBack?: () => void; end: ReactNode; wkey: string; place: (key: string, target: string, edge: Edge) => void; up?: () => void; down?: () => void }) {
+ *  user, 2026-11-08: a group is a folder now), rename, its path copied, open or folded. 未归类
+ *  itself (id 0): its sessions archived. */
+function WsRow({ flip, id, name, root, sessions, hung, machine, remote, folders, open, onToggle, foldBack, newSub, end, wkey, place }: { flip: string; id: number; name: string; root: string; sessions: Session[]; hung: Session[]; machine?: Machine; remote?: boolean; folders?: boolean; open: boolean; onToggle: () => void; foldBack?: () => void; newSub?: () => void; end: ReactNode; wkey: string; place: (key: string, target: string, edge: Edge) => void }) {
   const machines = useMachines();
-  const push = usePushMenus();
   const me = useMe().data;
   const real = id !== 0 && manages(me);
   const [at, setAt] = useMenuAt();
   const [renaming, setRenaming] = useState(false);
-  const lp = useLongPress((p) => setAt({ x: p.x, y: p.y }));
+  // Held and moved: dragged among all groups' rows, as with a mouse (reorder.ts touchDrag).
+  const movable = real && !renaming;
+  const lp = useLongPress((p) => setAt({ x: p.x, y: p.y }), { onHeldMove: movable ? (row, from, pid) => (setAt(null), touchDrag({ kind: "ws", id: wkey, lane: "" }, row, from, pid)) : undefined });
   const anchor = usePointAnchor(at);
   const failed = (e: unknown) => toast(t("err.action"), { error: true, description: errText(e) });
   // The group's voice, its way in (kumo, 2026-11-16).
   const voice = useVoiceItem(id);
+  // Its colour tag, as a folder's (its folder's mark): here only, a colour going on a folder of
+  // this machine (kumo, 2026-11-26).
+  const color = useFolderColors()[root];
+  const tags: Tags | undefined = id > 0 && !remote ? { value: color, set: (c) => void api.markFolder(root, { color: c as Color }).catch(failed) } : undefined;
   const items = [
     ...(id > 0 ? [voice] : []),
     // Those hung under its sessions go with them (the server's cascade): counted, not sent. The way
     // a group at another machine is no longer listed (the user, 2026-11-10).
     ...(sessions.length
-      ? [{ icon: <Archive size={15} />, label: t("menu.archiveHere", { n: sessions.length + hung.length }), sure: t("menu.archiveSure"), run: () => void Promise.all(sessions.map((s) => api.patch(s.id, { archived: true }))).then(() => toast(t("toast.archived")), failed) }]
+      ? [{ icon: <Archive size={15} />, label: t("menu.archiveHere", { n: sessions.length + hung.length }), sure: t("menu.archiveSure"), run: () => void patchSessions(sessions.map((s) => s.id), { archived: true }).then(() => toast(t("toast.archived")), failed) }]
       : []),
     // What was opened of its folded sessions, folded again (the user, 2026-11-22).
     ...(foldBack ? [{ icon: <ListCollapse size={15} />, label: t("menu.foldSessions"), run: foldBack }] : []),
+    ...(newSub ? [{ icon: <FolderPlus size={15} />, label: t("new.subFolder"), run: newSub }] : []),
     ...(real
       ? [
           { icon: <Pencil size={15} />, label: t("menu.rename"), run: () => setRenaming(true) },
           { icon: <Copy size={15} />, label: t("menu.copyPath"), run: () => void navigator.clipboard.writeText(shownPath(root, machines).real).then(() => toast(t("toast.copied")), failed) },
-          { icon: open ? <Folder size={15} /> : <FolderOpen size={15} />, label: open ? t("menu.fold") : t("menu.unfold"), run: onToggle },
           // Taken apart at its folder, its subfolders groups of their own (the user, 2026-11-09).
           ...(folders ? [{ icon: <Ungroup size={15} />, label: t("menu.split"), run: () => void api.patchGuild(id, { split: true }).then(() => toast(t("toast.split", { ws: name })), failed) }] : []),
-          // Moved among all groups; with a mouse it is dragged too (reorder.ts).
-          ...(up ? [{ icon: <ArrowUp size={15} />, label: t("menu.moveUp"), run: up }] : []),
-          ...(down ? [{ icon: <ArrowDown size={15} />, label: t("menu.moveDown"), run: down }] : []),
         ]
       : []),
     // A group at a machine with dsh: what its dsh offers read again now, its workspaces and
@@ -752,18 +886,18 @@ function WsRow({ flip, id, name, root, sessions, hung, machine, remote, folders,
         } }]
       : []),
   ];
-  const menu = items.length > 0 || push;
+  const menu = items.length > 0 || !!tags;
   // Dragged among all groups' rows, by its key (tree.ts WsNode.key).
   const dim = useDragged("ws", wkey);
-  const dragging = real && fine() && !renaming
+  const dragging = movable
     ? {
-        draggable: true,
+        draggable: fine(),
         onDragStart: (e: React.DragEvent) => {
           e.dataTransfer.setData("text/plain", name);
           // Dropped on a chat: the group named there (chat.tsx), so a copy too.
           if (id) e.dataTransfer.setData(PLACE_DRAG, JSON.stringify({ path: root, name }));
           e.dataTransfer.effectAllowed = "copyMove";
-          startDrag({ kind: "ws", id: wkey, lane: "" });
+          startDrag({ kind: "ws", id: wkey, lane: "" }, e.currentTarget as HTMLElement);
         },
         onDragEnd: endDrag,
         ...dropTarget("ws", wkey, "", (d, edge) => place(d.id, wkey, edge)),
@@ -779,7 +913,7 @@ function WsRow({ flip, id, name, root, sessions, hung, machine, remote, folders,
         // No chevron, on a phone either (the user, 2026-11-08): its sessions shown under it, or not.
         expanded={open}
         reveal
-        icon={<WsMark open={open} remote={!!remote} />}
+        icon={<WsMark open={open} remote={!!remote} color={color} />}
         onClick={() => !renaming && onToggle()}
         label={
           renaming ? (
@@ -804,27 +938,13 @@ function WsRow({ flip, id, name, root, sessions, hung, machine, remote, folders,
       />
       {menu && (
         <Menu.Root open={at !== null} onOpenChange={(o) => !o && setAt(null)}>
-          <Menu.Portal>
+          <MenuPortal>
             <Menu.Positioner anchor={anchor} side="bottom" align="start" sideOffset={4} collisionPadding={8} className="z-50">
-              {items.length ? (
-                <MenuItems
-                  items={items}
-                  // No 删除 (the user, 2026-11-08): a group is the folder its sessions are in; it
-                  // goes once none is shown.
-                  foot={<PushFoot levels={wsLevels(id)} i={items.length} />}
-                />
-              ) : (
-                push && (
-                  <Menu.Popup finalFocus={false} className="g-unfold glass thick float min-w-52 rounded-lg p-1.5 text-ink outline-none">
-                    <div className="g-stagger flex flex-col">
-                      <div className="flex h-7 items-center px-2.5 text-xs font-medium text-ink-3">{t("push.menu")}</div>
-                      <push.m.PushItems st={push.st} levels={wsLevels(id)} i={1} />
-                    </div>
-                  </Menu.Popup>
-                )
-              )}
+              {/* No 删除 (the user, 2026-11-08): a group is the folder its sessions are in; it goes
+                  once none is shown. */}
+              <MenuItems items={items} tags={tags} />
             </Menu.Positioner>
-          </Menu.Portal>
+          </MenuPortal>
         </Menu.Root>
       )}
     </>
@@ -841,8 +961,93 @@ function FolderLabel({ path }: { path: string }) {
   return <>{sp.m ? sp.label : tilde(path)}</>;
 }
 
-function WsMark({ open, remote }: { open: boolean; remote: boolean }) {
-  return <FolderMark open={open} remote={remote} className="text-ink-2" />;
+function WsMark({ open, remote, color }: { open: boolean; remote: boolean; color?: Color }) {
+  return <FolderMark open={open} remote={remote} color={color} className="text-ink-2" />;
+}
+
+/** My favorites' row (favorites.ts): open or folded; a session dropped on it goes first among
+ *  them; its menu (right click, long-press) its colour tag, mine alone (kumo, 2026-11-26), the
+ *  bookmark tinted as a folder is. */
+function FavHead({ open, onToggle, first }: { open: boolean; onToggle: () => void; first: string }) {
+  const color = useFavoritesColor();
+  // Its name, mine alone (kumo, 2026-11-26): 改名 in its menu, in place; none given: 收藏.
+  const name = useFavoritesName() ?? t("nav.favorites");
+  const [renaming, setRenaming] = useState(false);
+  const [at, setAt] = useMenuAt();
+  const lp = useLongPress((p) => setAt({ x: p.x, y: p.y }));
+  const anchor = usePointAnchor(at);
+  return (
+    <>
+      <Row
+        depth={0}
+        flip="fav"
+        head
+        expanded={open}
+        onClick={() => !renaming && onToggle()}
+        icon={
+          <span
+            aria-hidden
+            className={cn("grid transition-colors duration-(--dur-2)", color ? "[&_svg]:[fill:color-mix(in_oklch,currentColor_24%,transparent)]" : "text-ink-2")}
+            style={color ? { color: colorVar(color) } : undefined}
+          >
+            <Bookmark size={15} />
+          </span>
+        }
+        label={renaming ? <FavRename name={name} done={() => setRenaming(false)} /> : name}
+        extra={{
+          ...lp,
+          onContextMenu: (e: React.MouseEvent) => !lp.onContextMenu(e) && own(e) && (e.preventDefault(), setAt({ x: e.clientX, y: e.clientY })),
+          onClickCapture: lp.onClickCapture,
+          ...dropTarget("ws", FAV, FAV_HEAD, () => {}, { kind: "s", lane: ANY, line: dropMark({ kind: "ws", id: FAV, lane: FAV_HEAD }), edge: "bottom", drop: (d) => placeFavorite(d.id, first, "top") }),
+        }}
+      />
+      <Menu.Root open={at !== null} onOpenChange={(o) => !o && setAt(null)}>
+        <MenuPortal>
+          <Menu.Positioner anchor={anchor} side="bottom" align="start" sideOffset={4} collisionPadding={8} className="z-50">
+            <MenuItems
+              items={[
+                { icon: <Pencil size={15} />, label: t("menu.rename"), run: () => setRenaming(true) },
+                // Asked again in place (docs/前端设计规范.md "确认在原处").
+                { icon: <BookmarkX size={15} />, label: t("menu.unfavoriteAll"), sure: t("menu.unfavoriteAllSure"), run: clearFavorites },
+              ]}
+              tags={{ value: color, set: setFavoritesColor }}
+            />
+          </Menu.Positioner>
+        </MenuPortal>
+      </Menu.Root>
+    </>
+  );
+}
+
+/** My favorites' new name, in place of its row's: Enter or leaving it names them ("" gives back
+ *  收藏), Esc leaves it. */
+function FavRename({ name, done }: { name: string; done: () => void }) {
+  const over = useRef(false);
+  const end = (value?: string) => {
+    if (over.current) return;
+    over.current = true;
+    done();
+    if (value !== undefined && value.trim() !== name) setFavoritesName(value.trim());
+  };
+  return (
+    <input
+      autoFocus
+      aria-label={t("menu.rename")}
+      defaultValue={name}
+      maxLength={40}
+      onFocus={(e) => e.currentTarget.select()}
+      onClick={(e) => e.stopPropagation()}
+      onPointerDown={(e) => e.stopPropagation()}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+        if (e.key === "Enter") end(e.currentTarget.value);
+        else if (e.key === "Escape") end();
+      }}
+      onBlur={(e) => end(e.currentTarget.value)}
+      className="no-ring h-6 w-full min-w-0 rounded-sm bg-fill px-1.5 text-md font-medium"
+    />
+  );
 }
 
 /** A workspace's new name, in place of its row's: Enter or leaving it renames, Esc leaves it. */
@@ -885,11 +1090,11 @@ let saidNow: ReturnType<typeof useSaidLine> = () => undefined;
  *  several agents) their own faces (FaceStack; the user, 2026-11-16: not their logos), else its
  *  agent's; what is unread of it a badge on its top right corner, red, or grey
  *  while it is quiet (unread.ts) and nothing unread names me, 99+ past 99. */
-function RowFace({ s, group, unread, quiet }: { s: Session; group?: { id: string; agent: Agent }[]; unread: number; quiet: boolean }) {
-  const logo = group ? <FaceStack members={group} size={36} /> : <Logo agent={s.agent} size={20} />;
+function RowFace({ s, group, solo, unread, quiet }: { s: Session; group?: { id: string; agent: Agent }[]; solo?: { id: string; agent: Agent }; unread: number; quiet: boolean }) {
+  const logo = group ? <FaceStack members={group} size={36} /> : solo ? <Face id={solo.id} agent={solo.agent} size={36} logo={20} low /> : <Logo agent={s.agent} size={20} />;
   return (
-    <span className={cn("relative grid size-9 place-items-center rounded-full", !group && "bg-fill")}>
-      <Face id={s.id} agent={s.agent} size={36} none={logo} className="place-items-center" low channel />
+    <span className={cn("relative grid size-9 place-items-center rounded-full", !group && "g-disc")}>
+      <Face id={s.id} agent={solo?.agent ?? s.agent} size={36} none={logo} className="place-items-center" low channel />
       {unread > 0 && (
         <span
           className={cn("g-pop absolute -top-1 -right-1.5 grid h-4 min-w-4 place-items-center rounded-full px-1 text-[10px] leading-none font-semibold tabular-nums", quiet ? "bg-ink-4" : "bg-err")}
@@ -902,9 +1107,187 @@ function RowFace({ s, group, unread, quiet }: { s: Session; group?: { id: string
   );
 }
 
+// Small data: URLs of this Iridium's favorited sessions' faces (by their versioned URL), so
+// another Iridium's sidebar shows the channel's or agent's real face without cross-origin cookies.
+const favFaceCache = new Map<string, string>();
+const favFaceLoading = new Set<string>();
+function readFavFace(src: string, done: () => void): string {
+  const hit = favFaceCache.get(src);
+  if (hit !== undefined) return hit;
+  if (favFaceLoading.has(src) || typeof fetch !== "function" || typeof createImageBitmap !== "function") return "";
+  favFaceLoading.add(src);
+  void fetch(src)
+    .then((r) => (r.ok ? r.blob() : null))
+    .then(async (blob) => {
+      if (!blob) return "";
+      const bmp = await createImageBitmap(blob);
+      try {
+        const s = Math.min(bmp.width, bmp.height);
+        const cv = document.createElement("canvas");
+        cv.width = 72;
+        cv.height = 72;
+        cv.getContext("2d")?.drawImage(bmp, (bmp.width - s) / 2, (bmp.height - s) / 2, s, s, 0, 0, 72, 72);
+        const out = cv.toDataURL("image/webp", 0.82);
+        return out.startsWith("data:image/") ? out : cv.toDataURL("image/jpeg", 0.82);
+      } finally {
+        bmp.close();
+      }
+    })
+    .then((data) => {
+      favFaceCache.set(src, data);
+      if (data) done();
+    })
+    .catch(() => favFaceCache.set(src, ""))
+    .finally(() => favFaceLoading.delete(src));
+  return "";
+}
+
+/** The versioned face URL of session s (channel's own, else solo agent's, else session's), or ""
+ *  when the server says it has none. */
+function favFaceUrl(s: Session, faces: Record<string, string> | undefined, count: number): string {
+  const ch = faces?.[`c:${s.id}`];
+  if (ch) return `/v1/internal/channels/${encodeURIComponent(s.id)}/avatar?of=channel&v=${ch}`;
+  const soloId = s.bare && s.agents?.length === 1 ? s.agents[0]!.session : s.id;
+  const own = faces?.[soloId];
+  if (own) return `/v1/internal/channels/${encodeURIComponent(soloId)}/avatar?v=${own}`;
+  if (ch === "" && own === "") return "";
+  if (ch !== "") return `/v1/internal/channels/${encodeURIComponent(s.id)}/avatar?of=channel&v=n${count}`;
+  return "";
+}
+
+/** This Iridium's favorites told to the desktop app (crossfav.ts), as their rows show them: again
+ *  as they change, or what is unread does. Nothing in a browser. */
+function useTellFavs(favs: Session[]) {
+  const inApp = !!useApp();
+  const faces = useCarried<Record<string, string>>("faces");
+  const avatars = useCarried<number>("avatars") ?? 0;
+  const [tick, setTick] = useState(0);
+  useEffect(() => onUnread(() => setTick((n) => n + 1)), []);
+  useEffect(() => {
+    if (!inApp) return;
+    const bump = () => setTick((n) => n + 1);
+    tellFavs(
+      favs.map((s) => {
+        const speaker = s.last?.nick || s.agents?.find((a) => a.session === s.id)?.nick || agentName(s.agent);
+        const at = atOf(s.id);
+        const src = favFaceUrl(s, faces, avatars);
+        const face = src ? readFavFace(src, bump) : "";
+        return {
+          id: s.id,
+          title: titleOf(s),
+          untitled: untitled(s) || undefined,
+          agent: s.agent,
+          status: lampOf(s),
+          unread: unreadOf(s.id),
+          quiet: isQuiet(s.id) || undefined,
+          at: at ? (at.everyone ? "all" : "me") : undefined,
+          line: s.last ? (s.last.role === "user" ? (saidNow(s.last, s) ?? "") : `${speaker}: ${s.last.text}`) : s.bare ? "" : agentName(s.agent),
+          updatedAt: s.updatedAt,
+          color: s.color || undefined,
+          face: face || undefined,
+        } satisfies FavItem;
+      }),
+    );
+  });
+  void tick;
+}
+
+/** Another Iridium's face, as a machine's is after a row's name (MachineFace): its own, else its
+ *  name's first letter. */
+function ServerFace({ srv, size = 14, className }: { srv: FavServer; size?: number; className?: string }) {
+  return srv.face ? (
+    <img src={srv.face} alt="" width={size} height={size} className={cn("shrink-0 rounded-full object-cover", className)} />
+  ) : (
+    <span className={cn("grid shrink-0 place-items-center rounded-full bg-fill-2 text-[9px] leading-none font-semibold text-ink-2", className)} style={{ width: size, height: size }}>
+      {srv.local ? "Ir" : [...srv.title][0]?.toUpperCase()}
+    </span>
+  );
+}
+
+/** A favorite of another Iridium (crossfav.ts), as a session's row is drawn (SessionRow): its
+ *  agent's mark, its unread count on it, its name with its Iridium's face after it, who said what
+ *  last, its time or its lamp. Pressed, it is shown beside this list (the app's assemble.go);
+ *  its menu: 打开, 在新窗口打开, 取消收藏 (taken off that Iridium's favorites). Dragged among the
+ *  favorites, it moves there. */
+function CrossRow({ k, item, srv, place }: { k: string; item: FavItem; srv: FavServer; place: (dragged: string, target: string, edge: Edge) => void }) {
+  useLang();
+  const now = useMinute();
+  const [menuAt, setMenuAt] = useMenuAt();
+  const anchor = usePointAnchor(menuAt);
+  const server = keyServer(k);
+  const id = keyId(k);
+  const busy = BUSY.has(item.status);
+  const fresh = item.unread > 0 && (!item.quiet || !!item.at) && item.status === "idle";
+  const when = item.updatedAt > 0 && <span className={cn("text-xs whitespace-nowrap tabular-nums", fresh ? "font-medium text-ink" : "text-ink-4")}>{ago(item.updatedAt, now, true)}</span>;
+  const dim = useDragged("s", k);
+  const items: MenuItem[] = [
+    { icon: <ChevronRight size={15} />, label: t("menu.openHere"), run: () => crossAsk("open", server, id) },
+    { icon: <Copy size={15} />, label: t("menu.openWindow"), run: () => crossAsk("away", server, id) },
+    { icon: <BookmarkMinus size={15} />, label: t("menu.unfavorite"), run: () => crossAsk("drop", server, id) },
+  ];
+  return (
+    <>
+      <Row
+        depth={0}
+        flip={`fav:${k}`}
+        selected={false}
+        onClick={() => crossAsk("open", server, id)}
+        aria={`${item.title}, ${srv.title}${item.unread ? `, ${t("status.unreadCount", { n: badge(item.unread) })}` : ""}`}
+        icon={
+          <span className="relative grid size-9 place-items-center rounded-full g-disc">
+            {item.face ? <img src={item.face} alt="" draggable={false} className="size-9 rounded-full object-cover" /> : <Logo agent={item.agent as Agent} size={20} />}
+            {item.unread > 0 && (
+              <span
+                className={cn("g-pop absolute -top-1 -right-1.5 grid h-4 min-w-4 place-items-center rounded-full px-1 text-[10px] leading-none font-semibold tabular-nums", item.quiet && !item.at ? "bg-ink-4" : "bg-err")}
+                style={{ color: "rgb(255 255 255 / 0.92)", boxShadow: "0 0 0 1.5px var(--row-bg, var(--paper))" }}
+              >
+                {badge(item.unread)}
+              </span>
+            )}
+          </span>
+        }
+        label={
+          <span className="flex min-w-0 items-baseline">
+            <Marked color={item.color}>{item.untitled ? <span className="text-ink-3">{item.title}</span> : item.title}</Marked>
+            <Tip label={srv.title} side="bottom">
+              <ServerFace srv={srv} className="ml-1.5 -translate-y-[1.5px] self-center" />
+            </Tip>
+          </span>
+        }
+        end={busy || item.status !== "idle" ? <Lamp status={item.status} /> : when || undefined}
+        sub={item.at ? <><span className="text-err">{t(item.at === "all" ? "row.atAll" : "row.atMe")}</span>{item.line ? ` ${item.line}` : ""}</> : item.line}
+        face
+        dim={dim}
+        extra={{
+          onContextMenu: (e: React.MouseEvent) => {
+            if (!own(e)) return;
+            e.preventDefault();
+            setMenuAt({ x: e.clientX, y: e.clientY });
+          },
+          draggable: fine(),
+          onDragStart: (e: React.DragEvent) => {
+            e.dataTransfer.setData("text/plain", item.title);
+            e.dataTransfer.effectAllowed = "move";
+            startDrag({ kind: "s", id: k, lane: FAV }, e.currentTarget as HTMLElement);
+          },
+          onDragEnd: endDrag,
+          ...dropTarget("s", k, FAV, (d: Dragged, edge) => place(d.id, k, edge), undefined, true),
+        }}
+      />
+      <Menu.Root open={menuAt !== null} onOpenChange={(o) => !o && setMenuAt(null)}>
+        <MenuPortal>
+          <Menu.Positioner anchor={anchor} side="bottom" align="start" sideOffset={4} collisionPadding={8} className="z-50">
+            <MenuItems items={items} />
+          </Menu.Positioner>
+        </MenuPortal>
+      </Menu.Root>
+    </>
+  );
+}
+
 /** Drawn again only as its props change, not with every draw of the list: a page of the phone's
  *  sheet turned drew every row, its menu and its tip, again (the user, 2026-11-08). */
-const SessionRow = memo(function SessionRow({ s, where, depth, flip, selected, onSelect, chatCode, kidsAt, asked, machineShown, lane, place, pinLine, pinFolder }: { s: Session; where?: string; depth: number; flip: string; selected: boolean; onSelect: (id: string) => void; chatCode: () => void; kidsAt?: boolean; asked?: boolean; machineShown?: boolean; lane?: string; place?: (id: string, target: Session, edge: Edge, lane: string) => void; pinLine?: string; pinFolder?: (path: string, lane: string) => void }) {
+const SessionRow = memo(function SessionRow({ s, where, depth, flip, selected, onSelect, chatCode, kidsAt, asked, machineShown, lane, anyLane, place, pinLine, pinFolder }: { s: Session; where?: string; depth: number; flip: string; selected: boolean; onSelect: (id: string) => void; chatCode: () => void; kidsAt?: boolean; asked?: boolean; machineShown?: boolean; lane?: string; anyLane?: boolean; place?: (id: string, target: Session, edge: Edge, lane: string) => void; pinLine?: string; pinFolder?: (path: string, lane: string) => void }) {
   useLang();
   const machines = useMachines();
   const unread = useUnread(s.id);
@@ -914,14 +1297,19 @@ const SessionRow = memo(function SessionRow({ s, where, depth, flip, selected, o
   const now = useMinute();
   const title = titleOf(s);
   // A confirmation its agent asked for waits on you too, while it is not at work.
-  // A channel of several agents (chat/channel): their logos one over the next, their nicks on a
-  // second line, its lamp theirs: lit while any of them works.
-  const all = useCarried<Session[]>(s.agents?.length ? "list" : null);
-  const multi = isMulti(s) ? s.agents! : undefined;
-  const members = multi?.map((a) => all?.find((x) => x.id === a.session));
+  // A channel's agents (one or several): its lamp is theirs, lit while any of them works.
+  const ags = s.agents;
+  const multi = isMulti(s) ? ags! : undefined;
+  // Those of the list alone: the row is drawn again as one of them changes, not as any row does.
+  const agIds = useMemo(() => ags?.map((a) => a.session), [ags]);
+  const allMembers = useListed(agIds);
+  const members = multi ? allMembers : undefined;
+  const soloRow = s.bare && ags?.length === 1 ? ags[0] : undefined;
+  const soloAgent = soloRow ? (allMembers?.[0]?.agent ?? soloRow.agent ?? s.agent) : undefined;
+  const solo = soloRow && soloAgent ? { id: soloRow.session, agent: soloAgent } : undefined;
   // Its channel's other agents at work, or its subagents (no rows of their own, kumo 2026-11-15):
   // its lamp says so.
-  const base = channelLamp(lampOf(s), [...(members ?? []).flatMap((m) => (m && m.id !== s.id ? [lampOf(m)] : [])), ...(kidsAt ? (["running"] as const) : [])]);
+  const base = channelLamp(lampOf(s), [...(allMembers ?? []).flatMap((m) => (m && m.id !== s.id ? [lampOf(m)] : [])), ...(kidsAt ? (["running"] as const) : [])]);
   const status = asked && !BUSY.has(base) ? "waiting" : base;
   const told = status !== base ? statusText("waiting") : base !== lampOf(s) ? statusText(base) : sessionStatusText(s);
   // How long ago it was last active (its turn ended, it was last written to), but in a turn. Unread,
@@ -941,12 +1329,15 @@ const SessionRow = memo(function SessionRow({ s, where, depth, flip, selected, o
   // agent by its nick, else its kind; nothing said yet, its agents.
   const nicks = multi?.map((a) => a.nick).filter(Boolean).join(" · ");
   // A channel of no agent of its own: the agent that spoke there, by its nick (s.last.nick).
-  const speaker = s.last?.nick || s.agents?.find((a) => a.session === s.id)?.nick || agentName(s.agent);
-  const line = s.last ? (s.last.role === "user" ? saidNow(s.last, s) : `${speaker}: ${s.last.text}`) : nicks || (s.bare ? "" : agentName(s.agent));
+  const speaker = s.last?.nick || s.agents?.find((a) => a.session === s.id)?.nick || agentName(solo?.agent ?? s.agent);
+  const line = s.last ? (s.last.role === "user" ? saidNow(s.last, s) : `${speaker}: ${s.last.text}`) : nicks || (solo ? agentName(solo.agent) : s.bare ? "" : agentName(s.agent));
   const [menuAt, setMenuAt] = useMenuAt();
+  // Its menu made as it is first opened (ui.tsx useEver), not shut with every row of the list.
+  const menuEver = useEver(menuAt !== null);
   const [renaming, setRenaming] = useState(false);
   const rest = useRef<number | undefined>(undefined);
-  const lp = useLongPress((p) => setMenuAt({ x: p.x, y: p.y }));
+  // Held and moved: dragged among those beside it, as with a mouse (reorder.ts touchDrag).
+  const lp = useLongPress((p) => setMenuAt({ x: p.x, y: p.y }), { onHeldMove: lane && place && !renaming ? (row, from, pid) => (setMenuAt(null), touchDrag({ kind: "s", id: s.id, lane }, row, from, pid)) : undefined });
   const hover = {
     onPointerMove: (e: React.PointerEvent) => {
       lp.onPointerMove(e);
@@ -971,25 +1362,25 @@ const SessionRow = memo(function SessionRow({ s, where, depth, flip, selected, o
   // long press is the menu. Nothing changes as it is dragged (the user, 2026-11-06), but the line
   // where it goes among those beside it (reorder.ts).
   const dim = useDragged("s", s.id);
-  const drag = fine() && !renaming
+  const drag = !renaming
     ? {
-        draggable: true,
+        draggable: fine(),
         onDragStart: (e: React.DragEvent) => {
           e.dataTransfer.setData(SESSION_DRAG, s.id);
           e.dataTransfer.setData("text/plain", s.id);
           e.dataTransfer.effectAllowed = "all";
-          if (lane) startDrag({ kind: "s", id: s.id, lane });
+          if (lane) startDrag({ kind: "s", id: s.id, lane }, e.currentTarget as HTMLElement);
         },
         onDragEnd: endDrag,
         ...(lane && place
-          ? dropTarget("s", s.id, lane, (d: Dragged, edge) => place(d.id, s, edge, lane), pinLine && pinFolder ? { kind: "f", lane, line: pinLine, drop: (d) => pinFolder(d.id, lane) } : undefined)
+          ? dropTarget("s", s.id, lane, (d: Dragged, edge) => place(d.id, s, edge, lane), pinLine && pinFolder ? { kind: "f", lane, line: pinLine, drop: (d) => pinFolder(d.id, lane) } : undefined, anyLane)
           : {}),
       }
     : {};
   // An archived one (no shown marker): one press brings it back.
   const restore = (e: React.MouseEvent) => {
     e.stopPropagation();
-    void api.patch(s.id, { archived: false }).then(
+    void patchSessions(s.id, { archived: false }).then(
       () => toast(t("toast.restored")),
       (err) => toast(t("err.action"), { error: true, description: errText(err) }),
     );
@@ -1028,13 +1419,14 @@ const SessionRow = memo(function SessionRow({ s, where, depth, flip, selected, o
         depth={depth}
         flip={flip}
         selected={selected}
-        onClick={() => !renaming && onSelect(s.id)}
+        // One being made (pending.ts making): nothing to open yet.
+        onClick={() => !renaming && !s.id.startsWith(MAKING) && onSelect(s.id)}
         faded={s.archived}
         aria={`${title}, ${told}${s.color ? `, ${t("color.tagged", { color: t(`color.${s.color}`) })}` : ""}${unread ? `, ${t("status.unreadCount", { n: badge(unread) })}` : ""}${at ? `, ${t(at.everyone ? "row.atAll" : "row.atMe")}` : ""}${quiet ? `, ${t("menu.quiet")}` : ""}`}
         icon={
-          <Tip label={[multi ? multi.map((a, i) => `${agentName(members?.[i]?.agent ?? a.agent ?? s.agent)} ${a.nick ?? ""}`.trim()).join(", ") : agentName(s.agent), machine?.name, s.subagent && t("row.subagent"), away ? t("status.offline") : status !== "idle" && told].filter(Boolean).join(" · ")} side="bottom">
+          <Tip label={[multi ? multi.map((a, i) => `${agentName(members?.[i]?.agent ?? a.agent ?? s.agent)} ${a.nick ?? ""}`.trim()).join(", ") : agentName(solo?.agent ?? s.agent), machine?.name, s.subagent && t("row.subagent"), away ? t("status.offline") : status !== "idle" && told].filter(Boolean).join(" · ")} side="bottom">
             <span className="relative grid">
-              <RowFace s={s} group={multi?.map((a, i) => ({ id: a.session, agent: members?.[i]?.agent ?? a.agent ?? s.agent }))} unread={unread} quiet={quiet && !at} />
+              <RowFace s={s} group={multi?.map((a, i) => ({ id: a.session, agent: members?.[i]?.agent ?? a.agent ?? s.agent }))} solo={solo} unread={unread} quiet={quiet && !at} />
               {remote && <CloudBadge label={machine?.name ?? t("nav.remoteFolder")} />}
               {/* A subagent: no word for it, a small agent badge on the logo's corner (the user, 2026-11-06). */}
               {s.subagent && (
@@ -1067,7 +1459,7 @@ const SessionRow = memo(function SessionRow({ s, where, depth, flip, selected, o
         dim={dim}
         extra={{ ...lp, ...hover, ...drag, onClickCapture: lp.onClickCapture }}
       />
-      <SessionMenu s={s} at={menuAt} close={() => setMenuAt(null)} rename={() => setRenaming(true)} />
+      {menuEver && <SessionMenu s={s} at={menuAt} close={() => setMenuAt(null)} rename={() => setRenaming(true)} />}
     </>
   );
 });
@@ -1080,7 +1472,7 @@ export function Rename({ s, done, className }: { s: Session; done: () => void; c
     over.current = true;
     const to = value?.trim();
     done();
-    if (to !== undefined && to !== (s.name ?? "") && to !== titleOf(s)) await api.patch(s.id, { name: to }).catch((e) => toast(t("err.rename"), { error: true, description: errText(e) }));
+    if (to !== undefined && to !== (s.name ?? "") && to !== titleOf(s)) await patchSessions(s.id, { name: to }).catch((e) => toast(t("err.rename"), { error: true, description: errText(e) }));
   };
   return (
     <input
@@ -1113,9 +1505,11 @@ export function sessionActions(s: Session, rename: () => void): { icon: ReactNod
   // Archive first, the one most used (the user, 2026-11-06).
   return [
     s.archived
-      ? { icon: <ArchiveRestore size={15} />, label: t("menu.unarchive"), run: run(() => api.patch(s.id, { archived: false })) }
-      : { icon: <Archive size={15} />, label: t("menu.archive"), run: run(() => api.patch(s.id, { archived: true }), t("toast.archived")) },
-    s.pinned ? { icon: <PinOff size={15} />, label: t("menu.unpin"), run: run(() => api.patch(s.id, { pinned: false })) } : { icon: <Pin size={15} />, label: t("menu.pin"), run: run(() => api.patch(s.id, { pinned: true })) },
+      ? { icon: <ArchiveRestore size={15} />, label: t("menu.unarchive"), run: run(() => patchSessions(s.id, { archived: false })) }
+      : { icon: <Archive size={15} />, label: t("menu.archive"), run: run(() => patchSessions(s.id, { archived: true }), t("toast.archived")) },
+    // 收藏 (favorites.ts): one not archived, or one favoured to take it off.
+    ...(!s.archived || isFavorite(s.id) ? [isFavorite(s.id) ? { icon: <BookmarkMinus size={15} />, label: t("menu.unfavorite"), run: () => setFavorite(s.id, false) } : { icon: <Bookmark size={15} />, label: t("menu.favorite"), run: () => setFavorite(s.id, true) }] : []),
+    s.pinned ? { icon: <PinOff size={15} />, label: t("menu.unpin"), run: run(() => patchSessions(s.id, { pinned: false })) } : { icon: <Pin size={15} />, label: t("menu.pin"), run: run(() => patchSessions(s.id, { pinned: true })) },
     { icon: <Moon size={15} />, label: t(isQuiet(s.id) ? "menu.unquiet" : "menu.quiet"), run: () => setQuiet(s.id, !isQuiet(s.id)) },
     { icon: <Pencil size={15} />, label: t("menu.rename"), run: rename },
     { icon: <Copy size={15} />, label: t("menu.copyId"), run: run(() => navigator.clipboard.writeText(s.id), t("toast.copied")) },
@@ -1125,33 +1519,34 @@ export function sessionActions(s: Session, rename: () => void): { icon: ReactNod
 
 /** A session's colour tag, set from its menu. */
 export function sessionTags(s: Session): Tags {
-  return { value: s.color, set: (c) => void api.patch(s.id, { color: c as Color }).catch((e) => toast(t("err.action"), { error: true, description: errText(e) })) };
+  return { value: s.color, set: (c) => void patchSessions(s.id, { color: c as Color }).catch((e) => toast(t("err.action"), { error: true, description: errText(e) })) };
 }
 
 /** A folder's row in a workspace: its name, the "+" for a session in it; its menu (right click,
  *  long-press): a session here, its path copied, open or folded, its sessions archived, its colour
  *  tag. */
-function FolderRow({ f, ws, depth, label, hung, open, onToggle, foldBack, newHere, plus, lane, place, pin }: { f: FolderNode; ws: number; depth: number; label: ReactNode; hung: Session[]; open: boolean; onToggle: () => void; foldBack?: () => void; newHere?: () => void; plus: ReactNode; lane: string; place: (path: string, target: FolderNode, edge: Edge, lane: string) => void; pin: (path: string, on: boolean) => void }) {
+function FolderRow({ f, depth, label, hung, open, onToggle, foldBack, newSub, plus, lane, place, pin }: { f: FolderNode; depth: number; label: ReactNode; hung: Session[]; open: boolean; onToggle: () => void; foldBack?: () => void; newSub?: () => void; plus: ReactNode; lane: string; place: (path: string, target: FolderNode, edge: Edge, lane: string) => void; pin: (path: string, on: boolean) => void }) {
   const machines = useMachines();
   const me = useMe().data;
   // Dragged among the folders of its group (reorder.ts): the panels' and 本机's, as a group.
   const dim = useDragged("f", f.path);
   const real = manages(me);
-  const dragging = real && fine()
+  const dragging = real
     ? {
-        draggable: true,
+        draggable: fine(),
         onDragStart: (e: React.DragEvent) => {
           e.dataTransfer.setData("text/plain", f.path);
           e.dataTransfer.setData(PLACE_DRAG, JSON.stringify({ path: f.path, name: f.path.split("/").filter(Boolean).pop() ?? f.path }));
           e.dataTransfer.effectAllowed = "copyMove";
-          startDrag({ kind: "f", id: f.path, lane });
+          startDrag({ kind: "f", id: f.path, lane }, e.currentTarget as HTMLElement);
         },
         onDragEnd: endDrag,
         ...dropTarget("f", f.path, lane, (d, edge) => place(d.id, f, edge, lane)),
       }
     : {};
   const [at, setAt] = useMenuAt();
-  const lp = useLongPress((p) => setAt({ x: p.x, y: p.y }));
+  // Held and moved: dragged among the folders of its group, as with a mouse (reorder.ts touchDrag).
+  const lp = useLongPress((p) => setAt({ x: p.x, y: p.y }), { onHeldMove: real ? (row, from, pid) => (setAt(null), touchDrag({ kind: "f", id: f.path, lane }, row, from, pid)) : undefined });
   const done = (what: string) => () => toast(what);
   const failed = (e: unknown) => toast(t("err.action"), { error: true, description: errText(e) });
   const color = useFolderColors()[f.path];
@@ -1161,12 +1556,11 @@ function FolderRow({ f, ws, depth, label, hung, open, onToggle, foldBack, newHer
   const all = folderSessions(f);
   const items = [
     ...(all.length
-      ? [{ icon: <Archive size={15} />, label: t("menu.archiveHere", { n: all.length + hung.length }), sure: t("menu.archiveSure"), run: () => void Promise.all(all.map((s) => api.patch(s.id, { archived: true }))).then(done(t("toast.archived")), failed) }]
+      ? [{ icon: <Archive size={15} />, label: t("menu.archiveHere", { n: all.length + hung.length }), sure: t("menu.archiveSure"), run: () => void patchSessions(all.map((s) => s.id), { archived: true }).then(done(t("toast.archived")), failed) }]
       : []),
     ...(foldBack ? [{ icon: <ListCollapse size={15} />, label: t("menu.foldSessions"), run: foldBack }] : []),
-    ...(newHere ? [{ icon: <Plus size={15} />, label: t("menu.newHere"), run: newHere }] : []),
+    ...(newSub ? [{ icon: <FolderPlus size={15} />, label: t("new.subFolder"), run: newSub }] : []),
     { icon: <Copy size={15} />, label: t("menu.copyPath"), run: () => void navigator.clipboard.writeText(shownPath(f.path, machines).real).then(done(t("toast.copied")), failed) },
-    { icon: open ? <Folder size={15} /> : <FolderOpen size={15} />, label: open ? t("menu.fold") : t("menu.unfold"), run: onToggle },
     // Pinned: above the sessions at its group's root (reorder.ts).
     ...(real ? [f.pinned ? { icon: <PinOff size={15} />, label: t("menu.unpin"), run: () => pin(f.path, false) } : { icon: <Pin size={15} />, label: t("menu.pin"), run: () => pin(f.path, true) }] : []),
   ];
@@ -1194,11 +1588,11 @@ function FolderRow({ f, ws, depth, label, hung, open, onToggle, foldBack, newHer
         extra={{ ...lp, onContextMenu: (e: React.MouseEvent) => !lp.onContextMenu(e) && own(e) && (e.preventDefault(), setAt({ x: e.clientX, y: e.clientY })), onClickCapture: lp.onClickCapture, ...dragging }}
       />
       <Menu.Root open={at !== null} onOpenChange={(o) => !o && setAt(null)}>
-        <Menu.Portal>
+        <MenuPortal>
           <Menu.Positioner anchor={anchor} side="bottom" align="start" sideOffset={4} collisionPadding={8} className="z-50">
-            <MenuItems items={items} tags={tags} foot={<PushFoot levels={folderLevels(f.path, ws)} i={items.length} />} />
+            <MenuItems items={items} tags={tags} />
           </Menu.Positioner>
-        </Menu.Portal>
+        </MenuPortal>
       </Menu.Root>
     </>
   );
@@ -1209,23 +1603,13 @@ function SessionMenu({ s, at, close, rename }: { s: Session; at: { x: number; y:
   const anchor = usePointAnchor(at);
   return (
     <Menu.Root open={at !== null} onOpenChange={(o) => !o && close()}>
-      <Menu.Portal>
+      <MenuPortal>
         <Menu.Positioner anchor={anchor} side="bottom" align="start" sideOffset={4} collisionPadding={8} className="z-50">
-          <MenuItems
-            items={items}
-            tags={sessionTags(s)}
-            foot={<PushFoot levels={sessionLevels(s)} i={items.length} />}
-          />
+          <MenuItems items={items} tags={sessionTags(s)} />
         </Menu.Positioner>
-      </Menu.Portal>
+      </MenuPortal>
     </Menu.Root>
   );
-}
-
-/** 通知 at a menu's foot, while push is on (push.ts). */
-function PushFoot({ levels, i }: { levels: PushLevel[]; i: number }) {
-  const push = usePushMenus();
-  return push && <push.m.PushSubmenu st={push.st} levels={levels} i={i} />;
 }
 
 /** A colour tag and how to set it ("" takes it off). */
@@ -1242,7 +1626,7 @@ export type MenuItem = { icon: ReactNode; label: string } & (
 
 /** A menu's items; lead: before the children, at its top; foot: after the items, over the tags;
  *  label, finalFocus: on the popup itself (finalFocus defaults off). */
-export function MenuItems({ lead = [], items, tags, children, foot, label, finalFocus = false }: {
+export function MenuItems({ lead = [], items, tags, children, foot, label, finalFocus = false, className }: {
   lead?: MenuItem[];
   items: MenuItem[];
   tags?: Tags;
@@ -1250,6 +1634,8 @@ export function MenuItems({ lead = [], items, tags, children, foot, label, final
   foot?: ReactNode;
   label?: string;
   finalFocus?: Menu.Popup.Props["finalFocus"];
+  /** More of its surface's classes (the chat bar's ⋯: wider). */
+  className?: string;
 }) {
   // The item pressed once that asks to be pressed again; the popup gone, so is this.
   const [armed, setArmed] = useState<string>();
@@ -1258,11 +1644,11 @@ export function MenuItems({ lead = [], items, tags, children, foot, label, final
     const red = !!it.sure && armed === it.label;
     const props = {
       style: { "--i": i } as CSSProperties,
-      className: cn("flex h-8 cursor-default items-center gap-2.5 rounded-md px-2.5 text-base outline-none select-none data-highlighted:bg-fill pointer-coarse:h-11", red && "text-err"),
+      className: cn("flex h-8 cursor-default items-center gap-2.5 rounded-md px-2.5 text-base outline-none select-none data-highlighted:bg-fill pointer-coarse:h-9", red && "text-err"),
     };
     const label = (
       <>
-        <span className={red ? "text-err" : "text-ink-2"}>{it.icon}</span>
+        {it.icon != null && <span className={red ? "text-err" : "text-ink-2"}>{it.icon}</span>}
         <span className="min-w-0 truncate">{red ? it.sure : it.label}</span>
       </>
     );
@@ -1276,7 +1662,7 @@ export function MenuItems({ lead = [], items, tags, children, foot, label, final
     );
   };
   return (
-    <Menu.Popup aria-label={label} finalFocus={finalFocus} className="g-unfold glass thick float no-bar max-h-(--available-height) max-w-[calc(100vw-16px)] min-w-48 overflow-y-auto rounded-lg p-1.5 text-ink outline-none">
+    <Menu.Popup aria-label={label} finalFocus={finalFocus} className={cn("g-unfold glass thick float no-bar max-h-(--available-height) max-w-[calc(100vw-16px)] min-w-48 overflow-y-auto rounded-lg p-1.5 text-ink outline-none", className)}>
       <div className="g-stagger flex flex-col">
         {lead.map(item)}
         {children}
@@ -1292,7 +1678,7 @@ export function MenuItems({ lead = [], items, tags, children, foot, label, final
  *  the menu; the dot of its own colour is ringed and checked, and a press on it takes the tag off. */
 function TagDots({ tags, i }: { tags: Tags; i: number }) {
   return (
-    <div role="group" aria-label={t("color.tags")} style={{ "--i": i } as CSSProperties} className="mt-1.5 flex items-center justify-between gap-0.5 border-t border-edge px-1 pt-1.5">
+    <div role="group" aria-label={t("color.tags")} style={{ "--i": i } as CSSProperties} className={cn("flex items-center justify-between gap-0.5 px-1", i > 0 ? "mt-1.5 border-t border-edge pt-1.5" : "py-0.5")}>
       {COLORS.map((c) => {
         const on = tags.value === c;
         const name = t(`color.${c}`);
@@ -1338,7 +1724,18 @@ function Empty() {
   const listed = useList() !== undefined;
   const down = useLink().live === false;
   if (!listed && !down) return null;
-  return <div className="g-fade px-2 pt-10 text-center text-sm text-ink-3">{t(listed ? "nav.empty" : "nav.offline")}</div>;
+  return (
+    <div className="g-fade flex flex-col items-center gap-3 px-2 pt-10 text-center text-sm text-ink-3">
+      {t(listed ? "nav.empty" : "nav.offline")}
+      {/* No row to press a "+" on: the file browser, 在此新建 in it (kumo, 2026-11-25). */}
+      {listed && (
+        <FileBrowserTrigger place={{ path: "" }} className="g-press flex h-8 items-center gap-1.5 rounded-md bg-fill px-3 text-sm text-ink-2 hover:bg-fill-2 hover:text-ink pointer-coarse:h-10">
+          <FolderPlus size={15} />
+          {t("browse.title")}
+        </FileBrowserTrigger>
+      )}
+    </div>
+  );
 }
 
 /** A group's or a folder's "+": seen while it is open, or while its row is hovered (a mouse only;

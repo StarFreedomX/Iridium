@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -50,6 +51,9 @@ type meta struct {
 	Launcher string `json:"launcher,omitempty"`
 	// Machine: the executor it runs at, by terminal ID (docs/exec.md); "": here. Cwd is its path there.
 	Machine string `json:"machine,omitempty"`
+	// ForChannel: started directly for a shared channel: the title line after a message is the
+	// server's to give there (titleNow), before membership is recorded too.
+	ForChannel bool `json:"forChannel,omitempty"`
 }
 
 // agentID is the id the agent's records name the session by.
@@ -142,6 +146,10 @@ type Hosted struct {
 	lastFrom  string // who sent the last message: whose turn an agent's own turn is counted to
 	lastVia   string // the session whose agent sent it, if one did
 	compact   bool   // the last message was /compact: the compaction that follows was asked for
+	// titleTurns: messages since the session's title was last put after one (titleNow);
+	// titleAfterCompact: a compaction since, the title is put after the next.
+	titleTurns        int
+	titleAfterCompact bool
 	turnFrom  string // who began the running turn
 	turnVia   string // the session whose agent began it, if one did
 	draftN    int
@@ -149,8 +157,10 @@ type Hosted struct {
 	toolName  string        // its tool's name
 	ready     chan struct{} // closed once the process said its use so far (attached)
 	base      *agent.Usage  // the session's use as of the last result, for each turn's share
-	file      *transcript.File
-	end       int64
+	file       *transcript.File
+	end        int64
+	hasUserAt  bool
+	lastUserAt int64
 	// mirroredAt: when the transcript's mirror was last brought up to date (remote.go).
 	mirroredAt time.Time
 	said       cached
@@ -179,21 +189,13 @@ type Hosted struct {
 	commands      []agent.Command
 	account, plan string
 	rules         []store.AllowRule
-	rel           *released                  // a step auto mode denied, allowed from the page (release.go)
-	turnAt        time.Time                  // when the running or last turn began
-	denials       []api.Denial               // steps auto mode denied, shown till your next message (release.go)
-	stuckOn       string                     // the turn's last call, if auto mode denied it: stopped on it, it needs you
-	turnDenied    int                        // calls auto mode denied in this turn
-	calls         map[string]agent.ToolStart // this turn's calls by id: what a denial was
+	rel           *released  // manual mode for a while, a person approved (release.go)
+	manual        *manualAsk // the latest ask for it (manual.go)
+	turnAt        time.Time  // when the running or last turn began
+	turnDenied    int        // calls auto mode denied in this turn
 
-	hadTurn     bool        // the agent has the running turn: a crash now is continued
-	crashes     []time.Time // within the breaker's window
-	crashResume bool        // the next start asks the agent to run the interrupted turn again
-	resuming    bool        // this process was started so: no handshake yet
-	turnSeen    bool        // a turn began since this process started
-	quotaUntil  int64       // waiting for the quota until then (ms)
-	quotaStop   bool        // stopped meanwhile: no "继续" when it is back
-	quotaTimer  *time.Timer
+	hadTurn  bool // the agent has the running turn: its end is told when the process ends
+	turnSeen bool // a turn began since this process started
 
 	ctxSum   *api.ContextSummary
 	tokens   api.InputTokens // the input its recorded turns read (store.SessionInput)
@@ -308,7 +310,7 @@ func (h *Hosted) launch(ctx context.Context, proc int) error {
 		return err
 	}
 	prompt := filepath.Join(h.dir, filePrompt)
-	where := assemble.Where{Lang: m.tuned().Lang, Channel: m.inChannel(h.id), Self: m.self(h.id), Folder: h.meta.Cwd, OS: runtime.GOOS}
+	where := assemble.Where{Session: h.id, Lang: m.tuned().Lang, Self: m.self(h.id), Folder: h.meta.Cwd, OS: runtime.GOOS, Auto: h.meta.Agent == api.AgentClaude}
 	if mc := h.machine(); mc != nil {
 		hi, _ := mc.Hello()
 		where.Remote, where.IR, where.OS = true, hi != nil && hi.IRClient, ""
@@ -340,9 +342,9 @@ func (h *Hosted) launch(ctx context.Context, proc int) error {
 		resume, history = true, found == ""
 	}
 	h.mu.Lock()
-	o := agent.SpawnOptions{Persona: where.Self != nil && where.Self.Persona != "", Session: h.id, Resume: resume, History: history, AgentSession: h.meta.agentID(), Cwd: h.meta.Cwd, Env: m.agentEnv(), Program: m.o.Config.Programs[string(h.meta.Agent)], SystemPromptFile: prompt,
-		Model: h.meta.Model, Mode: cmp.Or(h.meta.Mode, m.defaultMode(h.meta.Agent)), Effort: h.effort, Ultracode: h.ultracode, Preset: h.preset, CrashResume: h.crashResume && found != ""}
-	h.resuming, h.crashResume, h.turnSeen = o.CrashResume, false, false
+	o := agent.SpawnOptions{Persona: where.Self != nil && where.Self.Persona != "", Session: h.id, Resume: resume, History: history, AgentSession: h.meta.agentID(), Cwd: h.meta.Cwd, Env: m.githubEnv(m.agentEnv()), Program: m.o.Config.Programs[string(h.meta.Agent)], SystemPromptFile: prompt,
+		Model: h.meta.Model, Mode: cmp.Or(h.meta.Mode, m.defaultMode(h.meta.Agent)), Effort: h.effort, Ultracode: h.ultracode, Preset: h.preset}
+	h.turnSeen = false
 	h.mu.Unlock()
 	if mc := h.machine(); mc != nil {
 		if err := h.remoteSpawn(mc, &o); err != nil {
@@ -474,8 +476,6 @@ func (h *Hosted) attached(ready chan struct{}) {
 	h.mu.Unlock()
 	if len(u.Windows) > 0 {
 		h.setQuota(u.Windows, nil)
-	} else {
-		h.m.publishQuota() // live now
 	}
 }
 
@@ -578,8 +578,14 @@ func (h *Hosted) ended(e *hold.Exit) {
 	_, err := os.Stat(filepath.Join(h.dir, fileStop))
 	h.mu.Lock()
 	asked := h.stopAsked || err == nil
-	h.live, h.starting, h.stopAsked, h.resuming = false, false, false, false
+	h.live, h.starting, h.stopAsked = false, false, false
+	hadTasks := len(h.tasks) > 0
 	h.turn, h.asks, h.tasks = agent.Idle, nil, nil
+	var withdrawn []Notice
+	if hadTasks {
+		withdrawn = append(withdrawn, Notice{Session: h.id, Kind: NoticeTasks})
+	}
+	h.manualTurnOverLocked(func(n Notice) { n.Session = h.id; withdrawn = append(withdrawn, n) })
 	h.errText = ""
 	// What the process applied went with it: the next one is asked again.
 	h.applied, h.appliedRead = agent.Applied{}, false
@@ -587,10 +593,8 @@ func (h *Hosted) ended(e *hold.Exit) {
 	h.newSession, h.base = false, nil
 	hadTurn := h.hadTurn
 	h.hadTurn = false
-	resume := false
 	if e != nil && !asked && (e.From == "holder" || e.Signal != nil || (e.Code != nil && *e.Code != 0)) {
 		h.errText = describe(e) + errTail(h.dir)
-		resume = h.crashedLocked(hadTurn)
 	}
 	if h.failed != "" {
 		h.errText, h.failed = h.failed, ""
@@ -598,24 +602,21 @@ func (h *Hosted) ended(e *hold.Exit) {
 	errText := h.errText
 	restarting := h.restarting
 	h.mu.Unlock()
+	h.m.notify(withdrawn...)
 	if !restarting {
 		h.pause()
 	}
 	h.readTranscript()
 	h.endedHidden()
 	h.publish()
-	h.m.publishQuota()
 	if errText != "" {
 		h.m.notify(Notice{Session: h.id, Kind: NoticeError, Text: errText})
 	}
-	if hadTurn && !resume {
+	if hadTurn {
 		h.mu.Lock()
 		waiting := h.waitingLocked()
 		h.mu.Unlock()
 		h.m.notify(Notice{Session: h.id, Kind: NoticeEnded, Waiting: waiting})
-	}
-	if resume {
-		go h.resume()
 	}
 }
 
@@ -739,12 +740,16 @@ func (h *Hosted) onEvent(e agent.Event) {
 		h.mu.Unlock()
 		if !replay {
 			h.m.o.Hub.Draft(h.id, proc, n, e.Text)
+			h.m.notify(Notice{Session: h.id, Kind: NoticeWriting, Text: e.Text})
 		}
 		return
 	case agent.Record:
 		h.mu.Unlock()
 		if !replay || e.Sent {
-			h.record(e.Entry, e.Sent)
+			before, after, wrote := h.record(e.Entry, e.Sent)
+			if !replay && wrote && e.Entry.Kind == string(api.BlockKindUser) {
+				h.m.notify(Notice{Session: h.id, Kind: NoticeUserRecorded, Text: e.Entry.ID, Before: before, After: after})
+			}
 		}
 		return
 	case agent.MessageDone:
@@ -775,9 +780,6 @@ func (h *Hosted) onEvent(e agent.Event) {
 		return
 	case agent.ToolStart:
 		// The call whole: its draft is sealed, the transcript has it now.
-		if !replay {
-			h.callLocked(e)
-		}
 		sealed := -1
 		if h.toolDraft != "" {
 			sealed = h.draftN
@@ -815,11 +817,7 @@ func (h *Hosted) onEvent(e agent.Event) {
 		h.hadTurn, h.turnSeen = true, true
 		if !replay {
 			h.turnAt = time.Now()
-			h.calls = nil
-			h.stuckOn, h.turnDenied = "", 0
-		}
-		if !replay && h.quotaUntil != 0 {
-			h.quotaEndLocked() // it went on by itself, or the queue did
+			h.turnDenied = 0
 		}
 		if !replay {
 			h.shownLater() // activity: out of the archive
@@ -837,22 +835,9 @@ func (h *Hosted) onEvent(e agent.Event) {
 		if replay {
 			break
 		}
-		if e.Denied != "" && h.deniedLocked(e) {
-			list = true
+		// A call auto mode denied is a failed call: only counted, for the turn's end.
+		if e.Denied != "" {
 			h.turnDenied++
-		}
-		// A call done after a denial: Claude went on another way. One denied last, it stopped there.
-		if was := h.stuckOn; e.Denied != "" {
-			h.stuckOn = e.ID
-		} else if was != "" {
-			h.stuckOn = ""
-			list = true
-		}
-		if mode, over := h.releaseRanLocked(e.ID); over {
-			list = true
-			if mode != "" {
-				later(func() { h.restoreMode(mode) })
-			}
 		}
 	case agent.StateChange:
 		if h.turn != e.State {
@@ -884,7 +869,7 @@ func (h *Hosted) onEvent(e agent.Event) {
 			// A mode that switches only with a restart (pi): now, then what waited goes.
 			h.restartDue = false
 			later(h.restart)
-		} else if !replay && h.quotaUntil == 0 {
+		} else if !replay {
 			// What waited goes as the next turn; paused ones stay.
 			later(func() {
 				ctx, cancel := context.WithTimeout(h.m.ctx, time.Minute)
@@ -896,6 +881,7 @@ func (h *Hosted) onEvent(e agent.Event) {
 			if mode := h.releaseOverLocked(); mode != "" {
 				later(func() { h.restoreMode(mode) })
 			}
+			h.manualTurnOverLocked(note)
 		}
 		note(Notice{Kind: NoticeTurnEnd, Text: transcript.WithoutNameLines(e.Reply), Background: e.Background, Denied: h.turnDenied, Waiting: h.waitingLocked()})
 	case agent.AskOpen:
@@ -907,9 +893,6 @@ func (h *Hosted) onEvent(e agent.Event) {
 		if !slices.ContainsFunc(h.asks, func(a api.Ask) bool { return a.RequestID == e.Ask.RequestID }) {
 			h.asks = append(h.asks, e.Ask)
 		}
-		if !replay {
-			h.releaseAskedLocked(e.Ask)
-		}
 		list = true
 		ask := e.Ask
 		note(Notice{Kind: NoticeAsk, Ask: &ask, From: h.turnFrom, Via: h.turnVia})
@@ -920,11 +903,13 @@ func (h *Hosted) onEvent(e agent.Event) {
 		h.asks = slices.DeleteFunc(h.asks, func(a api.Ask) bool { return a.RequestID == e.RequestID })
 		list = true
 	case agent.PendingAsks:
-		h.asks = e.Asks
+		// The agent's own; one for manual mode is Iridium's, kept.
+		h.asks = append(slices.Clone(e.Asks), slices.DeleteFunc(slices.Clone(h.asks), func(a api.Ask) bool { return a.Kind != AskManual })...)
 		list = true
 		later(h.allowMatching)
 	case agent.Tasks:
 		h.tasks = e.Tasks
+		note(Notice{Kind: NoticeTasks})
 	case agent.Started:
 		h.model = e.Model
 		if e.Effort != "" {
@@ -950,7 +935,7 @@ func (h *Hosted) onEvent(e agent.Event) {
 		h.starting = false
 		h.mode = e.Mode
 		if replay {
-			h.rel = nil // the hello the process is taken up with says where it is
+			h.dropRelLocked() // the hello the process is taken up with says where it is
 		} else {
 			h.helloReleaseLocked(proc, e.Mode) // a new process: in the session's own mode
 		}
@@ -959,12 +944,7 @@ func (h *Hosted) onEvent(e agent.Event) {
 		list = true
 		// The model and the level in use, before a turn names them (Claude).
 		later(func() { h.readApplied(proc) })
-		if h.resuming && !replay {
-			seen := h.turnSeen
-			later(func() { h.helloAfterResume(seen) })
-		}
-		h.resuming = false
-		if h.turn == agent.Idle && h.quotaUntil == 0 {
+		if h.turn == agent.Idle {
 			// Taken up idle with messages waiting: they go now.
 			later(func() {
 				ctx, cancel := context.WithTimeout(h.m.ctx, time.Minute)
@@ -987,11 +967,7 @@ func (h *Hosted) onEvent(e agent.Event) {
 		if !e.Failed {
 			later(h.refreshContext)
 			note(Notice{Kind: NoticeCompacted, Asked: h.compact})
-			h.compact = false
-		}
-	case agent.QuotaHit:
-		if e.Exhausted && !replay {
-			h.quotaOutLocked(e.ResetsAt)
+			h.compact, h.titleAfterCompact = false, true
 		}
 	case agent.ProtocolError:
 		h.logf("protocol: %s: %s", e.Reason, e.Detail)
@@ -1014,9 +990,19 @@ func (h *Hosted) onEvent(e agent.Event) {
 	h.m.notify(notes...)
 }
 
+// payer is whom a turn begun by from is counted to: from, unless Iridium began it (the host's
+// own relays and prompts, or no one known), then the person its turn is for.
+func (m *Manager) payer(id, from string) string {
+	if from != api.HostID && from != api.SourceIridium && from != "" || m.o.Owner == nil {
+		return from
+	}
+	return cmp.Or(m.o.Owner(id), from)
+}
+
 // recordUsage writes the turn's usage rows, one per model: its share of the session's running
 // totals where the totals before it are known, else the result's tokens, without a cost.
 func (h *Hosted) recordUsage(e agent.TurnUsage, base *agent.Usage, from, model string) {
+	from = h.m.payer(h.id, from)
 	if base == nil {
 		h.mu.Lock()
 		if h.newSession {
@@ -1087,12 +1073,25 @@ func (h *Hosted) readTranscript() {
 	grew := size != h.end
 	old := h.end
 	h.end = size
+	running := h.turn != agent.Idle
+	agentKind := h.meta.Agent
 	stale := h.said.size != size
 	h.mu.Unlock()
 	if !grew {
 		return
 	}
 	h.updateTail(f, old, size)
+	// For file-tailed harnesses (Claude, Codex, pi, dsh), detect user blocks genuinely appended
+	// to the transcript while a turn is running so satori splits the carrier at the exact moment
+	// the harness accepted a steered message (matching TranscriptView). OwnRecord harnesses (agy)
+	// emit NoticeUserRecorded synchronously in case agent.Record above.
+	if old > 0 && size > old && running && !h.replaying.Load() {
+		if info, ok := agents.Get(agentKind); !ok || !info.OwnRecord {
+			if p, err := f.After(old); err == nil {
+				h.notifyTailUsers(p.Blocks, old, size)
+			}
+		}
+	}
 	if stale {
 		title, _ := f.Title()
 		last, _ := f.LastSaid()
@@ -1104,21 +1103,56 @@ func (h *Hosted) readTranscript() {
 	h.m.publishList()
 }
 
+func blockLine(at string) int64 {
+	s, _, _ := strings.Cut(at, ".")
+	n, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return -1
+	}
+	return n
+}
+
+// notifyTailUsers emits NoticeUserRecorded for the newest unseen user block appended at >= old.
+func (h *Hosted) notifyTailUsers(blocks []api.Block, old, size int64) {
+	idx := -1
+	var before int64
+	for i, b := range blocks {
+		if b.Kind != api.BlockKindUser {
+			continue
+		}
+		if line := blockLine(b.At); line >= old {
+			idx, before = i, line
+		}
+	}
+	if idx < 0 {
+		return
+	}
+	h.mu.Lock()
+	if h.hasUserAt && before <= h.lastUserAt {
+		h.mu.Unlock()
+		return
+	}
+	h.hasUserAt, h.lastUserAt = true, before
+	h.mu.Unlock()
+	after := size
+	for j := idx + 1; j < len(blocks); j++ {
+		if line := blockLine(blocks[j].At); line > before {
+			after = line
+			break
+		}
+	}
+	h.m.notify(Notice{Session: h.id, Kind: NoticeUserRecorded, Text: blocks[idx].ID, Before: before, After: after})
+}
+
 func (h *Hosted) status() api.Status {
 	switch {
 	case h.starting && !h.quiet:
 		return api.StatusStarting
 	case !h.live && h.errText != "":
 		return api.StatusError
-	case !h.live && h.stuckLocked():
-		return api.StatusWaiting
 	case !h.live:
 		return api.StatusIdle
 	case len(h.asks) > 0:
-		return api.StatusWaiting
-	case h.stuckLocked() && h.turn == agent.Idle:
-		// The turn ended on a step auto mode denied: it waits for you. One Claude went past is
-		// no one's business (the user, 2026-11-08).
 		return api.StatusWaiting
 	case h.turn == agent.Compacting:
 		return api.StatusCompacting
@@ -1153,8 +1187,8 @@ func (h *Hosted) summaryLocked(o store.Overlay, archived bool) api.Session {
 func (h *Hosted) state(o store.Overlay, archived bool) api.SessionState {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	s := api.SessionState{Session: h.summaryLocked(o, archived), Asks: slices.Clone(h.asks), Tasks: slices.Clone(h.tasks), Denials: slices.Clone(h.denials), Model: h.model, Mode: h.mode, End: h.end, Proc: h.proc, Error: h.errText,
-		Effort: h.effort, Queue: slices.Clone(h.queue), Context: h.ctxSum, QuotaUntil: h.quotaUntil, Tail: h.tail}
+	s := api.SessionState{Session: h.summaryLocked(o, archived), Asks: slices.Clone(h.asks), Tasks: slices.Clone(h.tasks), Model: h.model, Mode: h.mode, End: h.end, Proc: h.proc, Error: h.errText,
+		Effort: h.effort, Queue: slices.Clone(h.queue), Context: h.ctxSum, Tail: h.tail}
 	if h.tokens != (api.InputTokens{}) {
 		t := h.tokens
 		s.Tokens = &t
@@ -1199,15 +1233,11 @@ func (h *Hosted) state(o store.Overlay, archived bool) api.SessionState {
 	if s.Tasks == nil {
 		s.Tasks = []api.Task{}
 	}
-	if s.Denials == nil {
-		s.Denials = []api.Denial{}
-	}
 	return s
 }
 
 func (h *Hosted) publish() {
-	over, _ := h.m.o.Store.Overlays()
-	s := h.state(over[h.id], !h.shown())
+	s := h.state(h.m.o.Store.Overlay(h.id), !h.shown())
 	h.m.o.Hub.Set("session:"+h.id, s)
 	h.mu.Lock()
 	changed := s.Status != h.lamp

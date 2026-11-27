@@ -55,6 +55,16 @@ func CardOf(session string, a api.Ask) *api.Card {
 		plan, _ := in["plan"].(string)
 		c.Summary = firstLines(plan, 6)
 		c.Options = []api.CardOption{{ID: OptionApprove, Text: "批准", Primary: true}, {ID: OptionReject, Text: "拒绝"}}
+	case AskManual:
+		c.Title = "切换至手动审批"
+		reason, _ := in["reason"].(string)
+		c.Summary = append(c.Summary, cutText(reason, 300))
+		if n, ok := in["minutes"].(int); ok {
+			c.Summary = append(c.Summary, fmt.Sprintf("至本回合结束，最长 %d 分钟", n))
+		} else if f, ok := in["minutes"].(float64); ok {
+			c.Summary = append(c.Summary, fmt.Sprintf("至本回合结束，最长 %d 分钟", int(f)))
+		}
+		c.Options = []api.CardOption{{ID: OptionAllow, Text: "同意", Primary: true}, {ID: OptionDeny, Text: "拒绝"}}
 	default:
 		if s := subjectOf(a); s != "" {
 			c.Summary = append(c.Summary, cutText(s, 300))

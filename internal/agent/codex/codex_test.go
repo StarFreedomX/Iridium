@@ -455,20 +455,6 @@ func TestMCPElicitation(t *testing.T) {
 	}
 }
 
-func TestCompact(t *testing.T) {
-	h := replay(t, "compact", opts{mode: "never", resume: "00000000-0000-7000-8000-8d5c554c3185"})
-	want := []string{"Started", "Hello", "Taken", "TurnStart", "StateChange:running", "StateChange:compacting", "Compacted", "StateChange:running", "StateChange:idle", "TurnEnd"}
-	if got := h.kinds(); !reflect.DeepEqual(got, want) {
-		t.Fatalf("events\n  %v\nwant\n  %v", got, want)
-	}
-	if c := find[agent.Compacted](h)[0]; c.Before != 19328 || c.After != 8204 || c.Failed {
-		t.Errorf("compacted %+v", c)
-	}
-	if e := find[agent.TurnEnd](h)[0]; !e.CompactOnly {
-		t.Errorf("end %+v", e)
-	}
-}
-
 // A subagent is a background task until it completes; its own thread's turns are not the
 // session's.
 func TestSubagent(t *testing.T) {

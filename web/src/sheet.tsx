@@ -1,29 +1,25 @@
 // The sidebar on a phone (the user, 2026-11-06): a sheet from the window's foot, half its height,
 // over the composer, which stays where it is, covered (it sinks only if taller than the sheet; the
-// user, 2026-11-06). Nothing dims: the chat above is seen and scrolls as ever, and a tap on
-// it puts the sheet away, as picking a session does. The chat bar's ⋯ menu brings it out; a swipe
-// up from the composer, its box too, does too, following the finger; Esc puts it away. With no chat
-// open it stays out, the whole window. While searching it stands taller, for the keyboard. The
-// sidebar's foot, me and the settings key, is a sheet of its own, as tall as it: a swipe up from the
-// composer's left quarter brings it, one from anywhere else the sessions' (the user, 2026-11-06). A
-// chat at rest at its newest swiped on up brings them too, but only a long, plain swipe: not one
-// that was just scrolling down to the newest (the user, 2026-11-06).
-// Every sheet, the settings' and me's too, out: a swipe down from its grip or head puts it away,
-// following the finger; held there a moment first, the grip lights and the finger makes it taller, or
-// shorter down to its first height, as it stays on this device, what it holds scrolling, with no bar (the user,
-// 2026-11-07). Let go near its first height, it goes back to that.
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { restsAtEnd } from "./chat/stick";
+// user, 2026-11-06). Nothing dims: the chat above is seen and scrolls as ever, and a tap on it puts
+// the sheet away, as picking a session does. The chat bar's Ir or ⋯ menu brings it out, the Ir
+// pressed again puts it away; Esc does too. No swipe brings it or puts it away (kumo, 2026-11-25).
+// With no chat open it stays out, the whole window. While searching it stands taller, for the
+// keyboard. Its head, the tabs' row (no grip drawn, kumo 2026-11-25), dragged up or down sizes it at
+// once, no hold first, from LOW up to the chat's top bar, what it holds scrolling, with no bar; it
+// stays so on this device. Let go near its first height, it goes back to that.
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { motion } from "./motion";
-import { buzz, cn, keep, kept } from "./ui";
+import { cn, keep, kept } from "./ui";
 
 /** Where a swipe up brings the sheet: the chat's bottom stack (chat.tsx), the composer in it. */
 export const PULL = "data-sheet-pull";
-/** Its grip's height, px. */
-export const GRIP = 16;
+/** Its grip's height, px: none (kumo, 2026-11-25: no grip drawn; its head dragged sizes it). */
+export const GRIP = 0;
+/** How short it may be made, px. */
+const LOW = 200;
+
 const HEAD = 64; // px from the sheet's top where a swipe down or a hold may begin: the grip and the head
 const KEPT = "sheetH."; // + its name: how tall the user left it, a share of the window
-const HOLD = 220; // ms the grip or head is held still before the finger sizes the sheet (the user, 2026-11-07: 300 was long)
 // The sheets sized as one, by name: the sessions' and the 终端 panel share a height (the user,
 // 2026-11-07). Each told as one of them is let go.
 const told = new Map<string, Set<(g: number) => void>>();
@@ -68,6 +64,14 @@ export function Sheet({ open, setOpen, size: want, raised, name, head = 0, from:
     return () => void all.delete(setGrown);
   }, [name]);
   const [live, setLive] = useState<number | null>(null);
+  // Left taller than the chat's top bar allows (up to the window's top, before 2026-11-25): as
+  // tall as it may be, as it comes out.
+  useEffect(() => {
+    if (!open || !grown) return;
+    const bar = document.querySelector("main header")?.getBoundingClientRect().bottom ?? 0;
+    const most = (innerHeight - bar) / innerHeight;
+    if (grown > most + 0.001) setGrown(most);
+  }, [open, grown]);
   // Held: the grip lit, the finger sizing it.
   const [armed, setArmed] = useState(false);
   const now = useRef({ open, setOpen, zone, size, name, head, onPull });
@@ -88,20 +92,46 @@ export function Sheet({ open, setOpen, size: want, raised, name, head = 0, from:
     return () => (ro.disconnect(), clearTimeout(timer));
   }, []);
 
-  // Its height glides only as it is made another size (searching, let go taller), not as the
-  // keyboard changes what dvh is: that would start the glide again each frame.
+  // Made another size out (searching, let go taller), its top glides there by a move alone, not by
+  // its height (docs/动画.md: a popup's box is not animated): taller, it is that tall at once, put
+  // down by the difference and slid up; shorter, it slides down as tall as it was, and is made
+  // shorter once it is there, out of sight under the window's foot. Not as the keyboard changes
+  // what dvh is: that would start it again each frame.
   const sizeIs = `${size} ${!!raised} ${live === null ? grown : "drag"}`;
   const [sized, setSized] = useState(sizeIs);
-  const [sizing, setSizing] = useState(false);
+  const glideFrom = useRef<number | null>(null);
   if (sizeIs !== sized) {
     setSized(sizeIs);
-    setSizing(live === null && open);
+    // Where its top is seen now, as px above the window's foot (a glide under way, from there).
+    const box = live === null && open ? panel.current?.getBoundingClientRect() : undefined;
+    glideFrom.current = box ? innerHeight - box.top : null;
   }
-  useEffect(() => {
-    if (!sizing) return;
-    const t = setTimeout(() => setSizing(false), motion.dur(3) + 60);
-    return () => clearTimeout(t);
-  }, [sizing, sized]);
+  useLayoutEffect(() => {
+    const el = panel.current;
+    const from = glideFrom.current;
+    glideFrom.current = null;
+    if (!el || from === null) return;
+    // Kept as tall as it was by min-height, not its height, which is React's (style prop).
+    const settle = () => {
+      el.style.transition = "none";
+      el.style.minHeight = "";
+      el.style.translate = "";
+      void el.offsetHeight;
+      el.style.transition = "";
+    };
+    settle();
+    const d = el.offsetHeight - from;
+    if (Math.abs(d) < 1) return;
+    el.style.transition = "none";
+    if (d < 0) el.style.minHeight = `${from}px`;
+    el.style.translate = `0 ${Math.max(0, d)}px`;
+    void el.offsetHeight;
+    el.style.transition = "";
+    el.style.translate = `0 ${Math.max(0, -d)}px`;
+    const done = (e: TransitionEvent) => e.target === el && e.propertyName === "translate" && settle();
+    el.addEventListener("transitionend", done);
+    return () => (el.removeEventListener("transitionend", done), settle());
+  }, [sized]);
 
   useEffect(() => {
     if (!open) return;
@@ -120,13 +150,14 @@ export function Sheet({ open, setOpen, size: want, raised, name, head = 0, from:
     let from: { x: number; y: number; t: number; open: boolean; h: number; log: boolean; box: boolean } | null = null;
     let mine = false;
     let held = false; // the finger sizes it
-    let hold = 0;
     let at = 0;
     let tall = 0; // its height as sized, px
     let first = 0; // its first height, px: let go near it, it goes back to it
     let travel = 0; // from the conversation: px the finger went up past LOG.DEAD
     let last = { y: 0, t: 0, v: 0 };
     const height = () => panel.current?.offsetHeight || innerHeight / 2;
+    // How tall it may be made: up to the chat's top bar's lower edge (none: the window's top).
+    const roof = () => innerHeight - (document.querySelector("main header")?.getBoundingClientRect().bottom ?? 0);
     // As tall as what it holds: its grip, its foot and what is in its body.
     const fits = () => {
       const el = panel.current;
@@ -138,49 +169,44 @@ export function Sheet({ open, setOpen, size: want, raised, name, head = 0, from:
       s.userSelect = on ? "none" : "";
       s.setProperty("-webkit-user-select", on ? "none" : "");
     };
-    const arm = () => {
-      if (!from || mine) return;
-      held = true;
-      const { size } = now.current;
-      first = size === "fit" ? fits() : firstPx[size]();
-      setArmed(true);
-      noSelect(true);
-      getSelection()?.removeAllRanges();
-      // Ours at once, on Android too: its browser's own comes only with its contextmenu, later, and
-      // only if the finger is still by then.
-      buzz();
-    };
     const noClick = (e: MouseEvent) => (e.stopPropagation(), e.preventDefault());
     const swallowClick = (ms: number) => {
       addEventListener("click", noClick, { capture: true, once: true });
       setTimeout(() => removeEventListener("click", noClick, true), ms);
     };
-    // A finger, or a mouse (a computer's window as narrow as a phone's): the mouse only drags or
-    // holds the grip or the head of a sheet that is out, not a swipe up to bring one.
+    // A finger, or a mouse (a computer's window as narrow as a phone's): the mouse only drags the
+    // head of a sheet that is out, not a swipe up to bring one.
     const begin = (x: number, y: number, t: number, el: Element | null, mouse: boolean) => {
       if (!el?.closest) return;
+      // Shut, a swipe up brings it (the composer, its box, the conversation at rest at its newest);
+      // out, its head dragged up or down sizes it at once, no hold first; put away by a press
+      // outside it or the Ir again (kumo, 2026-11-25: 取消上滑 was how it goes away, not no swipe).
       const { open } = now.current;
-      if (open) {
-        const box = panel.current?.getBoundingClientRect();
-        if (!box || !panel.current!.contains(el) || y - box.top > (now.current.head || HEAD) || el.closest("[role=slider], .touch-none")) return;
-      } else {
+      if (!open) {
         // None while a card waits for an answer: the composer is away, the cards scroll (chat.tsx).
         if (document.querySelector(`[${PULL}][data-asking]`)) return;
         // The composer's box too, while it has nothing to scroll: all of it, as it first is (the
         // user, 2026-11-07); grown past its height, it scrolls its words.
         const box = el.closest("textarea");
         if (mouse || (box && box.scrollHeight > box.clientHeight + 1) || el.closest("input, [role=listbox], [role=dialog], [role=menu]") || !now.current.zone(x)) return;
-        // In the conversation: only at rest at its newest, no words chosen.
-        const log = el.closest<HTMLElement>("[role=log]");
-        if (log ? !restsAtEnd(log) || !getSelection()?.isCollapsed : !el.closest(`[${PULL}]`)) return;
+        // From the composer's stack (and the empty pane's box) alone: not from the conversation,
+        // where a finger moving up is reading on (kumo, 2026-11-25: it came up from anywhere).
+        if (!el.closest(`[${PULL}]`)) return;
+        from = { x, y, t, open, h: height(), log: false, box: !!box };
+        mine = false;
+        held = false;
+        last = { y, t, v: 0 };
+        return;
       }
-      from = { x, y, t, open, h: height(), log: !open && !!el.closest("[role=log]"), box: !open && !!el.closest("textarea") };
+      const box = panel.current?.getBoundingClientRect();
+      if (!box || !panel.current!.contains(el) || y - box.top > (now.current.head || HEAD) || el.closest("[role=slider], .touch-none, input, textarea")) return;
+      if (now.current.size === "full") return;
+      from = { x, y, t, open, h: height(), log: false, box: false };
       mine = false;
-      held = false;
+      held = true;
       last = { y, t, v: 0 };
-      clearTimeout(hold);
-      // Not on a box of words: held, that places the caret.
-      if (open && now.current.size !== "full" && !el.closest("input, textarea")) hold = window.setTimeout(arm, HOLD);
+      const { size } = now.current;
+      first = size === "fit" ? fits() : firstPx[size]();
     };
     const start = (e: TouchEvent) => {
       const p = e.touches[0];
@@ -192,11 +218,24 @@ export function Sheet({ open, setOpen, size: want, raised, name, head = 0, from:
       if (!from) return false;
       const dy = y - from.y;
       if (held) {
-        // Held, the finger sizes it, from its first height up to the window's top, never shorter
-        // than it came (the user, 2026-11-07); nothing under it scrolls.
-        if (!mine && Math.abs(dy) < 4) return true;
-        mine = true;
-        tall = Math.max(Math.min(first, innerHeight), Math.min(innerHeight, from.h - dy));
+        // Up or down: the finger sizes it, from LOW up to the chat's top bar; across: the pages'
+        // own swipe (pager.tsx). Nothing under it scrolls.
+        if (!mine) {
+          const dx = Math.abs(x - from.x);
+          if (Math.max(Math.abs(dy), dx) < 6) return false;
+          if (dx > Math.abs(dy)) {
+            from = null;
+            return false;
+          }
+          mine = true;
+          setArmed(true);
+          noSelect(true);
+          getSelection()?.removeAllRanges();
+        }
+        // Up to the chat's top bar, not over it; near it, at it (kumo, 2026-11-25).
+        const most = roof();
+        tall = Math.max(Math.min(LOW, first), Math.min(most, from.h - dy));
+        if (tall >= most - SNAP) tall = most;
         setLive(tall);
         return true;
       }
@@ -207,8 +246,7 @@ export function Sheet({ open, setOpen, size: want, raised, name, head = 0, from:
           return false;
         }
         if (Math.max(Math.abs(dy), dx) < 8) return false;
-        clearTimeout(hold);
-        if (Math.abs(dy) < dx * (from.log ? 1.5 : 1.2) || (from.open ? dy < 0 : dy > 0)) {
+          if (Math.abs(dy) < dx * (from.log ? 1.5 : 1.2) || (from.open ? dy < 0 : dy > 0)) {
           from = null;
           return false;
         }
@@ -229,12 +267,11 @@ export function Sheet({ open, setOpen, size: want, raised, name, head = 0, from:
       if (p && step(p.clientX, p.clientY, e.timeStamp) && e.cancelable) e.preventDefault();
     };
     const end = () => {
-      clearTimeout(hold);
       if (from && held) {
         // Let go near its first height it goes back to it, near the window's top up to it; else
         // it stays as tall as it was made, on this device.
         if (mine) {
-          const g = Math.abs(tall - first) <= SNAP ? 0 : tall >= innerHeight - SNAP ? 1 : tall / innerHeight;
+          const g = Math.abs(tall - first) <= SNAP ? 0 : tall / innerHeight;
           told.get(now.current.name)?.forEach((f) => f(g));
           keep(KEPT + now.current.name, g ? String(g) : null);
         }
@@ -260,9 +297,7 @@ export function Sheet({ open, setOpen, size: want, raised, name, head = 0, from:
     };
     // Held on its head: no menu of the page's own; it is the hold if the timer has not been yet.
     const menu = (e: Event) => {
-      if (!from?.open) return;
-      e.preventDefault();
-      if (!held && now.current.size !== "full") (clearTimeout(hold), arm());
+      if (from?.open) e.preventDefault();
     };
     // The mouse: no words chosen while it drags, and no click where it is let go.
     let pressed = false;
@@ -296,7 +331,6 @@ export function Sheet({ open, setOpen, size: want, raised, name, head = 0, from:
     addEventListener("pointerup", mup);
     addEventListener("pointercancel", mup);
     return () => {
-      clearTimeout(hold);
       removeEventListener("touchstart", start);
       removeEventListener("touchmove", move);
       removeEventListener("touchend", end);
@@ -313,7 +347,7 @@ export function Sheet({ open, setOpen, size: want, raised, name, head = 0, from:
 
   const out = drag ?? (open ? 1 : 0);
   // As tall as it was left, else its first height; searching, at least most of the window.
-  const left = size === "fit" ? (grown ? `${grown * 100}dvh` : undefined) : grown ? `max(${FIRST[size]}, ${grown * 100}dvh)` : FIRST[size];
+  const left = grown ? `${grown * 100}dvh` : size === "fit" ? undefined : FIRST[size];
   const height = size === "full" ? FIRST.full : live !== null ? live : raised ? `max(${FIRST.tall}, ${left ?? "0px"})` : left;
   const fixed = size !== "fit" || grown > 0 || live !== null;
   return (
@@ -323,19 +357,16 @@ export function Sheet({ open, setOpen, size: want, raised, name, head = 0, from:
       aria-label={label}
       inert={!open && drag === null}
       className={cn(
-        "g-sheet vt-drawer fixed inset-x-0 bottom-0 z-40 flex max-h-dvh flex-col overflow-hidden rounded-t-2xl bg-paper pb-[env(safe-area-inset-bottom)] shadow-[var(--shadow-float)] [-webkit-touch-callout:none]",
+        "g-sheet vt-drawer group/sheet fixed inset-x-0 bottom-0 z-40 flex max-h-dvh flex-col overflow-hidden rounded-t-2xl bg-paper pb-[env(safe-area-inset-bottom)] shadow-[var(--shadow-float)] [-webkit-touch-callout:none]",
         // Up to the window's top: under the status bar, its corners square.
         (size === "full" || (live === null && grown >= 0.99)) && "rounded-t-none pt-[env(safe-area-inset-top)]",
-        sizing && "g-sizing",
         drag !== null && "[transition:none]",
         out === 0 && "shadow-none",
       )}
       // Shut, past its own height and its shadow too.
+      data-sizing={armed || undefined}
       style={{ transform: `translateY(calc(${(1 - out) * 100}% + ${(1 - out) * 20}px))`, height }}
     >
-      <div aria-hidden className="grid h-4 shrink-0 place-items-end justify-center">
-        <span className={cn("h-1 w-9 rounded-full bg-fill-2 transition-[width,background-color] duration-(--dur-2) ease-(--ease-out)", armed && "w-14 bg-ink-3")} />
-      </div>
       {/* What it holds scrolls, with no bar; as tall as it, the one sized to fit. */}
       <div ref={body} className={cn("relative min-h-0", fixed && "flex-1", size === "fit" && "no-bar overflow-y-auto overscroll-contain")}>
         {children}

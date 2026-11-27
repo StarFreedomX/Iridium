@@ -5,21 +5,23 @@
 // effort for one start, and what a start as one sends. Shown on the
 // "+" (create.tsx), first in a channel's 邀请 (chat/channel/invite.tsx), kept in the settings
 // (rolespage.tsx).
-import { FaceGlow } from "./glow";
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { keepPreviousData } from "@tanstack/react-query";
+import { useQuery } from "./api/query";
 import { LoaderCircle } from "lucide-react";
-import { lazy, Suspense, useState } from "react";
+import { Suspense, useState } from "react";
+import { lazyAhead } from "./prefetch";
 import { api, missing, queryClient } from "./api/client";
 import type { Model, Role } from "./api/types.gen";
 import { choicesQ, draftDefault, type At } from "./chat/choices";
 import { t } from "./i18n";
 import { zh, type Key } from "./i18n/zh";
 import { getCarried, useCarried } from "./store";
+import { keptQuery } from "./data";
 import { agentName, cn, Logo } from "./ui";
 
 /** The model and effort menu an agent not yet started has (the invite menu's): fetched when a
  *  role's menu first opens, so the first screen does not carry it. */
-const DraftModels = lazy(() => import("./chat/channel/pick").then((m) => ({ default: m.DraftModels })));
+export const DraftModels = lazyAhead(() => import("./chat/channel/pick").then((m) => m.DraftModels));
 
 /** The roles, in their order; none on a daemon that has no such route. Asked again as any role
  *  changes: the carried "roles", a count (internal/server rolesChanged). */
@@ -30,7 +32,7 @@ export function useRoles(): Role[] {
 }
 
 /** The roles as asked for, by the carried "roles" count. */
-const rolesQ = (v: number) => ({ queryKey: ["roles", v], queryFn: () => api.roles().catch((e) => (missing(e) ? [] : Promise.reject(e))), staleTime: 30_000 });
+const rolesQ = (v: number) => ({ queryKey: ["roles", v], staleTime: 30_000, ...keptQuery("roles", () => api.roles().catch((e) => (missing(e) ? [] : Promise.reject(e)))) });
 
 /** The roles asked for ahead (kumo, 2026-11-16: a row that comes after the "+" opened pushes
  *  the popover; docs/前端设计规范.md "后到的不撑开"): once the page is idle, and as the "+"
@@ -78,23 +80,6 @@ export function RoleFace({ role, size, className }: { role: Role; size: number; 
   return (
     <span className={cn("relative grid shrink-0 place-items-center overflow-hidden rounded-full bg-fill", className)} style={{ width: size, height: size }}>
       {role.avatar && broken !== role.avatar ? <img src={role.avatar} alt="" draggable={false} onError={() => setBroken(role.avatar!)} className="size-full object-cover" /> : <Logo agent={role.agent} size={Math.round(size * 0.64)} />}
-    </span>
-  );
-}
-
-/** A role's background as a banner filling its parent; none: its face, out of focus. */
-export function RoleBanner({ role, className }: { role: Role; className?: string }) {
-  const [broken, setBroken] = useState<string | null>(null);
-  const has = role.background && broken !== role.background;
-  return (
-    <span className={cn("relative block overflow-hidden bg-fill-2", className)}>
-      {has ? (
-        <img src={role.background} alt="" draggable={false} onError={() => setBroken(role.background!)} className="size-full object-cover" />
-      ) : (
-        <FaceGlow>
-          <RoleFace role={role} size={32} />
-        </FaceGlow>
-      )}
     </span>
   );
 }

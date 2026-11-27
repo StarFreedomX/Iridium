@@ -1,14 +1,7 @@
 package server
 
 import (
-	"crypto/ecdh"
-	"crypto/rand"
-	"encoding/base64"
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"net/http/httptest"
 	"strconv"
 	"strings"
 	"testing"
@@ -16,7 +9,6 @@ import (
 
 	"github.com/kumoSleeping/iridium/internal/api"
 	"github.com/kumoSleeping/iridium/internal/gate"
-	"github.com/kumoSleeping/iridium/internal/push"
 	"github.com/kumoSleeping/iridium/internal/satori"
 )
 
@@ -51,7 +43,7 @@ func TestNamedIn(t *testing.T) {
 func TestChannelAts(t *testing.T) {
 	t.Parallel()
 	l := start(t)
-	bot := l.newApp("bot", true)
+	bot := l.newApp("bot")
 	if ok, err := l.s.st.AddApprovedLogin(bot.App.ID, "ann", "Ann", time.Now()); !ok || err != nil {
 		t.Fatal(ok, err)
 	}
@@ -59,6 +51,8 @@ func TestChannelAts(t *testing.T) {
 	ch := l.create(200, "web", api.NewSession{Agent: api.AgentClaude, Cwd: l.work, Text: "first"})
 	l.waitReply("web", ch, "ok: first")
 	l.want(200, "web", "PUT", "/v1/internal/channels/"+ch+"/people", api.People{People: []string{"*"}}, nil)
+	every := onFrom("*")
+	l.want(200, "web", "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+ch, api.MemberPatch{On: &every}, nil)
 	ats := func(as string) api.ChannelAt {
 		t.Helper()
 		var out api.ChannelAts
@@ -115,6 +109,14 @@ func TestChannelAts(t *testing.T) {
 		t.Fatalf("send: %d %+v", code, r)
 	}
 	l.waitReply("web", ch, "ok: ping @ann, here")
+	// The agent's own words name her too, once they are told as its reply: a moment after its
+	// turn's end is seen. Waited for, so that it is not after she has read (below).
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		if m, ok := l.s.ch.Get(ch, r.Seq+1); ok && m.D.Final {
+			break
+		}
+	}
+	time.Sleep(100 * time.Millisecond)
 	if a := ats("ann"); a.Seq != r.Seq || a.Everyone {
 		t.Errorf("named: %+v, want #%d", a, r.Seq)
 	}
@@ -183,7 +185,7 @@ func TestChannelAts(t *testing.T) {
 func TestChannelAtsAmongSeveral(t *testing.T) {
 	t.Parallel()
 	l := start(t)
-	bot := l.newApp("bot", true)
+	bot := l.newApp("bot")
 	if ok, err := l.s.st.AddApprovedLogin(bot.App.ID, "ann", "Ann", time.Now()); !ok || err != nil {
 		t.Fatal(ok, err)
 	}
@@ -210,10 +212,19 @@ func TestChannelAtsAmongSeveral(t *testing.T) {
 	l.waitSaid("web", ch, "@claude ", fmt.Sprintf("ok: #%d: @全体成员 meeting", r.Seq))
 	l.waitSaid("web", ch, "@claude2 ", fmt.Sprintf("ok: #%d: @全体成员 meeting", r.Seq))
 	for quiet := 0; quiet < 5; time.Sleep(50 * time.Millisecond) {
-		if quiet++; mark().Seq != 0 {
+		var s1, s2 api.SessionState
+		l.want(200, "web", "GET", "/v1/internal/sessions/"+ch, nil, &s1)
+		l.want(200, "web", "GET", "/v1/internal/sessions/"+second, nil, &s2)
+		if mark().Seq != 0 {
 			l.asLogin(bot.Token, "ann", "POST", "/v1/internal/channels/"+ch+"/read", api.Read{Seq: 1 << 40}, nil)
 			quiet = 0
+			continue
 		}
+		if s1.Status != api.StatusIdle || s2.Status != api.StatusIdle {
+			quiet = 0
+			continue
+		}
+		quiet++
 	}
 	// An agent's ir names her.
 	var sent []satori.Message
@@ -223,52 +234,6 @@ func TestChannelAtsAmongSeveral(t *testing.T) {
 	}
 	if a := mark(); strconv.FormatInt(a.Seq, 10) != sent[0].ID || a.Everyone {
 		t.Errorf("named by an agent: %+v, want #%s", a, sent[0].ID)
-	}
-}
-
-// The login a message names is pushed it (kind "at"); its own words push it nothing.
-func TestChannelAtPush(t *testing.T) {
-	t.Parallel()
-	p := newPushRig(t)
-	ua, _ := ecdh.P256().GenerateKey(rand.Reader)
-	auth := make([]byte, 16)
-	rand.Read(auth)
-	got := make(chan api.PushMessage, 10)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		var m api.PushMessage
-		if plain, err := push.Decrypt(ua, auth, body); err == nil {
-			json.Unmarshal(plain, &m)
-		}
-		got <- m
-		w.WriteHeader(http.StatusCreated)
-	}))
-	defer srv.Close()
-	sub := api.PushSubscription{Endpoint: srv.URL}
-	sub.Keys.P256dh = base64.RawURLEncoding.EncodeToString(ua.PublicKey().Bytes())
-	sub.Keys.Auth = base64.RawURLEncoding.EncodeToString(auth)
-	if code := p.do("POST", "/v1/internal/web/push/subscriptions", sub, nil); code != 200 {
-		t.Fatalf("subscribe: %d", code)
-	}
-	p.do("PUT", "/v1/internal/web/push", api.PushSwitch{Enabled: true}, nil)
-	// The session's rule: nothing pushed. One named is pushed all the same.
-	created, _ := createAt(p.t, http.DefaultClient, p.base, api.NewSession{Agent: api.AgentClaude, Cwd: p.work, Text: "hi"})
-	p.do("PUT", "/v1/internal/web/push/rules", api.PushRule{Scope: api.PushScopeSession, Target: created, Mode: api.PushModeOff}, nil)
-	// The agent says the words back: its message names the host, the host's own does not.
-	sendAt(p.t, http.DefaultClient, p.base, created, api.Send{Text: "tell @Iridium"})
-	for {
-		select {
-		case m := <-got:
-			if m.Kind != "at" {
-				continue
-			}
-			if m.Session != created || !strings.Contains(m.Body, "ok: tell @Iridium") {
-				t.Errorf("push: %+v", m)
-			}
-			return
-		case <-time.After(10 * time.Second):
-			t.Fatal("no push")
-		}
 	}
 }
 

@@ -17,18 +17,18 @@ import (
 // since the agent last read it, as internal/ctx/strategy planned it.
 
 // ChannelAgent is an agent of the channel: the nick it is called by, the name it goes by, its
-// intro (the head of it), whom its receive set names (Recv, in words; "": only what names it).
+// what wakes it beside @ (Recv, its on in words; "": only @).
 // At: where it works, when not in the channel's folder (a place as written: mac:/Users/k/x).
-type ChannelAgent struct{ Nick, Name, Intro, Recv, At string }
+// ChannelAgent is an agent of the channel as the others are told it: Agent its kind (claude,
+// codex…), Model the model's own id as its harness names it, Effort its thinking level; never a
+// model's name made for people (kumo, 2026-11-24).
+type ChannelAgent struct{ Nick, Agent, Model, Effort, Recv, At string }
 
-// ChannelScript is a script the channel's IR runs: its name, its intro, its triggers in words.
-type ChannelScript struct{ Name, Intro, On string }
-
-// ChannelPerson is one of the channel's people that has an intro: the name, the intro.
-type ChannelPerson struct{ Name, Intro string }
+// ChannelScript is a command the channel's IR runs: its name, what runs it in words.
+type ChannelScript struct{ Name, On string }
 
 // ProfileChange is a card changed since the agent was last told: Who ("": the channel), What
-// ("name", "intro", "avatar", "background"), To: the new words (none for an image).
+// ("name", "persona", "avatar"), To: the new words (none for an image).
 type ProfileChange struct{ Who, What, To string }
 
 // Channel is what the agent called is told of the channel. You: its own nick; Agents: all of
@@ -57,13 +57,16 @@ type Channel struct {
 	// more) were given before and hold still (docs/channels.md "增量"): not again, a line in
 	// their place.
 	Brief bool
+	// SameChannel: the agent's immediately preceding turn-prefix or message injection was
+	// already in this same channel, so Brief does not need to repeat "In the channel ..., as
+	// before." when nothing else changed.
+	SameChannel bool
 	// Key: what the standing words are of beside their text: the channel's agents (their
-	// sessions). The names and intros in them are not part of it: when those change, the agent is
+	// sessions). The names in them are not part of it: when those change, the agent is
 	// told what changed (Changes), not everything again.
 	Key string
-	// People: the channel's people that have an intro. Changes: the cards changed since the
+	// Changes: the cards changed since the
 	// agent was last told.
-	People  []ChannelPerson
 	Changes []ProfileChange
 	// Scripts: the scripts the channel's IR runs (docs/channels.md "脚本").
 	Scripts []ChannelScript
@@ -74,13 +77,19 @@ type Channel struct {
 	// Recalled: the numbers of messages it was given that were taken back since it was last
 	// given something here (docs/channels.md "撤回").
 	Recalled []int64
+	// Session: the agent's own session, which the commands it is told name it by, and the
+	// channel's when ID is none (ir takes no "self", kumo 2026-11-27).
+	Session string
 }
 
-// ChannelStaticKey names the standing words as they are for c, apart from the names and intros
+// channel is the channel's id as ir takes it: its own session's for its own.
+func (c Channel) channel() string { return cmp.Or(c.ID, c.Session) }
+
+// ChannelStaticKey names the standing words as they are for c, apart from the names
 // in them: the text of the fragments, which channel, which agents (c.Key), whether it reads
 // more with ir. What a channel's injection record keeps; changed, the words are given again.
 func ChannelStaticKey(c Channel) string {
-	c.You, c.Name, c.People, c.Changes, c.Scripts = "", "", nil, nil, nil
+	c.You, c.Name, c.Changes, c.Scripts = "", "", nil, nil
 	c.Agents = []ChannelAgent{{Nick: c.Key}}
 	return prompts.Hash(ChannelStatic(c))
 }
@@ -95,21 +104,25 @@ func ChannelStatic(c Channel) string {
 	return in.String()
 }
 
-// staticPieces are the standing words: who the agent is there and the agents, how it answers;
-// how it reads more.
+// staticPieces are the standing words (kumo, 2026-11-26): which channel and who the agent is
+// there; its agents, where they work, the scripts IR runs, how agents wake; the rules of
+// answering there; with ir, the commands that read more of it.
 func staticPieces(c Channel) []piece {
-	self := cmp.Or(c.ID, "self")
-	var agents []string
+	self := c.channel()
+	var agents strings.Builder
 	for _, a := range c.Agents {
 		s := a.Nick // without @: the agent echoing the list calls nobody
-		var about []string
-		for _, v := range []string{a.Name, a.Intro} {
-			if v != "" {
-				about = append(about, v)
+		var about, runs []string
+		for _, v := range [][2]string{{"", a.Agent}, {"", a.Model}, {"effort ", a.Effort}} {
+			if v[1] != "" {
+				runs = append(runs, v[0]+v[1])
 			}
 		}
+		if len(runs) > 0 {
+			about = append(about, strings.Join(runs, ", "))
+		}
 		if a.Recv != "" {
-			about = append(about, "woken by "+a.Recv)
+			about = append(about, "wakes on @, "+a.Recv)
 		}
 		if a.At != "" {
 			about = append(about, "at "+a.At)
@@ -117,55 +130,55 @@ func staticPieces(c Channel) []piece {
 		if len(about) > 0 {
 			s += " (" + strings.Join(about, "; ") + ")"
 		}
-		agents = append(agents, s)
+		agents.WriteString("- " + s + "\n")
 	}
 	var ps []piece
 	switch {
 	case c.ID != "" && !c.Pull:
-		ps = append(ps, text(idChannelGuestBare, "you", c.You, "name", cmp.Or(c.Name, c.ID), "agents", strings.Join(agents, ", ")))
+		ps = append(ps, text(idChannelGuestBare, "you", c.You, "name", cmp.Or(c.Name, c.ID), "agents", agents.String()))
 	case c.ID != "":
-		ps = append(ps, text(idChannelGuest, "you", c.You, "channel", c.ID, "name", cmp.Or(c.Name, c.ID), "agents", strings.Join(agents, ", ")))
+		ps = append(ps, text(idChannelGuest, "you", c.You, "channel", c.ID, "name", cmp.Or(c.Name, c.ID), "agents", agents.String()))
+	case !c.Pull:
+		ps = append(ps, text(idChannelMembersBare, "you", c.You, "agents", agents.String()))
 	default:
-		ps = append(ps, text(idChannelMembers, "you", c.You, "agents", strings.Join(agents, ", ")))
-	}
-	if len(c.People) > 0 {
-		var people []string
-		for _, p := range c.People {
-			people = append(people, p.Name+" ("+p.Intro+")")
-		}
-		ps[0] = piece{parts: mustParts(ps[0], text(idChannelPeople, "people", strings.Join(people, ", ")))}
+		ps = append(ps, text(idChannelMembers, "you", c.You, "channel", self, "agents", agents.String()))
 	}
 	// Where the channel is and who works elsewhere, the agent called among them or not.
 	if c.Place != "" && (c.At != "" || slices.ContainsFunc(c.Agents, func(a ChannelAgent) bool { return a.At != "" })) {
-		ps[0] = piece{parts: mustParts(ps[0], text(idChannelPlace, "place", c.Place))}
+		ps = append(ps, text(idChannelPlace, "place", c.Place))
 		if c.At != "" {
-			ps[0] = piece{parts: mustParts(ps[0], text(idChannelAway, "at", c.At, "example", awayExample(c.At)))}
+			ps = append(ps, text(idChannelAway, "at", c.At, "example", awayExample(c.At)))
 		}
 	}
-	// The scripts IR runs there, and how receive sets go where an agent has one: with the words
-	// about the agents (static[0]), the way to read more after the rest (static[1]).
+	// The scripts IR runs there, and that receive sets may be changed where an agent has one.
 	if len(c.Scripts) > 0 {
 		var scripts []string
 		for _, x := range c.Scripts {
 			s := x.Name
-			var about []string
-			for _, v := range []string{x.Intro, x.On} {
-				if v != "" {
-					about = append(about, v)
-				}
-			}
-			if len(about) > 0 {
-				s += " (" + strings.Join(about, "; ") + ")"
+			if x.On != "" {
+				s += " (" + x.On + ")"
 			}
 			scripts = append(scripts, s)
 		}
-		ps[0] = piece{parts: mustParts(ps[0], text(idChannelScripts, "scripts", strings.Join(scripts, ", ")))}
+		ps = append(ps, text(idChannelScripts, "scripts", strings.Join(scripts, ", ")))
 	}
 	if c.Pull && slices.ContainsFunc(c.Agents, func(a ChannelAgent) bool { return a.Recv != "" }) {
-		ps[0] = piece{parts: mustParts(ps[0], text(idChannelRecv))}
+		ps = append(ps, text(idChannelRecv))
 	}
+	ps = append(ps, text(idChannelRules))
+	switch {
+	case c.ID == "":
+		ps = append(ps, text(idChannelRuleOwn))
+	case c.Pull:
+		ps = append(ps, text(idChannelRuleGuest))
+	default:
+		ps = append(ps, text(idChannelRuleGuestBare))
+	}
+	ps = append(ps, text(idChannelRuleWork), text(idChannelRuleMention))
 	if c.Pull {
-		ps = append(ps, piece{parts: mustParts(text(idChannelPull, "channel", self), text(idChannelReact, "channel", self))})
+		ps = append(ps, text(idChannelRuleTight, "session", c.Session), text(idChannelPull, "channel", self), text(idChannelReact, "channel", self))
+	} else {
+		ps = append(ps, text(idChannelRuleTightBare))
 	}
 	return ps
 }
@@ -178,15 +191,6 @@ func awayExample(at string) string {
 		sep = `\`
 	}
 	return strings.TrimRight(at, `/\`) + sep + "notes.md"
-}
-
-// mustParts are pieces resolved into one piece's parts (a fragment missing: none).
-func mustParts(ps ...piece) []Part {
-	in, err := build(KindTurnPrefix, ps...)
-	if err != nil {
-		return []Part{}
-	}
-	return in.parts
 }
 
 // changePieces say which cards changed since the agent was last told.
@@ -203,18 +207,12 @@ func changePieces(c Channel) []piece {
 		switch {
 		case ch.What == "name":
 			ps = append(ps, text(idChannelProfileName, "who", who, "to", ch.To))
-		case ch.What == "intro" && ch.To == "":
-			ps = append(ps, text(idChannelProfileNoIntro, "who", who))
-		case ch.What == "intro":
-			ps = append(ps, text(idChannelProfileIntro, "who", who), words(ch.To, Ref{Kind: "profile", ID: "intro"}), text(idNL))
 		case ch.What == "persona" && ch.To == "":
 			ps = append(ps, text(idChannelProfileNoPers))
 		case ch.What == "persona":
 			ps = append(ps, text(idChannelProfilePersona), words(ch.To, Ref{Kind: "profile", ID: "persona"}), text(idNL))
 		case ch.What == "avatar":
 			ps = append(ps, text(idChannelProfileImage, "who", who, "what", "face"))
-		default:
-			ps = append(ps, text(idChannelProfileImage, "who", who, "what", "background"))
 		}
 	}
 	return ps
@@ -329,39 +327,47 @@ func Reacted(r Reaction) (Injection, error) {
 	return build(KindMessage, reactionPieces(r)...)
 }
 
-// contextPieces are the channel's context after the words that call the agent.
+// contextPieces are the channel's context after the words that call the agent: the standing
+// words first (unless Brief), then what changed since it last read the channel. Empty (nil) when
+// Brief holds in the same channel and there is nothing new to report, saving tokens each turn.
 func contextPieces(c Channel) []piece {
-	// The channel as ir takes it: the agent's own is "self".
-	self := cmp.Or(c.ID, "self")
-	ps := []piece{text(idChannelOpen)}
+	self := c.channel()
+	var body []piece
 	if c.Rename {
-		ps = append(ps, text(idChannelRename, "you", c.You))
+		body = append(body, text(idChannelRename, "you", c.You))
 	}
-	static := staticPieces(c)
 	switch {
 	case !c.Brief:
-		ps = append(ps, static[0])
-	case c.ID != "":
-		ps = append(ps, text(idChannelAgain, "name", cmp.Or(c.Name, c.ID), "channel", c.ID))
+		if c.Rename {
+			body = append(body, text(idNL))
+		}
+		body = append(body, staticPieces(c)...)
+	case c.ID != "" && !c.SameChannel:
+		if c.Name != "" && c.Name != c.ID {
+			body = append(body, text(idChannelAgain, "name", c.Name, "channel", c.ID))
+		} else {
+			body = append(body, text(idChannelAgainID, "channel", c.ID))
+		}
 	}
-	ps = append(ps, changePieces(c)...)
+	var news []piece
+	news = append(news, changePieces(c)...)
 	if len(c.Recalled) > 0 {
 		var seqs []string
 		for _, r := range c.Recalled {
 			seqs = append(seqs, "#"+n(r))
 		}
-		ps = append(ps, text(idChannelRecalled, "seqs", strings.Join(seqs, ", ")))
+		news = append(news, text(idChannelRecalled, "seqs", strings.Join(seqs, ", ")))
 	}
-	ps = append(ps, unseenPieces(c, self)...)
+	news = append(news, unseenPieces(c, self)...)
 	work := false
 	for _, w := range c.Work {
 		if w.Did.Empty() {
 			continue
 		}
 		if !work {
-			ps, work = append(ps, text(idChannelWork)), true
+			news, work = append(news, text(idChannelWork)), true
 		}
-		ps = append(append(ps, text(idChannelWorkLine, "who", w.Who)), didPieces(w.Did)...)
+		news = append(append(news, text(idChannelWorkLine, "who", w.Who)), didPieces(w.Did)...)
 		if len(w.Did.Files) > 0 {
 			var paths []string
 			for i, f := range w.Did.Files {
@@ -371,13 +377,20 @@ func contextPieces(c Channel) []piece {
 				}
 				paths = append(paths, f.Path)
 			}
-			ps = append(ps, text(idChannelWorkFile, "files", strings.Join(paths, ", ")))
+			news = append(news, text(idChannelWorkFile, "files", strings.Join(paths, ", ")))
 		}
-		ps = append(ps, text(idNL))
+		news = append(news, text(idNL))
 	}
-	if !c.Brief && len(static) > 1 {
-		ps = append(ps, static[1])
+	if len(news) > 0 && (!c.Brief || c.Rename) {
+		body = append(body, text(idNL)) // a blank line after the standing words
 	}
+	body = append(body, news...)
+	if len(body) == 0 {
+		return nil
+	}
+	ps := make([]piece, 0, len(body)+2)
+	ps = append(ps, text(idChannelOpen))
+	ps = append(ps, body...)
 	return append(ps, text(idChannelClose))
 }
 
@@ -431,7 +444,7 @@ func ChannelUnseen(c Channel) (Injection, error) {
 	if c.Plan.Skipped.Count == 0 && len(c.Plan.Turns) == 0 && len(c.Plan.Full) == 0 {
 		return Injection{}, nil
 	}
-	return build(KindToolResult, append([]piece{text(idChannelSendUnseen)}, unseenPieces(c, cmp.Or(c.ID, "self"))...)...)
+	return build(KindToolResult, append([]piece{text(idChannelSendUnseen)}, unseenPieces(c, c.channel())...)...)
 }
 
 // ChannelBehind is what an agent's ir is refused with when it is too far behind the channel, or
@@ -441,11 +454,58 @@ func ChannelBehind(c Channel, count int, named bool) (Injection, error) {
 	if named {
 		id = idChannelSendNamed
 	}
-	return build(KindToolResult, append([]piece{text(id, "count", strconv.Itoa(count))}, unseenPieces(c, cmp.Or(c.ID, "self"))...)...)
+	return build(KindToolResult, append([]piece{text(id, "count", strconv.Itoa(count))}, unseenPieces(c, c.channel())...)...)
 }
 
 // ChannelSilent tells the agent that started another (nick) that it was called in channel name
 // for message seq and its turn ended with nothing said there.
 func ChannelSilent(nick, name string, seq int64) (Injection, error) {
 	return build(KindMessage, text(idChannelSilent, "nick", nick, "name", name, "seq", n(seq)))
+}
+
+// OverhearCut is the most characters of a live overheard channel message given inline; the rest
+// is fetched with ir api message.get when relevant.
+const OverhearCut = 400
+
+// Overhear is a live human message in a channel that did not @ a running agent, passed as a
+// short excerpt while the agent works. Channel: the channel's id; Session: the agent's own.
+type Overhear struct {
+	Channel string
+	Session string
+	Seq     int64
+	Who     string
+	At      int64
+	Text    string
+	Pull    bool
+	Zone    *time.Location
+}
+
+// ChannelOverhear formats a live overheard message wrapped in <channel-overhear>, clipped to
+// OverhearCut runes with an ir api message.get pointer when Pull is true.
+func ChannelOverhear(o Overhear) (Injection, error) {
+	zone := o.Zone
+	if zone == nil {
+		zone = time.UTC
+	}
+	headID, kv := idChannelOverhear, []string{"session", o.Session}
+	if !o.Pull {
+		headID, kv = idChannelOverhearBare, nil
+	}
+	body, left := o.Text, 0
+	if r := []rune(body); len(r) > OverhearCut {
+		body, left = string(r[:OverhearCut]), len(r)-OverhearCut
+	}
+	ps := []piece{
+		text(headID, append(kv, "seq", n(o.Seq), "who", o.Who, "time", time.UnixMilli(o.At).In(zone).Format("01-02 15:04"))...),
+		words(body, Ref{Kind: "message", ID: n(o.Seq)}),
+	}
+	if left > 0 {
+		if o.Pull {
+			ps = append(ps, text(idChannelCut, "left", strconv.Itoa(left), "seq", n(o.Seq), "channel", o.Channel))
+		} else {
+			ps = append(ps, words("…"))
+		}
+	}
+	ps = append(ps, text(idChannelOverhearClose))
+	return build(KindMessage, ps...)
 }

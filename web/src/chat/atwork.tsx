@@ -1,28 +1,16 @@
-// A turn at work as it shows at the conversation's end: the row of what is being written or run
-// (Activity), and another agent of the channel at work (OtherTurn), drawn as its own page draws
-// its turn (kumo, 2026-11-18: what an agent does looks the same wherever one looks at it), not
-// dots alone.
-import { useEffect, useState, type ReactNode } from "react";
-import type { SessionState as LiveSession } from "../api/types.gen";
-import { chatOf, fresh, type Draft as Drafted } from "../chats";
-import { t, useLang } from "../i18n";
-import { openChat } from "../route";
-import { carries, opened } from "../stream";
+// A turn at work as it shows at the end of a session's own record (chat.tsx TranscriptView): the
+// row of what is being written or run (Activity).
+import type { Draft as Drafted } from "../chats";
 import { cn } from "../ui";
-import { liveOf, type AgentRow, type Src } from "./channel/lib";
-import { AgentFace } from "./channel/members";
-import { AwayBox, useAway } from "./away";
-import { folded, type Tool } from "./fold";
-import { StopKey, ToolDraft, Waiting } from "./live";
-import { Earlier, Running, Said, When, useWhenRow } from "./said";
-import { earlierOf } from "./turns";
+import type { Tool } from "./fold";
+import { ToolDraft, Waiting } from "./live";
+import { Running } from "./said";
 
 /** The turn's row at the end of the conversation: the call being written, else the one running
  *  (the newest, how many more beside it), else the dots once it has gone quiet; one line high, even
  *  empty, while the turn lasts. */
-/** under: in a turn's frame of its own, under the face and name (the turn's first). stop: the
- *  agent's stop key, at the row's right. */
-export function Activity({ calls, running, cwd, quiet, grew, under, stop }: { calls: Drafted[]; running: Tool[]; cwd: string; quiet: boolean; grew: string; under?: boolean; stop?: ReactNode }) {
+/** under: in a turn's frame of its own, under the face and name (the turn's first). */
+export function Activity({ calls, running, cwd, quiet, grew, under }: { calls: Drafted[]; running: Tool[]; cwd: string; quiet: boolean; grew: string; under?: boolean }) {
   const writing = calls.at(-1);
   const run = running.at(-1);
   return (
@@ -44,154 +32,6 @@ export function Activity({ calls, running, cwd, quiet, grew, under, stop }: { ca
         </div>
       ) : (
         <Waiting on={quiet} quiet={grew} />
-      )}
-      {stop}
-    </div>
-  );
-}
-
-/** A turn's frame: the face at the left, the head's line over the rest. */
-/** bare: no face nor head (under its own last words), their room kept: the same boxes either
- *  way, so that what is in it is not taken out and put in again as the face comes or goes. */
-export function TurnFrame({ face, head, bare, children }: { face: ReactNode; head: ReactNode; bare?: boolean; children: ReactNode }) {
-  const row = useWhenRow();
-  return (
-    <div {...row} className={cn(row.className, "flex min-w-0 items-start gap-2.5")}>
-      {bare ? <span aria-hidden className="w-7 shrink-0" /> : face}
-      <div className="flex min-w-0 flex-1 flex-col gap-5">
-        {!bare && <div className="-mb-3.5 flex h-4 min-w-0 items-center gap-1.5">{head}</div>}
-        {children}
-      </div>
-    </div>
-  );
-}
-
-/** Its blocks are drawn as its own page draws them: who sent words is not asked (what it was
- *  given is the channel's, drawn there). */
-const noSource = () => ({ kind: "you" }) as ReturnType<Parameters<typeof Said>[0]["source"]>;
-
-/** Another agent of the channel at work: its face and name, as its words will be, then what it
- *  has done in this turn since it last spoke in the channel, read from its record as it grows
- *  (its state's end on the stream), folded as its own page folds a turn at work; the call it
- *  runs, or the dots, and its stop key at the end. alone: under its own last words, no face
- *  again. said: where its last words in the channel are from in its record (their work is
- *  under them). */
-export function OtherTurn({ a, channel, st, said, spoken, alone, bars, call, record, may }: { spoken?: ReadonlySet<string>; a: AgentRow; channel: string; st?: LiveSession; said?: Src; alone: boolean; bars: ReactNode; call?: (nick: string) => void; record: (session: string) => void; may: boolean }) {
-  useLang();
-  const [chat] = useState(() => chatOf(a.session));
-  const log = chat.log;
-  const [, redraw] = useState(0);
-  const changed = () => redraw((n) => n + 1);
-  useEffect(() => {
-    let live = true;
-    const more = () => void log.newer().then(() => live && changed(), () => {});
-    if (!log.loaded || !fresh(log.came)) more();
-    opened.add(more);
-    return () => {
-      live = false;
-      opened.delete(more);
-    };
-  }, [a.session]);
-  // Its record grew: what came since.
-  const carried = carries(`session:${a.session}`);
-  const end = st?.end ?? 0;
-  // Not come (a weak link to its computer): asked again, a little later each time; left at that,
-  // its steps stood still till its record next grew.
-  useEffect(() => {
-    if (!log.loaded || (carried && end <= log.end)) return;
-    let live = true;
-    let tries = 0;
-    let again = 0;
-    const ask = () =>
-      void log.newer().then(
-        () => live && changed(),
-        () => {
-          if (live && tries < 5) again = window.setTimeout(ask, Math.min(8000, 600 * 2 ** tries++));
-        },
-      );
-    ask();
-    return () => {
-      live = false;
-      clearTimeout(again);
-    };
-  }, [end, log.loaded]);
-  const away = useAway(channel, a.session);
-  const shown = folded(liveOf(log.blocks, said, spoken ? (x) => spoken.has(x) : undefined));
-  const running = shown.flatMap((b) => (b.kind === "running" ? [b.tool] : []));
-  const rows = shown.filter((b) => b.kind !== "running" && b.kind !== "user");
-  const cwd = st?.cwd ?? "";
-  const node = (b: (typeof rows)[number]) => <Said key={b.at} b={b} session={a.session} cwd={cwd} source={noSource} onJump={openChat} />;
-  const e = earlierOf(rows, (b) => b.kind === "assistant");
-  // All its rows in the one place from the first (Earlier's after): none is put in again as it
-  // comes to be among the earlier ones.
-  const body = rows.length ? (
-    <Earlier key="earlier" done={false} bare={!e} words={e?.words ?? 0} steps={(e?.before ?? []).reduce((n, b) => n + (b.kind === "fold" ? b.steps.length : 0), 0)} after={(e?.after ?? rows).map(node)}>
-      {(e?.before ?? []).map(node)}
-    </Earlier>
-  ) : null;
-  const stop = may ? <StopKey session={a.session} /> : null;
-  const time = rows.map((b) => (b.kind === "fold" ? b.steps[0]?.time : "time" in b ? b.time : undefined)).find(Boolean);
-  const activity = (under: boolean) => <Activity calls={[]} running={running} cwd={cwd} quiet grew={`${a.session} ${log.end} ${running.length}`} under={under} stop={stop} />;
-  const headOf = () => (
-    <>
-      <span className="shrink-0 text-xs font-medium text-ink-2">{a.nick}</span>
-      <span className="min-w-0 truncate text-xs text-ink-4">{a.name}</span>
-      {bars}
-      <When time={time} />
-    </>
-  );
-  const label = `${a.nick} · ${t("chat.working")}`;
-  // At work away from the channel's folder: its steps in the box that says where (away.tsx),
-  // the row of what runs now at the end of the last.
-  if (away) {
-    // Only its steps are in the box: its words stand outside it, between the boxes, as they will
-    // once said to the channel (kumo, 2026-11-19: an answer whole sat in the box of the computer's
-    // tools). Each box under the words before it, so none is put in again as more comes.
-    const parts: ReactNode[] = [];
-    let steps: ReactNode[] = [];
-    let after = "start";
-    for (const b of rows) {
-      if (b.kind !== "assistant") {
-        steps.push(node(b));
-        continue;
-      }
-      if (steps.length) parts.push(<AwayBox key={`box:${after}`} place={away} session={a.session}>{steps}</AwayBox>);
-      parts.push(node(b));
-      steps = [];
-      after = b.at;
-    }
-    parts.push(
-      <AwayBox key={`box:${after}`} place={away} session={a.session}>
-        {steps}
-        {activity(true)}
-      </AwayBox>,
-    );
-    return (
-      <div role="group" aria-label={label} className="flex min-w-0 flex-col gap-5">
-        <TurnFrame bare={alone} face={<AgentFace channel={channel} a={a} call={call} record={record} may={may} />} head={headOf()}>
-          {parts}
-        </TurnFrame>
-      </div>
-    );
-  }
-  const face = <AgentFace channel={channel} a={a} call={call} record={record} may={may} />;
-  const head = headOf();
-  // One frame, with its face or bare: its rows are not put in again as the face comes or goes.
-  return (
-    <div role="group" aria-label={label} className="flex min-w-0 flex-col gap-5">
-      {rows.length || alone ? (
-        <>
-          {rows.length > 0 && (
-            <TurnFrame bare={alone} face={face} head={head}>
-              {body}
-            </TurnFrame>
-          )}
-          {activity(false)}
-        </>
-      ) : (
-        <TurnFrame face={face} head={head}>
-          {activity(true)}
-        </TurnFrame>
       )}
     </div>
   );

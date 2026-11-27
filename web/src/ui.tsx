@@ -1,15 +1,24 @@
 // Shared pieces (from the style sample, web/sample): tooltips that also open on long-press, the
 // popover shell, icon keys, agent logos with their status lamp, terminal avatars, switches.
+import { PatternFace } from "./pattern";
+import { Dialog } from "@base-ui/react/dialog";
+import { Menu } from "@base-ui/react/menu";
 import { Popover } from "@base-ui/react/popover";
 import { Tooltip } from "@base-ui/react/tooltip";
 import { Bot, Camera, Check, Copy, Monitor, Puzzle, ScrollText, UsersRound, type LucideIcon } from "lucide-react";
-import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type ComponentProps, type CSSProperties, type ReactElement, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentProps, type ComponentType, type CSSProperties, type ReactElement, type ReactNode } from "react";
+import { InPopup } from "./api/query";
 import type { Agent, Status } from "./api/types.gen";
 import { t } from "./i18n";
 import { useCarried } from "./store";
-import { AGY, AGY_BLOBS, AGY_VIEWBOX, CLAUDE, DSH, DSH_VIEWBOX, OPENAI, OPENAI_VIEWBOX, PI, PI_VIEWBOX } from "./logos";
+import { AGY_DATA_URI, CLAUDE, DSH, DSH_VIEWBOX, OPENAI, OPENAI_VIEWBOX, PI, PI_VIEWBOX } from "./logos";
 
 export const cn = (...xs: (string | false | null | undefined)[]) => xs.filter(Boolean).join(" ");
+
+/** The shell of what floats over a chat's foot and top: the composer, the work bar. SHELL_LINE: as
+ *  tall as the composer with one line in it (its keys and their padding). */
+export const SHELL = "glass float rounded-[20px]";
+export const SHELL_LINE = "min-h-12 pointer-coarse:min-h-14";
 
 export const params = new URLSearchParams(location.search);
 
@@ -74,6 +83,16 @@ export const buzz = (ms = 8) => void navigator.vibrate?.(ms);
 const android = typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent);
 const buzzHeld = () => android || buzz();
 
+/** Whether on has been true since this was first drawn: what floats out of a row (its menu, its
+ *  card) is made as it first opens and kept from then on (it folds away drawn), not made shut
+ *  with every row of a conversation, which no one may ever open (a chat of 388 rows spent most of
+ *  its first draw making some thousand menus and popovers, shut; measured 2026-11-23). */
+export function useEver(on: boolean): boolean {
+  const ever = useRef(false);
+  if (on) ever.current = true;
+  return ever.current;
+}
+
 /** A row's menu at a point, one open at a time: a long press on another row never clicks outside
  *  the one open (its click is swallowed), so opening one puts the other away (the user, 2026-11-07). */
 let shut: (() => void) | null = null;
@@ -102,8 +121,9 @@ export function holdMenu(close: () => void) {
  *  the synthetic mouse press that comes before click. Not for a press in a portal of its children
  *  (a row's "+" popover): React may hand one pointerdown to a row twice from there, from the
  *  portal's container and from <body>, and the first timer would be lost, never cleared, opening the
- *  row's menu after a plain tap (the user, 2026-11-06). */
-export function useLongPress(onLong: (at: { x: number; y: number }) => void, { suppressTouchClick = false } = {}) {
+ *  row's menu after a plain tap (the user, 2026-11-06). onHeldMove: the finger, held, then moved
+ *  (a row dragged, reorder.ts touchDrag); till then the page is not scrolled by it. */
+export function useLongPress(onLong: (at: { x: number; y: number }) => void, { suppressTouchClick = false, onHeldMove }: { suppressTouchClick?: boolean; onHeldMove?: (row: HTMLElement, from: { x: number; y: number }, pointerId: number) => void } = {}) {
   const timer = useRef<number | undefined>(undefined);
   const fired = useRef(false);
   const start = useRef({ x: 0, y: 0 });
@@ -114,10 +134,13 @@ export function useLongPress(onLong: (at: { x: number; y: number }) => void, { s
       if (e.pointerType !== "touch" || !own(e)) return;
       clear();
       start.current = { x: e.clientX, y: e.clientY };
+      const row = e.currentTarget as HTMLElement;
+      const id = e.pointerId;
       timer.current = window.setTimeout(() => {
         fired.current = true;
         buzzHeld();
         onLong(start.current);
+        if (onHeldMove) held(row, start.current, id, onHeldMove);
       }, 450);
     },
     onPointerMove: (e: React.PointerEvent) => {
@@ -146,6 +169,28 @@ export function useLongPress(onLong: (at: { x: number; y: number }) => void, { s
       }
     },
   };
+}
+
+/** Held (the long press fired), the finger still down: the page not scrolled by it; moved past 8px,
+ *  onMove (a row dragged, reorder.ts touchDrag). Let go first: nothing. */
+function held(row: HTMLElement, from: { x: number; y: number }, id: number, onMove: (row: HTMLElement, from: { x: number; y: number }, pointerId: number) => void) {
+  const still = (e: TouchEvent) => void (e.cancelable && e.preventDefault());
+  const off = () => {
+    removeEventListener("touchmove", still);
+    removeEventListener("pointermove", move);
+    removeEventListener("pointerup", up);
+    removeEventListener("pointercancel", up);
+  };
+  const move = (e: PointerEvent) => {
+    if (e.pointerId !== id || Math.hypot(e.clientX - from.x, e.clientY - from.y) <= 8) return;
+    off();
+    onMove(row, from, id);
+  };
+  const up = (e: PointerEvent) => void (e.pointerId === id && off());
+  addEventListener("touchmove", still, { passive: false });
+  addEventListener("pointermove", move);
+  addEventListener("pointerup", up);
+  addEventListener("pointercancel", up);
 }
 
 /** A key that takes something away for good: pressed once it turns red and its name becomes
@@ -229,7 +274,7 @@ function onWords(el: Element, x: number, y: number) {
 
 /** The words behind an icon: on hover or keyboard focus; never for a finger, whose long press is a
  *  row's menu: the two came up together (the user, 2026-11-08). */
-export function Tip({ label, children, side = "top", align = "center" }: { label: ReactNode; children: ReactElement; side?: "top" | "bottom" | "left" | "right"; align?: "start" | "center" | "end" }) {
+export function Tip({ label, children, side = "top", align = "center", tap }: { label: ReactNode; children: ReactElement; side?: "top" | "bottom" | "left" | "right"; align?: "start" | "center" | "end"; tap?: boolean }) {
   const [open, setOpen] = useState(false);
   useEffect(() => {
     if (!open) return;
@@ -246,12 +291,13 @@ export function Tip({ label, children, side = "top", align = "center" }: { label
         setOpen(o && !touched && !(byFocus && !keyed));
       }}
     >
-      <Tooltip.Trigger render={children} />
-      <Tooltip.Portal>
+      {/* tap: pressed it shows too, a finger's way to it (the link's signal: no hover on a phone). */}
+      <Tooltip.Trigger render={children} onClick={tap ? () => setOpen(true) : undefined} />
+      <TooltipPortal>
         <Tooltip.Positioner side={side} align={align} sideOffset={6} collisionPadding={8} className="z-70">
           <Tooltip.Popup className="g-unfold glass thick float w-max max-w-80 rounded-md px-2 py-1 text-xs text-ink">{label}</Tooltip.Popup>
         </Tooltip.Positioner>
-      </Tooltip.Portal>
+      </TooltipPortal>
     </Tooltip.Root>
   );
 }
@@ -286,6 +332,64 @@ export function CopyKey({ text }: { text: string }) {
   );
 }
 
+/** A Base UI portal that says what is in it is a popup's (api/query.ts InPopup: what it draws is
+ *  fetched before it opens). Every popup goes through one of these, not Base UI's own
+ *  (web/test/popdata.test.ts). */
+export function popupPortal<P extends { children?: ReactNode }>(Portal: ComponentType<P>) {
+  return function PopupPortal(p: P) {
+    return (
+      <Portal {...p}>
+        <InPopup value>{p.children}</InPopup>
+      </Portal>
+    );
+  };
+}
+export const MenuPortal = popupPortal(Menu.Portal);
+export const PopoverPortal = popupPortal(Popover.Portal);
+export const DialogPortal = popupPortal(Dialog.Portal);
+export const TooltipPortal = popupPortal(Tooltip.Portal);
+
+/** A popup of the page's own, not Base UI's (the composer's lists): kept drawn while it goes, with
+ *  Base UI's data-ending-style, so the same CSS transitions (g-unfold: in from @starting-style)
+ *  open and shut it, turned back midway by the next change. Gives whether to draw it (false once
+ *  gone) and what to put on its surface. */
+export function usePresence(open: boolean): { shown: boolean; attrs: Record<string, "" | undefined>; ref: (el: HTMLElement | null) => void } {
+  const [shown, setShown] = useState(open);
+  if (open && !shown) setShown(true);
+  const ending = shown && !open;
+  const el = useRef<HTMLElement | null>(null);
+  // Ending: gone once its transitions are over; opened again first, it stays.
+  useEffect(() => {
+    if (!ending) return;
+    const node = el.current;
+    let off = false;
+    const done = () => !off && setShown(false);
+    const f = requestAnimationFrame(() => {
+      const runs = node?.getAnimations?.() ?? [];
+      if (!runs.length) return done();
+      void Promise.all(runs.map((a) => a.finished)).then(done, () => {});
+    });
+    return () => ((off = true), cancelAnimationFrame(f));
+  }, [ending]);
+  const ref = useCallback((n: HTMLElement | null) => void (el.current = n), []);
+  return { shown, attrs: { "data-ending-style": ending ? "" : undefined }, ref };
+}
+
+/** A popup of the page's own (the composer's lists over its box), as a menu is: frosted, unfolding
+ *  out of from (its corner, the @ or / it grew from), folding away with what it showed last;
+ *  nothing in it to press while it goes. */
+export function OwnPopup({ open, from = "left bottom", className, style, children, ...rest }: { open: boolean; from?: string } & ComponentProps<"div">) {
+  const p = usePresence(open);
+  const last = useRef(children);
+  if (open) last.current = children;
+  if (!p.shown) return null;
+  return (
+    <div ref={p.ref} {...p.attrs} {...rest} inert={!open || undefined} style={{ "--transform-origin": from, ...style } as CSSProperties} className={cn("g-unfold glass thick float", className)}>
+      <InPopup value>{last.current}</InPopup>
+    </div>
+  );
+}
+
 /** A popover's surface: frosted, unfolding out of its anchor. */
 export function PopSurface({
   children,
@@ -297,6 +401,7 @@ export function PopSurface({
   finalFocus,
   anchor,
   still,
+  style,
 }: {
   children: ReactNode;
   className?: string;
@@ -306,31 +411,40 @@ export function PopSurface({
   initialFocus?: ComponentProps<typeof Popover.Popup>["initialFocus"];
   finalFocus?: ComponentProps<typeof Popover.Popup>["finalFocus"];
   /** What it unfolds out of, when not its trigger (a row it was opened from). */
-  anchor?: Element | null;
+  anchor?: Element | { getBoundingClientRect: () => DOMRect } | null;
   /** Out of something in a conversation (a face, a name): it stays where it opened while the
    *  conversation moves under it (a turn being written, the wheel). Following its anchor it came
    *  a frame behind each push, and flipped over the face as that neared an edge (kumo,
    *  2026-11-17). Needs anchor. */
   still?: boolean;
+  style?: CSSProperties;
 }) {
   return (
-    <Popover.Portal>
+    <PopoverPortal>
       <Placed side={side} align={align} sideOffset={sideOffset} anchor={anchor} still={still}>
-        <Popover.Popup initialFocus={initialFocus ?? ((type) => type === "keyboard")} finalFocus={finalFocus} className={cn("g-unfold glass thick float rounded-lg text-ink outline-none", className)}>
+        <Popover.Popup initialFocus={initialFocus ?? ((type) => type === "keyboard")} finalFocus={finalFocus} style={style} className={cn("g-unfold glass thick float rounded-lg text-ink outline-none", className)}>
           {children}
         </Popover.Popup>
       </Placed>
-    </Popover.Portal>
+    </PopoverPortal>
   );
 }
 
 /** PopSurface's place; drawn only while it is open, so a still one's anchor is where it was as
  *  it opened: its box then, not the element, which moves. */
-function Placed({ children, side, align, sideOffset, anchor, still }: { children: ReactNode; side: "top" | "bottom" | "left" | "right"; align: "start" | "center" | "end"; sideOffset: number; anchor?: Element | null; still?: boolean }) {
+function Placed({ children, side, align, sideOffset, anchor, still }: { children: ReactNode; side: "top" | "bottom" | "left" | "right"; align: "start" | "center" | "end"; sideOffset: number; anchor?: Element | { getBoundingClientRect: () => DOMRect } | null; still?: boolean }) {
   const [box] = useState(() => (still && anchor ? anchor.getBoundingClientRect() : null));
   const at = useMemo(() => (box ? { getBoundingClientRect: () => box } : undefined), [box]);
+  // A still one's side is chosen once, as it opens: over its anchor where under it there is little
+  // room and more over it. Not turned over after: what it holds grows and shrinks as it is read
+  // (a step's card), and it went under, over, under (kumo, 2026-11-25).
+  const [sure] = useState(() => {
+    if (!box || side !== "bottom" || typeof window === "undefined") return side;
+    const under = window.innerHeight - box.bottom;
+    return under < 320 && box.top > under ? "top" : side;
+  });
   return (
-    <Popover.Positioner side={side} align={align} sideOffset={sideOffset} collisionPadding={8} anchor={at ?? anchor ?? undefined} className="z-50">
+    <Popover.Positioner side={box ? sure : side} align={align} sideOffset={sideOffset} collisionPadding={8} collisionAvoidance={box ? { side: "none", align: "shift" } : undefined} anchor={at ?? anchor ?? undefined} className="z-50">
       {children}
     </Popover.Positioner>
   );
@@ -382,33 +496,10 @@ export function Logo({ agent, size = 16, className }: { agent: Agent; size?: num
   );
 }
 
-/** Antigravity's mark: its arch, the colours blurred over it clipped to it; ids its own, as a page has many. */
+/** Antigravity's mark as one cached image: shared across all rows instead of ten inline SVG blur
+ *  filters per instance (which leaked graphics memory in WebKit). */
 function AgyMark({ className, style }: { className?: string; style: CSSProperties }) {
-  const id = useId().replace(/[^\w-]/g, "");
-  return (
-    <svg role="img" aria-label="Antigravity" viewBox={AGY_VIEWBOX} className={cn("shrink-0", className)} style={style}>
-      <defs>
-        {AGY_BLOBS.map((b, i) => (
-          <filter key={i} id={`${id}f${i}`} x={b.box[0]} y={b.box[1]} width={b.box[2]} height={b.box[3]} filterUnits="userSpaceOnUse" colorInterpolationFilters="sRGB">
-            <feGaussianBlur stdDeviation={b.blur} />
-          </filter>
-        ))}
-        <mask id={`${id}m`} maskUnits="userSpaceOnUse" x="13" y="18" width="85" height="78" style={{ maskType: "alpha" }}>
-          <path d={AGY} fill="black" />
-        </mask>
-      </defs>
-      <g transform="translate(12 10)">
-        <path d={AGY} fill="#3186FF" />
-        <g mask={`url(#${id}m)`}>
-          {AGY_BLOBS.map((b, i) => (
-            <g key={i} filter={`url(#${id}f${i})`}>
-              {b.ellipse ? <ellipse {...b.ellipse} transform={b.transform} fill={b.fill} /> : <path d={b.d} transform={b.transform} fill={b.fill} />}
-            </g>
-          ))}
-        </g>
-      </g>
-    </svg>
-  );
+  return <img src={AGY_DATA_URI} alt="Antigravity" draggable={false} className={cn("shrink-0 select-none", className)} style={style} />;
 }
 
 const STATUS_KEY = {
@@ -450,21 +541,27 @@ export function IrMark({ size = 16, className, ground = "currentColor", round }:
  *  others (the desktop app's list, the login page): round. None set: Iridium's mark in the circle.
  *  One set: the face, Iridium's mark small at its bottom right, a rounded square (kumo,
  *  2026-11-23). */
+/** Whether the host's face at an address loaded: known for the page's life, so a face drawn again
+ *  (a window resized, a pane mounted anew) starts as it was, not as an empty circle till the
+ *  answer comes back (kumo, 2026-11-27). */
+const serverFaces = new Map<string, boolean>();
+
 export function ServerFace({ size = 32, over }: { size?: number; over?: ReactNode }) {
   const v = useCarried<number>("avatars") ?? 0;
   const src = `/v1/internal/face?v=${v}`;
-  const [broken, setBroken] = useState<string | null>(null);
-  const has = broken !== src;
+  const [, seen] = useState(0);
+  const known = serverFaces.get(src);
   const mark = Math.max(12, Math.round(size * 0.4));
+  // Not known yet: Iridium's mark, the picture loading unseen over it, shown once it has come.
+  const tell = (ok: boolean) => (serverFaces.set(src, ok), seen((n) => n + 1));
   return (
     <span className="relative inline-block shrink-0" style={{ width: size, height: size }}>
-      {has ? (
-        <img src={src} alt="" draggable={false} onError={() => setBroken(src)} className="size-full rounded-full object-cover" style={{ boxShadow: "inset 0 0 0 0.5px var(--edge)" }} />
-      ) : (
-        <IrMark size={size} round className="text-ink" />
+      {known !== true && <IrMark size={size} round className="text-ink" />}
+      {known !== false && (
+        <img src={src} alt="" draggable={false} onLoad={() => known || tell(true)} onError={() => tell(false)} className={cn("size-full rounded-full object-cover", known ? "" : "absolute inset-0 opacity-0")} style={{ boxShadow: "inset 0 0 0 0.5px var(--edge)" }} />
       )}
       {over}
-      {has && (
+      {known === true && (
         <span className="absolute -right-0.5 -bottom-0.5 grid rounded-[30%] bg-paper p-px">
           <IrMark size={mark} className="text-ink" />
         </span>
@@ -503,7 +600,7 @@ export const isHost = (member: string) => member === "local" || member.startsWit
 
 /** An app's or login's avatar (host: Iridium's mark), or its initial on a disc (tinted, when given a colour); an app
  *  carries its type's mark on the corner (type), or another mark (badge: a device, Monitor, Smartphone). */
-export function Avatar({ src, name, size = 20, type, badge, badgeSize, badgeLabel, tint, over, className, host }: { src?: string; name?: string; size?: number; type?: string; badge?: LucideIcon; badgeSize?: number; badgeLabel?: string; tint?: string; over?: ReactNode; className?: string; host?: boolean }) {
+export function Avatar({ src, name, size = 20, type, badge, badgeSize, badgeLabel, tint, over, className, host, pattern }: { src?: string; name?: string; size?: number; type?: string; badge?: LucideIcon; badgeSize?: number; badgeLabel?: string; tint?: string; over?: ReactNode; className?: string; host?: boolean; pattern?: string }) {
   const [broken, setBroken] = useState<string | null>(null);
   const typed = badge ? undefined : typeMark(type);
   const mark = badge ?? typed?.[0];
@@ -515,6 +612,9 @@ export function Avatar({ src, name, size = 20, type, badge, badgeSize, badgeLabe
         <IrMark size={size} className="text-ink" />
       ) : src && broken !== src ? (
         <img src={src} alt="" draggable={false} onError={() => setBroken(src)} className="size-full rounded-full object-cover" style={{ boxShadow: "inset 0 0 0 0.5px var(--edge)" }} />
+      ) : pattern ? (
+        // None of its own: a face made from the seed, not a letter (kumo, 2026-11-27).
+        <PatternFace seed={pattern} size={size} />
       ) : (
         <span
           className="grid size-full place-items-center rounded-full font-medium select-none"

@@ -11,6 +11,7 @@ export function memberError(e: unknown): string {
     if (e.status === 409 && code === "full") return t("channel.full");
     if (e.status === 403) return t("channel.forbidden");
     if (e.status === 400 && /nick/i.test(e.message)) return t("channel.nickTaken");
+    if (e.status === 422 && code === "bad_on" && /loop/.test(e.message)) return t("on.loopRefused");
   }
   return errText(e);
 }

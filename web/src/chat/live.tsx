@@ -68,8 +68,8 @@ export const stopTurn = (session: string): Promise<void> =>
     (e) => void toast(t("err.stop"), { error: true, description: errText(e) }),
   );
 
-/** The stop key of an agent at work, at the right of its row (chat.tsx Activity, the compaction's
- *  line; channel/page.tsx AtWork): the session's own agent or another of the channel alike. esc:
+/** The stop key of an agent at work, at the right of its work's line (work.tsx WorkLine): the
+ *  session's own agent or another of the channel alike. esc:
  *  Esc in the composer does the same (the session's own agent). */
 const stopGone = new Map<string, number>();
 export function StopKey({ session, esc }: { session: string; esc?: boolean }) {

@@ -1,12 +1,12 @@
 // A channel of several agents (docs/channels.md), what the page reads of it, pure for tests: its
-// messages as the log gives them (Satori's message.list: only what was said), grouped under their
-// speakers; the @nick that calls an agent, found in words as the server finds it
+// messages as the log gives them (Satori's message.list: only what was said; rows.ts puts them in
+// order and under their speakers); the @nick that calls an agent, found in words as the server finds it
 // (internal/deliver Mentions) and put into the composer; the agents listed under a channel's row;
 // a channel's lamp.
 import type { ChannelMessage } from "../../api/client";
-import type { Agent, Device, FileRef, Recv, Session, Status } from "../../api/types.gen";
+import type { Agent, Device, FileRef, Session, Status, Trigger, Ask } from "../../api/types.gen";
 import { blockOf } from "../../satori";
-import { recvOf, scriptOfUser } from "./scripts";
+import { onOf, recvOf, scriptOfUser } from "./scripts";
 
 /** Who said a message: an agent of the channel (its session, the nick it is called by, what it
  *  ran as), a person (their tag), a script of the channel's IR (its name), or Iridium itself. */
@@ -20,95 +20,38 @@ export type Src = { session: string; block?: string; from?: number; to?: number 
 
 /** input: a person's message, the input it was sent as (a session's record has it by that id);
  *  an agent's sent with ir, the same. A merged forward in its text is drawn apart (forward.ts
- *  msgWords). */
-export type Msg = { n: number; text: string; files: FileRef[]; time?: number; author: Author; kind?: string; did?: Did; event?: ChEvent; src?: Src; quote?: number; input?: string };
+ *  msgWords). writing: an agent's, still being written (docs/next/ui.md: told as it begins and as
+ *  it grows); work: what the agent did after it (<iridium:work>); a message of kind "work" is
+ *  that alone, no words. did: what it did before it, as older messages say (<iridium:activity>). */
+export type Msg = { n: number; text: string; files: FileRef[]; time?: number; author: Author; kind?: string; did?: Did; work?: Work; writing?: boolean; event?: ChEvent; src?: Src; quote?: number; input?: string; ask?: Ask; card?: string };
 
-/** The line of a block's at ("<line>.<n>"). */
-export const lineOf = (at: string) => Number.parseInt(at, 10);
-
-/** The work under an agent's message from what its record has around it (newest last): with ir,
- *  the blocks of lines from..to; said straight out, those after the last thing it said or was
- *  given before the block. Its thinking, tool calls, and words it said on the way. */
-export function workOf<B extends { at: string; kind: string; text?: string }>(blocks: B[], src: Src, said?: string, prev?: string): B[] {
-  // The words said themselves are drawn under the work: not again in it (a reply said for the
-  // agent at its turn's end is the last words of its stretch).
-  const same = (b: B) => b.kind === "assistant" && !!said?.trim() && b.text?.trim() === said.trim();
-  // A stretch begins where the one before ended (its to): words said for the agent as it wrote
-  // them are at that line, the message before this one, drawn there and not again here.
-  // Not always at that very line: where a stretch ends is where the record had been read to as
-  // the words were heard, and a line with nothing to draw (thinking kept to itself) may stand
-  // between that and the words. They are then the first words of this stretch, the same as the
-  // message before (prev): not drawn again here, a second time under themselves (kumo,
-  // 2026-11-23).
-  const before = (b: B) => b.kind === "assistant" && lineOf(b.at) === src.from;
-  if (src.from !== undefined && src.to !== undefined) {
-    const out = blocks.filter((b) => lineOf(b.at) >= src.from! && lineOf(b.at) < src.to! && b.kind !== "user" && b.kind !== "system" && !same(b) && !before(b));
-    const first = out.findIndex((b) => b.kind === "assistant" && !!b.text?.trim());
-    if (first >= 0 && !!prev?.trim() && out[first]!.text!.trim() === prev.trim()) out.splice(first, 1);
-    return out;
-  }
-  if (!src.block) return [];
-  const end = lineOf(src.block);
-  const out: B[] = [];
-  for (let i = blocks.length - 1; i >= 0; i--) {
-    const b = blocks[i]!;
-    if (lineOf(b.at) >= end) continue;
-    if (b.kind === "user" || b.kind === "system" || (b.kind === "assistant" && b.text?.trim())) break;
-    out.unshift(b);
-  }
-  return out;
-}
-
-/** The words of the message before the one src is of: the same agent's, its stretch ending where
- *  this one begins (workOf's prev). */
-export function saidBefore(msgs: Msg[], src: Src): string | undefined {
-  if (src.from === undefined) return undefined;
-  return msgs.findLast((m) => m.src?.session === src.session && m.src.to === src.from)?.text;
-}
-
-/** Whether a block's at ("<line>.<n>") comes after another's. */
-const atAfter = (a: string, b: string) => {
-  const [la = 0, na = 0] = a.split(".").map(Number);
-  const [lb = 0, nb = 0] = b.split(".").map(Number);
-  return la > lb || (la === lb && na > nb);
-};
-
-/** What an agent at work has done in its turn so far (kumo, 2026-11-18: as its own page shows it,
- *  not dots alone): its record's blocks since it was last given something, and since its last
- *  words in the channel (said: where they are from in its record), whose work is under them. */
-/** spoken: whether words are among what it has said in the channel of late. Its words heard as
- *  they were said come without where they are from (said) till the log is read again: what it
- *  wrote up to them is theirs all the same, not drawn a second time under them as at work. */
-export function liveOf<B extends { at: string; kind: string; text?: string }>(blocks: B[], said?: Src, spoken?: (text: string) => boolean): B[] {
-  let out = blocks.slice(blocks.findLastIndex((b) => b.kind === "user") + 1).filter((b) => b.kind !== "system");
-  // From where its last words ended, those words not again (they are at that line: workOf).
-  if (said?.to !== undefined) out = out.filter((b) => lineOf(b.at) > said.to! || (lineOf(b.at) === said.to && b.kind !== "assistant"));
-  else if (said?.block) out = out.filter((b) => atAfter(b.at, said.block!));
-  if (spoken) out = out.slice(out.findLastIndex((b) => b.kind === "assistant" && !!b.text?.trim() && spoken(b.text.trim())) + 1);
-  return out;
-}
+/** What an agent did after a message of its turn (<iridium:work>, internal/satori/live.go
+ *  workElement): steps, its calls so far; running, while it goes on; tool, the latest call's name;
+ *  at, when the first began (ms); ms, how long it all took, once done; from, to: the lines of the
+ *  agent's own record it spans (to: none while it runs). */
+export type Work = { steps: number; running: boolean; tool?: string; at?: number; ms?: number; from: number; to?: number; agents?: number };
 
 /** Something that happened to a channel, a line of Iridium's own in it (internal/channel Event):
- *  join, leave (nick), rename (from, nick), recv (nick, recv: its receive set; before 2026-11-17
- *  "all" or "at"), script (name, what: add, remove, enabled, disabled or the fields changed;
+ *  join, leave (nick), rename (from, nick), on (nick, on: its subscriptions now), recv (before
+ *  2026-11-23: nick, recv: its receive set; before 2026-11-17 "all" or "at"), script (name, what: add, remove, enabled, disabled or the fields changed;
  *  from: its old name), people (added, removed: member
  *  strings; everyone), undelivered (seq, nick), stopped (seq), silent (seq, nick: called for it,
  *  it said nothing in the channel; reason: why, its turn ending in an error), profile (a card
  *  changed: member's, by nick, or the channel's own with no member; what: the fields, "name",
- *  "intro", "avatar", "background"). by: who did it, by
+ *  "nick", "persona", "avatar"; older lines "intro", "background" too, not drawn). by: who did it, by
  *  name (the host's as Iridium, however it was kept: 主机 before 2026-11-15). */
-export type ChEvent = { type: string; member?: string; nick?: string; name?: string; from?: string; recv?: string[] | string; added?: string[]; removed?: string[]; everyone?: boolean; seq?: number; reason?: string; by?: string; what?: string[] };
+export type ChEvent = { type: string; member?: string; nick?: string; name?: string; from?: string; recv?: string[] | string; on?: Trigger[]; added?: string[]; removed?: string[]; everyone?: boolean; seq?: number; count?: number; reason?: string; by?: string; what?: string[] };
 
 /** A piece of an event's line: words, an agent by its nick, people by their member strings, a
  *  receive set (named as the page names its entries). */
-export type EventPart = string | { nick: string } | { people: string[] } | { recv: Recv };
+export type EventPart = string | { nick: string } | { people: string[] } | { recv: string[] } | { on: Trigger[] };
 
 /** What a script's line says, by what was done to it (ChEvent what; renamed: from is set). */
 export type ScriptDone = "add" | "remove" | "enabled" | "disabled" | "changed" | "renamed";
 
 /** The line's words by event (i18n: channel.event.*), their slots in braces: {nick} {from}
  *  {recv} {people} {seq} {reason} {by} {script} {old}; reasons: the server's usual reasons (余额不足…) in them. */
-export type EventWords = Record<"join" | "leave" | "rename" | "recv" | "everyone" | "added" | "removed" | "undelivered" | "stopped" | "silent" | "silentWhy" | "by" | "sep", string> & {
+export type EventWords = Record<"join" | "leave" | "rename" | "recv" | "on" | "wake" | "everyone" | "added" | "removed" | "undelivered" | "stopped" | "silent" | "silentWhy" | "by" | "sep", string> & {
   /** A script added, removed, turned on or off, changed, renamed: each with who did it in its words. */
   script?: Record<ScriptDone, string>;
   reasons?: Record<string, string>;
@@ -137,6 +80,8 @@ export function eventParts(e: ChEvent, w: EventWords): EventPart[] | undefined {
             return `@${e.from ?? ""}`;
           case "{recv}":
             return { recv: recvOf(e.recv) };
+          case "{on}":
+            return { on: onOf(e.on) };
           case "{script}":
             return e.name ?? "";
           case "{old}":
@@ -162,6 +107,8 @@ export function eventParts(e: ChEvent, w: EventWords): EventPart[] | undefined {
     case "leave":
     case "rename":
     case "recv":
+    case "on":
+    case "wake":
     case "undelivered":
     case "stopped":
       out = fill(w[e.type]);
@@ -182,6 +129,9 @@ export function eventParts(e: ChEvent, w: EventWords): EventPart[] | undefined {
       break;
     }
     case "profile": {
+      // Fields cards no longer have (an intro, a background: kumo, 2026-11-25) left out of an
+      // older line; one of nothing else, not drawn.
+      if (w.what) e = { ...e, what: (e.what ?? []).filter((x) => x in w.what!) };
       // Who did it is in the line's own words, not after it.
       const tpl = e.member ? (e.by ? w.profile : w.profileNoBy) : e.by ? w.profileChannel : w.profileChannelNoBy;
       if (!tpl || !e.what?.length) return undefined;
@@ -239,6 +189,17 @@ export function didOf(content: string): Did | undefined {
   return { bash: num("bash"), failed: num("failed"), cmds: a.cmds ?? "", read: num("read"), web: num("search") + num("fetch"), agents: num("agents"), other: num("other"), files: num("files"), add: num("add"), del: num("del"), paths };
 }
 
+/** The <iridium:work> of a message's content, if it has one. */
+export function workIn(content: string): Work | undefined {
+  const all = [...content.matchAll(/<iridium:work\b[^>]*>/g)];
+  const head = all.at(-1)?.[0];
+  if (!head) return undefined;
+  const a: Record<string, string> = {};
+  for (const m of head.matchAll(ATTR)) a[m[1]!] = unesc(m[2]!);
+  const num = (k: string) => Number(a[k] ?? 0) || 0;
+  return { steps: num("steps"), running: a.running === "true", from: num("from"), ...(a.tool ? { tool: a.tool } : {}), ...(num("at") ? { at: num("at") } : {}), ...(num("ms") ? { ms: num("ms") } : {}), ...(num("agents") ? { agents: num("agents") } : {}), ...(num("to") ? { to: num("to") } : {}) };
+}
+
 const AGENT = "agent:";
 
 /** m of the log as the page draws it; none for one without a number. */
@@ -251,63 +212,9 @@ export function msgOf(m: ChannelMessage): Msg | undefined {
   const author: Author = script ? { kind: "script", name: script } : u?.id.startsWith(AGENT) ? { kind: "agent", session: u.id.slice(AGENT.length), nick: u.nick ?? "", name: u.name ?? "" } : !u || u.id === "iridium" ? { kind: "iridium" } : { kind: "person", id: u.id, name: u.name ?? "", ...(m._data?.device ? { device: m._data.device } : {}) };
   // The message it answers: Satori's <quote id/> at its start.
   const q = /^<quote id="(\d+)"\s*\/>/.exec(m.content);
-  return { n, text: b.text ?? "", files: b.files ?? [], author, ...(q ? { quote: Number(q[1]) } : {}), ...(m.created_at ? { time: m.created_at } : {}), ...(m._data?.kind ? { kind: m._data.kind } : {}), ...(m._data?.input ? { input: m._data.input } : {}), ...(author.kind === "agent" && didOf(m.content) ? { did: didOf(m.content)! } : {}), ...(m._data?.event && typeof m._data.event === "object" ? { event: m._data.event as ChEvent } : {}), ...(author.kind === "agent" && m._data?.session ? { src: { session: m._data.session, ...(m._data.block ? { block: m._data.block } : {}), ...(typeof m._data.from === "number" ? { from: m._data.from } : {}), ...(m._data.to ? { to: m._data.to } : {}) } } : {}) };
-}
-
-/** The key the work under a message from src is kept by (page.tsx Work; chats.ts firstScreen
- *  puts in what the first screen brought). */
-export const workKey = (src: Src) => ["work", src.session, src.block ?? "", src.from ?? 0, src.to ?? 0];
-
-const sameSrc = (a?: Src, b?: Src) => a?.session === b?.session && a?.block === b?.block && a?.from === b?.from && a?.to === b?.to;
-
-/** have with more put in: each number once (the later one wins: a message read again, changed:
- *  its words, or where it is from in its agent's record, or a person's input id, which one heard
- *  as it was said may not have), in order. The same array when nothing changed. */
-export function merge(have: Msg[], more: Msg[]): Msg[] {
-  if (!more.length) return have;
-  const by = new Map(have.map((m) => [m.n, m]));
-  let changed = false;
-  for (const m of more) {
-    const was = by.get(m.n);
-    if (was && was.text === m.text && was.files.length === m.files.length && was.kind === (m.kind ?? was.kind) && !was.did === !m.did && !was.event === !m.event && was.quote === m.quote && (!m.src || sameSrc(was.src, m.src)) && (!m.input || was.input === m.input)) continue;
-    // What a reading does not say (the kind, the source) stays as it was known.
-    by.set(m.n, was ? { ...m, ...(!m.kind && was.kind ? { kind: was.kind } : {}), ...(!m.src && was.src ? { src: was.src } : {}), ...(!m.input && was.input ? { input: was.input } : {}) } : m);
-    changed = true;
-  }
-  return changed ? [...by.values()].sort((a, b) => a.n - b.n) : have;
-}
-
-/** Messages one after another under one head: an agent's, while the same agent speaks, and a
- *  script's the same; Iridium's lines in a row close together; a person's each by itself. */
-export type Group = { key: string; author: Author; msgs: Msg[] };
-
-/** Where each reader's mark goes (docs/channels.md "已读"): under the group that holds the last
- *  message it has read, by the group's key; one that has read nothing shown, or all of what is
- *  before the first group, has none. skip: the member that is looking. */
-export function readMarks<R extends { member: string; seq: number }>(groups: Group[], readers: R[], skip?: string): Map<string, R[]> {
-  const out = new Map<string, R[]>();
-  for (const r of readers) {
-    if (r.member === skip || r.seq < 1) continue;
-    let at: Group | undefined;
-    for (const g of groups) {
-      if (g.msgs[0]!.n > r.seq) break;
-      at = g;
-    }
-    if (at) out.set(at.key, [...(out.get(at.key) ?? []), r]);
-  }
-  return out;
-}
-
-export function groupMessages(msgs: Msg[]): Group[] {
-  const out: Group[] = [];
-  for (const m of msgs) {
-    const last = out.at(-1);
-    if (last && m.author.kind === "agent" && last.author.kind === "agent" && last.author.session === m.author.session) last.msgs.push(m);
-    else if (last && m.author.kind === "script" && last.author.kind === "script" && last.author.name === m.author.name) last.msgs.push(m);
-    else if (last && m.author.kind === "iridium" && last.author.kind === "iridium") last.msgs.push(m);
-    else out.push({ key: `m${m.n}`, author: m.author, msgs: [m] });
-  }
-  return out;
+  const did = author.kind === "agent" ? didOf(m.content) : undefined;
+  const work = author.kind === "agent" ? workIn(m.content) : undefined;
+  return { n, text: b.text ?? "", files: b.files ?? [], author, ...(q ? { quote: Number(q[1]) } : {}), ...(m.created_at ? { time: m.created_at } : {}), ...(m._data?.kind ? { kind: m._data.kind } : {}), ...(m._data?.input ? { input: m._data.input } : {}), ...(m._data?.ask ? { ask: m._data.ask as Ask } : {}), ...(m._data?.card ? { card: m._data.card } : {}), ...(did ? { did } : {}), ...(work ? { work } : {}), ...(m._data?.writing ? { writing: true } : {}), ...(m._data?.event && typeof m._data.event === "object" ? { event: m._data.event as ChEvent } : {}), ...(author.kind === "agent" && m._data?.session ? { src: { session: m._data.session, ...(m._data.block ? { block: m._data.block } : {}), ...(typeof m._data.from === "number" ? { from: m._data.from } : {}), ...(m._data.to ? { to: m._data.to } : {}) } } : {}) };
 }
 
 const NICK_RUNE = /[\p{L}\p{N}_-]/u;
@@ -361,13 +268,79 @@ export function nickSpans(text: string, nicks: string[]): { from: number; to: nu
   return out;
 }
 
-/** Words cut at the nicks they call: plain runs and nicks, in order. */
-export function nickParts(text: string, nicks: string[]): (string | { nick: string })[] {
-  const out: (string | { nick: string })[] = [];
+/** Where words name a message of the channel by its number (kumo, 2026-11-26: "#462" goes to
+ *  it): "#n" standing by itself, 1 <= n <= end, no leading 0. Not in code (a fenced block, an
+ *  inline span), an address (a token with "://" or "www."), a Markdown link's words, an HTML
+ *  entity (&#123;), a colour or a unit (#333a, #12px: a letter or digit after it), a heading
+ *  ("# 123": a space after #), nor after "PR", "Issue" or "pull" (#75 of a PR), with the ones
+ *  run on from it ("PR #76、#77"). */
+export function refSpans(text: string, end: number): { from: number; to: number; seq: number }[] {
+  if (!(end > 0) || !text.includes("#")) return [];
+  const out: { from: number; to: number; seq: number }[] = [];
+  let fenced = false;
   let at = 0;
-  for (const s of nickSpans(text, nicks)) {
+  for (const line of text.split("\n")) {
+    const start = at;
+    at += line.length + 1;
+    const t = line.trim();
+    if (t.startsWith("```") || t.startsWith("~~~")) {
+      fenced = !fenced;
+      continue;
+    }
+    if (fenced) continue;
+    let code = false;
+    // The end of the last "#n" of a PR's run, or -1; where the last one taken ended.
+    let pr = -1;
+    let last = -1;
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (c === "`") code = !code;
+      if (code || c !== "#") continue;
+      const digits = /^[1-9]\d*/.exec(line.slice(i + 1));
+      if (!digits) continue;
+      const to = i + 1 + digits[0].length;
+      const after = line[to];
+      if (after !== undefined && (/[\p{L}\p{N}_]/u.test(after) || (after === "." && /\d/.test(line[to + 1] ?? "")))) continue;
+      const before = line[i - 1];
+      // A "/" only between two numbers ("#130/#147"); else a path's or an address's.
+      const slash = before === "/" && last === start + i - 1;
+      if (before !== undefined && !slash && /[\p{L}\p{N}_#&/:=?.\-]/u.test(before)) continue;
+      const token = line.slice(0, i).split(/\s/).at(-1) ?? "";
+      if (/:\/\/|^www\./i.test(token)) continue;
+      const head = line.slice(0, i);
+      if ((head.match(/\[/g)?.length ?? 0) > (head.match(/\]/g)?.length ?? 0)) continue;
+      const run = pr >= 0 && /^[\s、，,/&和与及]*$/u.test(line.slice(pr, i));
+      if (run || /\b(pr|prs|issue|issues|pull)\s*$/i.test(head)) {
+        pr = to;
+        continue;
+      }
+      pr = -1;
+      const seq = Number(digits[0]);
+      if (seq > end) continue;
+      out.push({ from: start + i, to: start + to, seq });
+      last = start + to;
+      i = to - 1;
+    }
+  }
+  return out;
+}
+
+/** The address a message number's link in Markdown has (chat/markdown.tsx draws it: SeqLink). */
+export const seqURL = (n: number) => `ir:seq/${n}`;
+export const seqOfURL = (url: unknown) => {
+  const m = typeof url === "string" ? /^ir:seq\/([1-9]\d*)$/.exec(url) : null;
+  return m ? Number(m[1]) : undefined;
+};
+
+/** Words cut at the nicks they call: plain runs and nicks, in order. */
+export function nickParts(text: string, nicks: string[], end = 0): (string | { nick: string } | { seq: number })[] {
+  const out: (string | { nick: string } | { seq: number })[] = [];
+  let at = 0;
+  const spans = [...nickSpans(text, nicks), ...refSpans(text, end)].sort((a, b) => a.from - b.from);
+  for (const s of spans) {
+    if (s.from < at) continue;
     if (s.from > at) out.push(text.slice(at, s.from));
-    out.push({ nick: s.nick });
+    out.push("nick" in s ? { nick: s.nick } : { seq: s.seq });
     at = s.to;
   }
   if (at < text.length) out.push(text.slice(at));
@@ -386,11 +359,13 @@ export const nickOfURL = (url: unknown) => {
 };
 
 /** An agent's Markdown with each nick it calls a link, drawn as the nick's mark. */
-export function linkNicks(text: string, nicks: string[]): string {
+export function linkNicks(text: string, nicks: string[], end = 0): string {
   let out = "";
   let at = 0;
-  for (const s of nickSpans(text, nicks)) {
-    out += `${text.slice(at, s.from)}[@${s.nick}](${nickURL(s.nick)})`;
+  const spans = [...nickSpans(text, nicks), ...refSpans(text, end)].sort((a, b) => a.from - b.from);
+  for (const s of spans) {
+    if (s.from < at) continue;
+    out += "nick" in s ? `${text.slice(at, s.from)}[@${s.nick}](${nickURL(s.nick)})` : `${text.slice(at, s.from)}[#${s.seq}](${seqURL(s.seq)})`;
     at = s.to;
   }
   return out + text.slice(at);
@@ -423,7 +398,7 @@ export function quoteAt(m: Pick<Msg, "author">, mine: boolean): string | undefin
 
 /** A member as the @ list and the words that name it show it: an agent; or (person) a login or
  *  an app, its name as nick, its app (or 应用) as name, its avatar. */
-export type AgentRow = { session: string; member: string; agent: Agent; nick: string; name: string; status: Status; recv: Recv; avatar?: string; person?: boolean };
+export type AgentRow = { session: string; member: string; agent: Agent; nick: string; name: string; status: Status; on: Trigger[]; avatar?: string; person?: boolean };
 
 /** Whether user (a Satori user id) may be talked to alone (docs/channels.md "私聊"): the host, or
  *  one of logins; not an app, nor an author that is no login (the server has no one to open the
@@ -486,18 +461,6 @@ export function channelLamp(own: Status, members: Status[]): Status {
   return members.some((s) => WORKING.has(s)) ? "running" : own;
 }
 
-/** A message sent from here, till the channel's log has it: seq, its number once the server
- *  answered; from, the log's last number as it was sent. */
-export type Waiting = { text: string; seq?: number; from: number; failed?: string };
-
-/** Whether what was sent is still not in the log: by its number once known; before that, by a
- *  person's same words said since it was sent. A failed one stays, to be sent again. */
-export function stillWaiting(s: Waiting, msgs: Msg[]): boolean {
-  if (s.failed !== undefined) return true;
-  if (s.seq) return !msgs.some((m) => m.n === s.seq);
-  return !msgs.some((m) => m.n > s.from && m.author.kind === "person" && m.text.trim() === s.text.trim());
-}
-
 /** The states the stream is asked for besides the channel's own: its other agents' sessions
  *  first, then their contexts, as far as it has room (stream.ts keysFor). */
 export const watchExtra = (channel: string, sessions: string[]) => {
@@ -519,31 +482,4 @@ export function givenTurn(text: string): GivenTurn | null {
   // What Iridium added: the block's lines, and what follows it (how to read more).
   const context = m[3]!.replace(/\n?<\/channel-context>/, "").trim();
   return { seq: Number(m[1]), words: m[2]!, context, ...(c ? { channel: { id: c[2] ?? "", name: c[1]! } } : {}) };
-}
-
-/** A part of what an agent was given (Injection.record): where it is from, the values its slots
- *  took, the messages it cites (#n). */
-export type GivenPart = { source: string; values: [string, string][]; refs: string[] };
-
-/** What an injection was (its record's kind): the system prompt, a channel's message, another
- *  line given (a message, Iridium's own), what ir was answered with. */
-export type GivenKind = "system" | "turn" | "message" | "ir";
-export function givenKind(record: unknown): GivenKind {
-  const k = (record as { kind?: unknown } | null)?.kind;
-  return k === "system" ? "system" : k === "turn-prefix" ? "turn" : k === "tool-result" ? "ir" : "message";
-}
-/** The whole text it was given (records kept before it was kept: none). */
-export const givenText = (record: unknown): string => {
-  const x = (record as { text?: unknown } | null)?.text;
-  return typeof x === "string" ? x : "";
-};
-
-export function givenParts(record: unknown): GivenPart[] {
-  const parts = (record as { parts?: unknown } | null)?.parts;
-  if (!Array.isArray(parts)) return [];
-  return parts.map((p: { source?: unknown; values?: unknown; refs?: unknown }) => ({
-    source: typeof p.source === "string" ? p.source : "",
-    values: p.values && typeof p.values === "object" ? Object.entries(p.values as Record<string, unknown>).map(([k, v]) => [k, String(v)] as [string, string]) : [],
-    refs: Array.isArray(p.refs) ? p.refs.flatMap((r: { kind?: unknown; id?: unknown }) => (r?.kind === "message" && r.id !== undefined ? [`#${String(r.id)}`] : [])) : [],
-  }));
 }

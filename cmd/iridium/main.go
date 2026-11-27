@@ -29,7 +29,6 @@ import (
 	"github.com/kumoSleeping/iridium/internal/machineid"
 	"github.com/kumoSleeping/iridium/internal/platform"
 	"github.com/kumoSleeping/iridium/internal/pricing"
-	"github.com/kumoSleeping/iridium/internal/push"
 	"github.com/kumoSleeping/iridium/internal/remote"
 	"github.com/kumoSleeping/iridium/internal/server"
 	"github.com/kumoSleeping/iridium/internal/session"
@@ -51,8 +50,12 @@ const usage = `usage: ir <command>   (iridium is the same program: iridium ir <c
 `
 
 func main() {
-	if strings.TrimSuffix(strings.ToLower(filepath.Base(os.Args[0])), ".exe") == "ir" {
+	switch strings.TrimSuffix(strings.ToLower(filepath.Base(os.Args[0])), ".exe") {
+	case "ir":
 		os.Exit(irMain(os.Args[1:]))
+	case "gh":
+		// An agent's gh (ghenv): the real one, as the person its turn is for.
+		os.Exit(irMain(append([]string{"github", "gh"}, os.Args[1:]...)))
 	}
 	args := os.Args[1:]
 	// Opened from the Finder, an older macOS adds -psn_<process serial number>.
@@ -146,12 +149,13 @@ func serve(cfgPath string) int {
 	d := discover.New(do)
 	var srv *server.Server // names terminals in source tags, once it is there
 	tag := func(id string) string { return srv.Tag(id) }
+	owner := func(id string) string { return srv.Owner(id) }
 	executors := &remote.Hub{Logf: log.Printf, Self: machineid.Hash()}
 	// The harnesses' own channels (internal/harness): only here is an agent's own code wired in.
 	dshChannel := hdsh.New(hdsh.Options{Remote: executors, Logf: log.Printf})
 	defer dshChannel.Close()
 	channels := harness.Set{api.AgentDsh: dshChannel}
-	m, err := session.New(session.Options{Config: cfg, Store: st, Hub: h, Launcher: launcher(state), UnitPrefix: cfg.UnitPrefix, Discovery: d, Tag: tag, Remote: executors, Channels: channels})
+	m, err := session.New(session.Options{Config: cfg, Store: st, Hub: h, Launcher: launcher(state), UnitPrefix: cfg.UnitPrefix, Discovery: d, Tag: tag, Owner: owner, Remote: executors, Channels: channels})
 	if err != nil {
 		log.Print(err)
 		return 1
@@ -181,14 +185,6 @@ func serve(cfgPath string) int {
 	srv.Updater = newUpdater(cfg, h)
 	h.Set("update", srv.Updater.State())
 	srv.Prices = pricing.Open(state)
-	// Web Push's total switch is the config's: turning it writes the file (with the settings').
-	srv.Push, err = push.Open(push.Options{StateDir: state, Store: st, Manager: m, Enabled: cfg.Push, Mask: srv.MaskText, Sees: srv.LoginSees, Save: func(on bool) error {
-		return srv.SaveConfig(func(c *config.Config) { c.Push = on })
-	}})
-	if err != nil {
-		log.Print(err)
-		return 1
-	}
 	home, _ := os.UserHomeDir()
 	srv.Discover, srv.Folders = d, discover.DefaultFolders(home, state, filepath.Dir(*path))
 	if len(cfg.FolderRoots) > 0 {
@@ -203,7 +199,7 @@ func serve(cfgPath string) int {
 	dumpStacksOn(state)
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	go srv.Updater.Run(ctx)
+	go srv.Updater.Clean()
 	go srv.Prices.Run(ctx)
 	if err := srv.Serve(ctx, tcp, sock); err != nil {
 		log.Print(err)

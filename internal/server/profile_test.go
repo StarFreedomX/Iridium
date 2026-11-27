@@ -19,22 +19,22 @@ func TestProfileCards(t *testing.T) {
 	t.Parallel()
 	l, ch, second := two(t)
 	var p api.Profile
-	l.want(200, "agent-in:"+second, "PATCH", "/v1/internal/self", map[string]any{"nick": "tester", "intro": "runs the tests only", "avatar": "🧪", "background": "#2f4f6f"}, &p)
-	if p.Name != "tester" || p.Intro != "runs the tests only" || !strings.Contains(p.Avatar, "/avatar?v=g") || !strings.Contains(p.Background, "/background?v=g") {
+	l.want(200, "agent-in:"+second, "PATCH", "/v1/internal/self", map[string]any{"nick": "tester", "persona": "runs the tests only", "avatar": "🧪"}, &p)
+	if p.Name != "tester" || p.Persona != "runs the tests only" || !strings.Contains(p.Avatar, "/avatar?v=g") {
 		t.Fatalf("its card: %+v", p)
 	}
-	for _, path := range []string{"/avatar", "/background"} {
-		img, _, ok := l.s.face(store.ChannelProfileKey(second), path == "/background", "")
-		if !ok || !strings.HasPrefix(string(img), "<svg") {
-			t.Errorf("%s: %q", path, img)
-		}
-		l.want(200, "web", "GET", "/v1/internal/channels/"+second+path, nil, nil)
+	if img, _, ok := l.s.face(store.ChannelProfileKey(second), ""); !ok || !strings.HasPrefix(string(img), "<svg") {
+		t.Errorf("its face: %q", img)
 	}
+	l.want(200, "web", "GET", "/v1/internal/channels/"+second+"/avatar", nil, nil)
+	// No background any more (kumo, 2026-11-25): a card's banner is drawn from its face.
+	l.want(400, "agent-in:"+second, "PATCH", "/v1/internal/self", map[string]any{"background": "#2f4f6f"}, nil)
+	l.want(404, "web", "GET", "/v1/internal/channels/"+second+"/background", nil, nil)
 	// Again at once: still one line in the channel, of all that changed.
 	end := l.s.ch.End(ch)
-	l.want(200, "agent-in:"+second, "PATCH", "/v1/internal/self", map[string]any{"intro": "runs the tests, changes no code"}, nil)
+	l.want(200, "agent-in:"+second, "PATCH", "/v1/internal/self", map[string]any{"persona": "runs the tests, changes no code"}, nil)
 	last, _ := l.s.ch.Get(ch, l.s.ch.End(ch))
-	if last.Kind != channel.KindNote || last.D.Event == nil || last.D.Event.Type != "profile" || len(last.D.Event.What) != 3 {
+	if last.Kind != channel.KindNote || last.D.Event == nil || last.D.Event.Type != "profile" || len(last.D.Event.What) != 2 {
 		t.Errorf("the channel's line: %+v %+v", last.ChannelMessage, last.D.Event)
 	}
 	if before, ok := l.s.ch.Get(ch, end); ok && !before.Gone && before.Seq != last.Seq && before.D.Event != nil && before.D.Event.Type == "profile" {
@@ -45,37 +45,38 @@ func TestProfileCards(t *testing.T) {
 	found := false
 	for _, m := range ms.Members {
 		if m.Session == second {
-			found = m.Nick == "tester" && m.Intro == "runs the tests, changes no code" && m.Background != ""
+			found = m.Nick == "tester" && m.Avatar != ""
 		}
 	}
 	if !found {
 		t.Errorf("the members: %+v", ms.Members)
 	}
-	// Another agent's, by its nick; the channel's own, as "here".
-	l.want(200, "agent-in:"+second, "PATCH", "/v1/internal/members/claude", map[string]any{"intro": "leads"}, &p)
-	if p.Session != ch || p.Intro != "leads" {
+	// Another agent's, by its nick. "here" is no id.
+	l.want(200, "agent-in:"+second, "PATCH", "/v1/internal/members/claude", map[string]any{"avatar": "🐟"}, &p)
+	if p.Session != ch || !strings.Contains(p.Avatar, "v=g") {
 		t.Errorf("another's card: %+v", p)
 	}
-	l.want(400, "agent-in:"+second, "PATCH", "/v1/internal/self", map[string]any{"intro": strings.Repeat("长", api.IntroMax+1)}, nil)
+	l.want(400, "agent-in:"+second, "PATCH", "/v1/internal/self", map[string]any{"intro": "no intros any more"}, nil)
 	l.want(400, "agent-in:"+second, "PATCH", "/v1/internal/self", map[string]any{"avatar": "not an image"}, nil)
 	var mc api.MemberCard
 	l.want(200, "agent-in:"+second, "GET", "/v1/internal/members/claude", nil, &mc)
-	if mc.Intro != "leads" || mc.Kind != api.CardKindAgent {
+	if mc.Kind != api.CardKindAgent {
 		t.Errorf("looked up: %+v", mc)
 	}
-	// A person's own: an intro; not another's to change.
-	l.want(200, "web", "PATCH", "/v1/internal/self", map[string]any{"intro": "likes short answers"}, &p)
-	if p.Intro != "likes short answers" || p.Kind != api.CardKindPerson {
+	// A person's own: nothing of it changed here; not another's to change.
+	l.want(200, "web", "PATCH", "/v1/internal/self", map[string]any{}, &p)
+	if p.Kind != api.CardKindPerson {
 		t.Errorf("a person's card: %+v", p)
 	}
-	l.want(403, "agent-in:"+second, "PATCH", "/v1/internal/members/"+p.ID, map[string]any{"intro": "x"}, nil)
+	l.want(400, "web", "PATCH", "/v1/internal/self", map[string]any{"background": "#123456"}, nil)
+	l.want(403, "agent-in:"+second, "PATCH", "/v1/internal/members/"+p.ID, map[string]any{}, nil)
 	// Its system prompt says who it is.
 	self := l.s.selfText(second)
-	if self.Nick != "tester" || self.Intro != "runs the tests, changes no code" {
+	if self.Nick != "tester" || self.Persona != "runs the tests, changes no code" {
 		t.Errorf("told of itself: %+v", self)
 	}
 	in, err := assemble.System(assemble.Where{Self: self})
-	if err != nil || !strings.Contains(in.String(), "You go by tester here.") || !strings.Contains(in.String(), "ir api internal/remember") {
+	if err != nil || !strings.Contains(in.String(), "- Nick: tester\n") || !strings.Contains(in.String(), "ir api internal/remember") {
 		t.Errorf("the system prompt: %v\n%s", err, in.String())
 	}
 }
@@ -87,13 +88,12 @@ func TestProfileChangesTold(t *testing.T) {
 	l, ch, second := two(t)
 	l.wantSat(200, "web", "message.create", map[string]any{"channel_id": ch, "content": "@claude2 one"}, nil)
 	given(t, l, second, 1)
-	l.want(200, "web", "PATCH", "/v1/internal/members/claude", map[string]any{"intro": "leads the work"}, nil)
 	l.want(200, "web", "PATCH", "/v1/internal/members/claude2", map[string]any{"nick": "tester"}, nil)
 	// A persona: its own it is told of whole, another's never (otae, 2026-11-21).
 	l.want(200, "web", "PATCH", "/v1/internal/members/claude", map[string]any{"persona": "another's ways"}, nil)
 	l.want(200, "web", "PATCH", "/v1/internal/members/tester", map[string]any{"persona": "short answers\nno guesses"}, nil)
 	// Its own change it is not told of.
-	l.want(200, "agent-in:"+second, "PATCH", "/v1/internal/self", map[string]any{"intro": "tests"}, nil)
+	l.want(200, "agent-in:"+second, "PATCH", "/v1/internal/self", map[string]any{"avatar": "🧪"}, nil)
 	l.wantSat(200, "web", "message.create", map[string]any{"channel_id": ch, "content": "@tester two"}, nil)
 	rows := given(t, l, second, 2)
 	var rec assemble.Record
@@ -113,7 +113,7 @@ func TestProfileChangesTold(t *testing.T) {
 		}
 	}
 	slices.Sort(got)
-	if strings.Join(got, " ") != "profile-intro:claude> profile-name:claude2>tester profile-persona:> profiles:>" || personas != 1 {
+	if strings.Join(got, " ") != "profile-name:claude2>tester profile-persona:> profiles:>" || personas != 1 {
 		t.Errorf("told of: %q", got)
 	}
 	if rec.Full {
@@ -149,13 +149,12 @@ func TestMemoryAndRoles(t *testing.T) {
 	if len(mem) != 0 {
 		t.Errorf("another's memory: %+v", mem)
 	}
-	// Kept as a role: its card and its memory go with it, not its intro (a role has none);
-	// a session started as it has them, and no intro.
-	l.want(200, "web", "PATCH", "/v1/internal/members/claude", map[string]any{"intro": "a fat fish", "avatar": "🐟"}, nil)
+	// Kept as a role: its card and its memory go with it; a session started as it has them.
+	l.want(200, "web", "PATCH", "/v1/internal/members/claude", map[string]any{"avatar": "🐟"}, nil)
 	l.want(403, "agent-in:"+ch, "POST", "/v1/internal/roles", api.NewRole{Session: ch}, nil)
 	var role api.Role
 	l.want(200, "web", "POST", "/v1/internal/roles", api.NewRole{Session: ch}, &role)
-	if role.Name != "claude" || role.Agent != api.AgentClaude || role.Avatar == "" || role.Memories != 1 || l.s.st.Profile(store.RoleProfileKey(role.ID)).Intro != "" {
+	if role.Name != "claude" || role.Agent != api.AgentClaude || role.Avatar == "" || role.Memories != 1 {
 		t.Fatalf("the role: %+v", role)
 	}
 	var roles []api.Role
@@ -171,15 +170,10 @@ func TestMemoryAndRoles(t *testing.T) {
 	}
 	var p api.Self
 	l.want(200, "agent-in:"+third, "GET", "/v1/internal/self", nil, &p)
-	if p.Intro != "" || p.Role != role.ID || len(p.Memory) != 1 || !strings.Contains(p.Avatar, "v=g") {
+	if p.Role != role.ID || len(p.Memory) != 1 || !strings.Contains(p.Avatar, "v=g") {
 		t.Errorf("a session of the role: %+v", p)
 	}
-	// Its intro its own: the role does not take it back; a person forgets a memory.
-	l.want(200, "web", "PATCH", "/v1/internal/members/"+l.s.ch.Nick(third), map[string]any{"intro": "another fish"}, nil)
-	l.want(200, "web", "PATCH", "/v1/internal/roles/"+role.ID, api.RolePatch{Session: third}, nil)
-	if got := l.s.st.Profile(store.RoleProfileKey(role.ID)).Intro; got != "" {
-		t.Errorf("the role took its session's intro: %q", got)
-	}
+	// A person forgets a memory.
 	l.want(200, "web", "DELETE", "/v1/internal/memory/"+itoa(kept.ID)+"?session="+third, nil, nil)
 	l.want(200, "agent-in:"+ch, "GET", "/v1/internal/memory", nil, &mem)
 	if len(mem) != 0 {
@@ -216,14 +210,14 @@ func TestRolePersona(t *testing.T) {
 	self := l.s.selfText(two)
 	in, err := assemble.System(assemble.Where{Self: self})
 	text := in.String()
-	if err != nil || !strings.Contains(text, "here.\nonly sure findings\nverdict first\n") {
+	if err != nil || !strings.Contains(text, "- Persona (your own words): only sure findings\nverdict first\n") {
 		t.Errorf("the system prompt: %v\n%s", err, text)
 	}
 	// 更新角色: the card comes back, the model does not; the role's name stays.
-	l.want(200, "web", "PATCH", "/v1/internal/members/"+l.s.ch.Nick(two), map[string]any{"persona": "be kind", "intro": "reviews gently"}, nil)
+	l.want(200, "web", "PATCH", "/v1/internal/members/"+l.s.ch.Nick(two), map[string]any{"persona": "be kind"}, nil)
 	l.want(200, "web", "PATCH", "/v1/internal/roles/"+role.ID, map[string]any{"model": "sonnet"}, nil)
 	l.want(200, "web", "PATCH", "/v1/internal/roles/"+role.ID, api.RolePatch{Session: two}, &role)
-	if role.Persona != "be kind" || role.Model != "sonnet" || role.Name != "reviewer" || l.s.st.Profile(store.RoleProfileKey(role.ID)).Intro != "" {
+	if role.Persona != "be kind" || role.Model != "sonnet" || role.Name != "reviewer" {
 		t.Errorf("updated from its session: %+v", role)
 	}
 	// Kept from a session: no effort comes with it (the field is gone), its persona does.
@@ -250,7 +244,7 @@ func TestRoleKeepsModelFace(t *testing.T) {
 			t.Fatal("no model for the second session")
 		}
 	}
-	if _, _, ok := l.s.face(store.ChannelProfileKey(second), false, ""); ok {
+	if _, _, ok := l.s.face(store.ChannelProfileKey(second), ""); ok {
 		t.Fatal("the second session has a face of its own")
 	}
 	want, _, ok, _ := l.s.st.Avatar(model)
@@ -315,43 +309,43 @@ func given(t *testing.T, l *live, id string, n int) []store.Injection {
 	}
 }
 
-// A session's own channel has a card of its own (kumo, 2026-11-16): its face, intro and
+// A session's own channel has a card of its own (kumo, 2026-11-16): its face and
 // background changed there are not its agent's; one it has not been given is its agent's, or
 // with several agents in it none: the page draws theirs (the user, 2026-11-16).
 func TestChannelCardApart(t *testing.T) {
 	t.Parallel()
 	l, ch, second := two(t)
-	l.want(200, "web", "PATCH", "/v1/internal/members/claude", map[string]any{"avatar": "🤖", "intro": "the agent"}, nil)
+	l.want(200, "web", "PATCH", "/v1/internal/members/claude", map[string]any{"avatar": "🤖", "persona": "the agent"}, nil)
 	var p api.Profile
 	l.want(200, "web", "GET", "/v1/internal/channels/"+ch+"/profile", nil, &p)
 	if p.Avatar != "" {
 		t.Errorf("the card of a channel of two agents, none of its own: %q", p.Avatar)
 	}
-	if _, _, ok := l.s.channelFace(ch, nil, false); ok {
+	if _, _, ok := l.s.channelFace(ch, nil); ok {
 		t.Error("a face of a channel of two agents, none of its own")
 	}
 	l.want(200, "web", "DELETE", "/v1/internal/channels/"+ch+"/members/agent:"+second, nil, nil)
 	l.want(200, "web", "GET", "/v1/internal/channels/"+ch+"/profile", nil, &p)
-	agentFace, _, _ := l.s.face(store.ChannelProfileKey(ch), false, "")
-	if !strings.Contains(p.Avatar, "of=channel") || p.Intro != "" || p.Session != "" {
+	agentFace, _, _ := l.s.face(store.ChannelProfileKey(ch), "")
+	if !strings.Contains(p.Avatar, "of=channel") || p.Persona != "" || p.Session != "" {
 		t.Fatalf("the channel's card before it has its own: %+v", p)
 	}
-	if img, _, ok := l.s.channelFace(ch, nil, false); !ok || string(img) != string(agentFace) {
+	if img, _, ok := l.s.channelFace(ch, nil); !ok || string(img) != string(agentFace) {
 		t.Errorf("its face before it has its own: %q, want the agent's", img)
 	}
-	l.want(200, "web", "PATCH", "/v1/internal/channels/"+ch, map[string]any{"avatar": "🏠", "intro": "the room"}, &p)
-	if p.Intro != "the room" {
+	l.want(200, "web", "PATCH", "/v1/internal/channels/"+ch, map[string]any{"avatar": "🏠"}, &p)
+	if p.Avatar == "" {
 		t.Errorf("the channel's card: %+v", p)
 	}
-	if img, _, ok := l.s.channelFace(ch, nil, false); !ok || !strings.Contains(string(img), "🏠") {
+	if img, _, ok := l.s.channelFace(ch, nil); !ok || !strings.Contains(string(img), "🏠") {
 		t.Errorf("the channel's face: %q", img)
 	}
-	if img, _, _ := l.s.face(store.ChannelProfileKey(ch), false, ""); string(img) != string(agentFace) {
+	if img, _, _ := l.s.face(store.ChannelProfileKey(ch), ""); string(img) != string(agentFace) {
 		t.Errorf("the agent's face changed with the channel's: %q", img)
 	}
 	var mc api.MemberCard
 	l.want(200, "web", "GET", "/v1/internal/members/claude", nil, &mc)
-	if mc.Intro != "the agent" {
+	if mc.Persona != "the agent" {
 		t.Errorf("the agent's card: %+v", mc)
 	}
 	l.want(200, "web", "GET", "/v1/internal/channels/"+ch+"/avatar?of=channel", nil, nil)
@@ -363,7 +357,7 @@ func TestAgentPutsFace(t *testing.T) {
 	l, ch, second := two(t)
 	png := "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
 	l.want(200, "agent-in:"+second, "PUT", "/v1/internal/channels/"+ch+"/avatar", map[string]any{"avatar": png}, nil)
-	if _, _, ok := l.s.face(store.ChannelProfileKey(ch), false, ""); !ok {
+	if _, _, ok := l.s.face(store.ChannelProfileKey(ch), ""); !ok {
 		t.Fatal("no face after an agent's PUT")
 	}
 	l.want(200, "agent-in:"+second, "DELETE", "/v1/internal/channels/"+ch+"/avatar", nil, nil)

@@ -107,12 +107,13 @@ function fileOf(e: El): FileRef | undefined {
 const KINDS = new Set(["user", "assistant", "thinking", "tool", "result", "system"]);
 
 /** A message of a relay's forward: its number ("3-5" a turn told in a line), who said it, its
- *  words. */
+ *  words as the agent was given them. */
 export type RelayMsg = { id: string; who: string; user: string; text: string; turn?: boolean };
 /** A channel's message as an agent of it was given it (internal/satori/relay.go): which channel,
- *  the number that called it, the standing words where they were given (full), and the
- *  messages forwarded, the one that called it last. */
-export type Relay = { channel: string; name: string; seq: number; full: boolean; context: string; msgs: RelayMsg[] };
+ *  the number that called it, and the messages forwarded, the one that called it last. Only
+ *  Satori's standard forward and the relay's plain attributes: Iridium's own words around them
+ *  (its <channel-context>) are the session's injections' (chat/given.ts), not here. */
+export type Relay = { channel: string; name: string; seq: number; msgs: RelayMsg[] };
 /** The relay a user block is, by the block blockOf made. */
 export const relays = new WeakMap<Block, Relay>();
 
@@ -126,7 +127,7 @@ function relayOf(els: El[]): Relay | undefined {
       const au = m.children.find((e) => e.type === "author");
       return { id: str(m.attrs.id) ?? "", who: str(au?.attrs.name) ?? "", user: str(au?.attrs.id) ?? "", text: textOf(m.children), ...(m.children.some((e) => e.type === "iridium:turn") ? { turn: true } : {}) };
     });
-  return { channel: str(r.attrs.channel) ?? "", name: str(r.attrs.name) ?? "", seq: int(r.attrs.seq) ?? 0, full: r.attrs.full === true, context: textOf(r.children), msgs };
+  return { channel: str(r.attrs.channel) ?? "", name: str(r.attrs.name) ?? "", seq: int(r.attrs.seq) ?? 0, msgs };
 }
 
 /** Message m of a session's transcript (message.list) as its block. */

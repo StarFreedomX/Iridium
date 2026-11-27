@@ -361,6 +361,7 @@ func TestNoEcho(t *testing.T) {
 	r.next("session/prompt")
 	r.feed(
 		`{"jsonrpc":"2.0","result":{"stopReason":"end_turn"},"id":"in-1"}`,
+		upd(`{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"asked for second"}}`), // the model's next step
 		upd(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"second"}}`),
 		`{"jsonrpc":"2.0","result":{"stopReason":"end_turn","usage":{"inputTokens":5,"outputTokens":2}},"id":"in-2"}`,
 	)
@@ -369,7 +370,7 @@ func TestNoEcho(t *testing.T) {
 	for _, e := range records(evs) {
 		kinds = append(kinds, e.Kind+":"+e.Text)
 	}
-	if want := []string{"assistant:1 2 3", "user:then say second", "assistant:second"}; !slices.Equal(kinds, want) {
+	if want := []string{"assistant:1 2 3", "user:then say second", "thinking:asked for second", "assistant:second"}; !slices.Equal(kinds, want) {
 		t.Errorf("records %v, want %v", kinds, want)
 	}
 	if tk := find[agent.Taken](evs); len(tk) != 1 || tk[0].InputID != "in-2" {
@@ -380,6 +381,77 @@ func TestNoEcho(t *testing.T) {
 	}
 	if r.d.State() != agent.Idle {
 		t.Error("not idle")
+	}
+}
+
+// A prompt sent while the agent is mid-sentence streaming does not split the assistant message
+// in half: agy answers the running prompt at once (end_turn, no usage) as the new one arrives,
+// but the model reads it only at its next step, so the chunks after that answer still belong to
+// the same message and the prompt is recorded where the message ends.
+func TestSteerMidSentenceDoesNotSplitMessage(t *testing.T) {
+	r := newRig(t)
+	r.open("")
+	r.take()
+	send(t, r.d, "in-1", "read docs")
+	r.next("session/prompt")
+	r.take()
+	r.feed(upd(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"reading docs/前端设计"}}`))
+	send(t, r.d, "in-2", "push to test")
+	r.next("session/prompt")
+	r.feed(
+		upd(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"规范.md。"}}`),
+		`{"jsonrpc":"2.0","result":{"stopReason":"end_turn"},"id":"in-1"}`,
+		upd(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" got it"}}`),
+		`{"jsonrpc":"2.0","result":{"stopReason":"end_turn","usage":{"inputTokens":5,"outputTokens":2}},"id":"in-2"}`,
+	)
+	evs := r.take()
+	md := find[agent.MessageDone](evs)
+	if len(md) != 1 || md[0].Text != "reading docs/前端设计规范.md。 got it" {
+		t.Fatalf("MessageDone split: %+v", md)
+	}
+	var kinds []string
+	for _, e := range records(evs) {
+		kinds = append(kinds, e.Kind+":"+e.Text)
+	}
+	if want := []string{"assistant:reading docs/前端设计规范.md。 got it", "user:push to test"}; !slices.Equal(kinds, want) {
+		t.Fatalf("records %v, want %v", kinds, want)
+	}
+}
+
+// Live 2026-11-26: a prompt sent while agy writes a code block is answered at once (the running
+// prompt's end_turn, 170 ms later) with the block still being written. The message
+// is not cut there (inside a word and a code fence): it goes on whole, and the prompt is recorded
+// at the model's next step (here a tool call), between that message and what follows.
+func TestJoinedMidCodeFenceRecordedAtNextStep(t *testing.T) {
+	r := newRig(t)
+	r.open("")
+	r.take()
+	send(t, r.d, "in-1", "write it")
+	r.next("session/prompt")
+	r.take()
+	r.feed(upd(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Here:\n` + "```" + `go\nfunc ma"}}`))
+	send(t, r.d, "in-2", "@Neon also check tests")
+	r.next("session/prompt")
+	r.feed(`{"jsonrpc":"2.0","result":{"stopReason":"end_turn","usage":{"inputTokens":9,"outputTokens":3}},"id":"in-1"}`)
+	evs := r.take()
+	if md := find[agent.MessageDone](evs); len(md) != 0 {
+		t.Fatalf("message cut as the prompt was answered: %+v", md)
+	}
+	if rs := records(evs); len(rs) != 0 {
+		t.Fatalf("recorded inside the message: %+v", rs)
+	}
+	r.feed(
+		upd(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"in() {}\n`+"```"+`"}}`),
+		upd(`{"sessionUpdate":"tool_call","toolCallId":"c1","name":"run_command","status":"in_progress","kind":"execute","title":"go test","rawInput":{"CommandLine":"go test"}}`),
+		`{"jsonrpc":"2.0","result":{"stopReason":"end_turn","usage":{"inputTokens":5,"outputTokens":2}},"id":"in-2"}`,
+	)
+	evs = r.take()
+	var kinds []string
+	for _, e := range records(evs) {
+		kinds = append(kinds, e.Kind+":"+e.Text)
+	}
+	if want := []string{"assistant:Here:\n```go\nfunc main() {}\n```", "user:@Neon also check tests", "tool:"}; !slices.Equal(kinds, want) {
+		t.Fatalf("records %q, want %q", kinds, want)
 	}
 }
 
@@ -738,5 +810,148 @@ func TestPictureOfRead(t *testing.T) {
 	}{png})
 	if d.pictureOf(u) == nil {
 		t.Errorf("by its location: none")
+	}
+}
+
+func TestReadTextOf(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "sample.go")
+	os.WriteFile(src, []byte("package main\n\nfunc main() {\n\tprintln(\"hi\")\n}\n"), 0o600)
+	bin := filepath.Join(dir, "bin.dat")
+	os.WriteFile(bin, []byte{0x00, 0x01, 0x02}, 0o600)
+	d := &Driver{readFile: os.ReadFile}
+
+	// Sliced read with StartLine/EndLine (as agy read_file passes).
+	u := &update{Status: "completed", ToolKind: "read", RawInput: json.RawMessage(`{"Path":"` + src + `","StartLine":3,"EndLine":4}`)}
+	got := d.readTextOf(u, tool{name: "read"})
+	want := "3: func main() {\n4: \tprintln(\"hi\")"
+	if got != want {
+		t.Fatalf("readTextOf slice = %q, want %q", got, want)
+	}
+
+	// Whole read using location fallback when RawInput omits Path.
+	u2 := &update{Status: "completed", ToolKind: "read"}
+	u2.Locations = append(u2.Locations, struct {
+		Path string `json:"path"`
+	}{src})
+	if full := d.readTextOf(u2, tool{name: "read"}); !strings.HasPrefix(full, "1: package main\n") || !strings.HasSuffix(full, "5: }") {
+		t.Fatalf("readTextOf full = %q", full)
+	}
+
+	// Binary or failed read returns empty.
+	if b := d.readTextOf(&update{Status: "completed", ToolKind: "read", RawInput: json.RawMessage(`{"Path":"` + bin + `"}`)}, tool{name: "read"}); b != "" {
+		t.Fatalf("binary file should return empty, got %q", b)
+	}
+	if f := d.readTextOf(&update{Status: "failed", ToolKind: "read", RawInput: json.RawMessage(`{"Path":"` + src + `"}`)}, tool{name: "read"}); f != "" {
+		t.Fatalf("failed read should return empty, got %q", f)
+	}
+}
+
+// In auto mode, a mid-turn prompt sent right as agy asks for permission waits for the auto-allow
+// reply and retries once if agy momentarily rejects it with "waiting for a permission".
+func TestAutoPermissionMidTurnPromptRetry(t *testing.T) {
+	r := newRig(t)
+	r.open("auto")
+	r.take()
+	send(t, r.d, "in-1", "run tool")
+	r.next("session/prompt")
+
+	// Reject the first attempt of in-2 with agy's transient permission-wait error, then accept the retry.
+	var mu sync.Mutex
+	attempts := 0
+	r.wrote = func(m map[string]any) {
+		if m["method"] == "session/prompt" && m["id"] == "in-2" {
+			mu.Lock()
+			attempts++
+			n := attempts
+			mu.Unlock()
+			if n == 1 {
+				r.feed(`{"jsonrpc":"2.0","id":"in-2","error":{"code":-32000,"message":"Can't add this prompt while the running prompt is waiting for a permission or question answer."}}`)
+			}
+		}
+	}
+
+	r.feed(`{"jsonrpc":"2.0","method":"session/request_permission","params":{"sessionId":"` + sid + `","toolCall":{"toolCallId":"c1","name":"run_command","status":"pending","kind":"execute","title":"echo hi","rawInput":{"CommandLine":"echo hi"}},"options":[{"optionId":"allow","name":"Allow","kind":"allow_once"}]},"id":"perm-1"}`)
+	send(t, r.d, "in-2", "follow up")
+
+	// Expect the auto-allow response and two prompt attempts for in-2.
+	seenAllow, seenPrompt := 0, 0
+	deadline := time.After(3 * time.Second)
+	for seenAllow < 1 || seenPrompt < 2 {
+		select {
+		case m := <-r.out:
+			if m["id"] == "perm-1" {
+				seenAllow++
+			}
+			if m["method"] == "session/prompt" && m["id"] == "in-2" {
+				seenPrompt++
+			}
+		case <-deadline:
+			t.Fatalf("timed out waiting for auto-allow (%d) and retried prompt (%d)", seenAllow, seenPrompt)
+		}
+	}
+	r.feed(
+		`{"jsonrpc":"2.0","result":{"stopReason":"end_turn"},"id":"in-1"}`,
+		upd(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"done"}}`),
+		`{"jsonrpc":"2.0","result":{"stopReason":"end_turn","usage":{"inputTokens":5,"outputTokens":2}},"id":"in-2"}`,
+	)
+	if r.d.State() != agent.Idle {
+		t.Errorf("state = %s, want idle", r.d.State())
+	}
+	if errs := find[agent.TurnEnd](r.take()); len(errs) != 1 || errs[0].Reply != "done" {
+		t.Errorf("unexpected TurnEnd: %+v", errs)
+	}
+}
+
+// /compact: agy says nothing of a compaction but the prompt's answer (agy 1.5.10, seen
+// 2026-11-27), so the turn is a compaction until it: its rule recorded, not your /compact; one
+// sent while it compacts runs after it.
+func TestCompact(t *testing.T) {
+	r := newRig(t)
+	r.open("")
+	r.feed(upd(`{"sessionUpdate":"usage_update","used":332394,"size":1048576}`))
+	r.take()
+	send(t, r.d, "in-1", "/compact")
+	r.next("session/prompt")
+	if r.d.State() != agent.Compacting {
+		t.Fatalf("state %v", r.d.State())
+	}
+	send(t, r.d, "in-2", "next")
+	r.next("session/prompt")
+	evs := r.take()
+	if ts := find[agent.TurnStart](evs); len(ts) != 1 || ts[0].Input != "in-1" {
+		t.Errorf("TurnStart %v", ts)
+	}
+	r.feed(`{"jsonrpc":"2.0","result":{"stopReason":"end_turn"},"id":"in-1"}`)
+	evs = append(evs, r.take()...)
+	if c := find[agent.Compacted](evs); len(c) != 1 || c[0].Before != 332394 || c[0].Failed {
+		t.Errorf("Compacted %+v", c)
+	}
+	if r.d.State() != agent.Running || len(find[agent.TurnEnd](evs)) != 0 {
+		t.Fatalf("after the compaction: %v", r.d.State())
+	}
+	r.feed(
+		upd(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"ok"}}`),
+		`{"jsonrpc":"2.0","result":{"stopReason":"end_turn","usage":{"inputTokens":5,"outputTokens":2}},"id":"in-2"}`,
+	)
+	evs = append(evs, r.take()...)
+	rec := records(evs)
+	if len(rec) != 3 || rec[0].Event != "compact" || rec[0].Compact == nil || rec[0].Compact.Before != 332394 || rec[1].Text != "next" || rec[2].Text != "ok" {
+		t.Errorf("records %s", mustJSON(rec))
+	}
+	if te := find[agent.TurnEnd](evs); len(te) != 1 || te[0].CompactOnly {
+		t.Errorf("TurnEnd %+v", te)
+	}
+
+	// Alone, the turn only compacted.
+	send(t, r.d, "in-3", "/compact")
+	r.next("session/prompt")
+	r.feed(`{"jsonrpc":"2.0","result":{"stopReason":"end_turn"},"id":"in-3"}`)
+	evs = r.take()
+	if te := find[agent.TurnEnd](evs); len(te) != 1 || !te[0].CompactOnly || r.d.State() != agent.Idle {
+		t.Errorf("TurnEnd %+v, state %v", te, r.d.State())
+	}
+	if st := find[agent.StateChange](evs); len(st) == 0 || st[0].State != agent.Compacting {
+		t.Errorf("StateChange %+v", st)
 	}
 }

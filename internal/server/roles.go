@@ -31,8 +31,10 @@ func (s *Server) roleRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /v1/internal/roles/{id}", s.roleDelete)
 	mux.HandleFunc("DELETE /v1/internal/sessions/{id}/role", s.roleLeave)
 	mux.HandleFunc("GET /v1/internal/roles/{id}/avatar", s.roleFace)
-	mux.HandleFunc("GET /v1/internal/roles/{id}/background", s.roleFace)
 	mux.HandleFunc("GET /v1/internal/personas", s.personasGet)
+	mux.HandleFunc("GET /v1/internal/favorites", s.favoritesGet)
+	mux.HandleFunc("PUT /v1/internal/favorites", s.favoritesPut)
+	mux.HandleFunc("PATCH /v1/internal/favorites", s.favoritesPatch)
 }
 
 // roleOut is role r as the API gives it.
@@ -42,11 +44,8 @@ func (s *Server) roleOut(r store.Role) api.Role {
 	out.Persona = s.st.Profile(key).Persona
 	info, _ := agents.Get(out.Agent)
 	out.ModelName = strings.TrimSpace(cmp.Or(info.Name, r.Agent) + " " + r.Model)
-	if _, v, ok := s.face(key, false, roleModelKey(r)); ok {
+	if _, v, ok := s.face(key, roleModelKey(r)); ok {
 		out.Avatar = "/v1/internal/roles/" + r.ID + "/avatar?v=" + v
-	}
-	if _, v, ok := s.face(key, true, ""); ok {
-		out.Background = "/v1/internal/roles/" + r.ID + "/background?v=" + v
 	}
 	if ms, err := s.st.Memories(key, 0); err == nil {
 		out.Memories = len(ms)
@@ -97,7 +96,7 @@ func (s *Server) roleFace(w http.ResponseWriter, r *http.Request) {
 	if role, ok := s.roleBy(r.PathValue("id")); ok {
 		fallback = roleModelKey(role)
 	}
-	img, v, ok := s.face(store.RoleProfileKey(r.PathValue("id")), strings.HasSuffix(r.URL.Path, "/background"), fallback)
+	img, v, ok := s.face(store.RoleProfileKey(r.PathValue("id")), fallback)
 	if !ok {
 		refuse(w, http.StatusNotFound, "not_found", "none")
 		return
@@ -187,7 +186,7 @@ func (s *Server) rolePost(w http.ResponseWriter, r *http.Request) {
 		prof := store.Profile{}
 		var err error
 		if prof.Persona, err = persona(req.Persona); err == nil {
-			_, err = s.setFaces(c, key, &prof, strp(req.Avatar), strp(req.Background), "", "")
+			_, err = s.setFace(c, key, &prof, strp(req.Avatar), "", "")
 		}
 		if err == nil {
 			err = s.st.SetProfile(key, prof)
@@ -202,18 +201,13 @@ func (s *Server) rolePost(w http.ResponseWriter, r *http.Request) {
 	reply(w, http.StatusOK, s.roleOut(role))
 }
 
-// keepCard makes session id's card the one kept under key (a role's): its persona, background
-// and the face it is drawn with, its own or, with none, its model's (kumo, 2026-11-17: a role
-// kept from a session that had its model's face had none). Not its intro: a role has none
-// (otae, 2026-11-23: who it is is its persona's; what it does here each session writes).
+// keepCard makes session id's card the one kept under key (a role's): its persona and the face it is drawn with, its own or, with none, its model's (kumo, 2026-11-17: a role
+// kept from a session that had its model's face had none).
 func (s *Server) keepCard(id, key string) error {
 	if err := s.st.CopyProfile(store.ChannelProfileKey(id), key); err != nil {
 		return err
 	}
-	if err := s.noIntro(key); err != nil {
-		return err
-	}
-	if _, _, ok := s.face(key, false, ""); ok {
+	if _, _, ok := s.face(key, ""); ok {
 		return nil
 	}
 	st, err := s.m.State(id)
@@ -229,16 +223,6 @@ func (s *Server) keepCard(id, key string) error {
 		return err
 	}
 	return s.st.PutAvatar(key, img, v)
-}
-
-// noIntro takes the intro off the profile under key, if it has one.
-func (s *Server) noIntro(key string) error {
-	p := s.st.Profile(key)
-	if p.Intro == "" {
-		return nil
-	}
-	p.Intro = ""
-	return s.st.SetProfile(key, p)
 }
 
 // strp is v as a patch's field: nil for none.
@@ -307,7 +291,6 @@ func (s *Server) rolePatch(w http.ResponseWriter, r *http.Request) {
 		role.Sort = *p.Sort
 	}
 	prof := s.st.Profile(key)
-	prof.Intro = "" // a role has none (keepCard)
 	if p.Persona != nil {
 		v, err := persona(*p.Persona)
 		if err != nil {
@@ -316,7 +299,7 @@ func (s *Server) rolePatch(w http.ResponseWriter, r *http.Request) {
 		}
 		prof.Persona = v
 	}
-	if _, err := s.setFaces(c, key, &prof, p.Avatar, p.Background, "", ""); err != nil {
+	if _, err := s.setFace(c, key, &prof, p.Avatar, "", ""); err != nil {
 		s.error(w, err)
 		return
 	}
@@ -406,10 +389,6 @@ func (s *Server) carded(c caller, id string, req api.NewSession) error {
 			if err := s.st.CopyProfile(store.RoleProfileKey(role.ID), key); err != nil {
 				return err
 			}
-			// Kept from before roles had none: not handed on.
-			if err := s.noIntro(key); err != nil {
-				return err
-			}
 			if err := s.st.SetRoleOf(id, role.ID); err != nil {
 				return err
 			}
@@ -427,17 +406,10 @@ func (s *Server) carded(c caller, id string, req api.NewSession) error {
 			return err
 		}
 	}
-	if req.Intro == "" && req.Persona == "" && req.Avatar == "" && req.Background == "" {
+	if req.Persona == "" && req.Avatar == "" {
 		return nil
 	}
 	prof := s.st.Profile(key)
-	if req.Intro != "" {
-		v, err := intro(req.Intro)
-		if err != nil {
-			return err
-		}
-		prof.Intro = v
-	}
 	if req.Persona != "" {
 		v, err := persona(req.Persona)
 		if err != nil {
@@ -445,7 +417,7 @@ func (s *Server) carded(c caller, id string, req api.NewSession) error {
 		}
 		prof.Persona = v
 	}
-	if _, err := s.setFaces(c, key, &prof, strp(req.Avatar), strp(req.Background), req.Cwd, ""); err != nil {
+	if _, err := s.setFace(c, key, &prof, strp(req.Avatar), req.Cwd, ""); err != nil {
 		return err
 	}
 	return s.st.SetProfile(key, prof)
@@ -457,7 +429,7 @@ type cardCaller struct{}
 // selfText is what session id's agent is told of itself in its system prompt.
 func (s *Server) selfText(id string) *assemble.Self {
 	p := s.st.Profile(store.ChannelProfileKey(id))
-	out := &assemble.Self{Nick: s.ch.Nick(id), Intro: p.Intro, Persona: p.Persona, IR: true, Zone: time.Local}
+	out := &assemble.Self{Nick: s.ch.Nick(id), Persona: p.Persona, IR: true, Zone: time.Local}
 	const memories = 12
 	ms := s.memoriesOf(id, 0)
 	for i, m := range ms {

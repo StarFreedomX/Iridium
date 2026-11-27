@@ -3,17 +3,17 @@
 // (its messages' badge), all in one line. Local-only with no Passkey it is 本机, which has
 // nothing to rename. Comes with the panel, not the first screen.
 import { Slider } from "@base-ui/react/slider";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { EyeOff, Laptop, Monitor, PencilLine, Smartphone } from "lucide-react";
 import { useRef, useState, type ReactNode } from "react";
 import { ApiError, api } from "./api/client";
-import { IntroMax, type Device, type Me, type Profile as Card } from "./api/types.gen";
+import { type Device, type Me } from "./api/types.gen";
 import { LOCAL_ME, useMe } from "./data";
-import { asDataURL, BannerThumb, FacePick, Field } from "./facepick";
 import { t } from "./i18n";
+import { FaceGlow } from "./glow";
 import { LocalMark } from "./me";
 import { errText, toast } from "./toast";
-import { AvatarKey, cn, FaceChangeOver, IconKey, Tip, tokens } from "./ui";
+import { Avatar, AvatarKey, cn, FaceChangeOver, IconKey, Tip, tokens } from "./ui";
 
 /** The devices a terminal may say it runs on, in the picker's order; none: no badge shown. */
 const DEVICES = ["computer", "laptop", "phone", "none"] as const satisfies readonly Device[];
@@ -61,8 +61,14 @@ export function Profile({ onPicture }: { onPicture: (url: string) => void }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(me.name);
   const file = useRef<HTMLInputElement>(null);
+  const glow = local ? <LocalMark size={20} /> : <Avatar src={me.avatar} name={name} size={20} pattern={me.id} />;
   return (
-    <div className="flex items-center gap-3 py-1">
+    <div className="flex flex-col">
+      {/* A band over it, the face blurred and spread across, as a member's card has (kumo,
+          2026-11-27); the face on its lower edge, ringed in the panel's ground. */}
+      <div className="relative -mx-3 -mt-2.5 h-16 shrink-0 overflow-hidden bg-fill-2">
+        <FaceGlow>{glow}</FaceGlow>
+      </div>
       <input
         ref={file}
         type="file"
@@ -74,22 +80,22 @@ export function Profile({ onPicture }: { onPicture: (url: string) => void }) {
           e.target.value = "";
         }}
       />
-      {/* The face: a press changes it (本机 has none to change). On its corner the device it runs
-          on, a key of its own: a press goes on to the next (the user, 2026-11-08). A grid, not
-          inline: the face and its box one circle, no line's descent under it. */}
-      <span className="relative grid shrink-0">
+      {/* The face: a press changes it. On its corner the device it runs on, a key of its own: a
+          press goes on to the next (the user, 2026-11-08). */}
+      <span className={cn("relative -mt-8 grid shrink-0 self-start bg-paper p-[3px] shadow-[0_1px_3px_var(--edge)]", local ? "rounded-[30%]" : "rounded-full")}>
         {local ? (
           <Tip label={t("me.avatar")}>
             <button type="button" aria-label={t("me.avatar")} onClick={() => file.current?.click()} className="group g-press relative grid shrink-0 rounded-full">
-              <LocalMark size={44} />
-              <FaceChangeOver size={44} />
+              <LocalMark size={52} />
+              <FaceChangeOver size={52} />
             </button>
           </Tip>
         ) : (
-          <AvatarKey label={t("me.avatar")} onClick={() => file.current?.click()} src={me.avatar} name={name} size={44} />
+          <AvatarKey label={t("me.avatar")} onClick={() => file.current?.click()} src={me.avatar} name={name} size={52} pattern={me.id} />
         )}
         <DeviceKey />
       </span>
+      <div className="flex items-center gap-3 py-1">
       {editing ? (
         <input
           autoFocus
@@ -119,46 +125,8 @@ export function Profile({ onPicture }: { onPicture: (url: string) => void }) {
           <PencilLine size={15} />
         </IconKey>
       )}
+      </div>
     </div>
-  );
-}
-
-/** The rest of its card (docs/next/group.md "资料卡"): its intro, a signature others see on its
- *  card, and its background; its name and avatar are above (Profile). Saved as changed. */
-export function ProfileMore() {
-  const qc = useQueryClient();
-  const q = useQuery({ queryKey: ["self"], queryFn: () => api.self().then((s): Card => s), staleTime: 0, retry: false });
-  const save = async (p: { intro?: string; background?: string }) => {
-    qc.setQueryData<Card>(["self"], await api.patchSelf(p));
-    void qc.invalidateQueries({ queryKey: ["card"] });
-  };
-  // Drawn before it has come, in its place: nothing under it is pushed down as it does.
-  const p = q.data;
-  // A picture chosen for the background, its strip being chosen, in the background's place.
-  const [banner, setBanner] = useState<string | null>(null);
-  return (
-    <>
-      <Field label={t("profile.intro")} value={p?.intro ?? ""} max={IntroMax} multi count save={(v) => save({ intro: v })} />
-      {banner ? (
-        <div className="g-fade">
-          <Crop
-            banner
-            src={banner}
-            onCancel={() => setBanner(null)}
-            onDone={(b) =>
-              void asDataURL(b)
-                .then((background) => save({ background }))
-                .then(
-                  () => setBanner(null),
-                  (e) => toast(t("profile.background"), { error: true, description: errText(e) }),
-                )
-            }
-          />
-        </div>
-      ) : (
-        <FacePick label={t("profile.background")} preview={<BannerThumb src={p?.background} />} set={(v) => save({ background: v })} upload={(f) => setBanner(URL.createObjectURL(f))} disabled={!p} />
-      )}
-    </>
   );
 }
 
@@ -208,20 +176,18 @@ export function AvatarCrop({ src, onBack }: { src: string; onBack: () => void })
 
 /** Round crop: drag to place, slide to zoom. Sent as a 256px PNG; the gate stores 128px. The picture
  *  always covers the circle: it cannot be dragged, nor zoomed back, to leave a gap (the user,
- *  2026-11-06). The preview is the picture whole, as drawn into the PNG. banner: a background's
- *  strip instead (8:3, sent as the 720×270 the gate keeps, which then takes it whole; otae,
- *  2026-11-22: it took the middle, with no say). */
-export function Crop({ src, onCancel, onDone, banner }: { src: string; onCancel: () => void; onDone: (b: Blob) => void; banner?: boolean }) {
+ *  2026-11-06). The preview is the picture whole, as drawn into the PNG. */
+export function Crop({ src, onCancel, onDone }: { src: string; onCancel: () => void; onDone: (b: Blob) => void }) {
   const [zoom, setZoom] = useState(1);
   const [pos, setPos] = useState({ x: 0, y: 0 });
   const [nat, setNat] = useState<{ w: number; h: number } | null>(null);
   const drag = useRef<{ x: number; y: number } | null>(null);
   const im = useRef<HTMLImageElement>(null);
-  // The frame on the page, and what is sent: a circle, or a background's strip.
-  const W = banner ? 264 : 176;
-  const H = banner ? 99 : 176;
-  const OW = banner ? 720 : 256;
-  const OH = banner ? 270 : 256;
+  // The frame on the page, and what is sent: a circle.
+  const W = 176;
+  const H = 176;
+  const OW = 256;
+  const OH = 256;
   // Its size at zoom 1, covering the frame; how far it may go each way at a zoom.
   const base = nat ? Math.max(W / nat.w, H / nat.h) : 1;
   const w0 = nat ? nat.w * base : W;
@@ -241,17 +207,17 @@ export function Crop({ src, onCancel, onDone, banner }: { src: string; onCancel:
     const w = w0 * zoom;
     const h = h0 * zoom;
     g.drawImage(img, ((W - w) / 2 + pos.x) * k, ((H - h) / 2 + pos.y) * k, w * k, h * k);
-    // A photo's strip as a JPEG: well under the 2 MB the gate takes. A face as small as it goes
+    // A face as small as it goes
     // (kumo, 2026-11-23: every upload made small; the daemon keeps 128 px of it, gate.MakeAvatar):
     // a JPEG where nothing shows through, else WebP (PNG where the browser makes no WebP: Safari).
-    const opaque = banner || g.getImageData(0, 0, OW, OH).data.every((x, i) => i % 4 !== 3 || x === 255);
+    const opaque = g.getImageData(0, 0, OW, OH).data.every((x, i) => i % 4 !== 3 || x === 255);
     if (opaque) c.toBlob((b) => b && onDone(b), "image/jpeg", 0.88);
     else c.toBlob((b) => b && onDone(b), "image/webp", 0.9);
   };
   return (
     <div className="flex flex-col items-center gap-3 p-3">
       <div
-        className={cn("relative cursor-grab touch-none overflow-hidden bg-fill active:cursor-grabbing", banner ? "rounded-lg" : "rounded-full")}
+        className={cn("relative cursor-grab touch-none overflow-hidden bg-fill active:cursor-grabbing", "rounded-full")}
         style={{ width: W, height: H }}
         onPointerDown={(e) => {
           (e.target as HTMLElement).setPointerCapture(e.pointerId);
@@ -270,7 +236,7 @@ export function Crop({ src, onCancel, onDone, banner }: { src: string; onCancel:
           style={{ width: w0, height: h0, transform: `translate(-50%, -50%) translate(${pos.x}px, ${pos.y}px) scale(${zoom})` }}
         />
       </div>
-      <Slider.Root value={zoom} min={1} max={3} step={0.01} onValueChange={(v) => (setZoom(v as number), setPos((p) => clamp(p, v as number)))} aria-label={t("me.zoom")} className={banner ? "w-56" : "w-44"}>
+      <Slider.Root value={zoom} min={1} max={3} step={0.01} onValueChange={(v) => (setZoom(v as number), setPos((p) => clamp(p, v as number)))} aria-label={t("me.zoom")} className="w-44">
         <Slider.Control className="flex h-6 items-center">
           <Slider.Track className="h-1 w-full rounded-full bg-fill-2">
             <Slider.Indicator className="rounded-full bg-ink-3" />

@@ -5,7 +5,8 @@
 // dropped on any of those is pinned, last of the pinned. A session or folder dragged keeps the key
 // it was dropped at (Session.order, a folder's mark in the carried "guilds") in place of its last activity: it
 // stays where it was put while those never dragged are still sorted by when they last worked.
-// With a mouse only, as a finger's long press is the menu: on a phone a group's menu moves it.
+// With a mouse it is dragged; a finger holds the row (its menu opens), then moves it (touchDrag)
+// (kumo, 2026-11-26: no 上移/下移 in a group's menu).
 import { useSyncExternalStore } from "react";
 import type { Session } from "./api/types.gen";
 import { NO_GUILDS, placesOf, useGuilds, type Places } from "./guilds";
@@ -19,8 +20,11 @@ export type Edge = "top" | "bottom";
 /** The row a drop would go to now (its mark, dropMark), the row the line is drawn at (that one,
  *  or the one the drop lands above) and its edge. */
 export type Over = { at: string; line: string; edge: Edge };
-/** A drop a row takes of another kind, and the row whose top it lands at (dropMark). */
-export type Also = { kind: Dragged["kind"]; lane: string; drop: (d: Dragged) => void; line: string };
+/** A drop a row takes of another kind, or from another lane (lane ANY: from any), and the row
+ *  whose top it lands at (dropMark), or its foot (edge). */
+export type Also = { kind: Dragged["kind"]; lane: string; drop: (d: Dragged) => void; line: string; edge?: Edge };
+/** An Also's lane: what is dragged from any lane. */
+export const ANY = "*";
 
 let dragged: Dragged | null = null;
 let over: Over | null = null;
@@ -33,8 +37,32 @@ const setOver = (o: Over | null) => {
   emit();
 };
 
-export const startDrag = (d: Dragged) => ((dragged = d), emit());
-export const endDrag = () => ((dragged = null), (over = null), emit());
+/** The list's scrolling as a drag nears its top or foot, stopped as the drag ends. */
+let stopScroll: (() => void) | null = null;
+
+/** A drag begun: with a mouse, row is the row taken (the list it is in scrolls as the pointer
+ *  nears its top or foot, kumo, 2026-11-26); a finger's (touchDrag) scrolls its own. */
+export const startDrag = (d: Dragged, row?: HTMLElement) => {
+  dragged = d;
+  stopScroll?.();
+  stopScroll = null;
+  const list = row && scroller(row);
+  if (list) {
+    let at: { x: number; y: number } | null = null;
+    const track = (e: DragEvent) => void (at = { x: e.clientX, y: e.clientY });
+    addEventListener("dragover", track, true);
+    const stop = edgeScroll(list, () => at);
+    stopScroll = () => (stop(), removeEventListener("dragover", track, true));
+  }
+  emit();
+};
+export const endDrag = () => {
+  stopScroll?.();
+  stopScroll = null;
+  dragged = null;
+  over = null;
+  emit();
+};
 
 /** What the list takes, round its rows: over no row a drop goes to (none took the dragover) or
  *  out of the list, no line. Not on leaving a row: the line would blink between two. */
@@ -50,37 +78,151 @@ export const useDragged = (kind: Dragged["kind"], id: string) => useSyncExternal
 /** The row's mark the list finds it by, to draw the line at: data-place. */
 export const dropMark = (d: Dragged) => `${d.kind}:${d.lane}:${d.id}`;
 
-/** What a row takes to be dropped on: by one of its kind and lane, not itself; also, by one of
- *  another kind (a folder on a session at its group's root). */
-export function dropTarget(kind: Dragged["kind"], id: string, lane: string, drop: (d: Dragged, edge: Edge) => void, also?: Also) {
+/** A row's drop, found by its mark (data-place) under a finger (touchDrag): as it was last drawn. */
+type Target = { pick: () => "own" | "also" | null; aim: (how: "own" | "also", r: DOMRect, y: number) => Over; land: (how: "own" | "also", d: Dragged, edge: Edge) => void };
+const targets = new Map<string, Target>();
+
+/** What a row takes to be dropped on: by one of its kind and lane (any lane: anyLane, a
+ *  favourite's, taking a session from anywhere), not itself; also, by one of another kind (a folder
+ *  on a session at its group's root). */
+export function dropTarget(kind: Dragged["kind"], id: string, lane: string, drop: (d: Dragged, edge: Edge) => void, also?: Also, anyLane = false) {
   const at = dropMark({ kind, id, lane });
-  const pick = () => {
-    const d = dragged;
-    if (d?.kind === kind && d.lane === lane && d.id !== id) return "own";
-    if (also && d?.kind === also.kind && d.lane === also.lane) return "also";
-    return null;
+  const t: Target = {
+    pick: () => {
+      const d = dragged;
+      if (d?.kind === kind && (d.lane === lane || anyLane) && d.id !== id) return "own";
+      if (also && d?.kind === also.kind && (d.lane === also.lane || also.lane === ANY)) return "also";
+      return null;
+    },
+    aim: (how, r, y) => (how === "also" ? { at, line: also!.line, edge: also!.edge ?? "top" } : { at, line: at, edge: y < r.top + r.height / 2 ? "top" : "bottom" }),
+    land: (how, d, edge) => (how === "also" ? also!.drop(d) : drop(d, edge)),
   };
+  targets.set(at, t);
   return {
     "data-place": at,
     onDragOver: (e: React.DragEvent<HTMLElement>) => {
-      const how = pick();
+      const how = t.pick();
       if (!how) return;
       e.preventDefault();
       e.dataTransfer.dropEffect = "move";
-      const r = e.currentTarget.getBoundingClientRect();
-      setOver(how === "also" ? { at, line: also!.line, edge: "top" } : { at, line: at, edge: e.clientY < r.top + r.height / 2 ? "top" : "bottom" });
+      setOver(t.aim(how, e.currentTarget.getBoundingClientRect(), e.clientY));
     },
     onDrop: (e: React.DragEvent<HTMLElement>) => {
-      const how = pick();
+      const how = t.pick();
       if (!how || over?.at !== at) return;
       e.preventDefault();
       const d = dragged!;
       const edge = over.edge;
       endDrag();
-      if (how === "also") also!.drop(d);
-      else drop(d, edge);
+      t.land(how, d, edge);
     },
   };
+}
+
+/** The nearest box above el that scrolls up and down (the sidebar's list). */
+function scroller(el: HTMLElement): HTMLElement | null {
+  for (let p = el.parentElement; p; p = p.parentElement) {
+    const o = getComputedStyle(p).overflowY;
+    if ((o === "auto" || o === "scroll") && p.scrollHeight > p.clientHeight) return p;
+  }
+  return null;
+}
+
+/** The edge band a drag scrolls the list in: 56px, a quarter of a short list. The speed grows
+ *  with how deep in the band the pointer is (out past the list's edge: all of it), up to MAX px a
+ *  millisecond, and from nothing over RAMP ms after it came in, so a pointer that passes the band
+ *  on its way, or rests in it, does not throw the list to its end. */
+const BAND = 56;
+const MAX = 1.2;
+const RAMP = 400;
+
+/** Scrolls list while the point where() gives (a pointer's, null: none yet) is in its top or
+ *  foot band and within its width; moved: after each step that scrolled it. Stopped by what it
+ *  gives back. */
+export function edgeScroll(list: HTMLElement, where: () => { x: number; y: number } | null, moved?: () => void): () => void {
+  let since = 0;
+  let last = 0;
+  let frame = requestAnimationFrame(function tick(now) {
+    const p = where();
+    const b = list.getBoundingClientRect();
+    const band = Math.min(BAND, b.height / 4);
+    const depth = !p || p.x < b.left || p.x > b.right ? 0 : p.y < b.top + band ? -Math.min(1, (b.top + band - p.y) / band) : p.y > b.bottom - band ? Math.min(1, (p.y - b.bottom + band) / band) : 0;
+    if (!depth) since = 0;
+    else {
+      since ||= now;
+      const dt = Math.min(32, now - (last || now));
+      const v = Math.sign(depth) * MAX * depth * depth * Math.min(1, (now - since) / RAMP);
+      const was = list.scrollTop;
+      list.scrollTop += v * dt;
+      if (list.scrollTop !== was) moved?.();
+    }
+    last = now;
+    frame = requestAnimationFrame(tick);
+  });
+  return () => cancelAnimationFrame(frame);
+}
+
+/** A finger's drag: row held (its menu opened, ui.tsx useLongPress), then moved. The row's copy
+ *  goes with the finger, just above it (the line where it would land drawn under it, as a mouse's is), the list scrolled
+ *  near its top or foot; let go over a row that takes it, it lands there as a mouse's drop. */
+export function touchDrag(d: Dragged, row: HTMLElement, from: { x: number; y: number }, pointerId: number) {
+  startDrag(d);
+  const r = row.getBoundingClientRect();
+  const ghost = row.cloneNode(true) as HTMLElement;
+  ghost.removeAttribute("data-place");
+  ghost.setAttribute("aria-hidden", "true");
+  Object.assign(ghost.style, {
+    position: "fixed",
+    left: `${r.left}px`,
+    top: `${r.top}px`,
+    width: `${r.width}px`,
+    height: `${r.height}px`,
+    margin: "0",
+    pointerEvents: "none",
+    zIndex: "60",
+    borderRadius: "8px",
+    background: "var(--paper)",
+    boxShadow: "var(--shadow-float)",
+  });
+  document.body.append(ghost);
+  const list = scroller(row);
+  let x = from.x;
+  let y = from.y;
+  const hit = () => {
+    ghost.style.transform = `translateY(${y - r.bottom - 16}px)`;
+    const el = document.elementFromPoint(x, y)?.closest<HTMLElement>("[data-place]");
+    const t = el && targets.get(el.dataset.place!);
+    const how = t?.pick();
+    setOver(t && how ? t.aim(how, el.getBoundingClientRect(), y) : null);
+  };
+  const stop = list ? edgeScroll(list, () => ({ x, y }), hit) : () => {};
+  const move = (e: PointerEvent) => {
+    if (e.pointerId !== pointerId) return;
+    x = e.clientX;
+    y = e.clientY;
+    hit();
+  };
+  // The page not scrolled by the finger while it drags.
+  const still = (e: TouchEvent) => void (e.cancelable && e.preventDefault());
+  const end = (e: PointerEvent) => {
+    if (e.pointerId !== pointerId) return;
+    stop();
+    ghost.remove();
+    removeEventListener("pointermove", move);
+    removeEventListener("pointerup", end);
+    removeEventListener("pointercancel", end);
+    removeEventListener("touchmove", still);
+    const o = over;
+    const t = o && targets.get(o.at);
+    const how = e.type === "pointerup" ? t?.pick() : null;
+    endDrag();
+    if (o && t && how) t.land(how, d, o.edge);
+  };
+  addEventListener("pointermove", move);
+  addEventListener("pointerup", end);
+  addEventListener("pointercancel", end);
+  addEventListener("touchmove", still, { passive: false });
+  hit();
 }
 
 /** What a session is sorted by: where it was dragged to, else its last activity (as the server's

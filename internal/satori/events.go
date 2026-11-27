@@ -45,7 +45,18 @@ type entry struct {
 	// (login-*), for every connection of the app (a login's own: its own only).
 	app, login string
 	about      bool
+	// to: whom of the connections it is for: all, those that take messages live (Identify.Live)
+	// or those that do not. passing: one of a message as it changes, of use only till the next:
+	// not kept across a restart, and the one before it of the same message is dropped.
+	to      int
+	passing bool
 }
+
+const (
+	toAll = iota
+	toLive
+	toWhole
+)
 
 type outbox struct {
 	mu   sync.Mutex
@@ -68,8 +79,18 @@ func (o *outbox) add(e entry) entry {
 	defer o.mu.Unlock()
 	o.seq++
 	e.sn, e.ev.SN = o.seq, o.seq
+	if e.passing && e.ev.Message != nil {
+		for i := len(o.list) - 1; i >= 0 && i >= len(o.list)-64; i-- {
+			if l := o.list[i]; l.passing && l.session == e.session && l.ev.Message != nil && l.ev.Message.ID == e.ev.Message.ID {
+				o.list = slices.Delete(o.list, i, i+1)
+				break
+			}
+		}
+	}
 	o.list = append(o.list, e)
-	o.store(e, o.logf)
+	if !e.passing {
+		o.store(e, o.logf)
+	}
 	cut := 0
 	for cut < len(o.list) && (len(o.list)-cut > KeepMax || time.Since(o.list[cut].at) > Keep) {
 		cut++
@@ -170,29 +191,58 @@ func (s *Service) handle(n session.Notice, at time.Time) {
 		s.origin[n.Session] = n.From
 		s.started[n.Session] = at
 		s.mu.Unlock()
+		s.rest(n.Session, origin)
+		// Told the turn began first: what is kept of the turn before (the twins of its messages
+		// where it was called) is let go before this turn's first message is made.
 		if s.onBegan != nil {
 			s.onBegan(n.Session)
+		}
+		if s.log != nil {
+			s.log.Listen(n.Session, at.Add(-2*time.Second).UnixMilli())
+			s.greet(n.Session, n.From)
 		}
 	case session.NoticeTaken:
 		if s.onTaken != nil {
 			s.onTaken(n.Session, n.Text)
 		}
+		s.regreet(n.Session, origin)
+	case session.NoticeUserRecorded:
+		s.userRecorded(n.Session, n.Before, n.After, origin)
+	case session.NoticeWriting:
+		s.writing(n.Session, n.Text, origin)
+	case noticeWritten:
+		s.written(n.Session, origin)
 	case session.NoticeMessage:
-		s.hear(n.Session, n.Text, origin)
+		if s.log != nil && s.log.Listening(n.Session) {
+			s.say(n.Session, n.Text, origin)
+		} else {
+			s.hear(n.Session, n.Text, origin)
+			s.heardLive(n.Session, origin)
+		}
 	case session.NoticeTool:
 		s.flush(n.Session, "progress", origin, 0)
+		s.step(n.Session, n.Tool, origin)
 	case session.NoticeTurnEnd:
-		if n.Text != "" && !channel.Same(n.Text, held.Text) {
+		if s.log != nil && s.log.Listening(n.Session) {
+			// Its reply as the turn's end gives it, where it was not heard said (an agent that
+			// tells its last words only so).
+			if st := s.sayingOf(n.Session); n.Text != "" && !channel.Same(n.Text, held.Text) && (st.seq != 0 || !channel.Same(n.Text, st.last)) {
+				s.say(n.Session, n.Text, origin)
+			}
+		} else if n.Text != "" && !channel.Same(n.Text, held.Text) {
 			s.hear(n.Session, n.Text, origin)
+			s.heardLive(n.Session, origin)
 		}
 		s.flush(n.Session, "reply", origin, n.Denied)
+		s.rest(n.Session, origin)
 		if s.onTurnEnd != nil {
-			s.onTurnEnd(n.Session, n.Text, n.Waiting)
+			s.onTurnEnd(n.Session, n.Text, n.Waiting, n.Background)
 		}
 	case session.NoticeEnded:
+		s.rest(n.Session, origin)
 		// Cut short: nothing was its reply.
 		if s.onTurnEnd != nil {
-			s.onTurnEnd(n.Session, "", n.Waiting)
+			s.onTurnEnd(n.Session, "", n.Waiting, false)
 		}
 	case session.NoticeAsk:
 		st, err := s.b.Session(n.Session)
@@ -206,9 +256,22 @@ func (s *Service) handle(n session.Notice, at time.Time) {
 		m.CreatedAt = time.Now().UnixMilli()
 		m.User = s.agentOf(n.Session)
 		for _, ch := range s.askChannels(n.Session) {
-			s.noteIn(ch, n.Session, channel.KindAsk, Plain(Parse(m.Content), nil), m.ID, n.From)
+			l, noted := s.noteIn(ch, n.Session, channel.KindAsk, Plain(Parse(m.Content), nil), m.ID, n.From)
 			mc := m
-			s.emit(s.channelSession(ch), Event{Type: "message-created", Message: &mc, User: mc.User}, nil, "ask", n.From)
+			s.emitTo(toWhole, false, s.channelSession(ch), "", Event{Type: "message-created", Message: &mc, User: mc.User}, nil, "ask", n.From)
+			// To a page: the channel's own message of it, under its number, with the ask itself:
+			// the page puts it in place of its composer till it is over.
+			if noted || l.Seq != 0 {
+				lm := m
+				lm.ID = strconv.FormatInt(l.Seq, 10)
+				d := logData(l)
+				d.Ask = s.askData(*n.Ask)
+				lm.Data = d
+				s.emitTo(toLive, false, s.channelSession(ch), "", Event{Type: "message-created", Message: &lm, User: lm.User}, nil, "ask", n.From)
+			}
+			if noted && s.onAsk != nil {
+				s.onAsk(ch, l.Seq, n.Session, *n.Ask)
+			}
 		}
 	case session.NoticeAskDone:
 		card := cardID(n.Session, n.RequestID)
@@ -222,7 +285,17 @@ func (s *Service) handle(n session.Notice, at time.Time) {
 			m := *e.ev.Message
 			m.Content = closedContent(m.Content)
 			m.UpdatedAt = time.Now().UnixMilli()
-			s.emit(ss, Event{Type: "message-updated", Message: &m, User: m.User}, nil, "ask", "")
+			s.emitTo(toWhole, false, ss, "", Event{Type: "message-updated", Message: &m, User: m.User}, nil, "ask", "")
+		}
+		// To a page: its message of the ask, over (no ask with it).
+		for _, ch := range s.askChannels(n.Session) {
+			l, ok := s.log.ByRef(ch, card)
+			if !ok {
+				continue
+			}
+			ss := s.channelSession(ch)
+			lm := Message{ID: strconv.FormatInt(l.Seq, 10), Content: s.logContent(l), User: s.authorOf(l, nil), CreatedAt: l.At, UpdatedAt: time.Now().UnixMilli(), Data: logData(l)}
+			s.emitTo(toLive, false, ss, "", Event{Type: "message-updated", Message: &lm, User: lm.User}, nil, "ask", "")
 		}
 	case session.NoticeError:
 		// Told where its asks are (kumo, 2026-11-15): its own channel and each it is in beside,
@@ -278,12 +351,23 @@ func (s *Service) emitOf(ss api.Session, of string, ev Event, files []api.FileRe
 	s.out.add(entry{at: time.Now(), session: ss.ID, of: of, ev: ev, files: files})
 }
 
+// emitTo is emitOf for some of the connections only (toLive, toWhole); passing as entry's.
+func (s *Service) emitTo(to int, passing bool, ss api.Session, of string, ev Event, files []api.FileRef, kind, origin string) {
+	ev.Timestamp = time.Now().UnixMilli()
+	ev.Channel = s.channelMasked(ss)
+	ev.Guild = s.guildOf(ss)
+	ev.XType = "iridium"
+	ev.XData = &EventData{Kind: kind, Origin: origin}
+	s.out.add(entry{at: time.Now(), session: ss.ID, of: of, ev: ev, files: files, to: to, passing: passing})
+}
+
 // conn is one app's event stream.
 type conn struct {
 	ws   *websocket.Conn
 	wmu  sync.Mutex
 	app  string
 	only string // a login's own connection: its events only
+	live bool   // Identify.Live
 	sns  map[string]int64
 	next int64
 }
@@ -372,6 +456,7 @@ func (s *Service) serveEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cn.app = c.App
+	cn.live = id.Live
 	if c.Only {
 		cn.only = c.Login
 	}
@@ -451,6 +536,10 @@ func (s *Service) deliver(ctx context.Context, cancel func(), cn *conn, done int
 		if len(es) > 0 {
 			logins := cn.logins(s.b.Logins(cn.app))
 			for _, e := range es {
+				if (e.to == toLive && !cn.live) || (e.to == toWhole && cn.live) {
+					done = max(done, fullSN(e.sn, snSlots-1))
+					continue
+				}
 				k := 0
 				send := func(l LoginInfo, ev Event) bool {
 					sn := fullSN(e.sn, k)

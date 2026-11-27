@@ -79,7 +79,7 @@ func (s *Server) giveReaction(c caller, who satori.User, ch string, seq int64, e
 	}
 	lk := s.chain.of(ch, from.Session)
 	lk.origin = cmp.Or(lk.origin, c.ID())
-	if passes(from) && lk.hop >= deliver.MaxHops {
+	if passes(from) && (lk.hop >= deliver.MaxHops || lk.idle >= deliver.MaxIdle) {
 		return
 	}
 	r := assemble.Reaction{Seq: seq, Who: cmp.Or(who.Name, who.ID), Emoji: emoji, Text: m.Text}
@@ -87,7 +87,7 @@ func (s *Server) giveReaction(c caller, who satori.User, ch string, seq int64, e
 	sender := session.From(api.SourceIridium, api.SourceIridium)
 	for _, t := range targets {
 		if from.Session == "" && !passes(from) {
-			// A person wakes only the agents it may use (Claude: the owner's own).
+			// A person wakes only the agents it may use.
 			if _, err := s.using(c, t); err != nil {
 				continue
 			}
@@ -97,7 +97,7 @@ func (s *Server) giveReaction(c caller, who satori.User, ch string, seq int64, e
 		if by[t].Direct() && !s.multi(ch) {
 			err = s.giveReactionAlone(ctx, ch, t, r, sender)
 		} else {
-			_, err = s.deliverAs(ctx, ch, t, seq, m.Text, "", sender, nil, reach(from, lk), &r)
+			_, err = s.deliverAs(ctx, ch, t, seq, m.Text, "", sender, nil, s.chain.reach(from, lk), &r)
 		}
 		cancel()
 		if err != nil {
@@ -139,7 +139,9 @@ func (s *Server) recalledFor(session, ch string, seen int64) []int64 {
 		return nil
 	}
 	var out []int64
-	for _, r := range s.ch.Recalls(ch, since) {
+	// since-1: one taken back in the millisecond it was last given something may be after it;
+	// told twice then, rather than never.
+	for _, r := range s.ch.Recalls(ch, since-1) {
 		if r.Seq <= seen {
 			out = append(out, r.Seq)
 		}

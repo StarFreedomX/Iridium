@@ -4,14 +4,17 @@
 // stream; one dropped comes back, and its first states bring the page up to date. Drafts, the
 // agent's words as it writes them, go to the open chat alone.
 import { api } from "./api/client";
-import type { DraftEvent, StateEvent } from "./api/types.gen";
-import { getCarried, setCarried, type Link } from "./store";
+import type { DraftEvent, Session, StateEvent } from "./api/types.gen";
+import { fromServer } from "./pending";
+import { getCarried, setCarried, sharedRows, type Link } from "./store";
 
 /** Told each draft event. */
 export const drafts = new Set<(d: DraftEvent) => void>();
-/** A Satori event (op EVENT) as far as the page reads one: a message said in a channel, taken
- *  back (what it was from in _data), an emoji put on one or taken off (user, emoji). */
-export type SatoriEvent = { type: string; channel?: { id: string }; message?: { id: string; content: string; created_at?: number; user?: { id: string; name?: string; nick?: string; is_bot?: boolean }; _data?: { kind?: string; event?: unknown; session?: string; block?: string; input?: string } }; user?: { id: string; name?: string }; emoji?: { id: string; name?: string }; _data?: { kind?: string } };
+/** A Satori event (op EVENT) as far as the page reads one: a message said in a channel, changed
+ *  (message-updated: the whole of it again), taken back (what it was from in _data), an emoji put
+ *  on one or taken off (user, emoji). An agent's message is told as it begins to be written
+ *  (_data.writing) and again as it grows and as its work goes on (docs/next/ui.md). */
+export type SatoriEvent = { type: string; channel?: { id: string }; message?: { id: string; content: string; created_at?: number; updated_at?: number; user?: { id: string; name?: string; nick?: string; is_bot?: boolean }; _data?: { kind?: string; ask?: unknown; card?: string; event?: unknown; session?: string; block?: string; from?: number; to?: number; input?: string; writing?: boolean } }; user?: { id: string; name?: string }; emoji?: { id: string; name?: string }; _data?: { kind?: string } };
 /** Told each Satori event: what was said in the channels this login sees (chat/channel). */
 export const events = new Set<(e: SatoriEvent) => void>();
 /** Told each time the stream opens, which it may have been down: drafts go, new blocks are fetched. */
@@ -33,21 +36,19 @@ const link = (l: Partial<Link>) => setCarried("link", { ...(getCarried<Link>("li
 // The states every page carries. A key the daemon does not carry for this terminal (confirms and
 // colors, but for panels) is said to be ignored as the stream opens; the rest goes on.
 // "faces" ahead of "list": the rows' faces are known as the rows are first drawn.
-const ALWAYS = ["faces", "list", "guilds", "quota", "update", "needs", "pairing", "terminals", "channels", "avatars", "cards", "voice", "ats", "memory", "roles", "scripts"];
+const ALWAYS = ["faces", "list", "guilds", "update", "needs", "pairing", "terminals", "channels", "avatars", "cards", "voice", "ats", "memory", "roles", "scripts", "favorites"];
 /** How many states a stream carries at most (internal/server watchStates). */
 export const MAX_KEYS = 40;
-/** More states the open chat asks for, in the order it wants them: a channel's other agents, then
- *  its subagents at work; each source's own (also). */
+/** More states the open chat asks for, in the order it wants them: a channel's other agents
+ *  (also). */
 let extra: string[] = [];
-const extras = new Map<Extra, string[]>();
-/** Who asks for more states: a channel's other agents, the subagents at work in the open chat. */
-export type Extra = "agents" | "subs";
-const EXTRAS: Extra[] = ["agents", "subs"];
 /** What the stream last brought of each state every page carries, as it came: a stream opened
  *  again (each chat opened opens one) brings them all whole again, and one unchanged is not set
  *  again, the sidebar and the rest drawn again for nothing. Not the open session's: chats.ts
  *  stateAhead sets those apart from the stream. */
 const lastRaw = new Map<string, string>();
+/** The list's rows as last brought, with their JSON. */
+const listRows = new Map<string, { raw: string; row: Session }>();
 /** The keys the daemon said it does not carry, and why ("unknown", "forbidden"). */
 export const ignored = new Map<string, string>();
 export const keysFor = (s: string | null, more: string[] = []) => [...new Set([...ALWAYS, ...(s ? [`session:${s}`, `context:${s}`] : []), ...more, ...(s ? [`viewers:${s}`, `reads:${s}`] : [])])].slice(0, MAX_KEYS);
@@ -73,7 +74,9 @@ function onState(raw: string) {
   // How far a channel is read, which the daemon holds only once someone read it since it began:
   // none said does not take away what the page asked for itself (chats.ts firstScreen).
   if (!e.ignored && e.value == null && e.key.startsWith("reads:") && getCarried(e.key)) return;
-  setCarried(e.key, e.ignored ? null : e.value);
+  // The list: the changes made here and not in it yet drawn over it (pending.ts).
+  // Its rows that are as they were stay the objects they were (store.ts sharedRows).
+  setCarried(e.key, e.ignored ? null : e.key === "list" && Array.isArray(e.value) ? fromServer(sharedRows(e.value as Session[], listRows)) : e.value);
 }
 
 /** A PING on the open stream, one at a time; its PONG is the round trip, the top bar's dot. None
@@ -104,7 +107,8 @@ function connect() {
   since = performance.now();
   sock.onopen = () => {
     if (ws !== sock) return;
-    sock.send(JSON.stringify({ op: OP.identify, body: { _watch: keysFor(session, extra) } }));
+    // _live: an agent's message as it is written, its work in it (docs/next/ui.md).
+    sock.send(JSON.stringify({ op: OP.identify, body: { _watch: keysFor(session, extra), _live: true } }));
   };
   sock.onmessage = (m) => {
     if (ws !== sock) return;
@@ -156,13 +160,10 @@ export function follow(s: string | null) {
   soon = setTimeout(watch, 60);
 }
 
-/** The open chat's other states as from asks for them (a channel's agents: their sessions, then
- *  their contexts; its subagents at work: their sessions), the agents' first, as far as the stream
- *  has room; [] once the chat is left. */
-export function also(keys: string[], from: Extra = "agents") {
-  if (keys.length) extras.set(from, keys);
-  else extras.delete(from);
-  const all = [...new Set(EXTRAS.flatMap((x) => extras.get(x) ?? []))];
+/** The open chat's other states (a channel's agents: their sessions, then their contexts), as far
+ *  as the stream has room; [] once the chat is left. */
+export function also(keys: string[]) {
+  const all = [...new Set(keys)];
   if (all.join(" ") === extra.join(" ")) return;
   extra = all;
   if (!started) return;

@@ -1,8 +1,10 @@
 // Package store is Iridium's database: SQLite through a pure-Go driver, WAL, writes in BEGIN
 // IMMEDIATE transactions. It holds only what lies over the sessions found on disk (plan "数据"):
-// workspaces and who belongs where, pins, colour tags, which sessions are shown, names, the queue of messages to send, push
-// subscriptions, apps, their logins and their permissions, usage, the event outbox, and
-// the credentials, sealed (secrets.go). Never the conversations themselves, nor asks.
+// workspaces and who belongs where, pins, colour tags, which sessions are shown, names, the queue
+// of messages to send, apps, their logins and their permissions, usage, the event outbox, and the
+// credentials, sealed (secrets.go). Never the conversations themselves, nor asks. Web Push's
+// tables (push_subscriptions, push_rules) and public_links are left from before, read by
+// nothing (kumo, 2026-11-26: Web Push and public links are gone).
 package store
 
 import (
@@ -235,7 +237,8 @@ var schema = []string{
 	`ALTER TABLE apps ADD COLUMN agents_off TEXT NOT NULL DEFAULT '';`,
 	// 30: the login of the app an input came from (not ir_web's: its terminal is its login).
 	`ALTER TABLE inputs ADD COLUMN login TEXT NOT NULL DEFAULT '';`,
-	// 31: a session's public read-only link (publiclinks.go): the token's hash, one per session.
+	// 31: a session's public read-only link, left from before, read by nothing (kumo, 2026-11-26:
+	// public links are gone).
 	`CREATE TABLE IF NOT EXISTS public_links (
 		session    TEXT PRIMARY KEY,
 		hash       TEXT NOT NULL UNIQUE,
@@ -389,10 +392,32 @@ var schema = []string{
 	`ALTER TABLE profiles ADD COLUMN persona TEXT NOT NULL DEFAULT '';
 	ALTER TABLE roles DROP COLUMN effort;
 	ALTER TABLE roles DROP COLUMN mode;`,
+	// 47: an agent's receive set is its subscriptions (docs/channels.md "订阅事件", kumo,
+	// 2026-11-23): ["*", "agent:x"] is [{"message":{"from":["*","agent:x"]}}], [] none.
+	`ALTER TABLE channel_members RENAME COLUMN recv TO triggers;
+	UPDATE channel_members SET triggers = CASE
+		WHEN triggers = 'all' THEN '[{"message":{"from":["*"]}}]'
+		WHEN triggers IN ('', 'at', '[]') OR json_valid(triggers) = 0 THEN '[]'
+		ELSE json_array(json_object('message', json_object('from', json(triggers))))
+	END WHERE member LIKE 'agent:%';`,
+	// 48: each member's favorites (favorites.go; kumo, 2026-11-26): channels in its own order.
+	`CREATE TABLE IF NOT EXISTS favorites (
+		member  TEXT NOT NULL,
+		channel TEXT NOT NULL,
+		sort    INTEGER NOT NULL,
+		PRIMARY KEY (member, channel)
+	);`,
+	// 49: the colour of each member's favorites' folder (favorites.go; kumo, 2026-11-26).
+	`CREATE TABLE IF NOT EXISTS favorite_colors (member TEXT PRIMARY KEY, color TEXT NOT NULL);`,
+	// 50: the name each member gave its favorites' folder ("" or none: 收藏; kumo, 2026-11-26).
+	`CREATE TABLE IF NOT EXISTS favorite_names (member TEXT PRIMARY KEY, name TEXT NOT NULL);`,
 }
 
+// idleConns is how many connections to the database are kept open while unused.
+const idleConns = 16
+
 // steps run in Go after the migration of their version, in the same transaction.
-var steps = map[int]func(*sql.Tx) error{5: claudeForFirstPanel, 35: indexChannelMessages, 37: nicksOfSessions}
+var steps = map[int]func(*sql.Tx) error{35: indexChannelMessages, 37: nicksOfSessions}
 
 type Store struct {
 	db *sql.DB
@@ -413,6 +438,9 @@ func Open(path string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Connections are kept, not opened anew for each burst (database/sql keeps two): a new one
+	// reads the schema and has no page of the file yet.
+	db.SetMaxIdleConns(idleConns)
 	if err := backup(db, path); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("store %s: a copy before the upgrade: %w", path, err)
@@ -543,6 +571,24 @@ type Overlay struct {
 	Opened bool
 }
 
+// Overlay is session's overlay alone, each table read by its key: what a caller that wants one
+// session's asks for, not Overlays (every row of six tables, for each call: the main instance's
+// load of 2026-11-26, State asked for each agent of each message of a page).
+func (s *Store) Overlay(session string) Overlay {
+	var o Overlay
+	_ = s.db.QueryRow(`SELECT
+		IFNULL((SELECT name FROM names WHERE session = ?1), ''),
+		IFNULL((SELECT auto FROM names WHERE session = ?1), 0),
+		EXISTS (SELECT 1 FROM pins WHERE session = ?1),
+		IFNULL((SELECT workspace FROM assignments WHERE session = ?1), 0),
+		IFNULL((SELECT manual FROM assignments WHERE session = ?1), 0),
+		IFNULL((SELECT color FROM session_colors WHERE session = ?1), ''),
+		IFNULL((SELECT at FROM session_order WHERE session = ?1), 0.0),
+		EXISTS (SELECT 1 FROM openers WHERE session = ?1)`, session).
+		Scan(&o.Name, &o.AgentNamed, &o.Pinned, &o.Workspace, &o.Manual, &o.Color, &o.Order, &o.Opened)
+	return o
+}
+
 // Overlays is every session's overlay, by session id.
 func (s *Store) Overlays() (map[string]Overlay, error) {
 	rows, err := s.db.Query(`
@@ -568,6 +614,13 @@ func (s *Store) Overlays() (map[string]Overlay, error) {
 		out[id] = o
 	}
 	return out, rows.Err()
+}
+
+// Named is the name session was given (the user's or its agent's); "" for none.
+func (s *Store) Named(session string) string {
+	var name string
+	_ = s.db.QueryRow(`SELECT name FROM names WHERE session = ?`, session).Scan(&name)
+	return name
 }
 
 // SetName renames a session as the user does; "" takes the name off.

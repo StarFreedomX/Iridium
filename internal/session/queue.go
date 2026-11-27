@@ -20,8 +20,8 @@ import (
 // The queue (Rhodium §6.1 "网页的待发队列"): a message sent while a turn runs waits for it to end,
 // then goes as the next turn, all waiting ones together. Each can be steered into the running
 // turn, edited or deleted meanwhile. An interrupt, a stop, or the agent's exit or crash pauses the
-// queue: what waits then goes only on continue, or by its own steer. While the quota is out
-// messages wait too, and go when it is back. The queue is in the store (inputs not sent).
+// queue: what waits then goes only on continue, or by its own steer. The queue is in the store
+// (inputs not sent).
 
 // Send gives the session a message from `from` (an interactive terminal's ID), starting its
 // agent if it is not running: a new turn when idle; while a turn runs it waits in the queue.
@@ -83,15 +83,10 @@ func (m *Manager) SendAs(ctx context.Context, id, want, text, from string, steer
 			return want, state != "sent", nil
 		}
 	}
-	h.shownLater()       // a message for it: out of the archive
-	if h.dropDenials() { // you went on: what auto mode denied before is let be
-		h.publish()
-		m.publishList()
-	}
+	h.shownLater() // a message for it: out of the archive
 	terminal, tag, login, device := m.source(from)
 	in := store.Input{ID: cmp.Or(want, newUUID()), Session: h.id, Terminal: terminal, Login: login, Tag: tag, Device: device, Text: text, State: "sent"}
-	// Steering joins a running turn; while it waits for the quota there is none to join, so it waits too.
-	if (!steer && h.busy()) || h.quotaWait() {
+	if !steer && h.busy() {
 		in.State = "queued"
 		if err := m.o.Store.AddInput(in); err != nil {
 			return "", false, err
@@ -126,6 +121,49 @@ func (m *Manager) SendAs(ctx context.Context, id, want, text, from string, steer
 	return in.ID, false, nil
 }
 
+// SendIfRunning steers line into session id only if its agent is live and actively running a
+// turn right now. It never starts a stopped process, never queues into an idle session, and
+// leaves turn attribution (lastFrom, titleTurns, queue) untouched. Used for live channel
+// overhearing so a busy agent sees relevant unmentioned human messages without false wakes.
+func (m *Manager) SendIfRunning(ctx context.Context, id, want string, line assemble.Injection) (bool, error) {
+	if want != "" && !inputID.MatchString(want) {
+		return false, fmt.Errorf("%w: an input id is a lowercase UUID", ErrBadRequest)
+	}
+	if strings.TrimSpace(line.String()) == "" {
+		return false, errors.New("an empty message")
+	}
+	h, err := m.get(id)
+	if err != nil {
+		return false, nil
+	}
+	h.qmu.Lock()
+	defer h.qmu.Unlock()
+	h.mu.Lock()
+	running := h.live && h.drv != nil && h.turn == agent.Running
+	drv, ready := h.drv, h.ready
+	h.mu.Unlock()
+	if !running {
+		return false, nil
+	}
+	select {
+	case <-ready:
+	default:
+		return false, nil
+	}
+	h.mu.Lock()
+	still := h.live && h.drv == drv && h.turn == agent.Running
+	h.mu.Unlock()
+	if !still {
+		return false, nil
+	}
+	msgID := cmp.Or(want, newUUID())
+	if err := drv.Send(ctx, agent.Message{ID: msgID, Text: line, Human: false}); err != nil {
+		return false, err
+	}
+	h.m.given(h.id, msgID, line)
+	return true, nil
+}
+
 // queuedImages takes the images waiting with queued message id.
 func (h *Hosted) queuedImages(id string) []agent.Image {
 	h.mu.Lock()
@@ -135,18 +173,11 @@ func (h *Hosted) queuedImages(id string) []agent.Image {
 	return im
 }
 
-// quotaWait: the agent's quota ran out and Iridium goes on later.
-func (h *Hosted) quotaWait() bool {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	return h.quotaUntil != 0
-}
-
-// busy: a message now would join a running turn, or wait behind others or for the quota.
+// busy: a message now would join a running turn, or wait behind others.
 func (h *Hosted) busy() bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if h.quotaUntil != 0 || slices.ContainsFunc(h.queue, func(q api.Queued) bool { return !q.Paused }) {
+	if slices.ContainsFunc(h.queue, func(q api.Queued) bool { return !q.Paused }) {
 		return true
 	}
 	return h.live && h.turn != agent.Idle
@@ -159,11 +190,71 @@ func (h *Hosted) write(ctx context.Context, in store.Input, images []agent.Image
 	if err != nil {
 		return err
 	}
+	if t, ok := h.titleNow(in.Text); ok {
+		line = line.Then(t)
+	}
 	return h.writeLine(ctx, in, line, images)
 }
 
-// writeLine gives the agent line, input in as the agent is to see it (assemble.Message, or
-// assemble.Own for a line of Iridium's own), starting the agent if need be.
+// titleEvery: a session's title is put after every this many messages to its agent, and after
+// the first message following a compaction (assemble.TitleNow).
+const titleEvery = 5
+
+// channelTurn is how a channel's message given to an agent begins (assemble.ChannelTurn,
+// ChannelReaction): its number.
+var channelTurn = regexp.MustCompile(`^#\d+[: ]`)
+
+// TitleDue: the title is due after the next message to session id (titleNow's rule), for a
+// channel's message, which the server makes. TitleGiven tells it was put after one.
+func (m *Manager) TitleDue(id string) bool {
+	h, err := m.get(id)
+	if err != nil {
+		return false
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.titleAfterCompact || h.titleTurns+1 >= titleEvery
+}
+
+// TitleGiven: the title goes after the message about to be written to session id.
+func (m *Manager) TitleGiven(id string) {
+	if h, err := m.get(id); err == nil {
+		h.mu.Lock()
+		h.titleTurns, h.titleAfterCompact = -1, false // the message's write counts it: 0
+		h.mu.Unlock()
+	}
+}
+
+// titleNow is the line with the session's title to put after a message of words, when it is due:
+// every titleEvery messages and after a compaction; only where the agent titles the session (not
+// in a channel with other agents, whose title is people's), and not once the user named it.
+func (h *Hosted) titleNow(words string) (assemble.Injection, bool) {
+	if strings.HasPrefix(words, "/") {
+		return assemble.Injection{}, false
+	}
+	h.mu.Lock()
+	h.titleTurns++
+	due := h.titleAfterCompact || h.titleTurns >= titleEvery
+	shown := h.said.title
+	h.mu.Unlock()
+	// A channel's message (#n…): the server says the title there, to one agent of those called
+	// (TitleDue).
+	if !due || channelTurn.MatchString(words) || h.meta.ForChannel || h.m.inChannel(h.id) {
+		return assemble.Injection{}, false
+	}
+	o := h.m.o.Store.Overlay(h.id)
+	h.mu.Lock()
+	h.titleTurns, h.titleAfterCompact = 0, false
+	h.mu.Unlock()
+	if o.Name != "" && !o.AgentNamed {
+		return assemble.Injection{}, false
+	}
+	t, err := assemble.TitleNow(cmp.Or(o.Name, shown))
+	return t, err == nil
+}
+
+// writeLine gives the agent line, input in as the agent is to see it (assemble.Message),
+// starting the agent if need be.
 func (h *Hosted) writeLine(ctx context.Context, in store.Input, line assemble.Injection, images []agent.Image) error {
 	if err := h.start(ctx); err != nil {
 		return err
@@ -272,7 +363,7 @@ func (m *Manager) Continue(ctx context.Context, id string) error {
 	h.qmu.Lock()
 	defer h.qmu.Unlock()
 	h.mu.Lock()
-	running := (h.live && h.turn != agent.Idle) || h.quotaUntil != 0
+	running := h.live && h.turn != agent.Idle
 	h.mu.Unlock()
 	if !running {
 		h.releaseLocked(ctx, true)

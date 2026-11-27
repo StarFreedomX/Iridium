@@ -2,22 +2,33 @@ package assemble
 
 import (
 	"encoding/json"
+	"flag"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/kumoSleeping/iridium/internal/ctx/strategy"
 	"github.com/kumoSleeping/iridium/internal/prompts"
 )
 
-// golden compares got with testdata/name: what agents were given before the layers were apart
-// (captured from session.SystemPrompt, session.RemotePrompt and queue.go's write), to the byte.
+// update writes the golden files anew: go test ./internal/ctx/assemble -update.
+var update = flag.Bool("update", false, "write testdata/*.golden anew")
+
+// golden compares got with testdata/name, to the byte: what agents are given, for reviewers to
+// read as it is.
 func golden(t *testing.T, name string, in Injection, err error) {
 	t.Helper()
 	if err != nil {
 		t.Fatalf("%s: %v", name, err)
 	}
-	want, err := os.ReadFile(filepath.Join("testdata", name+".golden"))
+	file := filepath.Join("testdata", name+".golden")
+	if *update {
+		if err := os.WriteFile(file, []byte(in.String()), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want, err := os.ReadFile(file)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,19 +63,36 @@ func golden(t *testing.T, name string, in Injection, err error) {
 func TestSystemGolden(t *testing.T) {
 	t.Parallel()
 	for lang, name := range map[string]string{"zh": "zh", "en": "en", "": "none"} {
-		in, err := System(Where{Lang: lang})
+		in, err := System(Where{Session: "s-1", Lang: lang})
 		golden(t, "system."+name, in, err)
 		if in.Kind() != KindSystem {
 			t.Errorf("kind %q", in.Kind())
 		}
-		in, err = System(Where{Remote: true, IR: true, Lang: lang})
+		in, err = System(Where{Session: "s-1", Remote: true, IR: true, Lang: lang})
 		golden(t, "remote.ir."+name, in, err)
-		in, err = System(Where{Remote: true, Lang: lang})
+		in, err = System(Where{Session: "s-1", Remote: true, Lang: lang})
 		golden(t, "remote.noir."+name, in, err)
 	}
 	// A language without a name: no line, as for none.
-	in, err := System(Where{Lang: "fr"})
+	in, err := System(Where{Session: "s-1", Lang: "fr"})
 	golden(t, "system.none", in, err)
+}
+
+// Claude (auto mode) is told how to ask for manual approval where it has ir; no other agent is.
+func TestSystemManual(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		w    Where
+		told bool
+	}{{Where{Session: "s-1", Auto: true}, true}, {Where{Session: "s-1", Auto: true, Remote: true, IR: true}, true}, {Where{Session: "s-1", Auto: true, Remote: true}, false}, {Where{}, false}} {
+		in, err := System(c.w)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := strings.Contains(in.String(), "internal/sessions/s-1/manual"); got != c.told {
+			t.Errorf("%+v: told %v", c.w, got)
+		}
+	}
 }
 
 func TestMessageGolden(t *testing.T) {
@@ -77,14 +105,6 @@ func TestMessageGolden(t *testing.T) {
 	golden(t, "message.slash", in, err)
 	if len(in.Parts()) != 1 || in.Parts()[0].Source != SourceInput {
 		t.Errorf("a slash command with words of Iridium's: %+v", in.Parts())
-	}
-	for name, own := range map[string]func() (Injection, error){"message.recovery": Recovery, "message.quota": QuotaBack} {
-		words, err := own()
-		if err != nil {
-			t.Fatal(err)
-		}
-		in, err := Own("Iridium", words)
-		golden(t, name, in, err)
 	}
 }
 
@@ -99,8 +119,6 @@ func TestOtherTexts(t *testing.T) {
 		{"attachment", func() (Injection, error) { return Attachment("/w/a b.png") }, "[附件] `/w/a b.png`", KindMessage},
 		{"denied", func() (Injection, error) { return Denied("", "r1") }, "The user said no.", KindToolResult},
 		{"denied with words", func() (Injection, error) { return Denied("not {{that}}", "r1") }, "not {{that}}", KindToolResult},
-		{"recovery", Recovery, "The last turn was interrupted. Check where things stand, then carry on.", KindMessage},
-		{"quota", QuotaBack, "Continue.", KindMessage},
 	} {
 		in, err := c.in()
 		if err != nil || in.String() != c.want || in.Kind() != c.kind {
@@ -116,7 +134,7 @@ func TestOtherTexts(t *testing.T) {
 
 func TestRecord(t *testing.T) {
 	t.Parallel()
-	in, err := System(Where{Lang: "zh"})
+	in, err := System(Where{Session: "s-1", Lang: "zh"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +142,7 @@ func TestRecord(t *testing.T) {
 	for _, p := range in.Parts() {
 		sources = append(sources, p.Source)
 	}
-	want := "prompts:host.intro irhelp:agent irhelp:layers prompts:host.secrets-files prompts:names prompts:title prompts:lang"
+	want := "prompts:iridium.open prompts:host.intro prompts:cli prompts:cli.host prompts:cli.discover prompts:host.secrets-files prompts:shell.ir prompts:links prompts:links.files prompts:names prompts:title prompts:self.section prompts:self.helpers prompts:runtime prompts:lang prompts:self.session prompts:iridium.close"
 	if got := strings.Join(sources, " "); got != want {
 		t.Errorf("parts %s", got)
 	}
@@ -133,13 +151,13 @@ func TestRecord(t *testing.T) {
 		t.Fatal(err)
 	}
 	zh, _ := prompts.Get("lang.zh")
-	for _, s := range []string{`"kind":"system"`, `"source":"irhelp:agent"`, `"values":{"language":"Chinese"}`, `"refs":[{"kind":"prompts","id":"lang.zh","hash":"` + zh.Hash + `"}]`} {
+	for _, s := range []string{`"kind":"system"`, `"source":"prompts:cli.host"`, `"values":{"language":"Chinese"}`, `"refs":[{"kind":"prompts","id":"lang.zh","hash":"` + zh.Hash + `"}]`} {
 		if !strings.Contains(string(b), s) {
 			t.Errorf("no %s in the record:\n%s", s, b)
 		}
 	}
 	// Its text whole (kumo, 2026-11-16: the record shows what the agent got).
-	if !strings.Contains(string(b), "hosted by Iridium") {
+	if !strings.Contains(string(b), "Hosted by Iridium") {
 		t.Error("no text in the record")
 	}
 	msg, _ := Message("web", "t1", "hi", "in-1")
@@ -188,14 +206,30 @@ func TestPolicy(t *testing.T) {
 		return strings.Join(s, " ")
 	}
 	for w, want := range map[Where]string{
-		{}:                                   "host.intro agent layers host.secrets-files names title",
-		{IR: true, Lang: "en"}:               "host.intro agent layers host.secrets-files names title lang",
-		{Remote: true, IR: true}:             "remote.intro remote layers names title",
-		{Remote: true, Lang: "zh"}:           "remote.intro-bare names title lang",
-		{Remote: true, IR: true, Lang: "xx"}: "remote.intro remote layers names title",
+		{}:                                   "iridium.open host.intro cli cli.host cli.discover host.secrets-files shell.ir links links.files names title self.section self.helpers iridium.close",
+		{IR: true, Lang: "en"}:               "iridium.open host.intro cli cli.host cli.discover host.secrets-files shell.ir links links.files names title self.section self.helpers runtime lang iridium.close",
+		{Remote: true, IR: true}:             "iridium.open remote.intro cli cli.remote cli.discover shell.ir links names title self.section self.helpers iridium.close",
+		{Remote: true, Lang: "zh"}:           "iridium.open remote.intro-bare links names title runtime lang iridium.close",
+		{Remote: true, IR: true, Lang: "xx"}: "iridium.open remote.intro cli cli.remote cli.discover shell.ir links names title self.section self.helpers iridium.close",
 	} {
 		if got := ids(w); got != want {
 			t.Errorf("%+v: %s", w, got)
 		}
 	}
+}
+
+// A typical agent's first time, for reviewers to read whole: Claude with ir at the host, a
+// default nick, called in a channel of two agents (testdata/typical.*.golden).
+func TestTypicalGolden(t *testing.T) {
+	t.Parallel()
+	self := &Self{Nick: "Claude-1234", IR: true, Memory: []SelfMemory{{At: 1764000000000, From: "#12", Text: "kumo wants short UI copy"}},
+		Channels: []SelfChannel{{ID: "ch-uuid", Name: "ir 问题", At: 1764000000000, With: []string{"Codex-5678"}, Last: "build fixed"}}}
+	in, err := System(Where{Session: "s-1", IR: true, Lang: "zh", Self: self, Auto: true, Folder: "/home/k/ir", OS: "linux"})
+	golden(t, "typical.system", in, err)
+	var p strategy.Plan
+	p.Full = []strategy.Full{{Msg: strategy.Msg{Seq: 2, Who: "kumo", Text: "CI is red since this morning", At: 3600_000}}}
+	in, err = ChannelTurn(Channel{Session: "s-1", Rename: true, ID: "ch-uuid", Name: "ir 问题", You: "Claude-1234", Pull: true,
+		Agents: []ChannelAgent{{Nick: "Claude-1234", Agent: "claude", Model: "opus"}, {Nick: "Codex-5678", Agent: "codex", Model: "gpt-5", Effort: "low", Recv: "every message"}},
+		Plan:   p}, 3, "@Claude-1234 why does the build fail?", "in-3")
+	golden(t, "typical.channel", in, err)
 }

@@ -12,53 +12,8 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-# The web app and the Go side side by side: the Go tests need no web build (internal/webui serves
-# whatever dist holds, built or not).
 jobs:
-  web:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-      - name: web
-        working-directory: web
-        run: |
-          npm ci --no-audit --no-fund
-          npm run check
-          npm run build
-
-  go:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4 # the node executor under test
-        with:
-          node-version: 24
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: false
-      # Go's build and module caches, by go.mod and go.sum; when those change, the last one saved
-      # is a start (setup-go's own cache had none: everything built again, the job three times as long).
-      - uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: go-${{ runner.os }}-${{ hashFiles('go.mod', 'go.sum') }}
-          restore-keys: go-${{ runner.os }}-
-      - name: types
-        run: scripts/check-types.sh
-      - name: vet
-        run: |
-          go vet ./...
-          GOOS=darwin GOARCH=arm64 go vet ./...
-          GOOS=windows GOARCH=amd64 go vet ./cmd/ir-computer ./internal/join ./internal/remote/executor
-      - name: test
-        run: go test ./...
+  check:
+    uses: ./.github/workflows/check.yml
+    with:
+      save-cache: ${{ github.event_name == 'push' }}

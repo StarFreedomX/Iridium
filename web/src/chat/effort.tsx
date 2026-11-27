@@ -4,6 +4,7 @@
 // user, 2026-11-06). The knob pulls the liquid after it (chat/goo.ts): springs move the knob, the
 // fill's front and the blobs between, the blobs drawn through the goo filter, so they run together
 // under the liquid. The knob is frosted white balls run together through a goo of its own.
+import { effortAt } from "../splash/figure";
 import { Slider } from "@base-ui/react/slider";
 import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { t, useLang } from "../i18n";
@@ -81,7 +82,9 @@ const SLIDER_KEY = /^(Arrow|Page|Home$|End$)/;
  *  whether it was taken: till the session's state says so, the slider stays where it was let go.
  *  aside: what sits at the track's right (UltraCode's switch); tag: words before the level's name
  *  (UltraCode, when on). */
-export function EffortSlider({ levels, value, set, aside, tag }: { levels: string[]; value?: string; set: (level: string) => Promise<boolean>; aside?: ReactNode; tag?: ReactNode }) {
+/** bare: no line of words over the track (the phone's layout under a list of models: a rule over
+ *  it says what it is, kumo 2026-11-25). */
+export function EffortSlider({ levels, value, set, aside, tag, bare }: { levels: string[]; value?: string; set: (level: string) => Promise<boolean>; aside?: ReactNode; tag?: ReactNode; bare?: boolean }) {
   useLang();
   const [want, setWant] = useState<string | null>(null);
   const [drag, setDrag] = useState<number | null>(null);
@@ -93,6 +96,8 @@ export function EffortSlider({ levels, value, set, aside, tag }: { levels: strin
   const frac = n > 1 ? i / (n - 1) : 0;
   const fracNow = useRef(frac);
   fracNow.current = frac;
+  // The splash behind, where there is one, goes with the level (splash/).
+  useEffect(() => void (known && effortAt(levels[i] ?? "", frac)), [i, known]);
   const canvas = useRef<HTMLCanvasElement>(null);
   const root = useRef<HTMLDivElement>(null);
   const goo = `goo${useId().replace(/\W/g, "")}`;
@@ -101,9 +106,23 @@ export function EffortSlider({ levels, value, set, aside, tag }: { levels: strin
     const box = root.current;
     if (!el || !box) return;
     const still = matchMedia("(prefers-reduced-motion: reduce)").matches || !!document.querySelector("[data-still]");
-    const stopFlow = flow(el, () => fracNow.current, still);
-    const stopPull = pull(box, () => fracNow.current, still);
-    return () => (stopFlow(), stopPull());
+    // Where the finger is along the track while it holds the knob (0..1), else null: the knob is
+    // drawn there, not at the stop the slider has it at.
+    let held: number | null = null;
+    const at = (e: PointerEvent) => {
+      const r = box.querySelector("[data-track]")?.getBoundingClientRect();
+      return r && r.width > 24 ? Math.min(1, Math.max(0, (e.clientX - r.left - 12) / (r.width - 24))) : null;
+    };
+    const down = (e: PointerEvent) => void ((e.target as Element).closest?.("[data-track-control]") && (held = at(e)));
+    const move = (e: PointerEvent) => void (held !== null && (held = at(e)));
+    const up = () => void (held = null);
+    box.addEventListener("pointerdown", down, true);
+    window.addEventListener("pointermove", move, { passive: true });
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+    const stopFlow = flow(el, () => held ?? fracNow.current, still);
+    const stopPull = pull(box, () => fracNow.current, still, () => (still ? null : held));
+    return () => (stopFlow(), stopPull(), box.removeEventListener("pointerdown", down, true), window.removeEventListener("pointermove", move), window.removeEventListener("pointerup", up), window.removeEventListener("pointercancel", up));
   }, []);
   const commit = (k: number) => {
     setDrag(null);
@@ -118,22 +137,22 @@ export function EffortSlider({ levels, value, set, aside, tag }: { levels: strin
     </span>
   );
   return (
-    <div ref={root} className="effort-slider px-2.5 pt-1.5 pb-2 select-none [-webkit-touch-callout:none]" onKeyDown={(e) => SLIDER_KEY.test(e.key) && e.stopPropagation()} style={{ "--frac": frac } as CSSProperties}>
+    <div ref={root} className={cn("effort-slider px-2.5 select-none [-webkit-touch-callout:none]", bare ? "py-0.5" : "pt-1.5 pb-2")} onKeyDown={(e) => SLIDER_KEY.test(e.key) && e.stopPropagation()} style={{ "--frac": frac } as CSSProperties}>
       {/* With a key beside it (UltraCode), two columns: the track and that key, the level's name over
           the key, centred on it (the user, 2026-11-06). Without one, the track the whole width, the
           name at the end of the line over it: nothing left empty at its right (the user, 2026-11-06). */}
       <div className={cn("grid items-center gap-x-3", aside ? "grid-cols-[minmax(0,1fr)_auto]" : "grid-cols-1")}>
-        <div className="flex h-6 min-w-0 items-center justify-between gap-2 text-xs">
+        <div className={cn("flex h-6 min-w-0 items-center justify-between gap-2 text-xs", bare && !tag && "hidden")}>
           <span className="text-ink-3">{t("composer.effort")}</span>
           <span className="flex min-w-0 items-center gap-2">
             {tag}
             {!aside && name}
           </span>
         </div>
-        {aside && name}
+        {aside && !bare && name}
         <Slider.Root value={i} min={0} max={n - 1} step={1} onValueChange={(v) => (v !== i && buzz(), setDrag(v as number))} onValueCommitted={(v) => commit(v as number)} aria-label={t("composer.effort")} className="group/effort min-w-0">
-          <Slider.Control className="relative flex h-7 cursor-grab touch-none items-center data-dragging:cursor-grabbing pointer-coarse:h-10">
-            <Slider.Track className="relative h-6 w-full rounded-full bg-fill-2 shadow-[inset_0_1px_2px_oklch(0_0_0/0.12)]">
+          <Slider.Control data-track-control className="relative flex h-7 cursor-grab touch-none items-center data-dragging:cursor-grabbing pointer-coarse:h-10">
+            <Slider.Track data-track className="relative h-6 w-full rounded-full bg-fill-2 shadow-[inset_0_1px_2px_oklch(0_0_0/0.12)]">
               <span aria-hidden className="absolute inset-0 overflow-hidden rounded-full">
                 {/* Under: the neck the knob draws out, the blobs run together; over: the liquid. */}
                 <span className="absolute inset-0" style={{ filter: `url(#${goo})` }}>

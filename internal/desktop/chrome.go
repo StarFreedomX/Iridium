@@ -30,12 +30,12 @@ func bare(o mygo.WindowOptions) mygo.WindowOptions {
 }
 
 // winKey is a window key pressed in a page: min, full (a Mac's full screen), max
-// (maximised or back), close, reload.
-func (u *ui) winKey(w *mygo.Window, key string) {
-	if w == nil {
+// (maximised or back), close, reload. The keys are the window's the page is in.
+func (u *ui) winKey(p *mygo.Page, key string) {
+	if p == nil || p.Window() == nil {
 		return
 	}
-	name := u.nameOf(w)
+	w, name := p.Window(), u.nameOf(p)
 	switch key {
 	case "min":
 		w.Minimize()
@@ -45,26 +45,26 @@ func (u *ui) winKey(w *mygo.Window, key string) {
 		w.ToggleFullScreen()
 	case "close":
 		appLog()("window %q closed by its page's key", name)
-		if name == "picker" {
-			w.Hide()
-		} else if name != "ask" {
+		if name != "ask" {
 			w.Close()
 		}
 	case "reload":
-		u.reload(w)
+		u.reload(p)
 	}
 }
 
-// followMax tells w's page whether w is full screen (a Mac) or maximised, as it changes: its key
-// is drawn as it is.
-func followMax(w *mygo.Window) {
+// followMax tells the pages in w (pages: those there now) whether w is full screen (a Mac) or
+// maximised, as it changes: their key is drawn as it is.
+func followMax(w *mygo.Window, pages func() []*mygo.Page) {
 	tell := func() {
 		go func() {
 			full := w.IsMaximized()
 			if runtime.GOOS == "darwin" {
 				full = w.IsFullScreen()
 			}
-			reply(w, map[string]any{"max": full})
+			for _, p := range pages() {
+				reply(p, map[string]any{"max": full})
+			}
 		}()
 	}
 	w.OnMaximize(tell)
@@ -75,23 +75,36 @@ func followMax(w *mygo.Window) {
 }
 
 // reload loads the page in w again (⌘R, Ctrl+R, F5; kumo, 2026-11-22).
-func (u *ui) reload(w *mygo.Window) {
-	if w != nil && u.nameOf(w) != "ask" {
-		appLog()("reload %q", u.nameOf(w))
-		go w.Page().Reload()
+func (u *ui) reload(p *mygo.Page) {
+	if p != nil && u.nameOf(p) != "ask" {
+		appLog()("reload %q", u.nameOf(p))
+		go p.Reload()
 	}
 }
 
 // closePage is ⌘W, Ctrl+W (kumo, 2026-11-22): the page in front shut, not the window; only from
 // the page's first one (nothing open) the window. The page says which (appkey.tsx closePage); one
 // that cannot, an Iridium from before, is taken back to its first page by its address.
-func (u *ui) closePage(w *mygo.Window) {
-	if w == nil {
+func (u *ui) closePage(p *mygo.Page) {
+	if p == nil {
 		return
 	}
-	switch u.nameOf(w) {
-	case "picker":
-		go w.Hide()
+	switch u.nameOf(p) {
+	case homeName:
+		// The app's own page: back to the Iridium shown before, else the window closes.
+		go func() {
+			c, _ := loadConfig()
+			u.mu.Lock()
+			m := u.main
+			here := m != nil && m.panes[c.current()] != nil
+			u.mu.Unlock()
+			switch {
+			case here:
+				u.showServer(c.current(), "")
+			case m != nil:
+				m.win.Close()
+			}
+		}()
 		return
 	case "ask", "":
 		return
@@ -99,10 +112,10 @@ func (u *ui) closePage(w *mygo.Window) {
 	go func() {
 		// A page from before (no __irClosePage): an open chat or settings page goes back to the
 		// first page, as the new pages do; from the first page the window closes.
-		v, err := w.Page().Eval(`if(window.__irClosePage){window.__irClosePage();return "page"}
+		v, err := p.Eval(`if(window.__irClosePage){window.__irClosePage();return "page"}
 var h=location.hash.replace(/^#/,"");if(h&&h!=="/"){location.hash="#/";return "home"}
 window._wails.invoke("ir:win:close");return "window"`)
-		appLog()("close page in %q: %v %v", u.nameOf(w), v, err)
+		appLog()("close page in %q: %v %v", u.nameOf(p), v, err)
 	}()
 }
 
@@ -121,9 +134,9 @@ func (u *ui) retitle(address, title string) {
 	}
 	u.mu.Lock()
 	var ws []*mygo.Window
-	for _, w := range u.wins {
-		if u.shows[u.names[w]] == address {
-			ws = append(ws, w)
+	for _, p := range u.panes {
+		if u.shows[p.name] == address {
+			ws = append(ws, p.win)
 		}
 	}
 	u.mu.Unlock()
@@ -146,13 +159,16 @@ func windowTitle(title string) string {
 // data-app-drag (the keys, fields and links in it excepted). A page that draws no window keys of
 // its own (data-win-keys; an Iridium from before) gets a strip of its own above it instead, which
 // drags the window, the keys at its right, the page moved down under it: nothing of the page is
-// covered (kumo, 2026-11-23: keys laid over the page's own top right hid its app key).
+// covered (kumo, 2026-11-23: keys laid over the page's own top right hid its app key). Only once
+// the page has been drawn without keys for a few seconds: a page still starting, its keys a
+// moment away, had the strip come and go over it (kumo, 2026-11-24).
 var chromeJS = css(`[data-app-drag]{--app-region:drag}`) + fmt.Sprintf(`(function(){
-var mac=%t,H=32;
+var mac=%t,H=32,miss=0;
 function inv(m){var w=window._wails;if(w&&w.invoke)w.invoke(m)}
 function plain(){var have=document.querySelector("[data-win-keys]:not([data-win-keys=app])"),ours=document.getElementById("ir-strip");
-if(have){if(ours){ours.remove();document.documentElement.style.removeProperty("--ir-strip")}return}
-if(ours||!document.body||!document.getElementById("root")||!document.getElementById("root").children.length)return;
+if(have){miss=0;if(ours){ours.remove();document.documentElement.style.removeProperty("--ir-strip")}return}
+if(ours||!document.body||!document.getElementById("root")||!document.getElementById("root").children.length){miss=0;return}
+if(++miss<4)return;
 var d=document.createElement("div");d.id="ir-strip";d.setAttribute("data-app-drag","");
 d.style.cssText="position:fixed;top:0;left:0;right:0;height:"+H+"px;z-index:2147483647;display:flex;justify-content:flex-end;align-items:center;gap:2px;padding-right:6px;box-sizing:border-box;background:Canvas;color:CanvasText";
 var k=document.createElement("span");k.setAttribute("data-win-keys","app");k.style.cssText="display:flex;gap:2px";

@@ -1,11 +1,13 @@
 package server
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/kumoSleeping/iridium/internal/api"
+	"github.com/kumoSleeping/iridium/internal/ctx/assemble"
 )
 
 // Reactions wake the agents that receive their author (docs/channels.md "表情"): a session alone
@@ -28,7 +30,7 @@ func TestReactionsAndRecall(t *testing.T) {
 	var ms api.ChannelMembers
 	l.want(200, "web", "POST", "/v1/internal/channels/"+ch+"/members", api.NewMember{Agent: api.AgentClaude, Nick: "guest"}, &ms)
 	guest := ms.Members[len(ms.Members)-1].Session
-	l.want(200, "web", "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+guest, map[string]any{"recv": []string{"agent:" + ch}}, nil)
+	l.want(200, "web", "PATCH", "/v1/internal/channels/"+ch+"/members/agent:"+guest, map[string]any{"on": onFrom("agent:" + ch)}, nil)
 	l.wantSat(200, "agent-in:"+ch, "reaction.create", map[string]any{"channel_id": ch, "message_id": "1", "emoji": "🎉"}, nil)
 	l.waitSaid("web", ch, "@guest ", "reacted 🎉 to: first]", "channel-context")
 
@@ -43,5 +45,27 @@ func TestReactionsAndRecall(t *testing.T) {
 	}
 	l.wantSat(422, "web", "reaction.create", map[string]any{"channel_id": ch, "message_id": fmt.Sprint(sr.Seq), "emoji": "👍"}, nil)
 	_, next := l.send("web", ch, api.Send{Text: "and now"})
-	l.waitSaid("web", ch, "@claude ", fmt.Sprintf("ok: #%d: and now", next.Seq), fmt.Sprintf("gone for everyone: #%d.", sr.Seq))
+	l.waitSaid("web", ch, "@claude ", fmt.Sprintf("ok: #%d: and now", next.Seq))
+	// Told that it is gone, with what it was next given: that, or what the guest said before it
+	// (each wakes the other here), so looked for in what it was given, not in one answer of its
+	// (three runs in ten had it told a turn before "and now", and failed).
+	told := 0
+	rows, err := l.s.st.Injections(ch, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, in := range rows {
+		var rec assemble.Record
+		if json.Unmarshal([]byte(in.Record), &rec) != nil {
+			continue
+		}
+		for _, p := range rec.Parts {
+			if strings.HasSuffix(p.Source, "channel.context.recalled") && p.Values["seqs"] == fmt.Sprintf("#%d", sr.Seq) {
+				told++
+			}
+		}
+	}
+	if told != 1 {
+		t.Errorf("told %d times that #%d is gone, want once", told, sr.Seq)
+	}
 }

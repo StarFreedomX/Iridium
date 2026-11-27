@@ -159,6 +159,20 @@ type Driver struct {
 	// echoes: the texts of prompts recorded as they went out whose echo is still to come; agy
 	// before 1.5.10 says each prompt back (user_message_chunk), 1.5.10 no longer does.
 	echoes []string
+	// joined: prompts sent while a turn was already running, held until the running prompt ends
+	// or their echo arrives so we do not cut a message being streamed in half.
+	joined []joinedPrompt
+	// due: how many of joined agy took in (it answered the prompt before them, end_turn at once)
+	// while a message or thought was still being written. agy answers at once, as the prompt
+	// arrives, not where the model reads it: that is at its next step, so they are recorded where
+	// what is being written ends, not inside it (a word or a code fence cut in two).
+	due int
+	// autoAllow: in-flight auto-permission response writes; Send waits for them before writing
+	// session/prompt so agy does not refuse a mid-turn prompt while waiting for a permission.
+	autoAllow []chan struct{}
+	// inFlight: prompt payloads currently outstanding, kept so a mid-turn prompt refused solely
+	// because agy is still processing an auto-allowed permission can be retried once.
+	inFlight map[string]inflightPrompt
 	// sent: a prompt that begins a turn, being written: agy says nothing of a turn before it has
 	// it, so whatever it says next finds it in the conversation first (its answer may come before
 	// Send has the lock again).
@@ -174,6 +188,23 @@ type Driver struct {
 	window   int
 	queue    []agent.Event
 	unknown  map[string]int
+	// compacting: the /compact sent (its id), from when and the context then: agy says nothing
+	// of a compaction but the prompt's answer (agy 1.5.10), so the turn is one until that.
+	compacting struct {
+		id     string
+		since  time.Time
+		before int
+	}
+}
+
+type joinedPrompt struct {
+	id, text string
+}
+
+type inflightPrompt struct {
+	session string
+	blocks  []map[string]any
+	retries int
 }
 
 func New(o Options) *Driver {
@@ -204,7 +235,9 @@ func (d *Driver) reset() {
 	d.tools = map[string]tool{}
 	d.state = agent.Idle
 	d.starting, d.loading = false, false
-	d.waiting, d.outstanding, d.asks, d.echoes = nil, nil, nil, nil
+	d.waiting, d.outstanding, d.asks, d.echoes, d.joined, d.autoAllow = nil, nil, nil, nil, nil, nil
+	d.due = 0
+	d.inFlight = map[string]inflightPrompt{}
 	d.sent.id, d.sent.text = "", ""
 	d.text.Reset()
 	d.thought.Reset()
@@ -579,6 +612,24 @@ func (d *Driver) Send(ctx context.Context, m agent.Message) error {
 	for _, im := range m.Images {
 		blocks = append(blocks, map[string]any{"type": "image", "data": base64.StdEncoding.EncodeToString(im.Data), "mimeType": im.MediaType})
 	}
+	// Wait for any in-flight auto-permission answers to be written to agy before sending a
+	// prompt, avoiding agy's "waiting for a permission or question answer" rejection.
+	for {
+		d.mu.Lock()
+		var wait chan struct{}
+		if len(d.autoAllow) > 0 {
+			wait = d.autoAllow[0]
+		}
+		d.mu.Unlock()
+		if wait == nil {
+			break
+		}
+		select {
+		case <-wait:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
 	d.mu.Lock()
 	if d.w == nil {
 		d.mu.Unlock()
@@ -593,6 +644,7 @@ func (d *Driver) Send(ctx context.Context, m agent.Message) error {
 	ch := make(chan reply, 1)
 	d.pending[m.ID] = ch
 	session := d.session
+	d.inFlight[m.ID] = inflightPrompt{session: session, blocks: blocks}
 	d.mu.Unlock()
 	if err := d.write(request(m.ID, "session/prompt", map[string]any{"sessionId": session, "prompt": blocks})); err != nil {
 		d.mu.Lock()
@@ -600,6 +652,7 @@ func (d *Driver) Send(ctx context.Context, m agent.Message) error {
 			d.sent.id, d.sent.text = "", ""
 		}
 		delete(d.pending, m.ID)
+		delete(d.inFlight, m.ID)
 		d.waiting = slices.DeleteFunc(d.waiting, func(id string) bool { return id == m.ID })
 		d.outstanding = slices.DeleteFunc(d.outstanding, func(id string) bool { return id == m.ID })
 		if d.state == agent.Idle {
@@ -621,18 +674,49 @@ func (d *Driver) Send(ctx context.Context, m agent.Message) error {
 }
 
 // tookLocked: prompt id is out, so in the conversation: recorded and told taken now, not at its
-// echo (agy 1.5.10 has none). One sent during a turn joins it: what was written so far is whole.
+// echo (agy 1.5.10 has none). One sent while a turn already runs is held in joined until the
+// running prompt finishes or its echo arrives so a message being streamed is not cut in half.
 func (d *Driver) tookLocked(id, text string) {
-	d.sealLocked()
-	d.take1(id)
 	if d.state == agent.Idle {
+		d.sealLocked()
+		d.take1(id)
 		d.reply = ""
+		if strings.TrimSpace(text) == "/compact" {
+			// Shown as a compaction (its rule), not as your /compact.
+			d.compacting.id, d.compacting.since, d.compacting.before = id, time.Now(), d.context
+			d.move(agent.Compacting, id)
+			return
+		}
 		d.move(agent.Running, id)
+		if text != "" {
+			d.emitLocked(agent.Record{Entry: transcript.Entry{Kind: string(api.BlockKindUser), Text: text, ID: id}, Sent: true})
+			d.echoes = append(d.echoes, text)
+		}
+		return
 	}
+	d.take1(id)
 	if text != "" {
-		d.emitLocked(agent.Record{Entry: transcript.Entry{Kind: string(api.BlockKindUser), Text: text, ID: id}, Sent: true})
+		d.joined = append(d.joined, joinedPrompt{id: id, text: text})
 		d.echoes = append(d.echoes, text)
 	}
+}
+
+// flushJoinedLocked records a prompt held in joined (the first when text is "", else the first
+// matching text).
+func (d *Driver) flushJoinedLocked(text string) {
+	if len(d.joined) == 0 {
+		return
+	}
+	i := 0
+	if text != "" {
+		i = slices.IndexFunc(d.joined, func(j joinedPrompt) bool { return j.text == text })
+		if i < 0 {
+			return
+		}
+	}
+	j := d.joined[i]
+	d.joined = slices.Delete(d.joined, i, i+1)
+	d.emitLocked(agent.Record{Entry: transcript.Entry{Kind: string(api.BlockKindUser), Text: j.text, ID: j.id}, Sent: true})
 }
 
 // Interrupt cancels the turn: agy answers the prompt "cancelled". What it still asks is void.
@@ -936,9 +1020,22 @@ func (d *Driver) Feed(line []byte, replay bool) {
 	d.mu.Lock()
 	answer := d.feed(line, replay)
 	w := d.w
+	var done chan struct{}
+	if answer != nil && w != nil {
+		done = make(chan struct{})
+		d.autoAllow = append(d.autoAllow, done)
+	}
 	d.drainLocked()
 	if answer != nil && w != nil {
-		go func() { _ = w(answer) }()
+		go func() {
+			defer func() {
+				d.mu.Lock()
+				d.autoAllow = slices.DeleteFunc(d.autoAllow, func(c chan struct{}) bool { return c == done })
+				d.mu.Unlock()
+				close(done)
+			}()
+			_ = w(answer)
+		}()
 	}
 }
 
@@ -1002,6 +1099,29 @@ func (d *Driver) response(f *frame, replay bool) {
 	}
 	if f.Error != nil {
 		if i := slices.Index(d.outstanding, id); i >= 0 {
+			// In auto mode, a mid-turn prompt may arrive right before agy processes our
+			// auto-allow response to session/request_permission. Retry it shortly instead of
+			// dropping the user's message.
+			if !replay && d.mode == "auto" && strings.Contains(f.Error.Message, "waiting for a permission") {
+				if p, ok := d.inFlight[id]; ok && p.retries < 3 {
+					p.retries++
+					d.inFlight[id] = p
+					proc := d.proc
+					go func() {
+						time.Sleep(150 * time.Millisecond)
+						d.mu.Lock()
+						if d.proc != proc || d.w == nil || !slices.Contains(d.outstanding, id) {
+							d.mu.Unlock()
+							return
+						}
+						d.pending[id] = make(chan reply, 1)
+						d.mu.Unlock()
+						_ = d.write(request(id, "session/prompt", map[string]any{"sessionId": p.session, "prompt": p.blocks}))
+					}()
+					return
+				}
+			}
+			delete(d.inFlight, id)
 			// A prompt refused: it never joins the conversation.
 			d.outstanding = slices.Delete(d.outstanding, i, i+1)
 			d.take1(id)
@@ -1012,6 +1132,7 @@ func (d *Driver) response(f *frame, replay bool) {
 		}
 		return
 	}
+	delete(d.inFlight, id)
 	var s stopped
 	if json.Unmarshal(f.Result, &s) != nil || s.StopReason == "" {
 		// Opening the session, as fed again: what it says comes back.
@@ -1025,6 +1146,10 @@ func (d *Driver) response(f *frame, replay bool) {
 		}
 		return
 	}
+	compacted := id != "" && id == d.compacting.id
+	if compacted {
+		d.compactedLocked(s.StopReason)
+	}
 	last := false
 	if i := slices.Index(d.outstanding, id); i >= 0 {
 		d.outstanding = slices.Delete(d.outstanding, i, i+1)
@@ -1033,7 +1158,15 @@ func (d *Driver) response(f *frame, replay bool) {
 		last = s.Usage != nil || s.StopReason != "end_turn"
 	}
 	if !last {
-		d.sealLocked() // one joined the turn: it comes in here (agy 1.5.10 says no more of it)
+		if compacted && d.state == agent.Compacting {
+			d.move(agent.Running, "") // one sent while it compacted runs now
+		}
+		// One joined the turn (agy 1.5.10 says no more of it). It comes in where what is being
+		// written ends (sealLocked), at once if nothing is.
+		d.due++
+		if d.text.Len() == 0 && d.thought.Len() == 0 {
+			d.sealLocked()
+		}
 		return
 	}
 	d.sealLocked()
@@ -1059,14 +1192,33 @@ func (d *Driver) settled() {
 		d.emitLocked(agent.ToolDone{ID: id, Name: t.name})
 	}
 	d.tools = map[string]tool{}
+	for len(d.joined) > 0 {
+		d.flushJoinedLocked("")
+	}
 	d.starting = false
 	if d.state == agent.Idle {
 		return
 	}
+	only := d.state == agent.Compacting
 	d.state = agent.Idle
 	d.emitLocked(agent.StateChange{State: agent.Idle})
-	d.emitLocked(agent.TurnEnd{Reply: d.reply})
+	d.emitLocked(agent.TurnEnd{Reply: d.reply, CompactOnly: only})
 	d.reply = ""
+}
+
+// compactedLocked: the /compact's answer came, how it stopped: a compaction recorded, or one
+// that failed (interrupted).
+func (d *Driver) compactedLocked(stop string) {
+	c := d.compacting
+	d.compacting.id = ""
+	if stop != "end_turn" {
+		d.emitLocked(agent.Compacted{Failed: true})
+		return
+	}
+	d.record(transcript.Entry{Kind: string(api.BlockKindSystem), Event: string(api.SystemEventCompact),
+		Compact: &api.Compaction{Before: c.before, Ms: time.Since(c.since).Milliseconds()}})
+	d.emitLocked(agent.Compacted{Before: c.before})
+	d.context = 0 // known again with the next answer
 }
 
 // serverRequest: agy asks. A permission is put to you, or allowed at once in auto; one fed again
@@ -1174,6 +1326,7 @@ func (d *Driver) update(raw json.RawMessage, replay bool) {
 			if len(d.echoes) > 0 && d.echoes[0] == c.Text {
 				d.echoes = d.echoes[1:]
 				d.sealLocked() // a prompt joined: it comes in here
+				d.flushJoinedLocked(c.Text)
 				return
 			}
 		}
@@ -1234,7 +1387,12 @@ func (d *Driver) update(raw json.RawMessage, replay bool) {
 			}
 			delete(d.tools, u.ToolCallID)
 			d.withdrawFor(u.ToolCallID)
-			d.record(transcript.Entry{Kind: string(api.BlockKindResult), ID: u.ToolCallID, Text: resultOf(u), Error: u.Status == "failed", Content: d.pictureOf(u)})
+			text := resultOf(u)
+			pic := d.pictureOf(u)
+			if live && text == "" && pic == nil {
+				text = d.readTextOf(u, t)
+			}
+			d.record(transcript.Entry{Kind: string(api.BlockKindResult), ID: u.ToolCallID, Text: text, Error: u.Status == "failed", Content: pic})
 			if !d.loading {
 				d.emitLocked(agent.ToolDone{ID: u.ToolCallID, Name: t.name})
 			}
@@ -1316,6 +1474,10 @@ func (d *Driver) sealLocked() {
 			d.emitLocked(agent.MessageDone{Text: text})
 		}
 	}
+	for ; d.due > 0 && len(d.joined) > 0; d.due-- {
+		d.flushJoinedLocked("")
+	}
+	d.due = 0
 }
 
 func (d *Driver) record(e transcript.Entry) { d.emitLocked(agent.Record{Entry: e}) }

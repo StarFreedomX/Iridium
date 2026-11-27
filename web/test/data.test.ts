@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { api, speakAs } from "../src/api/client";
 import type { Block, MessagePage } from "../src/api/types.gen";
-import { chatOf, KEPT_BLOCKS, Messages, unsent, watchTurns, type Sent } from "../src/chats";
+import { chatOf, KEPT_BLOCKS, Messages, watchTurns } from "../src/chats";
 import { Sha256 } from "../src/chat/sha256";
 import { nextChunk, upload } from "../src/chat/upload";
 import { getCarried, onCarried, setCarried } from "../src/store";
@@ -105,21 +105,17 @@ describe("a send lost on the way", () => {
 });
 
 describe("the event stream", () => {
-  test("names the list, the quota, the update, the confirmations and the open session with its context", () => {
-    expect(keysFor(null)).toEqual(["faces", "list", "guilds", "quota", "update", "needs", "pairing", "terminals", "channels", "avatars", "cards", "voice", "ats", "memory", "roles", "scripts"]);
+  test("names the list, the update, the confirmations and the open session with its context", () => {
+    expect(keysFor(null)).toEqual(["faces", "list", "guilds", "update", "needs", "pairing", "terminals", "channels", "avatars", "cards", "voice", "ats", "memory", "roles", "scripts", "favorites"]);
     // A channel's other agents after the open session's own, never past what a stream carries.
     expect(keysFor("a", ["session:b", "session:a"]).slice(-5)).toEqual(["session:a", "context:a", "session:b", "viewers:a", "reads:a"]);
     expect(keysFor("a", Array.from({ length: 40 }, (_, i) => `session:m${i}`))).toHaveLength(40);
     expect(keysFor("a").slice(-4)).toEqual(["session:a", "context:a", "viewers:a", "reads:a"]);
     expect(streamURL()).toMatch(/^wss?:\/\/.*\/v1\/events$/);
   });
-  test("a channel's agents and the subagents at work ask for their states side by side", () => {
-    also(["session:sub1"], "subs");
+  test("a channel's agents ask for their states, and let them go", () => {
     also(["session:b", "context:b"]);
-    expect(carries("session:sub1") && carries("session:b")).toBe(true);
-    also([], "subs");
-    expect(carries("session:sub1")).toBe(false);
-    expect(carries("context:b")).toBe(true);
+    expect(carries("session:b") && carries("context:b")).toBe(true);
     also([]);
     expect(carries("session:b")).toBe(false);
   });
@@ -366,37 +362,6 @@ describe("Messages", () => {
     ]);
     expect(m.end).toBe(40);
     expect(m.fromTail({ start: 5, end: 40, blocks: null as never })).toBe(false);
-  });
-  test("what you sent finds its block by its input id, else its words; a failed one stays", () => {
-    const sent: Sent[] = [
-      { key: "1", text: "hello", files: [], from: 0, input: "u1" },
-      { key: "2", text: "second", files: [], from: 0 },
-      { key: "3", text: "third", files: [], from: 0, failed: "no" },
-    ];
-    expect(unsent(sent, [blk(10, "user", "different", { id: "u1" }), blk(20, "user", "second")]).map((s) => s.key)).toEqual(["3"]);
-    expect(unsent(sent.slice(1, 2), [blk(10, "user", "nope")]).map((s) => s.key)).toEqual(["2"]);
-    // Failed, but it went (only the answer was lost): its block, by its id, takes it.
-    const lost: Sent = { key: "4", text: "fourth", files: [], from: 0, input: "u4", failed: "no" };
-    expect(unsent([lost], [blk(10, "user", "fourth")])).toEqual([lost]);
-    expect(unsent([lost], [blk(10, "user", "fourth", { id: "u4" })])).toEqual([]);
-  });
-  test("attachments alone, no input id (pi): by their files, else a block of attachment lines", () => {
-    const file = { ref: "r1", name: "a.png", type: "image/png" };
-    const pic: Sent = { key: "5", text: "", files: [file], from: 10 };
-    const ref = { ref: "r1", name: "a.png", path: "/u/a.png", size: 1, mime: "image/png", kind: "image" } as never;
-    expect(unsent([pic], [blk(5, "user", "[附件] `/u/a.png`", { files: [ref] })])).toEqual([pic]); // before it was sent
-    expect(unsent([pic], [blk(20, "user", "hi")])).toEqual([pic]);
-    expect(unsent([pic], [blk(20, "user", "[附件] `/u/a.png`", { files: [ref] })])).toEqual([]);
-    expect(unsent([pic], [blk(20, "user", "[附件] `/u/b.png`")])).toEqual([]);
-  });
-  test("what you sent is checked again as its answer comes and as a fetch brings nothing new", async () => {
-    const m = new Messages("s", async (_, q) => (q.after === undefined ? { blocks: [blk(0, "user", "[网页] said", { id: "u1" })], start: 0, end: 10, more: false } : { blocks: [], start: 10, end: 10, more: false }));
-    m.sent.push({ key: "1", text: "said", files: [], from: 0 });
-    await m.newer();
-    expect(m.sent).toHaveLength(1); // its words differ, its id not known yet
-    m.sent[0]!.input = "u1";
-    await m.newer();
-    expect(m.sent).toHaveLength(0);
   });
   test("chats kept lately: up to KEPT_BLOCKS blocks in all, the one asked for always", () => {
     const a = chatOf("keep-a");

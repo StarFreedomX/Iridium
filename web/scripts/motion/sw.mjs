@@ -1,0 +1,34 @@
+import { chromium, webkit } from "playwright-core";
+import fs from "node:fs";
+const [engine = "chromium"] = process.argv.slice(2);
+const H = "/tmp/irperf", R = `${H}/run`;
+const url = `http://127.0.0.1:${fs.readFileSync(`${R}/port`, "utf8").trim()}/`;
+const ids = Object.fromEntries(fs.readFileSync(`${R}/ids`, "utf8").trim().split("\n").map((l) => l.split(" ")));
+const S3 = ids[3];
+const first = fs.readFileSync(`${H}/data/first.json`, "utf8"), members = fs.readFileSync(`${H}/data/members.json`, "utf8");
+const face = fs.readFileSync(`${H}/img/face3.png`);
+const opts = { viewport: { width: 1366, height: 964 }, headless: true, serviceWorkers: "block" };
+if (engine === "chromium") Object.assign(opts, { executablePath: "/home/iridium/.cache/ms-playwright/chromium-1254/chrome-linux64/chrome", args: ["--no-sandbox"] });
+const b = await (engine === "webkit" ? webkit : chromium).launch(opts);
+const p = await b.newPage(opts);
+p.on("pageerror", (e) => console.log("ERR", e.message.slice(0, 300)));
+await p.route(new RegExp(`/v1/internal/sessions/${S3}/first`), (r) => r.fulfill({ contentType: "application/json", body: first }));
+await p.route(new RegExp(`/v1/internal/channels/${S3}/members$`), (r) => r.request().method() === "GET" ? r.fulfill({ contentType: "application/json", body: members }) : r.continue());
+await p.route(/\/v1\/internal\/channels\/[^/]+\/(a|b)(\?|$)/, (r) => r.fulfill({ contentType: "image/png", body: face }));
+await p.route(/\/files\/[^/]+\/thumb/, (r) => r.fulfill({ contentType: "image/png", body: face }));
+await p.goto(url);
+const rowAt = (n) => p.evaluate((name) => { for (const el of document.querySelectorAll("body *")) { if (el.closest("main") || el.children.length || (el.textContent || "").trim() !== name) continue; const r = el.getBoundingClientRect(); if (r.width && r.height) return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; } return null; }, `s${n}`);
+while (!(await rowAt(9))) await p.waitForTimeout(50);
+await p.waitForTimeout(1500);
+await p.evaluate(() => { window.__gaps = []; let last = performance.now(); (function f(t) { if (t - last > 34) window.__gaps.push([Math.round(last), Math.round(t - last)]); last = t; requestAnimationFrame(f); })(performance.now()); });
+const go = async (n) => {
+  const at = await rowAt(n);
+  const t0 = await p.evaluate(() => performance.now());
+  const w0 = Date.now();
+  await p.mouse.click(at.x, at.y);
+  const clickMs = Date.now() - w0;
+  await p.waitForTimeout(1500);
+  return p.evaluate(([t0, clickMs]) => ({ clickMs, rows: document.querySelector("main [role=log]")?.children[0]?.children.length, nodes: document.querySelector("main")?.querySelectorAll("*").length, gaps: window.__gaps.filter((g) => g[0] >= t0 - 20).map((g) => g[1]) }), [t0, clickMs]);
+};
+for (let i = 0; i < 4; i++) { console.log("s3", JSON.stringify(await go(3))); console.log("s4", JSON.stringify(await go(4))); }
+await b.close();

@@ -12,14 +12,19 @@ import (
 	"cmp"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/kumoSleeping/iridium/internal/activity"
 	"github.com/kumoSleeping/iridium/internal/api"
+	"github.com/kumoSleeping/iridium/internal/cron"
+	"github.com/kumoSleeping/iridium/internal/deliver"
 	"github.com/kumoSleeping/iridium/internal/store"
 	"github.com/kumoSleeping/iridium/internal/transcript"
 )
@@ -31,46 +36,57 @@ const (
 	KindAsk   = "ask"   // an agent asks: a question, an approval, a plan
 	KindError = "error" // an agent's process ended badly
 	KindNote  = "note"  // Iridium's own line: who joined, a message not passed on
+	// KindWork: an agent at work that has said nothing yet in its turn: no words, its Data.Work
+	// alone (docs/next/ui.md). Agents are not given it; a page draws it as a line.
+	KindWork = "work"
 )
 
-// What a person member is shown: RecvAll, everything said. An agent's row keeps its receive
-// set instead (RecvSet), as JSON; RecvAll and RecvAt are what rows said before (["*"], []).
-const (
-	RecvAll = "all"
-	RecvAt  = "at"
-)
+// PersonRow is what a person member's row keeps where an agent's keeps its subscriptions.
+const PersonRow = "all"
 
-// RecvSet is the receive set an agent's row keeps (docs/channels.md "接收"): the senders whose
-// messages that name nobody wake it. Rows from before the sets: "all" is ["*"], "at" none.
-func RecvSet(recv string) []string {
-	switch recv {
-	case RecvAll:
-		return []string{Everyone}
-	case RecvAt, "":
-		return []string{}
+// EveryoneOn is the subscription an agent of its own channel has by default where nobody chose
+// one (the sessions from before 2026-11-23): the words of every person wake it.
+var EveryoneOn = []api.Trigger{{Message: &api.MessageTrigger{From: []string{Everyone}}}}
+
+// TriggersOf are the subscriptions an agent's row keeps (docs/channels.md "订阅事件"): what
+// wakes it beside what names it. Rows from before them: a receive set ["*", …] is one message
+// subscription from those, "all" every person's words, "at" or none nothing.
+func TriggersOf(raw string) []api.Trigger {
+	switch raw {
+	case PersonRow:
+		return slices.Clone(EveryoneOn)
+	case "at", "":
+		return []api.Trigger{}
 	}
-	var out []string
-	if json.Unmarshal([]byte(recv), &out) != nil || out == nil {
-		return []string{}
+	var on []api.Trigger
+	if json.Unmarshal([]byte(raw), &on) == nil && on != nil {
+		return on
 	}
-	return out
+	var set []string
+	if json.Unmarshal([]byte(raw), &set) == nil && len(set) > 0 {
+		return []api.Trigger{{Message: &api.MessageTrigger{From: set}}}
+	}
+	return []api.Trigger{}
 }
 
-// EncodeRecv is set as an agent's row keeps it.
-func EncodeRecv(set []string) string {
-	if set == nil {
-		set = []string{}
+// EncodeTriggers is on as a row keeps it.
+func EncodeTriggers(on []api.Trigger) string {
+	if on == nil {
+		on = []api.Trigger{}
 	}
-	b, _ := json.Marshal(set)
+	b, _ := json.Marshal(on)
 	return string(b)
 }
 
-// ErrRecv: an entry of a receive set is none of the senders there are.
-var ErrRecv = errors.New(`recv: a list of "*" (every person), "<app>/*", "<app>/<login>", "agent:<session>"`)
+// ErrOn: a subscription is none there may be.
+var ErrOn = errors.New("on")
 
-// CleanRecv checks set's entries and drops those twice; self (an agent's own member) may not be
+// errFrom: an entry of a message subscription's from is none of the senders there are.
+var errFrom = errors.New("from")
+
+// cleanFrom checks set's entries and drops those twice; self (an agent's own member) may not be
 // one, nor may the agents' "agent:*".
-func CleanRecv(set []string, self string) ([]string, error) {
+func cleanFrom(set []string, self string) ([]string, error) {
 	out := []string{}
 	for _, e := range set {
 		e = strings.TrimSpace(e)
@@ -81,13 +97,96 @@ func CleanRecv(set []string, self string) ([]string, error) {
 			ok = app != "" && login != "" && !strings.Contains(login, "/")
 		}
 		if !ok {
-			return nil, ErrRecv
+			return nil, errFrom
 		}
 		if !slices.Contains(out, e) {
 			out = append(out, e)
 		}
 	}
 	return out, nil
+}
+
+// TextMax is the most an event's Text may be, in characters.
+const TextMax = 2000
+
+// CleanOn checks the subscriptions of self (an agent's member, a script's: what it may not
+// subscribe to of its own; "" none), each of one kind: Message (from as cleanFrom, words
+// trimmed and each once), Command (a name), Cron (as cron reads it), Event (of api.Events).
+// The kinds from before them (recv, script, people) are read as theirs now (on, join).
+func CleanOn(on []api.Trigger, self string) ([]api.Trigger, error) {
+	out := make([]api.Trigger, 0, len(on))
+	for i, t := range on {
+		at := func(f string, a ...any) error {
+			return fmt.Errorf("%w[%d].%s", ErrOn, i, fmt.Sprintf(f, a...))
+		}
+		kinds := 0
+		if t.Message != nil {
+			kinds++
+			from, err := cleanFrom(t.Message.From, self)
+			if err != nil {
+				return nil, at(`message.from: a list of "*" (every person), "<app>/*", "<app>/<login>", "agent:<session>", not its own`)
+			}
+			var words []string
+			for _, w := range t.Message.Words {
+				if w = strings.TrimSpace(w); w != "" && !slices.Contains(words, w) {
+					words = append(words, w)
+				}
+			}
+			t.Message = &api.MessageTrigger{Words: words}
+			if len(from) > 0 {
+				t.Message.From = from
+			}
+		}
+		if t.Command != "" {
+			kinds++
+			t.Command = strings.TrimPrefix(strings.TrimSpace(t.Command), "/")
+			if !deliver.ValidNick(t.Command) {
+				return nil, at("command: a name, letters, digits, _ and -")
+			}
+		}
+		if t.Cron != "" {
+			kinds++
+			t.Cron = strings.Join(strings.Fields(t.Cron), " ")
+			if _, err := cron.Parse(t.Cron); err != nil {
+				return nil, at("cron: %v", err)
+			}
+		}
+		if len(t.Event) > 0 {
+			kinds++
+			var evs []string
+			for _, e := range t.Event {
+				e = EventKind(e)
+				if !slices.Contains(api.Events, e) {
+					return nil, at("event %q: of %s", e, strings.Join(api.Events, " "))
+				}
+				if !slices.Contains(evs, e) {
+					evs = append(evs, e)
+				}
+			}
+			t.Event = evs
+		}
+		if kinds != 1 {
+			return nil, at("each one of message, command, cron, event")
+		}
+		t.Text = strings.TrimSpace(t.Text)
+		if utf8.RuneCountInString(t.Text) > TextMax {
+			return nil, at("text: at most %d characters", TextMax)
+		}
+		out = append(out, t)
+	}
+	return out, nil
+}
+
+// EventKind is an event entry's name of a kind of line: those of before it as theirs now,
+// "recv", "script" and "on" (2026-11-23) are "wake", "people" "join" (and "leave").
+func EventKind(e string) string {
+	switch e = strings.TrimSpace(e); e {
+	case "recv", "script", "on":
+		return "wake"
+	case "people":
+		return "join"
+	}
+	return e
 }
 
 // Everyone is the member that is every login of every app: a channel nobody chose the people
@@ -112,7 +211,7 @@ type Data struct {
 	// stretch of its own record (Session's) that led to it: the lines it spans. From nil: not
 	// known where it began (0 is a place: a session called first, its record empty then).
 	From *int64 `json:"from,omitempty"`
-	To   int64 `json:"to,omitempty"`
+	To   int64  `json:"to,omitempty"`
 	// Final: the last thing the agent said in its turn.
 	Final bool `json:"final,omitempty"`
 	// Sent: an agent's words said with ir, or for it as its turn ended (then Final), not read
@@ -132,30 +231,57 @@ type Data struct {
 	Device string `json:"device,omitempty"`
 	// Script: the script of the channel's IR that said it (its author "script:<name>").
 	Script string `json:"script,omitempty"`
+	// Held: said in a session's own channel without waking its agent (none of its subscriptions
+	// was for it): given to it before what next wakes it there.
+	Held bool `json:"held,omitempty"`
+	// Writing: the agent is writing it now: its text is what there is so far (docs/next/ui.md).
+	Writing bool `json:"writing,omitempty"`
+	// Work: what the agent did after saying it (or, of a KindWork, before it said anything),
+	// counted live.
+	Work *Work `json:"work,omitempty"`
+}
+
+// Work is what an agent does after a message of its turn, as the message carries it: Steps
+// calls so far, Tool the last one's name, Running while its turn goes on and it has not spoken
+// again; At when the first began (ms), Ms how long they took once done. From, To: the lines of
+// the agent's own record (Data.Session's) they span, To 0 while running.
+type Work struct {
+	Steps   int    `json:"steps,omitempty"`
+	Tool    string `json:"tool,omitempty"`
+	Running bool   `json:"running,omitempty"`
+	At      int64  `json:"at,omitempty"`
+	Ms      int64  `json:"ms,omitempty"`
+	From    int64  `json:"from,omitempty"`
+	To      int64  `json:"to,omitempty"`
+	// Agents: how many of the steps sent a subagent off (the harness's own: Claude's Agent tool).
+	Agents int `json:"agents,omitempty"`
 }
 
 // Event is something that happened to a channel, kept as a line of it. Type: "join" (an agent
 // joined: Member, Nick, Name), "leave" (Member, Nick), "rename" (Member, Nick its new one, From
-// its old), "recv" (Member, Nick, Recv: its receive set now), "people" (Added, Removed: member strings; Everyone:
+// its old), "on" (Member, Nick, On: its subscriptions now; "recv" before them, Recv its receive set), "people" (Added, Removed: member strings; Everyone:
 // now everyone), "undelivered" (Seq not given to Nick), "stopped" (Seq not passed on: too many
 // agents in a row), "silent" (Member, Nick was called for Seq and said nothing in the channel;
 // Reason: why, when its turn ended in an error: 余额不足, an API's words…), "recall" (Seq was
 // taken back by Member: recall.go). By: who did it, by name.
 type Event struct {
-	Type     string   `json:"type"`
-	Member   string   `json:"member,omitempty"`
-	Nick     string   `json:"nick,omitempty"`
-	Name     string   `json:"name,omitempty"`
-	From     string   `json:"from,omitempty"`
-	Recv     []string `json:"recv,omitempty"`
-	Added    []string `json:"added,omitempty"`
-	Removed  []string `json:"removed,omitempty"`
-	Everyone bool     `json:"everyone,omitempty"`
-	Seq      int64    `json:"seq,omitempty"`
-	Reason   string   `json:"reason,omitempty"`
-	By       string   `json:"by,omitempty"`
+	Type     string        `json:"type"`
+	Member   string        `json:"member,omitempty"`
+	Nick     string        `json:"nick,omitempty"`
+	Name     string        `json:"name,omitempty"`
+	From     string        `json:"from,omitempty"`
+	Recv     []string      `json:"recv,omitempty"`
+	On       []api.Trigger `json:"on,omitempty"`
+	Added    []string      `json:"added,omitempty"`
+	Removed  []string      `json:"removed,omitempty"`
+	Everyone bool          `json:"everyone,omitempty"`
+	Seq      int64         `json:"seq,omitempty"`
+	// Count: for "stopped", how many turns in a row it came to (Reason "idle": of words alone).
+	Count  int    `json:"count,omitempty"`
+	Reason string `json:"reason,omitempty"`
+	By     string `json:"by,omitempty"`
 	// What: for "profile" (a card changed: Member's, or the channel's when there is none), the
-	// fields that did: "name", "intro", "avatar", "background".
+	// fields that did: "name", "avatar".
 	What []string `json:"what,omitempty"`
 }
 
@@ -174,7 +300,7 @@ func read(m store.ChannelMessage) Message {
 }
 
 func (d Data) encode() string {
-	if d.Session == "" && d.Block == "" && d.From == nil && d.To == 0 && len(d.Files) == 0 && !d.Final && !d.Sent && d.Quote == 0 && d.Card == "" && d.Activity == nil && d.Event == nil && d.Script == "" {
+	if d.Session == "" && d.Block == "" && d.From == nil && d.To == 0 && len(d.Files) == 0 && !d.Final && !d.Sent && d.Quote == 0 && d.Card == "" && d.Activity == nil && d.Event == nil && d.Script == "" && !d.Held && !d.Writing && d.Work == nil {
 		return ""
 	}
 	b, _ := json.Marshal(d)
@@ -191,8 +317,8 @@ type Member struct {
 
 func (m Member) Agent() bool { return m.Session != "" }
 
-// RecvSet is an agent member's receive set.
-func (m Member) RecvSet() []string { return RecvSet(m.Recv) }
+// On are an agent member's subscriptions.
+func (m Member) On() []api.Trigger { return TriggersOf(m.Triggers) }
 
 // Direct: the channel is the agent's own session's: what it was given there is in its record as
 // the channel's own words, not as a channel's message (every agent's words go where it was
@@ -204,12 +330,25 @@ type Service struct {
 	ss   Sessions
 	logf func(string, ...any)
 
+	// OnRecall, if set, is told a channel before a message of it is taken back (Recall): who
+	// keeps which channels have such must know before the store does, or one asking between
+	// is told there is none.
+	OnRecall func(channel string)
+
 	// Numbered: a nick given by default is the harness's name and a number (claude2), as the
 	// tests read them; else its name and four hex digits of its session (Claude-b134).
 	Numbered bool
 
 	mu    sync.Mutex
 	locks map[string]*sync.Mutex // a session's record is read in by one at a time
+	// listen: a session whose agent's turns are heard live (Listen): what its agent says from
+	// then on is a message as it is heard (Begin), never made from the record, which only says
+	// where each is. since: when its turn began (ms). await: those messages, in order, not yet
+	// found in the record. waited: the block of the record that waits for one, and since when.
+	listen map[string]bool
+	since  map[string]int64
+	await  map[string][]int64
+	waited map[string]waitedBlock
 
 	jmu sync.Mutex // one agent joins at a time (Join)
 
@@ -217,7 +356,34 @@ type Service struct {
 	imu   sync.Mutex
 	index *index
 
-	added atomic.Pointer[func(Message)] // OnAdded
+	added      atomic.Pointer[func(Message)] // OnAdded
+	changes    atomic.Pointer[func(Message)] // OnChanged
+	listNotify atomic.Pointer[func(Message)] // OnList
+}
+
+// OnList has f told whenever a channel's visible message text is created or updated (words
+// promoted from KindWork, finalized by Wrote, settled by Revise, or edited) so the sidebar's
+// last-message preview stays current.
+func (s *Service) OnList(f func(Message)) { s.listNotify.Store(&f) }
+
+func (s *Service) notifyList(m Message) {
+	if f := s.listNotify.Load(); f != nil {
+		(*f)(m)
+	}
+}
+
+// OnChanged has f told a message found in its agent's record after it was said live (its
+// block known now), apart from what found it.
+func (s *Service) OnChanged(f func(Message)) { s.changes.Store(&f) }
+
+func (s *Service) changedMessage(ch string, seq int64) {
+	// Told apart from here: this is under the session's lock, and who is told may read the
+	// channel.
+	if f := s.changes.Load(); f != nil {
+		if m, ok := s.Get(ch, seq); ok {
+			go (*f)(m)
+		}
+	}
 }
 
 // OnAdded has f told each message as it is added to a channel (not one said a second time).
@@ -268,6 +434,23 @@ func (s *Service) members() *index {
 	return ix
 }
 
+// Subscribers are the agents of every channel that have subscriptions of their own, as written
+// (a channel nobody changed the members of keeps its own agent's default: words alone).
+func (s *Service) Subscribers() []Member {
+	ix := s.members()
+	var out []Member
+	for _, rows := range ix.rows {
+		for _, r := range rows {
+			id, ok := store.SessionOfMember(r.Member)
+			if !ok || r.Triggers == "" || r.Triggers == "[]" {
+				continue
+			}
+			out = append(out, Member{ChannelMember: r, Session: id, Nick: ix.nicks[id]})
+		}
+	}
+	return out
+}
+
 // changed: the members were written; read them again.
 func (s *Service) changed() {
 	s.imu.Lock()
@@ -279,7 +462,7 @@ func New(st *store.Store, ss Sessions, logf func(string, ...any)) *Service {
 	if logf == nil {
 		logf = func(string, ...any) {}
 	}
-	return &Service{st: st, ss: ss, logf: logf, locks: map[string]*sync.Mutex{}}
+	return &Service{st: st, ss: ss, logf: logf, locks: map[string]*sync.Mutex{}, listen: map[string]bool{}, since: map[string]int64{}, await: map[string][]int64{}, waited: map[string]waitedBlock{}}
 }
 
 func (s *Service) lock(session string) func() {
@@ -307,7 +490,9 @@ func (s *Service) Owns() []store.Channel {
 	for _, c := range ix.own {
 		out = append(out, c)
 	}
-	slices.SortFunc(out, func(a, b store.Channel) int { return cmp.Or(cmp.Compare(a.Created, b.Created), cmp.Compare(a.ID, b.ID)) })
+	slices.SortFunc(out, func(a, b store.Channel) int {
+		return cmp.Or(cmp.Compare(a.Created, b.Created), cmp.Compare(a.ID, b.ID))
+	})
 	return out
 }
 
@@ -336,9 +521,9 @@ func (s *Service) Members(channel string) ([]Member, error) {
 	ix := s.members()
 	rows := ix.rows[channel]
 	if len(rows) == 0 {
-		rows = []store.ChannelMember{{Channel: channel, Member: Everyone, Recv: RecvAll}}
+		rows = []store.ChannelMember{{Channel: channel, Member: Everyone, Triggers: PersonRow}}
 		if _, own := ix.own[channel]; !own {
-			rows = append(rows, store.ChannelMember{Channel: channel, Member: store.AgentMember(channel), Recv: EncodeRecv([]string{Everyone}), Send: store.SendDirect})
+			rows = append(rows, store.ChannelMember{Channel: channel, Member: store.AgentMember(channel), Triggers: EncodeTriggers(EveryoneOn), Send: store.SendDirect})
 		}
 	}
 	out := make([]Member, len(rows))
@@ -451,6 +636,22 @@ func (s *Service) Sync(session string) ([]Message, error) {
 					done := did
 					act, did = &done, activity.Activity{}
 				}
+				if strings.TrimSpace(b.Text) != "" && s.Listening(session) {
+					// Heard live: the message is there already, or about to be. The next of them
+					// in order is this block's; none yet (a record that has the words before
+					// they are heard), it waits here, unless it has waited too long to be one.
+					seq, ok := s.awaited(session)
+					if !ok && s.waits(session, b.At) {
+						if act != nil {
+							did = *act
+						}
+						return added, s.st.SetChannelSync(session, lineOf(b.At), pendingOf(did))
+					}
+					if ok {
+						err = s.anchor(ch, seq, session, b, act)
+						break
+					}
+				}
 				m, isNew, err = s.syncSaid(ch, session, author, b, act)
 			case api.BlockKindUser:
 				m, isNew, err = s.syncUser(ch, session, b, alone, !had)
@@ -470,12 +671,7 @@ func (s *Service) Sync(session string) ([]Message, error) {
 		}
 		off = p.End
 	}
-	pending = ""
-	if !did.Empty() {
-		if b, err := json.Marshal(did); err == nil {
-			pending = string(b)
-		}
-	}
+	pending = pendingOf(did)
 	return added, s.st.SetChannelSync(session, off, pending)
 }
 
@@ -525,8 +721,11 @@ func (s *Service) syncSaid(ch, session, author string, b api.Block, did *activit
 	for _, l := range loose {
 		if l.Kind == KindSaid && Same(l.Text, text) {
 			old := read(l)
-			d.Final = old.D.Final
+			d.Final, d.Work = old.D.Final, old.D.Work
 			if ok, err := s.st.AnchorMessage(ch, l.Seq, ref, d.encode()); err != nil || ok {
+				if ok {
+					s.changedMessage(ch, l.Seq)
+				}
 				return Message{}, false, err
 			}
 		}
@@ -547,7 +746,7 @@ func (s *Service) syncUser(ch, session string, b api.Block, alone, first bool) (
 		return Message{}, false, nil
 	}
 	// What the agent was given of another channel it is in: said there, not here.
-	if ours && Given(text) {
+	if ours && (Given(text) || s.isOtherChannelInput(session, b.ID, text)) {
 		return Message{}, false, nil
 	}
 	ref := b.ID
@@ -580,10 +779,38 @@ func (s *Service) syncUser(ch, session string, b api.Block, alone, first bool) (
 	return s.add(m)
 }
 
-// Given: text is what an agent was given of a channel (assemble.ChannelTurn): the words under
-// their number, then the channel's context.
+// Given: text is what an agent was given of a channel (assemble.ChannelTurn or ChannelOverhear):
+// the words under their number with the channel's context, or an overheard live message.
 func Given(text string) bool {
-	return strings.HasPrefix(text, "#") && strings.Contains(text, "\n<channel-context")
+	return (strings.HasPrefix(text, "#") && strings.Contains(text, "\n<channel-context")) ||
+		strings.HasPrefix(text, "<channel-overhear>")
+}
+
+// isOtherChannelInput reports whether a user block in session's own transcript was actually
+// delivered from another channel (e.g. a brief same-channel turn with no <channel-context> block).
+func (s *Service) isOtherChannelInput(session, input, text string) bool {
+	if !strings.HasPrefix(text, "#") {
+		return false
+	}
+	if input != "" {
+		if in, ok := s.st.InjectionOf(session, input); ok && in.Channel != "" && in.Channel != session {
+			return true
+		}
+	}
+	rows, err := s.st.Injections(session, 20)
+	if err != nil {
+		return false
+	}
+	for _, in := range rows {
+		if in.Channel == "" || in.Channel == session || in.Seq <= 0 {
+			continue
+		}
+		prefix := "#" + strconv.FormatInt(in.Seq, 10)
+		if strings.HasPrefix(text, prefix+": ") || strings.HasPrefix(text, prefix+" [") {
+			return true
+		}
+	}
+	return false
 }
 
 // HostTerminal is the author of what was typed to an agent in its own terminal, outside Iridium.
@@ -717,7 +944,13 @@ func (s *Service) End(channel string) int64 {
 
 // Edit changes the words of message seq; Drop takes it back.
 func (s *Service) Edit(channel string, seq int64, text string) error {
-	return s.st.EditChannelMessage(channel, seq, text)
+	if err := s.st.EditChannelMessage(channel, seq, text); err != nil {
+		return err
+	}
+	if m, ok := s.Get(channel, seq); ok {
+		s.notifyList(m)
+	}
+	return nil
 }
 
 func (s *Service) Drop(channel string, seq int64) error {
@@ -742,4 +975,303 @@ func Same(a, b string) bool {
 		return string(r)
 	}
 	return a != "" && b != "" && norm(a) == norm(b)
+}
+
+// Listen: session's agent begins a turn that is heard live, at since (ms). From its first such
+// turn on, what it says is a message as it is heard (Begin), and its record only says where
+// each is. What the record has by now is read in first, as ever.
+func (s *Service) Listen(session string, since int64) {
+	if !s.Listening(session) {
+		s.Touch(session)
+	}
+	s.mu.Lock()
+	s.listen[session] = true
+	s.since[session] = since
+	s.mu.Unlock()
+}
+
+// Listening: session's agent's turns are heard live (Listen).
+func (s *Service) Listening(session string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.listen[session]
+}
+
+// waitedBlock is a block of a record that waits for the message heard live it is, and since when.
+type waitedBlock struct {
+	at    string
+	since time.Time
+}
+
+// waits: block at of session's record, of words not heard yet, may wait for them longer.
+func (s *Service) waits(session, at string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	w := s.waited[session]
+	if w.at != at {
+		w = waitedBlock{at, time.Now()}
+		s.waited[session] = w
+	}
+	return time.Since(w.since) < unheardFor
+}
+
+// awaited takes the first message heard live of session's agent that its record has not been
+// found to have.
+func (s *Service) awaited(session string) (int64, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a := s.await[session]
+	if len(a) == 0 {
+		return 0, false
+	}
+	s.await[session] = a[1:]
+	return a[0], true
+}
+
+// unheardFor: how long what a record has of an agent heard live may be there without having
+// been heard, before it is taken from the record after all.
+const unheardFor = time.Minute
+
+// lineOf is the line of a record a block's place ("<line>.<n>") is in.
+func lineOf(at string) int64 {
+	line, _, _ := strings.Cut(at, ".")
+	n, _ := strconv.ParseInt(line, 10, 64)
+	return n
+}
+
+func pendingOf(did activity.Activity) string {
+	if did.Empty() {
+		return ""
+	}
+	b, err := json.Marshal(did)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+// anchor: message seq of ch, heard live, is block b of session's record.
+func (s *Service) anchor(ch string, seq int64, session string, b api.Block, did *activity.Activity) error {
+	cur, ok, err := s.st.ChannelMessage(ch, seq)
+	if err != nil || !ok || cur.Gone {
+		return err
+	}
+	m := read(cur)
+	if !m.D.Writing && !Same(m.Text, s.whole(session, b)) {
+		s.logf("channel %s: message %d, heard live, is not what its record has next (%s)", ch, seq, b.At)
+	}
+	m.D.Block, m.D.Files, m.D.Activity = b.At, b.Files, did
+	if ok, err := s.st.AnchorMessage(ch, seq, blockRef(session, b.At), m.D.encode()); err != nil || !ok {
+		return err
+	}
+	s.changedMessage(ch, seq)
+	return nil
+}
+
+// Begin: session's agent, heard live (Listen), says text in its own channel: a message of it
+// now; writing: it is still writing it, text what there is so far. after: the number of the last
+// message heard from it. Its record may have had these words, and whoever looked read them in,
+// before its turn was known to be heard (Listen comes a little late): then the first message of
+// this turn that is from the record and was not heard yet is the one (adopted, whole).
+func (s *Service) Begin(session, text string, writing bool, after, pre int64) (m Message, adopted bool, err error) {
+	// What its record has before these words (what it was asked, typed in its terminal or as a
+	// new session's first message) comes before them.
+	s.Touch(session)
+	unlock := s.lock(session)
+	unlocked := false
+	defer func() {
+		if !unlocked {
+			unlock()
+		}
+	}()
+	author := store.AgentMember(session)
+	s.mu.Lock()
+	since := s.since[session]
+	s.mu.Unlock()
+	if since > 0 {
+		last, err := s.st.ChannelMessages(session, 0, -1, 12)
+		if err != nil {
+			return Message{}, false, err
+		}
+		begun := strings.TrimSpace(transcript.WithoutNameLines(text))
+		for _, l := range last {
+			if l.Seq > after && l.At >= since && l.Author == author && l.Kind == KindSaid && strings.HasPrefix(l.Ref, "b:") && !l.Gone &&
+				strings.HasPrefix(strings.TrimSpace(transcript.WithoutNameLines(l.Text)), begun) {
+				return read(l), true, nil
+			}
+		}
+	}
+	// pre: the message made for it as its turn began (BeginWork), of no words yet and no work:
+	// these words are its.
+	if pre != 0 {
+		if m, ok := s.words(session, pre, text, writing); ok {
+			s.mu.Lock()
+			s.await[session] = append(s.await[session], m.Seq)
+			s.mu.Unlock()
+			unlock()
+			unlocked = true
+			s.notifyList(m)
+			return m, false, nil
+		}
+	}
+	m, _, err = s.add(Message{ChannelMessage: store.ChannelMessage{Channel: session, Author: author, Kind: KindSaid, Text: text},
+		D: Data{Session: session, Writing: writing}})
+	if err == nil && m.Seq != 0 {
+		s.mu.Lock()
+		s.await[session] = append(s.await[session], m.Seq)
+		s.mu.Unlock()
+	}
+	return m, false, err
+}
+
+// words gives message seq of ch, one of no words (KindWork), its words: an agent's words from
+// now (KindSaid), text, being written or whole; the work it carried so far stays where it did
+// some. With the channel's lock held, or of a channel that is no session's.
+func (s *Service) words(ch string, seq int64, text string, writing bool) (Message, bool) {
+	m, ok := s.Get(ch, seq)
+	if !ok || m.Kind != KindWork {
+		return Message{}, false
+	}
+	if err := s.st.SetChannelMessageKind(ch, seq, KindSaid); err != nil {
+		s.logf("channel %s: message %d: %v", ch, seq, err)
+		return Message{}, false
+	}
+	m.Kind = KindSaid
+	if err := s.st.EditChannelMessage(ch, seq, text); err != nil {
+		s.logf("channel %s: message %d: %v", ch, seq, err)
+	}
+	m.Text = text
+	m.D.Writing = writing
+	if m.D.Work != nil && m.D.Work.Steps == 0 {
+		m.D.Work = nil
+	}
+	if err := s.st.SetChannelMessageData(ch, seq, m.D.encode()); err != nil {
+		s.logf("channel %s: message %d: %v", ch, seq, err)
+	}
+	return m, true
+}
+
+// Words is words for a message of another channel than its agent's own (a twin).
+func (s *Service) Words(ch string, seq int64, text string, writing bool) (Message, bool) {
+	unlock := s.lock(ch)
+	m, ok := s.words(ch, seq, text, writing)
+	unlock()
+	if ok {
+		s.notifyList(m)
+	}
+	return m, ok
+}
+
+// Forget takes message seq of ch away as one never said (a message made as a turn began, of a
+// turn that said and did nothing).
+func (s *Service) Forget(ch string, seq int64) {
+	if err := s.st.ForgetChannelMessage(ch, seq); err != nil {
+		s.logf("channel %s: message %d: %v", ch, seq, err)
+	}
+}
+
+// Wrote: message seq of channel ch is written whole, text its words.
+func (s *Service) Wrote(ch string, seq int64, text string) (Message, bool) {
+	unlock := s.lock(ch)
+	m, ok := s.Get(ch, seq)
+	if !ok {
+		unlock()
+		return Message{}, false
+	}
+	if m.Text != text {
+		if err := s.st.EditChannelMessage(ch, seq, text); err != nil {
+			s.logf("channel %s: message %d: %v", ch, seq, err)
+		}
+		m.Text = text
+	}
+	if m.D.Writing {
+		m.D.Writing = false
+		if err := s.st.SetChannelMessageData(ch, seq, m.D.encode()); err != nil {
+			s.logf("channel %s: message %d: %v", ch, seq, err)
+		}
+	}
+	unlock()
+	s.notifyList(m)
+	return m, true
+}
+
+// BeginWork: session's agent is at work in its turn and has said nothing in it: a message of
+// no words that carries the work.
+func (s *Service) BeginWork(session string, w Work) (Message, error) {
+	s.Touch(session)
+	m, _, err := s.add(Message{ChannelMessage: store.ChannelMessage{Channel: session, Author: store.AgentMember(session), Kind: KindWork,
+		Ref: fmt.Sprintf("w:%s:%d", session, time.Now().UnixNano())}, D: Data{Session: session, Work: &w}})
+	return m, err
+}
+
+// SetWork changes the work message seq of channel ch carries: f is given what it has (never
+// nil) and changes it.
+func (s *Service) SetWork(ch string, seq int64, f func(*Work)) (Message, bool) {
+	defer s.lock(ch)()
+	m, ok := s.Get(ch, seq)
+	if !ok {
+		return Message{}, false
+	}
+	if m.D.Work == nil {
+		m.D.Work = &Work{}
+	}
+	f(m.D.Work)
+	if err := s.st.SetChannelMessageData(ch, seq, m.D.encode()); err != nil {
+		s.logf("channel %s: message %d: %v", ch, seq, err)
+	}
+	return m, true
+}
+
+// SettleLive: nothing is being written and no work runs: what a stop of Iridium left marked so
+// is as it was left. Once, as it starts.
+func (s *Service) SettleLive() {
+	if err := s.st.SettleLiveMessages(); err != nil {
+		s.logf("channel: settling what was live: %v", err)
+	}
+}
+
+// first reads session's record in where it never was: what it has is from before anyone
+// listened.
+func (s *Service) first(session string) {
+	if _, _, had, err := s.st.ChannelSync(session); err == nil && !had {
+		s.Touch(session)
+	}
+}
+
+// Revise changes message seq of channel ch: its words, where text is not nil; its data, by f
+// (nil: as it is); and what it is from, where ref is not "".
+func (s *Service) Revise(ch string, seq int64, text *string, f func(*Data), ref string) (Message, bool) {
+	unlock := s.lock(ch)
+	m, ok := s.Get(ch, seq)
+	if !ok {
+		unlock()
+		return Message{}, false
+	}
+	if text != nil && m.Text != *text {
+		if err := s.st.EditChannelMessage(ch, seq, *text); err != nil {
+			s.logf("channel %s: message %d: %v", ch, seq, err)
+		}
+		m.Text = *text
+	}
+	if f != nil {
+		f(&m.D)
+	}
+	var err error
+	if ref != "" && ref != m.Ref {
+		if ok, aerr := s.st.AnchorMessage(ch, seq, ref, m.D.encode()); aerr == nil && ok {
+			m.Ref = ref
+		} else {
+			err = cmp.Or(aerr, s.st.SetChannelMessageData(ch, seq, m.D.encode()))
+		}
+	} else if f != nil {
+		err = s.st.SetChannelMessageData(ch, seq, m.D.encode())
+	}
+	if err != nil {
+		s.logf("channel %s: message %d: %v", ch, seq, err)
+	}
+	unlock()
+	if text != nil {
+		s.notifyList(m)
+	}
+	return m, true
 }

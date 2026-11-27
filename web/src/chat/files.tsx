@@ -12,8 +12,8 @@ import type { FileRef } from "../api/types.gen";
 import { FileWindow } from "../file-window";
 import { t } from "../i18n";
 import { cn, IconKey, Tip } from "../ui";
+import { LonePicture, spaceShuts, useGallery } from "./gallery";
 import { previewKind, type PreviewKind } from "./preview-lib";
-import { Viewer } from "./zoom";
 
 const PreviewBody = lazy(() => import("./preview"));
 
@@ -60,9 +60,10 @@ export const previews = new Map<string, string>();
 
 /** An image that fades in once it has loaded (at once if it already has), over under if given.
  *  style: its aspect ratio, when known, so its place is kept before it loads. */
-function Shown({ src, under, alt, className, style }: { src: string; under?: string; alt: string; className: string; style?: CSSProperties }) {
-  const [ready, setReady] = useState(false);
-  const done = useCallback((el: HTMLImageElement | null) => void (el?.complete && el.naturalWidth && setReady(true)), []);
+function Shown({ src, under, alt, className, style, onReady }: { src: string; under?: string; alt: string; className: string; style?: CSSProperties; onReady?: () => void }) {
+  const [ready, setOne] = useState(false);
+  const setReady = useCallback((v: boolean) => (setOne(v), v && onReady?.()), [onReady]);
+  const done = useCallback((el: HTMLImageElement | null) => void (el?.complete && el.naturalWidth && setReady(true)), [setReady]);
   return (
     <>
       {under && <img src={under} alt="" aria-hidden className={cn(className, "absolute inset-0 size-full")} />}
@@ -71,60 +72,60 @@ function Shown({ src, under, alt, className, style }: { src: string; under?: str
   );
 }
 
+/** Display dimensions and crop mode for an inline image preview. Normal aspect ratios keep their
+ *  exact proportion up to maxW × maxH without upscaling; extreme tall/wide strips clamp to a
+ *  readable box and crop the extreme ends (top for tall strips, centered for wide strips). */
+export function pictureBox(w?: number, h?: number, maxW = 340, maxH = 420, minW = 140, minH = 84): { w: number; h: number; crop: "none" | "top" | "center" } | undefined {
+  if (!w || !h || w <= 0 || h <= 0) return undefined;
+  const k = Math.min(1, maxW / w, maxH / h);
+  const fitW = Math.max(1, Math.round(w * k));
+  const fitH = Math.max(1, Math.round(h * k));
+  if (h / w > 2.8) {
+    return { w: Math.min(maxW, Math.max(minW, fitW)), h: Math.min(maxH, Math.max(fitH, Math.min(h, maxH))), crop: "top" };
+  }
+  if (w / h > 3.2) {
+    return { w: Math.min(maxW, Math.max(fitW, Math.min(w, maxW))), h: Math.min(maxH, Math.max(minH, fitH)), crop: "center" };
+  }
+  return { w: fitW, h: fitH, crop: "none" };
+}
+
 /** A picture: its thumbnail, opening the original over the page; small, in a row of files, as high
  *  as the composer's and its own shape, as it was there. under: what shows till it has come.
  *  w, h: its size as the server read it: its place is kept as it loads, the conversation does not
  *  move (a chat opened the first time, its pictures not yet in the cache). */
 export function Picture({ src, full, name, under, w, h }: { src: string; full: string; name: string; under?: string; w?: number; h?: number }) {
+  const box = pictureBox(w, h);
+  const style: CSSProperties | undefined = box ? { width: box.w, aspectRatio: `${box.w} / ${box.h}` } : undefined;
+  const pos = box?.crop === "top" ? "object-top" : "object-center";
+  // Its grey ground only till it has come: under a picture that lets the page through (a
+  // translucent window's screenshot) it greyed it, darker than the picture opened (kumo, 2026-11-25).
+  const [ready, setReady] = useState(false);
+  const shown = useCallback(() => setReady(true), []);
   return (
     <Zoom full={full} name={name}>
-      <button type="button" aria-label={`${name} · ${t("msg.openImage")}`} className="g-press relative block w-full max-w-[340px] overflow-hidden rounded-lg bg-fill shadow-[0_0_0_0.5px_var(--edge)]">
-        <Shown src={src} under={under} alt={name} style={w && h ? { aspectRatio: `${w} / ${h}` } : undefined} className="block max-h-[420px] w-full object-cover" />
+      <button type="button" aria-label={`${name} · ${t("msg.openImage")}`} style={box ? { width: box.w } : undefined} className={cn("g-press relative block max-w-full overflow-hidden rounded-lg shadow-[0_0_0_0.5px_var(--edge)]", !ready && !under && "bg-fill", !box && "w-fit")}>
+        <Shown src={src} under={under} alt={name} style={style} onReady={shown} className={cn("block max-w-full object-cover", pos, box ? "w-full" : "max-h-[420px] max-w-[340px] min-h-[56px] min-w-[80px] h-auto w-auto")} />
       </button>
     </Zoom>
   );
 }
 
-/** Space shuts a preview, as Quick Look does on a Mac (kumo, 2026-11-23); not where one types. */
-const spaceShuts = (close: () => void) => (e: React.KeyboardEvent) => {
-  if (e.key !== " " || e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;
-  const t = e.target as HTMLElement;
-  if (t.closest("input,textarea,select,[contenteditable=''],[contenteditable=true]")) return;
-  e.preventDefault();
-  close();
-};
-
 /** children (a button) opens full over the page, fit to the window, to look closer (zoom.tsx), shut
- *  by a press beside it, Esc, Space or its key, or download. */
+ *  by a press beside it, Esc, Space or its key, or download. One of a conversation's pictures opens
+ *  in its viewer, among the others (gallery.tsx); any other alone. */
 export function Zoom({ full, name, children }: { full: string; name: string; children: ReactElement }) {
   const [open, setOpen] = useState(false);
+  const gallery = useGallery();
+  const change = (o: boolean) => {
+    if (o && gallery?.open(full)) return;
+    setOpen(o);
+  };
   return (
-    <Dialog.Root open={open} onOpenChange={setOpen}>
+    <LonePicture open={open} setOpen={change} full={full} name={name}>
       <Tip label={t("msg.openImage")}>
         <Dialog.Trigger render={children} />
       </Tip>
-      <Dialog.Portal>
-        <Dialog.Backdrop className="fixed inset-0 z-50 bg-paper/70 backdrop-blur-sm transition-opacity duration-(--dur-2) data-ending-style:opacity-0 data-starting-style:opacity-0" />
-        <Dialog.Popup onKeyDown={spaceShuts(() => setOpen(false))} className="fixed inset-0 z-50 outline-none transition-[opacity,scale] duration-(--dur-2) ease-(--ease-out) data-ending-style:scale-[0.98] data-ending-style:opacity-0 data-starting-style:scale-[0.98] data-starting-style:opacity-0">
-          <Dialog.Title className="sr-only">{name}</Dialog.Title>
-          <Viewer
-            src={full}
-            name={name}
-            close={() => setOpen(false)}
-            corner={
-              <>
-                <a href={full} download={name} aria-label={t("msg.download")} className="glass g-press grid size-8 place-items-center rounded-full text-ink-2 hover:text-ink">
-                  <Download size={15} />
-                </a>
-                <Dialog.Close aria-label={t("msg.close")} className="glass g-press grid size-8 place-items-center rounded-full text-ink-2 hover:text-ink">
-                  <X size={15} />
-                </Dialog.Close>
-              </>
-            }
-          />
-        </Dialog.Popup>
-      </Dialog.Portal>
-    </Dialog.Root>
+    </LonePicture>
   );
 }
 

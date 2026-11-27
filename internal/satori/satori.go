@@ -73,8 +73,8 @@ type SendOpts struct {
 	Quote int64 `json:"-"`
 }
 
-// Resolver is a Backend that takes a session's id as a caller may write it: the start of one,
-// or "self", the caller's own (docs/api.md "会话 ID"). Without it ids are taken as they are.
+// Resolver is a Backend that takes a session's id as a caller may write it: whole or the start
+// of one (docs/api.md "会话 ID"). Without it ids are taken as they are.
 type Resolver interface {
 	Resolve(ctx context.Context, c Caller, id string) (string, error)
 }
@@ -110,6 +110,9 @@ type Backend interface {
 	SeesGuild(c Caller, w api.Workspace) bool
 	// Sees: c may see session id. What it may not see is not there for it.
 	Sees(c Caller, id string) bool
+	// SeesListed is Sees of a session of the list, by its row: a list asks it of every row, and
+	// Sees makes each one's whole state for it (otae, 2026-11-25: a page of the list in 10 s).
+	SeesListed(c Caller, ss api.Session) bool
 	// Messages is a page of session id's transcript (Manager.Messages), its blocks' files named.
 	Messages(id string, before, after int64) (api.MessagePage, error)
 	// Full is the whole text of the block at at.
@@ -180,9 +183,15 @@ type Service struct {
 	log *channel.Service // what was said in the channels (Channels)
 	// onSaid is told each message an agent said, as it is sent out (OnSaid).
 	onSaid    func(channel.Message)
-	onTurnEnd func(session, reply string, waiting []string)
+	onTurnEnd func(session, reply string, waiting []string, background bool)
 	onTaken   func(session, input string)
 	onBegan   func(session string)
+	onAsk     func(ch string, seq int64, session string, a api.Ask)
+	// onLive is told each message of an agent's own channel as it is told live (OnLive).
+	onLive func(m channel.Message, passing bool)
+	// onLiveGone is told a message told so that is taken away again (one made as a turn began,
+	// of a turn that came to nothing).
+	onLiveGone func(m channel.Message)
 
 	mu      sync.Mutex
 	held    map[string]channel.Message  // session: the agent's last message this turn, not sent yet
@@ -191,11 +200,20 @@ type Service struct {
 	started map[string]time.Time        // session: when its turn began
 	picks   map[string]map[int][]string // an ask's card: the options pressed so far, by group
 	words   map[string]map[int]string   // an ask's card: own words so far, by group
+	live    map[string]*saying          // session: what its agent is at in its turn (live.go); the worker's
 }
 
 // OnSaid has f told each thing an agent says in a channel, after the event of it is kept; f
 // must not wait.
 func (s *Service) OnSaid(f func(channel.Message)) { s.onSaid = f }
+
+// OnLive has f told each message an agent says in its turn, in its own channel, as those who
+// take messages live are told of it: as it begins, as it grows (passing: more follows soon), as
+// its work goes on. f must not wait.
+func (s *Service) OnLive(f func(m channel.Message, passing bool)) { s.onLive = f }
+
+// OnLiveGone has f told each message told by OnLive that is no more. f must not wait.
+func (s *Service) OnLiveGone(f func(m channel.Message)) { s.onLiveGone = f }
 
 // OnTaken has f told each input given to a session's agent, in order with what the agent says
 // (session.NoticeTaken): what f is told before a thing said is told were given before it.
@@ -204,10 +222,17 @@ func (s *Service) OnTaken(f func(session, input string)) { s.onTaken = f }
 // OnTurnStart has f told each turn of a session that begins, in order with what its agent says.
 func (s *Service) OnTurnStart(f func(session string)) { s.onBegan = f }
 
+// OnAsk has f told each ask of a session's agent as its message is made in a channel it is told
+// in (its own, or one it is in beside): the channel, the message's number. f must not wait.
+func (s *Service) OnAsk(f func(ch string, seq int64, session string, a api.Ask)) { s.onAsk = f }
+
 // OnTurnEnd has f told each turn of a session that ends, after its reply was said: the
 // session, the reply's words ("" if it said none), and the inputs that still wait in its queue
-// (session.Notice.Waiting). A turn cut short by its process ending is told too, with no reply.
-func (s *Service) OnTurnEnd(f func(session, reply string, waiting []string)) { s.onTurnEnd = f }
+// (session.Notice.Waiting), and whether background tasks of its agent went on as it ended
+// (session.Notice.Background). A turn cut short by its process ending is told too, with no reply.
+func (s *Service) OnTurnEnd(f func(session, reply string, waiting []string, background bool)) {
+	s.onTurnEnd = f
+}
 
 // Note writes a line of Iridium's own into channel ch and tells those who see it (_data.kind
 // "note"). ev: what it tells of, for a page to say in its own words (the message's _data.event).
@@ -224,7 +249,13 @@ func (s *Service) Note(ch, text, origin string, ev *channel.Event) int64 {
 const NoteUser = "iridium"
 
 // Channels gives the service the channels' log: what message.list reads and the events are of.
-func (s *Service) Channels(l *channel.Service) { s.log = l }
+func (s *Service) Channels(l *channel.Service) {
+	s.log = l
+	l.SettleLive()
+	// Found in its agent's record after it was said live: its block, for those who have it.
+	// Not relayed via onLive: it runs out of order with turns and only anchors the record block.
+	l.OnChanged(func(m channel.Message) { s.tellLiveLocal("message-updated", m, false, "") })
+}
 
 // New starts the service; feed it the sessions' notices with Notice, Close it at the end.
 func New(b Backend, logf func(string, ...any)) *Service {
@@ -232,7 +263,7 @@ func New(b Backend, logf func(string, ...any)) *Service {
 		logf = log.Printf
 	}
 	s := &Service{b: b, logf: logf, out: newOutbox(logf), qwake: make(chan struct{}, 1), stop: make(chan struct{}), done: make(chan struct{}),
-		held: map[string]channel.Message{}, heard: map[string]int64{}, origin: map[string]string{}, started: map[string]time.Time{}, picks: map[string]map[int][]string{}, words: map[string]map[int]string{}}
+		held: map[string]channel.Message{}, heard: map[string]int64{}, origin: map[string]string{}, started: map[string]time.Time{}, picks: map[string]map[int][]string{}, words: map[string]map[int]string{}, live: map[string]*saying{}}
 	go s.work()
 	return s
 }

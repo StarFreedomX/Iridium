@@ -13,7 +13,6 @@
 | 请求 | 去向 |
 |---|---|
 | `/_ir/*`（头像除外） | 网页层自己答：页面、`/_ir/health`、`/_ir/api/session`、Passkey 流程、登出 |
-| `/p/<令牌>…` | 公开链接的只读页面（`Config.Viewer`，`docs/api.md` 公开链接）：只在开着时，不要登录；去掉 Cookie 和 Authorization，只收 GET/HEAD，不升级 WebSocket；关着 404 |
 | 带 `Authorization: Bearer` | 原样交给核心（应用、执行端 `/v1/internal/exec`、远端 `ir` `/v1/internal/cli`、配对、`/v1/events`），公网模式下响应改 private |
 | 网页关着 | 查 Host/Origin 后经 `gate.AsHost` 算主机 |
 | Cookie 有效 | 去掉 Cookie，设 `Authorization: Bearer <ir_web 的 TOKEN>`、`Satori-Platform: ir_web`、`Satori-User-ID: <登录 ID>`（浏览器自己带的这几个头一律替换），交给核心 |
@@ -38,7 +37,7 @@
 
 ## 邀请
 
-- 新登录只能靠一次性邀请：`https://<域名>/_ir/join#<token>`，10 分钟；`#` 后面不进服务器日志。打开后起名、建 Passkey，成功才用掉邀请，同时在核心里建登录并批准（`CreateWebLogin`），再调 `OnJoin`（第一个登录是本人的，给 Claude；邀请带的权限给新登录）。
+- 新登录只能靠一次性邀请：`https://<域名>/_ir/join#<token>`，10 分钟；`#` 后面不进服务器日志。打开后起名、建 Passkey，成功才用掉邀请，同时在核心里建登录并批准（`CreateWebLogin`），再调 `OnJoin`（邀请带的权限给新登录）。
 - 邀请占着的名字别的登录不能用；邀请可按 ID 或名字撤掉（`ir apps rm`）。
 - 首次：开着且还没有登录时，启动会在状态目录写 `setup-token`（0600，不过期的 join 链接）；每次重启换新的，有了登录就删掉。
 - 最后一个有 Passkey 的登录删不了（`MayRemove`，409 `last_passkey`）。

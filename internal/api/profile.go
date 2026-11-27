@@ -12,43 +12,39 @@ const (
 
 // Profile is the card of a member or of a channel. ID: an agent's member ("agent:<session>"), a
 // person's or an app's user id, a channel's id. Name: what it is called by (an agent's nick, a
-// login's name, a channel's name). Avatar, Background: where the image is fetched ("/v1/…"), or
-// an emoji, or a colour ("#2f4f6f"); "" none. Persona: an agent's own words on how it works,
-// in its system prompt after its intro (otae, 2026-11-21). Model: what an agent runs as. Role:
+// login's name, a channel's name). Avatar: where the image is fetched ("/v1/…"), or an emoji,
+// or a colour ("#2f4f6f"); "" none. No background: its card's banner is its face's colours
+// (kumo, 2026-11-25). Persona: an agent's own words on how it works,
+// in its system prompt (otae, 2026-11-21). Model: what an agent runs as. Role:
 // the role its session was started as.
 type Profile struct {
-	ID         string `json:"id"`
-	Kind       string `json:"kind"`
-	Name       string `json:"name,omitempty"`
-	Intro      string `json:"intro,omitempty"`
-	Persona    string `json:"persona,omitempty"`
-	Avatar     string `json:"avatar,omitempty"`
-	Background string `json:"background,omitempty"`
-	Session    string `json:"session,omitempty"`
-	Agent      Agent  `json:"agent,omitempty"`
-	Model      string `json:"model,omitempty"`
-	Status     Status `json:"status,omitempty"`
-	Role       string `json:"role,omitempty"`
+	ID      string `json:"id"`
+	Kind    string `json:"kind"`
+	Name    string `json:"name,omitempty"`
+	Persona string `json:"persona,omitempty"`
+	Avatar  string `json:"avatar,omitempty"`
+	Session string `json:"session,omitempty"`
+	Agent   Agent  `json:"agent,omitempty"`
+	Model   string `json:"model,omitempty"`
+	Status  Status `json:"status,omitempty"`
+	Role    string `json:"role,omitempty"`
 	// Mine: the caller may change it.
 	Mine bool `json:"mine,omitempty"`
 }
 
 // ProfilePatch changes a profile; a nil field stays. Nick and Name are the same thing (an
-// agent's is its nick, a channel's its name). Avatar, Background: an image (a data: URL or
+// agent's is its nick, a channel's its name). Avatar: an image (a data: URL or
 // base64; for the host's own ir, a file's path), an emoji, a colour ("#2f4f6f"), or "" for none.
 // Persona: an agent's alone.
 type ProfilePatch struct {
-	Nick       *string `json:"nick,omitempty"`
-	Name       *string `json:"name,omitempty"`
-	Intro      *string `json:"intro,omitempty"`
-	Persona    *string `json:"persona,omitempty"`
-	Avatar     *string `json:"avatar,omitempty"`
-	Background *string `json:"background,omitempty"`
+	Nick    *string `json:"nick,omitempty"`
+	Name    *string `json:"name,omitempty"`
+	Persona *string `json:"persona,omitempty"`
+	Avatar  *string `json:"avatar,omitempty"`
 }
 
-// IntroMax is how many characters an intro may have; PersonaMax, a persona; MemoryMax, a memory.
+// PersonaMax is how many characters a persona may have; MemoryMax, a memory.
 const (
-	IntroMax   = 200
 	PersonaMax = 5000
 	MemoryMax  = 300
 )
@@ -57,7 +53,7 @@ const (
 // in, the contexts it had before it was cleared, what it chose to remember. A person gets the
 // card alone.
 type Self struct {
-	Profile `tstype:",extends"`
+	Profile  `tstype:",extends"`
 	Channels []MeChannel `json:"channels,omitempty"`
 	Before   []MeBefore  `json:"before,omitempty"`
 	Memory   []Memory    `json:"memory,omitempty"`
@@ -96,6 +92,25 @@ type Memory struct {
 	At      int64  `json:"at"`
 }
 
+// Favorites are the channels the caller favoured (GET/PUT internal/favorites), in its order: a
+// session's own channel is its id. Its own alone; PUT gives the whole list.
+type Favorites struct {
+	Channels []string `json:"channels"`
+	// Color: the colour tag of the favorites' folder, the caller's own (PATCH); none: untagged.
+	Color Color `json:"color,omitempty"`
+	// Name: what the caller named its favorites (PATCH); none: the page's own (收藏).
+	Name string `json:"name,omitempty"`
+}
+
+// FavoritesPatch changes the caller's favorites' colour tag or name ("" takes either off).
+type FavoritesPatch struct {
+	Color *Color  `json:"color,omitempty"`
+	Name  *string `json:"name,omitempty"`
+}
+
+// FavoritesNameMax is the longest name of the favorites, in characters.
+const FavoritesNameMax = 40
+
 // Remember is a memory to keep.
 type Remember struct {
 	Text string `json:"text"`
@@ -126,27 +141,26 @@ type RecallHit struct {
 // MemberCard is a member looked up (GET internal/members/{who}): its card, the channels the
 // caller shares with it, the last things it said there.
 type MemberCard struct {
-	Profile `tstype:",extends"`
+	Profile  `tstype:",extends"`
 	Channels []MeChannel `json:"channels,omitempty"`
 	Said     []RecallHit `json:"said,omitempty"`
 }
 
 // Role is an agent kept to start sessions as: its name (the nick its sessions take), what it
-// runs (Agent, its default Model and dsh's Preset, at Machine), its card (Persona, Avatar,
-// Background as Profile's; no intro: what it does each of its sessions writes, otae, 2026-11-23). ModelName: the model as shown. No effort and no mode: they are the
+// runs (Agent, its default Model and dsh's Preset, at Machine), its card (Persona, Avatar as
+// Profile's; no intro: what it does each of its sessions writes, otae, 2026-11-23). ModelName: the model as shown. No effort and no mode: they are the
 // task's, chosen as a session starts (otae, 2026-11-21).
 type Role struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	Agent      Agent  `json:"agent"`
-	Model      string `json:"model,omitempty"`
-	ModelName  string `json:"modelName,omitempty"`
-	Preset     string `json:"preset,omitempty"`
-	Machine    string `json:"machine,omitempty"`
-	Persona    string `json:"persona,omitempty"`
-	Avatar     string `json:"avatar,omitempty"`
-	Background string `json:"background,omitempty"`
-	Memories   int    `json:"memories,omitempty"`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Agent     Agent  `json:"agent"`
+	Model     string `json:"model,omitempty"`
+	ModelName string `json:"modelName,omitempty"`
+	Preset    string `json:"preset,omitempty"`
+	Machine   string `json:"machine,omitempty"`
+	Persona   string `json:"persona,omitempty"`
+	Avatar    string `json:"avatar,omitempty"`
+	Memories  int    `json:"memories,omitempty"`
 }
 
 // HostPersona is a persona an agent's host has where it runs, to take as a persona of
@@ -168,19 +182,18 @@ type HostPersona struct {
 // session is the role's from then on), else from the fields given (Name and Agent at least).
 type NewRole struct {
 	Session string `json:"session,omitempty"`
-	Role `tstype:",extends"`
+	Role    `tstype:",extends"`
 }
 
-// RolePatch changes a role; a nil field stays. Avatar, Background as ProfilePatch's. Session:
-// take the card from this session, as it is now (its persona, face, background; not its intro,
-// nick, model or preset: those change here alone).
+// RolePatch changes a role; a nil field stays. Avatar as ProfilePatch's. Session: take the card
+// from this session, as it is now (its persona and face; not its nick, model or preset: those
+// change here alone).
 type RolePatch struct {
-	Name       *string  `json:"name,omitempty"`
-	Model      *string  `json:"model,omitempty"`
-	Preset     *string  `json:"preset,omitempty"`
-	Persona    *string  `json:"persona,omitempty"`
-	Avatar     *string  `json:"avatar,omitempty"`
-	Background *string  `json:"background,omitempty"`
-	Sort       *float64 `json:"sort,omitempty"`
-	Session    string   `json:"session,omitempty"`
+	Name    *string  `json:"name,omitempty"`
+	Model   *string  `json:"model,omitempty"`
+	Preset  *string  `json:"preset,omitempty"`
+	Persona *string  `json:"persona,omitempty"`
+	Avatar  *string  `json:"avatar,omitempty"`
+	Sort    *float64 `json:"sort,omitempty"`
+	Session string   `json:"session,omitempty"`
 }

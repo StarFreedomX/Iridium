@@ -97,6 +97,7 @@ func cmdAPI(e *env, args []string) int {
 
 func parseAPI(args []string) (*apiCall, error) {
 	c := &apiCall{body: map[string]any{}, query: url.Values{}, clip: clipLen}
+	clipSet := false
 	val := func(i *int, name string) (string, error) {
 		if _, v, ok := strings.Cut(args[*i], "="); ok {
 			return v, nil
@@ -138,6 +139,7 @@ func parseAPI(args []string) (*apiCall, error) {
 			if c.clip, err = strconv.Atoi(v); err != nil || c.clip < 0 {
 				return nil, fmt.Errorf("--clip takes a count, not %q", v)
 			}
+			clipSet = true
 		case strings.HasPrefix(a, "--"):
 			return nil, fmt.Errorf("no flag %s here", a)
 		case method == "" && c.path == "" && isVerb(a):
@@ -197,6 +199,10 @@ func parseAPI(args []string) (*apiCall, error) {
 	// And a session's record (block.list, block.get, block.outline).
 	if button || strings.HasPrefix(c.path, "/v1/internal/block.") {
 		c.satori = true
+	}
+	// Fetching one message or block in full defaults to no clipping unless --clip was given.
+	if !clipSet && isWholeMessage(c.path) {
+		c.clip = 0
 	}
 	if c.all && (!c.satori || button) {
 		return nil, errors.New("--all is for Satori's lists (their next)")
@@ -350,7 +356,8 @@ const ndjson = "application/x-ndjson"
 // then is what ir does past an answer, as --wait says (-1: nothing; else the exit code): a
 // session started with a message (channel.create) is waited on until the agent took it,
 // with --wait until its turn ends, the reply printed; what waits for a person (202 {need}: an
-// agent's invite, a secret to type in) is waited on with --wait until a person decided.
+// agent's invite, a secret to type in; an ask for manual approval) is waited on with --wait until
+// a person decided.
 func (e *env) then(c *apiCall, raw []byte) int {
 	switch {
 	case c.path == "/v1/channel.create" && !c.json:
@@ -369,8 +376,8 @@ func (e *env) then(c *apiCall, raw []byte) int {
 			_ = json.Unmarshal(j, &b)
 		}
 		// An agent that started one with no card: how to give it one (ir api help profile).
-		if d := b.Data; e.agent && d.Agent != "" && d.Role == "" && d.Nick == "" && d.Intro == "" && d.Avatar == "" {
-			fmt.Fprintln(e.err, "its card can be given at the start: _data.nick=<nick> _data.intro='<what it does>' _data.avatar=<emoji> (ir api help profile)")
+		if d := b.Data; e.agent && d.Agent != "" && d.Role == "" && d.Nick == "" && d.Avatar == "" {
+			fmt.Fprintln(e.err, "its card can be given at the start: _data.nick=<nick> _data.avatar=<emoji> (ir api help profile)")
 		}
 		text := b.Data.Text
 		switch {
@@ -392,6 +399,12 @@ func (e *env) then(c *apiCall, raw []byte) int {
 			return -1
 		}
 		return e.follow(st.Run)
+	case c.method == "POST" && c.wait && c.status == http.StatusOK && manualPath.MatchString(c.path):
+		var st api.ManualState
+		if json.Unmarshal(raw, &st) != nil || st.RequestID == "" {
+			return -1
+		}
+		return e.waitManual(c.path, st)
 	case c.status == http.StatusAccepted && c.wait:
 		var p api.Pending
 		if json.Unmarshal(raw, &p) != nil || p.Need.ID == "" {
@@ -486,12 +499,9 @@ func (e *env) apiSend(c *apiCall) int {
 		_ = json.Unmarshal(c.raw, &b)
 		arg = b.ChannelID
 	}
-	id := e.caller()
-	if arg != "self" {
-		var err error
-		if id, err = e.resolve(arg); err != nil {
-			return e.fail(err)
-		}
+	id, err := e.resolve(arg)
+	if err != nil {
+		return e.fail(err)
 	}
 	before, _ := e.latest(id)
 	raw, err := e.call(c)
@@ -542,6 +552,29 @@ func (e *env) afterSend(id string, sent api.SendReply, wait bool, before api.Mes
 		return e.waitTurn(id, sent.Input)
 	}
 	return e.waitTaken(id, sent.Input)
+}
+
+// manualPath is internal/sessions/{id}/manual: --wait waits for a person's answer.
+var manualPath = regexp.MustCompile(`^/v1/internal/sessions/[^/?]+/manual$`)
+
+// waitManual waits for the answer to ask st for manual approval (at path), then says it in a
+// line: approved, exit 0; refused or unanswered, 1.
+func (e *env) waitManual(path string, st api.ManualState) int {
+	for st.State == "pending" {
+		if err := e.do("GET", path+"?wait=60", nil, &st); err != nil {
+			return e.fail(err)
+		}
+	}
+	switch st.State {
+	case "approved":
+		fmt.Fprintf(e.out, "approved: manual approval till this turn ends or %d minutes pass; run the step again, it is asked\n", st.Minutes)
+		return exitDone
+	case "refused":
+		fmt.Fprintln(e.out, "refused: the mode stays")
+	default:
+		fmt.Fprintln(e.out, "no answer in time: refused, the mode stays")
+	}
+	return exitError
 }
 
 // sessionPath is GET internal/sessions/{id}: --wait waits for its turn to end.
@@ -625,8 +658,18 @@ func (e *env) render(c *apiCall, raw []byte) {
 		own = append(own, f)
 	}
 	if len(own) > 0 || len(order) == 0 {
+		whole := isWholeMessage(c.path)
 		for _, x := range pickOf(flat(m), own) {
 			if x.v != nil && (len(own) > 0 || x.v != false) {
+				if whole && isContent(x.k) {
+					v := c.showWhole(x)
+					if strings.Contains(v, "\n") {
+						fmt.Fprintf(e.out, "%s:\n%s\n", x.k, v)
+					} else {
+						fmt.Fprintf(e.out, "%s: %s\n", x.k, v)
+					}
+					continue
+				}
 				fmt.Fprintf(e.out, "%s: %s\n", x.k, c.show(x))
 			}
 		}
@@ -814,6 +857,25 @@ func noIndex(k string) string {
 		}
 	}
 	return strings.Join(out, ".")
+}
+
+// isWholeMessage reports whether path fetches a single message or block whose content should
+// default to untruncated multiline output.
+func isWholeMessage(path string) bool {
+	p, _, _ := strings.Cut(path, "?")
+	return p == "/v1/message.get" || p == "/v1/internal/block.get"
+}
+
+// showWhole preserves line breaks of a single message's content, cutting to c.clip runes if set.
+func (c *apiCall) showWhole(x kv) string {
+	if x.v == nil {
+		return ""
+	}
+	t := strings.TrimSpace(x.text())
+	if r := []rune(t); c.clip > 0 && len(r) > c.clip {
+		return string(r[:c.clip]) + fmt.Sprintf("…(+%d)", len(r)-c.clip)
+	}
+	return t
 }
 
 // show is a value on one line, cut to c.clip runes (0: whole).

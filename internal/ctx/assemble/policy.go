@@ -3,6 +3,8 @@ package assemble
 import (
 	"cmp"
 	"strings"
+
+	"github.com/kumoSleeping/iridium/internal/irhelp"
 )
 
 // Policy: which pieces go when. Pure functions of what is known, apart from the text they
@@ -13,23 +15,26 @@ type Where struct {
 	// Remote: at another machine than Iridium's own (an executor's). IR: that machine has ir
 	// (wire.Hello.IRClient); here there always is one.
 	Remote, IR bool
-	// Channel: the session is one agent of several in a channel (docs/channels.md): its title
-	// is the channel's, set by people.
-	Channel bool
 	// Lang is the user's language as the web settings set it ("zh", "en"); "": not known.
 	Lang string
 	// Self: what the agent is told of itself (self.go); nil: nothing.
 	Self *Self
+	// Auto: its agent has Claude's auto mode, whose classifier may deny a step: it is told how to
+	// ask a person for manual approval with ir (idHostManual), where it has ir.
+	Auto bool
 	// Folder: the folder it runs in, as written there; "": not said. OS: that computer's system
 	// ("linux", "darwin", "windows"). Computer: its name, at another machine (Remote).
 	Folder, OS, Computer string
+	// Session is the session's id, which the commands it is told name it by: ir takes no "self"
+	// (kumo, 2026-11-27).
+	Session string
 }
 
 // systems are the systems' names as an agent is told them.
 var systems = map[string]string{"linux": "Linux", "darwin": "macOS", "windows": "Windows"}
 
 // wherePieces say where the agent runs (the user, 2026-11-18): the computer, its system, the
-// folder; at another machine, how a path is written from there.
+// folder; at another machine, how a path is written from there and how another is reached.
 func wherePieces(w Where) []piece {
 	if w.Folder == "" {
 		return nil
@@ -44,31 +49,70 @@ func wherePieces(w Where) []piece {
 // langs are the languages that have a name to tell the agent.
 var langs = map[string]string{"zh": idLangZh, "en": idLangEn}
 
-// systemPieces is the system prompt of a session at w. Here: ir's agent commands, how to ask
-// for a secret, hand over a file, name and title. At another machine: with ir the commands it
-// has there, without none; where it runs (wherePieces); no file links (its files are that machine's, which ir attach there
-// does not reach). Then the user's language, if known.
+// systemPieces is the system prompt of a session at w, in sections, what changes least first
+// (kumo, 2026-11-26): what hosts it; CLI (with ir: its commands, how to read its help, secrets,
+// wake, that a command line at a computer reaches the Iridium there, Claude's manual approval);
+// Links (at the host, how to hand over a file; how words name a session or a folder); Title,
+// for every session, a channel's too; Collaboration & Memory (with ir); Runtime: where it
+// runs, the user's language, what it is told of itself.
 func systemPieces(w Where) []piece {
-	var ps []piece
+	ir := !w.Remote || w.IR
+	ps := []piece{text(idIridiumOpen)}
 	switch {
 	case !w.Remote:
-		ps = append(ps, text(idHostIntro), help("agent"), help("layers"), text(idHostSecretsFiles))
+		ps = append(ps, text(idHostIntro))
 	case w.IR:
-		ps = append(ps, text(idRemoteIntro), help("remote"), help("layers"))
+		ps = append(ps, text(idRemoteIntro))
 	default:
 		ps = append(ps, text(idRemoteIntroBare))
 	}
-	ps = append(ps, wherePieces(w)...)
-	ps = append(ps, text(idNames))
-	if w.Channel {
-		ps = append(ps, text(idChannelSystem))
-	} else {
-		ps = append(ps, text(idTitle))
+	if ir {
+		ps = append(ps, text(idCLI))
+		if w.Remote {
+			ps = append(ps, text(idCLIRemote))
+		} else {
+			ps = append(ps, text(idCLIHost, "secrets", "`{{name}}`, `{{file:name}}`"))
+		}
+		ps = append(ps, text(idCLIDiscover, "topics", topics()))
+		if !w.Remote {
+			ps = append(ps, text(idHostSecretsFiles))
+		}
+		ps = append(ps, text(idShellIR))
+		if w.Auto {
+			ps = append(ps, text(idHostManual, "session", w.Session))
+		}
 	}
+	ps = append(ps, text(idLinks))
+	if !w.Remote {
+		ps = append(ps, text(idLinksFiles))
+	}
+	ps = append(ps, text(idNames), text(idTitle, "session", w.Session))
+	if ir {
+		ps = append(ps, collabPieces(w.Self)...)
+	}
+	var runtime []piece
+	runtime = append(runtime, wherePieces(w)...)
 	if name := langs[w.Lang]; name != "" {
-		ps = append(ps, text(idLang).filled("language", name))
+		runtime = append(runtime, text(idLang).filled("language", name))
 	}
-	return append(ps, selfPieces(w.Self)...)
+	if w.Session != "" {
+		runtime = append(runtime, text(idSelfSession, "session", w.Session))
+	}
+	runtime = append(runtime, selfPieces(w.Self)...)
+	if len(runtime) > 0 {
+		ps = append(append(ps, text(idRuntime)), runtime...)
+	}
+	return append(ps, text(idIridiumClose))
+}
+
+// topics are ir api help's topics by name, as the CLI section lists them.
+func topics() string {
+	var ts []string
+	for _, t := range irhelp.Topics() {
+		t, _, _ = strings.Cut(t, " (")
+		ts = append(ts, t)
+	}
+	return strings.Join(ts, ", ")
 }
 
 // messagePieces is a message's line: the words after "[tag] ", the tag the sender's (its

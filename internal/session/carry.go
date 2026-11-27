@@ -58,7 +58,7 @@ func (h *Hosted) updateTail(f *transcript.File, old, size int64) {
 type Annotate func(session, cwd string, blocks []api.Block)
 
 // SetInChannel has f say whether a session's channel has other agents in it
-// (docs/channels.md): its system prompt says so, in place of the line about titling.
+// (docs/channels.md): the title line after a message is then the server's to give (titleNow).
 func (m *Manager) SetInChannel(f func(id string) bool) { m.inChan.Store(&f) }
 
 func (m *Manager) inChannel(id string) bool {
@@ -238,7 +238,6 @@ func (m *Manager) setQuota(q api.AgentQuota) {
 	if err := writeJSON(filepath.Join(m.o.Config.StatePath(), fileQuota), saved); err != nil {
 		m.o.Logf("session: quota: %v", err)
 	}
-	m.publishQuota()
 }
 
 func (m *Manager) loadQuota() {
@@ -257,10 +256,10 @@ func (m *Manager) loadQuota() {
 	m.mu.Unlock()
 }
 
-func (m *Manager) publishQuota() { m.o.Hub.Set("quota", m.quotaState()) }
-
-// quotaState: the windows per agent, account and machine; live where a process of theirs runs.
-func (m *Manager) quotaState() api.Quota {
+// Quota is the windows and balances per agent, account and machine, as last read; live where a
+// process of theirs runs. Asked for (GET /v1/internal/quota), not carried: the page asks again
+// each minute (kumo, 2026-11-24).
+func (m *Manager) Quota() api.Quota {
 	live := map[string]bool{}
 	for _, h := range m.all() {
 		h.mu.Lock()
@@ -291,7 +290,7 @@ func (m *Manager) QuotaOf(id string) (*api.AgentQuota, error) {
 	h.mu.Lock()
 	k := h.quotaKeyLocked()
 	h.mu.Unlock()
-	for _, q := range m.quotaState().Agents {
+	for _, q := range m.Quota().Agents {
 		if keyOf(q) == k {
 			return &q, nil
 		}

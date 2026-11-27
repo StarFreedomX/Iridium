@@ -6,33 +6,35 @@
 // centred and faint; the agent's words as Markdown with the files they name; tool calls and
 // thoughts folded to a line.
 import { LongWords } from "./longwords";
-import { FORWARD_CARD, ForwardHead, ForwardRow, Forwards } from "./forwardcard";
-import { msgWords, splitForwards, withForwards } from "./forward";
-import { FOLD_AT, linesOf } from "./channel/merge";
-import { Archive, ArchiveRestore, ArrowUpRight, BookOpen, Bot, BotMessageSquare, ChartColumn, Check, ChevronRight, CircleStop, CircleX, Clock, CloudDownload, CloudUpload, Copy, Cpu, Earth, FileCode, FileDiff, FilePen, Files as FilesIcon, FileText, FlaskConical, FolderGit2, FolderOpen, Folders, FoldVertical, GitBranch, GitCommitHorizontal, GitPullRequest, Globe, Hammer, History, Hourglass, KeyRound, Laptop, Link2, List, ListChecks, LoaderCircle, MessagesSquare, LockKeyhole, MessageCircleQuestionMark, MessageSquarePlus, Monitor, MonitorSmartphone, MousePointerClick, Network, Package, PencilLine, Plug, RotateCcw, RotateCw, Search, Send, ServerCog, SlidersHorizontal, Smartphone, SquareTerminal, Terminal, Trash2, type LucideIcon, UserRound, Workflow as WorkflowIcon, Wrench, X } from "lucide-react";
+import { Forwards } from "./forwardcard";
+import { splitForwards } from "./forward";
+import { FOLD_AT, linesOf } from "./channel/folds";
+import { Archive, ArchiveRestore, ArrowUpRight, BookOpen, Bot, BotMessageSquare, ChartColumn, ChevronRight, CircleStop, CircleX, Clock, CloudDownload, CloudUpload, Cpu, Earth, FileCode, FileDiff, FilePen, Files as FilesIcon, FileText, FlaskConical, FolderGit2, FolderOpen, Folders, FoldVertical, GitBranch, GitCommitHorizontal, GitPullRequest, Globe, Hammer, History, Hourglass, KeyRound, Laptop, Link2, List, ListChecks, LoaderCircle, LockKeyhole, MessageCircleQuestionMark, MessageSquarePlus, Monitor, MonitorSmartphone, MousePointerClick, Network, Package, PencilLine, Plug, RotateCcw, RotateCw, Search, Send, ServerCog, SlidersHorizontal, Smartphone, SquareTerminal, Terminal, Trash2, type LucideIcon, UserRound, Workflow as WorkflowIcon, Wrench, X } from "lucide-react";
 import { Copyable } from "./copyable";
 import { Dispatch, Sent as SentTo, TaskBack } from "./dispatched";
 import { handBack, toldOf } from "./dispatch";
-import { Children, forwardRef, memo, useContext, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { givenTurn, linkNicks, type GivenTurn } from "./channel/lib";
+import { Children, forwardRef, memo, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { givenTurn, linkNicks } from "./channel/lib";
+import { AfterContext, ChannelContext } from "./context";
+import { parseGiven, type GivenRec } from "./given";
 import { reactionLine } from "./react";
-import { Nicks, NickWords } from "./channel/nick";
+import { Nicks, NickWords, SeqRefs } from "./channel/nick";
+import { Face as ChannelFace } from "./channel/face";
 import { CARD_POP } from "./channel/profilecard";
-import type { Relay } from "../satori";
 import { Popover } from "@base-ui/react/popover";
 import { api } from "../api/client";
 import type { Block, Device, FileRef, Result } from "../api/types.gen";
 import type { Sent } from "../chats";
 import { errText, toast } from "../toast";
 import { t } from "../i18n";
-import { agentName, Avatar, Badge, cn, IconKey, IrMark, Logo, own, PopSurface, tilde, Tip, titleOf, useLongPress, useMenuAt, usePointAnchor } from "../ui";
+import { agentName, Avatar, Badge, cn, IconKey, Logo, own, PopSurface, tilde, Tip, titleOf, useEver, useLongPress, useMenuAt, PopoverPortal } from "../ui";
 import { useHome, useMachines } from "../data";
 import { LocalMark } from "../me";
 import { go } from "../route";
 import { Files, isLink, Picture, previews, SentFile, shownAs } from "./files";
 import { Pictures } from "./pictures";
 import { cmdOfCall, cpOfCall, isShell, newOfCall, type Cmd, type CpSide } from "./cmd";
-import { argOf, diffSum, foldLine, foldSaid, kindOf, runCmds, type Diff, type Kind, type Shown, type Step, type Tool } from "./fold";
+import { argOf, bgLaunch, diffSum, foldLine, foldSaid, foldSpan, inputOf, kindOf, runCmds, unifiedDiff, type Diff, type Kind, type Shown, type Step, type Tool } from "./fold";
 import { Code } from "./hl";
 import { Markdown, Streamed } from "./markdown";
 import { partialInput } from "./partial";
@@ -56,10 +58,31 @@ export const clock = (ms?: number) => {
 };
 
 /** When a message was said, on its head's inner side (beside the name, toward the middle; kumo,
- *  2026-11-16): not shown till a pointer is over its row (WhenRow), or a finger presses the row's
- *  blank, which shows it till pressed again. Its place is kept: showing it moves nothing. */
-export const When = ({ time }: { time?: number }) =>
-  time ? <span className="shrink-0 text-xs leading-4 text-ink-4 tabular-nums opacity-0 transition-opacity duration-(--dur-2) group-hover/msg:opacity-100 group-data-[when]/msg:opacity-100">{clock(time)}</span> : null;
+ *  2026-11-16), its number in the channel before it (n; kumo, 2026-11-26): not shown till a
+ *  pointer is over its row (WhenRow), or a finger presses the row's blank (where there is no
+ *  hover), which shows it till pressed again: a line of a run, its own alone (pressWhen). Its place is kept: showing it moves nothing. lead: the head of a run of several
+ *  messages (an agent's): shown over the head or the first message alone ([data-lead]), each
+ *  other one with its own (Gutter). */
+export const When = ({ time, n, lead }: { time?: number; n?: number; lead?: boolean }) =>
+  time ? (
+    <span className={cn("shrink-0 text-xs leading-4 text-ink-4 tabular-nums opacity-0 transition-opacity duration-(--dur-2) group-data-[when]/msg:opacity-100", lead ? "group-has-[[data-lead]:hover]/msg:opacity-100 group-has-[[data-lead][data-when]]/msg:opacity-100" : "group-hover/msg:opacity-100")}>
+      {n !== undefined ? `#${n} ${clock(time)}` : clock(time)}
+    </span>
+  ) : null;
+
+/** The time and number of a message with no head of its own (one under another's head: kumo,
+ *  2026-11-26, a pointer over it showed none, or the first's), in the empty place of the face
+ *  beside it, as Slack does: shown over the message itself (group/line), or as When is by a
+ *  press. Put in an element that is relative; right: the face's place on the right. slot: put in
+ *  that place itself (a sender's row of its own, group/msg), not beside it. */
+export const Gutter = ({ time, n, right, slot }: { time?: number; n?: number; right?: boolean; slot?: boolean }) =>
+  time || n !== undefined ? (
+    <span aria-hidden className={cn("pointer-events-none absolute top-0.5 flex w-max min-w-7 flex-col text-[10px] leading-[13px] whitespace-nowrap text-ink-4 tabular-nums opacity-0 transition-opacity duration-(--dur-2)", slot ? "group-hover/msg:opacity-100 group-data-[when]/msg:opacity-100" : "group-hover/line:opacity-100 group-data-[when]/line:opacity-100", slot ? (right ? "left-0 items-start" : "right-0 items-end") : right ? "left-full ml-2.5 items-start" : "right-full mr-2.5 items-end")}>
+      {/* As the head's, its number first (kumo, 2026-11-26: the time over it read the other way). */}
+      {n !== undefined && <span>#{n}</span>}
+      {time ? <span>{clock(time)}</span> : null}
+    </span>
+  ) : null;
 
 /** Whether a press at e is on a message's blank: not on its words, a key, a link, a picture, code
  *  or a bubble, and no words being selected. */
@@ -91,14 +114,37 @@ function onBlank(e: React.MouseEvent): boolean {
  *  till pressed there again (a phone has no hover). Spread on the row's element. */
 export function useWhenRow() {
   const [on, setOn] = useState(false);
-  return { className: "group/msg", "data-when": on ? "" : undefined, onClick: (e: React.MouseEvent) => onBlank(e) && setOn((x) => !x) };
+  return {
+    className: "group/msg",
+    "data-when": on ? "" : undefined,
+    onClick: (e: React.MouseEvent) => {
+      if (!onBlank(e)) return;
+      const at = pressWhen(e.target as Element, noHover());
+      if (at === "row") setOn((x) => !x);
+    },
+  };
+}
+
+/** No pointer to hover with (a finger): a press shows the times. With one (kumo, 2026-11-26: a
+ *  click on a blank left a whole run's lit till clicked again), a pointer over them does alone. */
+const noHover = () => matchMedia("(hover: none)").matches;
+
+/** A press on a row's blank: nothing where there is hover; else the line pressed (a message of a
+ *  run, group/line) shows its own time and number alone, toggled on it ("line"); else the row's
+ *  ("row"). */
+export function pressWhen(target: Element, touch: boolean): "none" | "line" | "row" {
+  if (!touch) return "none";
+  const line = target.closest(".group\\/line");
+  if (!line) return "row";
+  line.toggleAttribute("data-when");
+  return "line";
 }
 
 /** A message's row as an element of its own (useWhenRow), where a hook is not to hand. */
 export function MsgRow({ className, children }: { className?: string; children: ReactNode }) {
   const row = useWhenRow();
   return (
-    <div {...row} className={cn(row.className, className)}>
+    <div {...row} data-row="" className={cn(row.className, className)}>
       {children}
     </div>
   );
@@ -126,20 +172,25 @@ function Face({ who }: { who: You | From }) {
     );
   }
   const badge = who.workflow ? <Badge icon={WorkflowIcon} size={BADGE} label={t("msg.workflow")} /> : <Badge icon={Bot} size={BADGE} label={t("msg.agent")} />;
-  if (who.agent)
+  if (who.agent) {
+    const faceId = who.face ?? who.session;
     return (
-      <span className="grid shrink-0 place-items-center" style={{ width: FACE, height: FACE }} aria-label={t(who.workflow ? "msg.workflow" : "msg.agent")}>
-        <Logo agent={who.agent} size={24} />
+      <span className="grid shrink-0 place-items-center rounded-full bg-fill" style={{ width: FACE, height: FACE }} aria-label={t(who.workflow ? "msg.workflow" : "msg.agent")}>
+        {faceId ? <ChannelFace id={faceId} agent={who.agent} size={FACE} logo={16} /> : <Logo agent={who.agent} size={16} />}
       </span>
     );
-  if (!who.channel)
-    // A session not in the list: a terminal-like mark and the bot.
-    return (
+  }
+  if (!who.channel) {
+    // A session not in the list: try its custom face if its id is known, else a terminal-like mark and the bot.
+    const fallback = (
       <span className="relative grid shrink-0 place-items-center rounded-full bg-fill-2 text-ink-2" style={{ width: FACE, height: FACE }}>
         <SquareTerminal size={14} strokeWidth={2} aria-hidden />
         {badge}
       </span>
     );
+    const faceId = who.face ?? who.session;
+    return faceId ? <ChannelFace id={faceId} agent={"claude" as Agent} size={FACE} none={fallback} /> : fallback;
+  }
   return <Avatar src={who.avatar} name={who.name} size={FACE} type={who.type} badgeSize={BADGE} />;
 }
 
@@ -150,11 +201,18 @@ function Face({ who }: { who: You | From }) {
  *  right there (the user, 2026-11-13). */
 /** card: what its face opens, pressed (a person's card in a channel, chat/channel/person.tsx). */
 /** time: when it was said, after the name on the line the name already has. menu: what the
- *  face's right button (a finger held down) opens, at that point. under: under the bubble, the
- *  message it answers (a quote), as chat apps put it. */
+ *  face's right button (a finger held down) opens, at that point. bare: under the head of the one before it
+ *  from the same sender (docs/next/ui.md §1.5): no face nor name, their room kept. */
 type FaceMenu = (at: { x: number; y: number } | null, close: () => void) => ReactNode;
-const Sender = forwardRef<HTMLDivElement, { who: You | From; time?: number; jump?: () => void; left?: boolean; card?: ReactNode; menu?: FaceMenu; under?: ReactNode; children: ReactNode }>(function Sender({ who, time, jump, left, card, menu, under, children }, ref) {
+const Sender = forwardRef<HTMLDivElement, { who: You | From; time?: number; n?: number; jump?: () => void; left?: boolean; card?: ReactNode; menu?: FaceMenu; under?: ReactNode; bare?: boolean; children: ReactNode }>(function Sender({ who, time, n, jump, left, card, menu, under, bare, children }, ref) {
   const [menuAt, setMenuAt] = useMenuAt();
+  const menuEver = useEver(menuAt !== null);
+  // The face's card, made as it is first opened (useEver).
+  const [carded, setCarded] = useState(false);
+  const cardEver = useEver(carded);
+  // Whether it was open as the press on its face began: that press, outside it, has shut it by
+  // the time the click comes, and the click is not to open it again.
+  const cardWas = useRef<boolean | null>(null);
   const faceKey = useRef<HTMLButtonElement>(null);
   const lp = useLongPress(() => {
     const r = faceKey.current?.getBoundingClientRect();
@@ -182,19 +240,23 @@ const Sender = forwardRef<HTMLDivElement, { who: You | From; time?: number; jump
   // (kumo, 2026-11-16; before, every sender was on the right).
   return (
     <div ref={ref} {...row} className={cn(row.className, "flex items-start gap-2.5", left ? "pr-6 sm:pr-10" : "flex-row-reverse pl-6 sm:pl-10")}>
-      {card ? (
-        <Popover.Root>
-          <Popover.Trigger
-            render={
-              <button ref={faceKey} type="button" aria-label={tip} {...menuKeys} className="g-press grid shrink-0 rounded-full select-none [-webkit-touch-callout:none]">
-                {face}
-              </button>
-            }
-          />
-          <PopSurface anchor={faceKey.current} still align={left ? "start" : "end"} className={CARD_POP}>
-            {card}
-          </PopSurface>
-        </Popover.Root>
+      {bare ? (
+        <span className="relative w-7 shrink-0 self-stretch">
+          <Gutter time={time} n={n} right={!left} slot />
+        </span>
+      ) : card ? (
+        <>
+          <button ref={faceKey} type="button" aria-label={tip} aria-haspopup="dialog" aria-expanded={carded} {...menuKeys} onPointerDown={(e) => ((cardWas.current = carded), menu && lp.onPointerDown(e))} onClick={() => (setCarded(!(cardWas.current ?? carded)), (cardWas.current = null))} className="g-press grid shrink-0 rounded-full select-none [-webkit-touch-callout:none]">
+            {face}
+          </button>
+          {cardEver && (
+            <Popover.Root open={carded} onOpenChange={setCarded}>
+              <PopSurface anchor={faceKey.current} still align={left ? "start" : "end"} className={CARD_POP}>
+                {card}
+              </PopSurface>
+            </Popover.Root>
+          )}
+        </>
       ) : (
       <Tip label={tip}>
         {press ? (
@@ -209,9 +271,9 @@ const Sender = forwardRef<HTMLDivElement, { who: You | From; time?: number; jump
       </Tip>
       )}
       <div className={cn("flex min-w-0 flex-col gap-1", left ? "items-start" : "items-end")}>
-        <div className="flex max-w-full min-w-0 items-center gap-1">
+        <div className={cn("flex max-w-full min-w-0 items-center gap-1", bare && "hidden")}>
           {/* The time on the inner side: after the name on the left, before it on the right. */}
-          {!left && <When time={time} />}
+          {!left && <When time={time} n={n} />}
           {jump ? (
             <button type="button" onClick={jump} className="group flex min-w-0 items-center gap-0.5 rounded-sm px-0.5 text-xs leading-4 text-ink-3 hover:text-ink-2">
               <span className="min-w-0 truncate">{name}</span>
@@ -220,43 +282,46 @@ const Sender = forwardRef<HTMLDivElement, { who: You | From; time?: number; jump
           ) : (
             <span className="min-w-0 truncate px-0.5 text-xs leading-4 text-ink-3">{name}</span>
           )}
-          {left && <When time={time} />}
+          {left && <When time={time} n={n} />}
         </div>
         {children}
         {under}
       </div>
-      {menu?.(menuAt, () => setMenuAt(null))}
+      {menuEver && menu?.(menuAt, () => setMenuAt(null))}
     </div>
   );
 });
 
 /** Your words: a bubble on the right, under your terminal's name, its face beside. */
 /** Where a message of yours is, as a small mark outside its bubble's lower left corner, no words (the
- *  user, 2026-11-06; its tip says): going, a ring breathing; waiting in the queue, a clock. Taken,
+ *  user, 2026-11-06; its tip says): going, a ring breathing, shown only once it has been going for
+ *  1.2 s (kumo, 2026-11-25: one sent sooner shows none); waiting in the queue, a clock. Taken,
  *  nothing: no green check (the user, 2026-11-08). The bubble itself is drawn as it will stay. */
 type Going = "sending" | "queued";
 const GOING: Record<Going, string> = { sending: "msg.sending", queued: "msg.queued" };
 function SendState({ state }: { state: Going }) {
   const label = t(GOING[state] as "msg.sending");
   return (
-    <span role="status" aria-label={label} title={label} className="absolute bottom-2 -left-[18px] grid size-3 place-items-center text-ink-3">
+    <span role="status" aria-label={label} title={label} className={cn("absolute bottom-2 -left-[18px] grid size-3 place-items-center text-ink-3", state === "sending" && "send-late")}>
       {state === "queued" ? <Clock size={10} strokeWidth={2.25} className="g-fade" /> : <span className="send-ring" />}
     </span>
   );
 }
 
 /** words: the text drawn another way than Worded's (a channel's, its nicks too: chat/channel). */
-export const YouBubble = forwardRef<HTMLDivElement, { text: string; who: You; failed?: boolean; children?: ReactNode; time?: number; going?: Going; words?: ReactNode; left?: boolean; card?: ReactNode; menu?: FaceMenu; under?: ReactNode }>(function YouBubble({ text, who, failed, children, time, going, words, left, card, menu, under }, ref) {
+export const YouBubble = forwardRef<HTMLDivElement, { text: string; who: You; failed?: boolean; children?: ReactNode; time?: number; n?: number; going?: Going; words?: ReactNode; left?: boolean; card?: ReactNode; menu?: FaceMenu; quote?: ReactNode; under?: ReactNode; bare?: boolean }>(function YouBubble({ text, who, failed, children, time, n, going, words, left, card, menu, quote, under, bare }, ref) {
   // What the words name, where they name it (Worded); the files under the bubble, a picture as
   // large as an agent's (kumo, 2026-11-17: one small in the bubble could not be made out).
   const files = Children.count(children) > 0;
   const bubble = !!text || !files;
   return (
-    <Sender ref={ref} who={who} left={left} card={card} menu={menu} under={under} time={time}>
+    <Sender ref={ref} who={who} left={left} card={card} menu={menu} under={under} time={time} n={n} bare={bare}>
+      {!bubble && quote}
       {bubble && (
         <div className="relative max-w-[min(560px,100%)] px-3.5 py-2">
           {going && <SendState state={going} />}
           <span data-bubble-bg className={cn("absolute inset-0 rounded-xl bg-fill", left ? "rounded-tl-sm" : "rounded-tr-sm", failed && "shadow-[inset_0_0_0_1px_var(--err)]")} aria-hidden />
+          {quote && <span className="relative mb-1 block">{quote}</span>}
           {text && (
             <span className="relative block text-md whitespace-pre-wrap [overflow-wrap:anywhere]">
               {words ?? <Worded text={text} />}
@@ -288,13 +353,16 @@ export function Attached({ session, f }: { session: string; f: FileRef }) {
   return <SentFile name={f.name} bytes={f.size} href={api.fileURL(session, f.ref, true, f.mtime)} view={url} mime={f.mime} />;
 }
 
-/** A message sent from here the transcript has yet to bring: its mark says where it is; not taken,
- *  red with a retry. */
-export function Pending({ s, who, retry, drop, takeBack, bubbleRef, words }: { s: Sent; who: You; retry: () => Promise<void>; drop: () => void; takeBack?: () => Promise<unknown>; bubbleRef?: (el: HTMLDivElement | null) => void; words?: ReactNode }) {
+/** A message sent from here the log has yet to bring: its mark says where it is; not taken, red
+ *  with a retry. Once the server has answered (s.at), nothing shows beside the bubble ("Taken,
+ *  nothing"). bare: under the head of the one before it, its own not drawn. */
+/** quote: the message it answers, over its words in the bubble, there from its
+ *  first frame: it came only with the landed one, which jumped as it did (kumo, 2026-11-25). */
+export function Pending({ s, who, retry, drop, takeBack, bubbleRef, words, bare, quote }: { s: Sent; who: You; retry: () => Promise<void>; drop: () => void; takeBack?: () => Promise<unknown>; bubbleRef?: (el: HTMLDivElement | null) => void; words?: ReactNode; bare?: boolean; quote?: ReactNode }) {
   const [busy, setBusy] = useState(false);
   return (
     <div className="flex flex-col items-end gap-0.5">
-      <YouBubble ref={bubbleRef} text={s.text} who={who} words={words} failed={s.failed !== undefined} going={s.failed !== undefined ? undefined : s.queued ? "queued" : "sending"}>
+      <YouBubble ref={bubbleRef} text={s.text} who={who} words={words} bare={bare} quote={quote} failed={s.failed !== undefined} going={s.failed !== undefined ? undefined : s.queued ? "queued" : s.at !== undefined || s.left !== undefined ? undefined : "sending"}>
         {s.files.map((f) =>
           f.url ? <Picture key={f.ref} src={f.url} full={f.url} name={f.name} w={f.w} h={f.h} /> : <SentFile key={f.ref} name={f.name} bytes={f.size} />,
         )}
@@ -322,15 +390,17 @@ export function Pending({ s, who, retry, drop, takeBack, bubbleRef, words }: { s
 
 /** A letter: from another session's ir, a plugin or a peer. Not your words: on the left with the
  *  agents, in a grey bubble as a person's are (kumo, 2026-11-16: it was on the right). */
-function Letter({ src, text, time, onJump, children }: { src: From; text: string; time?: number; onJump: (id: string) => void; children?: ReactNode }) {
+export function Letter({ src, text, time, n, onJump, words, quote, card, menu, bare, children }: { src: From; text: string; time?: number; n?: number; onJump: (id: string) => void; words?: ReactNode; quote?: ReactNode; card?: ReactNode; menu?: FaceMenu; bare?: boolean; children?: ReactNode }) {
   // Its files as in your bubble (ir send -a); what it names, where it names it.
   const files = Children.count(children) > 0;
   return (
-    <Sender who={src} time={time} left jump={src.session ? () => onJump(src.session!) : undefined}>
+    <Sender who={src} time={time} n={n} left jump={!card && src.session ? () => onJump(src.session!) : undefined} card={card} menu={menu} bare={bare}>
+      {!(text || !files) && quote}
       {(text || !files) && (
         <div className="max-w-[min(560px,100%)] min-w-0 rounded-xl rounded-tl-sm bg-fill px-3.5 py-2">
+          {quote && <span className="mb-1 block">{quote}</span>}
           <p className="m-0 text-md whitespace-pre-wrap [overflow-wrap:anywhere]">
-            <Worded text={text} />
+            {words ?? <Worded text={text} />}
           </p>
         </div>
       )}
@@ -377,8 +447,8 @@ export function Line({ icon, children, error, tail, more }: { icon?: ReactNode; 
   );
 }
 
-const tok = (n: number) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${Math.round(n / 1000)}k` : `${n}`);
-const took = (ms: number) => (ms >= 60_000 ? t("sys.compactMin", { m: Math.floor(ms / 60_000), s: Math.round((ms % 60_000) / 1000) }) : t("sys.compactSec", { s: Math.max(1, Math.round(ms / 1000)) }));
+export const tok = (n: number) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${Math.round(n / 1000)}k` : `${n}`);
+export const took = (ms: number) => (ms >= 60_000 ? t("sys.compactMin", { m: Math.floor(ms / 60_000), s: Math.round((ms % 60_000) / 1000) }) : t("sys.compactSec", { s: Math.max(1, Math.round(ms / 1000)) }));
 
 /** A compaction, as a rule across the chat: the light and the words between two hairlines. Live,
  *  while it runs: a yellow light breathing and the seconds so far; done, the context before and
@@ -442,7 +512,11 @@ export const Assistant = memo(function Assistant({ b, session, draft }: { b: Blo
   // A merged forward in them: its card under them (forwardcard.tsx).
   const fw = splitForwards(b.text ?? "");
   const said = withoutFiles(withoutNameLines(fromSatori(fw.words)), new Set(b.files?.map((f) => f.path)), home);
-  const text = names ? linkNicks(said, names) : said;
+  // The numbers it names, up to the newest the page has as it is drawn, its own at least (a
+  // message names those before it: drawn before a newer came, it is not drawn again for it).
+  const seqs = useContext(SeqRefs);
+  const end = seqs ? Math.max(seqs.end, Number(b.at) || 0) : 0;
+  const text = names ? linkNicks(said, names, end) : said;
   // A file link's file shows where the words put it; the rest (file lines) under them.
   const under = b.files?.filter((f) => !isLink(f)) ?? [];
   // data-at: where a quote of it is gone to on a session's page (channel/jump.ts).
@@ -459,91 +533,47 @@ export const Assistant = memo(function Assistant({ b, session, draft }: { b: Blo
   );
 });
 
-/** A call from another channel the agent is in, in its own record (the user, 2026-11-13): not
- *  folded. On the left, as Iridium's: the channel and the message's number (a key to go there);
- *  what it forwarded, as a card of messages (Satori's forward, satori.ts relays): those said
- *  there since the agent last read it, the one that called it last; where the channel's standing
- *  words were given this time, a key to read them. Without the record (relay), the words that
- *  called it and all that was added, as written. Then what the agent did and said (children). */
-export function Relayed({ given, relay, name, time, onJump, children }: { given: GivenTurn; relay?: Relay; name: string; time?: number; onJump: (id: string) => void; children?: ReactNode }) {
-  const ch = { ...given.channel!, name };
-  const [rules, setRules] = useState(false);
-  const head = `${t("channel.relayed", { name: ch.name })} · #${given.seq}`;
-  const row = useWhenRow();
-  return (
-    <div className="flex min-w-0 flex-col gap-5">
-      <div {...row} className={cn(row.className, "flex min-w-0 items-start gap-2.5")}>
-        <span className="grid size-7 shrink-0 place-items-center rounded-full bg-fill text-ink">
-          <IrMark size={14} />
-        </span>
-        <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-          <div className="flex h-4 min-w-0 items-baseline gap-1.5 text-xs">
-            <span className="shrink-0 font-medium text-ink-2">Iridium</span>
-            {ch.id ? (
-              <button type="button" onClick={() => onJump(ch.id)} className="flex min-w-0 items-baseline gap-1 text-ink-4 hover:text-ink-2">
-                <span className="min-w-0 truncate">{head}</span>
-                <ArrowUpRight size={11} className="shrink-0 self-center" />
-              </button>
-            ) : (
-              <span className="min-w-0 truncate text-ink-4">{head}</span>
-            )}
-            <When time={time} />
-          </div>
-          {relay ? (
-            <div className={FORWARD_CARD}>
-              <div className="mb-1.5 flex items-center gap-1.5 text-xs text-ink-3">
-                <ForwardHead n={relay.msgs.length} />
-                {relay.full && relay.context && (
-                  <button type="button" aria-expanded={rules} onClick={() => setRules(!rules)} className="flex shrink-0 items-center gap-0.5 rounded-sm text-ink-3 hover:text-ink-2">
-                    {t("channel.rules")}
-                    <ChevronRight size={12} className={cn("transition-transform duration-(--dur-2)", rules && "rotate-90")} />
-                  </button>
-                )}
-              </div>
-              {relay.full && relay.context && (
-                <div inert={!rules || undefined} aria-hidden={!rules || undefined} className="g-reveal" data-open={rules ? "" : undefined}>
-                  <div className="min-h-0 overflow-hidden">
-                    <p className="m-0 mb-2 border-l-2 border-dashed border-edge pl-2.5 font-mono text-xs leading-5 whitespace-pre-wrap text-ink-3 [overflow-wrap:anywhere]">{relay.context}</p>
-                  </div>
-                </div>
-              )}
-              <div className="flex min-w-0 flex-col gap-1">
-                {relay.msgs.map((m, i) => {
-                  const last = i === relay.msgs.length - 1;
-                  // A forward said in the channel, as its lines (forward.ts).
-                  const w = msgWords(m);
-                  const text = withForwards(w.words, w.forwards);
-                  return (
-                    <ForwardRow key={m.id} who={m.who} dim={!last} clamp={!last}>
-                      <span className={cn(m.turn && "italic")}>{last ? <Worded text={text} /> : text}</span>
-                    </ForwardRow>
-                  );
-                })}
-              </div>
-            </div>
-          ) : (
-            <>
-              <p className="m-0 max-w-[min(560px,100%)] self-start rounded-xl rounded-tl-sm bg-fill px-3.5 py-2 text-md whitespace-pre-wrap [overflow-wrap:anywhere]">
-                <Worded text={given.words} />
-              </p>
-              {given.context && (
-                <div className="max-w-[min(640px,100%)] border-l-2 border-dashed border-edge pl-3">
-                  <div className="mb-0.5 text-xs text-ink-4">{t("channel.supplement")}</div>
-                  <p className="m-0 font-mono text-xs leading-5 whitespace-pre-wrap text-ink-3 [overflow-wrap:anywhere]">{given.context}</p>
-                </div>
-              )}
-            </>
-          )}
-        </div>
+/** A message of the agent's record as it was given it (Said's given): the whole text, its
+ *  sender's tag and all; a channel's message as its head ("[kumo] #12: words") in the bubble and
+ *  its <channel-context> under it (context.tsx), then what came after the block. */
+function AsGiven({ b, rec, src, session, onJump, card, menu, left }: { b: Block; rec: GivenRec; src: Source; session: string; onJump: (id: string) => void; card?: (b: Block) => ReactNode; menu?: (b: Block) => FaceMenu | undefined; left?: (b: Block) => boolean }) {
+  const g = rec.kind === "turn-prefix" ? parseGiven(rec.text, rec.heads) : null;
+  const words = g ? g.head : rec.text;
+  const under = g && (
+    <>
+      <ChannelContext g={g} />
+      <AfterContext text={g.after} />
+    </>
+  );
+  const files = b.files?.map((f) => <Attached key={f.ref} session={session} f={f} />);
+  if (src.kind === "iridium")
+    return (
+      <div className="flex min-w-0 flex-col items-center gap-2">
+        <Line icon={<RotateCcw size={12} />}>{words}</Line>
+        {under}
       </div>
-      {children}
-    </div>
+    );
+  if (src.kind === "letter")
+    return (
+      <div className="flex min-w-0 flex-col items-end gap-2">
+        <Letter src={src} text={words} time={b.time} onJump={onJump}>
+          {files}
+        </Letter>
+        {under}
+      </div>
+    );
+  return (
+    <YouBubble text={words} who={src} time={b.time} card={card?.(b)} menu={menu?.(b)} left={left?.(b)} words={<NickWords text={words} />} under={under || undefined}>
+      {files}
+    </YouBubble>
   );
 }
 
 /** card: what a person's face opens (their card, chat.tsx), for one not the one looking. left:
- *  another person's words, on the left: only the one looking is on the right (kumo, 2026-11-16). */
-export function Said({ b, session, cwd, source, onJump, card, menu, left, draft }: { b: Shown; draft?: AsDraft; session: string; cwd: string; source: (b: { from?: string; fromTerminal?: string; fromDevice?: Device }) => Source; onJump: (id: string) => void; card?: (b: Block) => ReactNode; menu?: (b: Block) => FaceMenu | undefined; left?: (b: Block) => boolean }) {
+ *  another person's words, on the left: only the one looking is on the right (kumo, 2026-11-16).
+ *  given: what the agent was given as the block, kept (given.ts; a channel member's agent's
+ *  record): shown as it was given, verbatim. */
+export function Said({ b, session, cwd, source, onJump, card, menu, left, given: givenAs }: { b: Shown; session: string; cwd: string; source: (b: { from?: string; fromTerminal?: string; fromDevice?: Device }) => Source; onJump: (id: string) => void; card?: (b: Block) => ReactNode; menu?: (b: Block) => FaceMenu | undefined; left?: (b: Block) => boolean; given?: (b: Block) => GivenRec | undefined }) {
   // In the record of the channel's own session, a block is a message of the channel too: reacted
   // to and taken back as one (react.tsx). Not in another's record shown here (an agent's work).
   const named = useContext(Nicks);
@@ -551,6 +581,8 @@ export function Said({ b, session, cwd, source, onJump, card, menu, left, draft 
   switch (b.kind) {
     case "user": {
       const src = source(b);
+      const rec = givenAs?.(b);
+      if (rec) return <AsGiven b={b} rec={rec} src={src} session={session} onJump={onJump} card={card} menu={menu} left={left} />;
       const text = b.text ?? "";
       // A reaction its agent was given, alone in its channel: who put which emoji on what.
       const rl = src.kind === "iridium" ? reactionLine(text) : null;
@@ -558,7 +590,7 @@ export function Said({ b, session, cwd, source, onJump, card, menu, left, draft 
       if (src.kind === "iridium") return <Line icon={<RotateCcw size={12} />}>{text}</Line>;
       // The server writes each attachment as a line "[附件] `path`" (absolute): the file shows as itself instead.
       // A channel's message as the agent was given it (chat/channel/lib givenTurn): its words
-      // alone (one of a channel it is in beside its own is Relayed's, chat.tsx).
+      // alone, where what it was given is not kept (AsGiven).
       const given = givenTurn(text);
       const paths = new Set(b.files?.map((f) => f.path));
       const words = given ? given.words : paths.size ? withoutFiles(text, paths) : text;
@@ -584,7 +616,7 @@ export function Said({ b, session, cwd, source, onJump, card, menu, left, draft 
     case "assistant":
       return (
         <Copyable copy={b.text ?? ""} act={here ? { channel: session, key: { at: b.at }, may: !!named.may } : undefined}>
-          <Assistant b={b} session={session} draft={draft} />
+          <Assistant b={b} session={session} />
         </Copyable>
       );
     case "system":
@@ -609,7 +641,7 @@ export function Said({ b, session, cwd, source, onJump, card, menu, left, draft 
         </Line>
       );
     case "fold":
-      // A step auto mode denied waits above the composer, not here (chat/asks.tsx DenialCard).
+      // A step auto mode denied is a failed step among the others (red), nothing more.
       return <Fold steps={b.steps} session={session} cwd={cwd} />;
     case "running":
       return <Running tool={b.tool} cwd={cwd} />;
@@ -699,7 +731,7 @@ export const KindIcon = ({ kind, cmd, shell, failed, size = 14, className }: { k
   return <Icon size={size} className={cn("shrink-0", failed ? "text-err" : tint ? "k-tint" : "text-ink-3", className)} style={tint ? ({ "--k-h": hue } as CSSProperties) : undefined} aria-hidden />;
 };
 /** An edit's lines added and taken, green and red; a side at 0 left out. */
-const DiffStat = ({ d }: { d: Diff }) => (
+export const DiffStat = ({ d }: { d: Diff }) => (
   <span className="shrink-0 font-mono text-xs tabular-nums">
     {d.added > 0 && <span className="text-plus">+{d.added}</span>}
     {d.added > 0 && d.taken > 0 && " "}
@@ -709,12 +741,12 @@ const DiffStat = ({ d }: { d: Diff }) => (
 const failed = (s: Step) => s.kind === "tool" && !!s.result?.error;
 
 /** A step's icon: its kind's, a shell command's sort's, red if it failed. */
-const StepIcon = ({ s, className }: { s: Step; className?: string }) =>
+export const StepIcon = ({ s, className }: { s: Step; className?: string }) =>
   s.kind === "thinking" ? <KindIcon kind="thinking" className={className} /> : <KindIcon kind={kindOf(s.name)} cmd={cmdOfCall(s)} shell={isShell(s.name)} failed={failed(s)} className={className} />;
 
 /** A step's line: its icon (bare: none, its row has it), its name, what it is about in monospace,
  *  an edit's +/−. */
-function StepLine({ s, cwd, bare }: { s: Step; cwd?: string; bare?: boolean }) {
+export function StepLine({ s, cwd, bare }: { s: Step; cwd?: string; bare?: boolean }) {
   if (s.kind === "thinking")
     return (
       <>
@@ -725,10 +757,12 @@ function StepLine({ s, cwd, bare }: { s: Step; cwd?: string; bare?: boolean }) {
     );
   const a = argOf(s, cwd);
   const cp = cpOfCall(s);
+  // Sent to the background: done here as it began, what it does goes on (the work bar has it).
+  const bg = bgLaunch(s);
   return (
     <>
       {!bare && <StepIcon s={s} />}
-      {!isShell(s.name) && <span className="shrink-0 text-ink-2">{s.name}</span>}
+      {bg ? <span className="shrink-0 text-ink-2">{t(bg === "agent" ? "work.agentSent" : "work.bgShell")}</span> : !isShell(s.name) && <span className="shrink-0 text-ink-2">{s.name}</span>}
       {cp ? <CpArg from={cp.from} to={cp.to} /> : <span className={cn("min-w-0 truncate", a.code ? "font-mono text-xs" : "text-xs")}>{a.arg}</span>}
       {a.diff && !failed(s) && <DiffStat d={a.diff} />}
       {failed(s) && <CircleX size={13} className="shrink-0 text-err" aria-label={t("msg.failed")} />}
@@ -736,63 +770,157 @@ function StepLine({ s, cwd, bare }: { s: Step; cwd?: string; bare?: boolean }) {
   );
 }
 
-const ROW = "flex h-7 min-w-0 cursor-default list-none items-center gap-2 rounded-sm text-sm text-ink-3 hover:text-ink-2 [&::-webkit-details-marker]:hidden pointer-coarse:h-9";
+export const ROW = "flex h-7 min-w-0 cursor-default list-none items-center gap-2 rounded-sm text-sm text-ink-3 hover:text-ink-2 [&::-webkit-details-marker]:hidden pointer-coarse:h-9";
 
-/** The steps between two things said: one of them is its own line; more fold into one, each name
- *  once with its kind's icon (a shell's, one per call when they do different things) and ×n, then
- *  the lines their edits changed, which opens to a line each.
- *  Each, pressed, shows what it was given and what came back in a card (StepView). */
-function Fold({ steps, session, cwd }: { steps: Step[]; session: string; cwd: string }) {
+/** The steps between two things said: one resting step is its own line; more fold into one
+ *  summary line that expands in place into a height-capped inner-scroll list (each step one line,
+ *  clicking any step opens its detail card). */
+export function Fold({ steps, session, cwd }: { steps: Step[]; session: string; cwd: string }) {
   const one = steps.length === 1 ? steps[0]! : undefined;
   // A call to a subagent: the agent's words to it, not a step's line (dispatched.tsx).
   if (one?.kind === "tool" && toldOf(one)) return <Dispatch call={one as Tool} session={session} />;
   if (one) return <StepView s={one} session={session} cwd={cwd} />;
-  const runs = foldLine(steps);
-  const diff = diffSum(runs);
   const opened = steps.flatMap((s) => (s.kind === "tool" && newOfCall(s)) || []);
   return (
     <div className="min-w-0">
-      <details className="group/fold -my-0.5 w-full min-w-0">
-        <summary className={ROW} aria-label={foldSaid(runs)}>
-          <span className="min-w-0 truncate">
-            {runs.map((r, i) => (
-              <span key={i} className={cn(i > 0 && "ml-3")}>
-                {(r.name ? runCmds(steps, r.name) : [{ cmd: undefined, n: 1, failed: false }]).map((g, j, gs) => (
-                  <span key={j} className={cn("inline-block", j < gs.length - 1 ? "mr-1.5" : !isShell(r.name) && "mr-2")}>
-                    <KindIcon kind={r.name ? kindOf(r.name) : "thinking"} cmd={g.cmd} shell={isShell(r.name)} failed={g.failed} className="inline-block align-[-2.5px]" />
-                    {(gs.length > 1 || isShell(r.name)) && g.n > 1 && <span className={cn("text-xs tabular-nums", g.failed && "text-err")}>×{g.n}</span>}
-                  </span>
-                ))}
-                {/* A shell's run is its icons alone, each with how many (the user, 2026-11-09): no
-                    room after the last for a name, only the gap between runs. The failed calls an
-                    icon of their own, red, with how many (the user, 2026-11-13). */}
-                {!isShell(r.name) && <span className="text-ink-2">{r.name || t("msg.thinking")}</span>}
-                {!isShell(r.name) && r.n > 1 && runCmds(steps, r.name).length < 2 && <span className="tabular-nums"> ×{r.n}</span>}
-              </span>
-            ))}
-          </span>
-          {diff && <DiffStat d={diff} />}
-          <ChevronRight size={13} className="fold-chev shrink-0 text-ink-4 transition-transform duration-(--dur-2) group-open/fold:rotate-90" />
-        </summary>
-        <div className="mt-0.5 ml-[7px] flex flex-col pl-3 shadow-[inset_1px_0_0_var(--edge)]">
-          {steps.map((s) => (
-            <StepView key={s.at} s={s} session={session} cwd={cwd} lifted />
-          ))}
-        </div>
-      </details>
-      {/* The sessions its ir new steps opened, under its line, open or shut: not moving in and out
-          as it folds. */}
+      <StepsFold steps={steps} session={session} cwd={cwd} />
+      {/* The sessions its ir new steps opened, under its line. */}
       {opened.length > 0 && <Opened opened={opened} />}
     </div>
   );
 }
+
+/** How long, short: 0.2s, 41s, 3m05s. */
+export const lasted = (ms: number) => (ms < 950 ? `${(ms / 1000).toFixed(1)}s` : ms < 60_000 ? `${Math.round(ms / 1000)}s` : `${Math.floor(ms / 60_000)}m${String(Math.round((ms % 60_000) / 1000)).padStart(2, "0")}s`);
+
+/** How long a step took, once it is done. */
+export const tookOf = (s: Step) => (s.kind === "tool" && s.time && s.result?.time ? s.result.time - s.time : undefined);
+
+/** In-place expandable step list with capped inner scroll and edge fades, and one shared StepCard
+ *  popover. */
+function StepsFold({ steps, session, cwd }: { steps: Step[]; session: string; cwd: string }) {
+  const [open, setOpen] = useState(false);
+  const ever = useEver(open);
+  const revealRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const [edges, setEdges] = useState({ top: false, bottom: false });
+  // Selected step in the shared StepCard popover (by its Step.at key), plus its row anchor rect.
+  const [sel, setSel] = useState<{ at: string; rect: DOMRect } | null>(null);
+  const everCard = useEver(sel !== null);
+  const wasSelAt = useRef<string | null>(null);
+
+  const runs = useMemo(() => foldLine(steps), [steps]);
+  const diff = useMemo(() => diffSum(runs), [runs]);
+  const span = useMemo(() => foldSpan(steps), [steps]);
+
+  const syncEdges = (el: HTMLDivElement) => {
+    const over = el.scrollHeight - el.clientHeight > 2;
+    const top = over && el.scrollTop > 2;
+    const bottom = over && el.scrollHeight - el.clientHeight - el.scrollTop > 2;
+    setEdges((prev) => (prev.top === top && prev.bottom === bottom ? prev : { top, bottom }));
+  };
+
+  // The newest step in view as the list opens.
+  useLayoutEffect(() => {
+    const el = listRef.current;
+    if (!open || !el) return;
+    el.scrollTop = el.scrollHeight;
+    syncEdges(el);
+  }, [open, steps.length]);
+
+  const toggleOpen = () => {
+    if (open) setSel(null);
+    setOpen(!open);
+  };
+
+  const selStep = sel ? steps.find((s) => s.at === sel.at) : undefined;
+  const anchor = useMemo(() => (sel ? { getBoundingClientRect: () => sel.rect } : null), [sel]);
+
+  return (
+    <div className="min-w-0">
+      <button type="button" aria-expanded={open} aria-label={foldSaid(runs)} onClick={toggleOpen} className={cn(ROW, "-my-0.5 w-full min-w-0 text-left outline-none focus-visible:text-ink-2", open && "text-ink-2")}>
+        <span className="min-w-0 truncate">
+          {runs.map((r, i) => (
+            <span key={i} className={cn(i > 0 && "ml-3")}>
+              {(r.name ? runCmds(steps, r.name) : [{ cmd: undefined, n: 1, failed: false }]).map((g, j, gs) => (
+                <span key={j} className={cn("inline-block", j < gs.length - 1 ? "mr-1.5" : !isShell(r.name) && "mr-2")}>
+                  <KindIcon kind={r.name ? kindOf(r.name) : "thinking"} cmd={g.cmd} shell={isShell(r.name)} failed={g.failed} className="inline-block align-[-2.5px]" />
+                  {(gs.length > 1 || isShell(r.name)) && g.n > 1 && <span className={cn("text-xs tabular-nums", g.failed && "text-err")}>×{g.n}</span>}
+                </span>
+              ))}
+              {/* A shell's run is its icons alone, each with how many (the user, 2026-11-09): no
+                  room after the last for a name, only the gap between runs. The failed calls an
+                  icon of their own, red, with how many (the user, 2026-11-13). */}
+              {!isShell(r.name) && <span className="text-ink-2">{r.name || t("msg.thinking")}</span>}
+              {!isShell(r.name) && r.n > 1 && runCmds(steps, r.name).length < 2 && <span className="tabular-nums"> ×{r.n}</span>}
+            </span>
+          ))}
+        </span>
+        {diff && <DiffStat d={diff} />}
+        {span !== undefined && <span className="ml-auto shrink-0 pl-2 text-xs text-ink-4 tabular-nums">{lasted(span)}</span>}
+        <ChevronRight size={13} className={cn("shrink-0 text-ink-4 transition-transform duration-(--dur-2)", span === undefined && "ml-auto", open && "rotate-90")} />
+      </button>
+      <div ref={revealRef} inert={!open || undefined} aria-hidden={!open || undefined} className="g-reveal" data-open={open ? "" : undefined}>
+        <div className="min-h-0 min-w-0 overflow-hidden">
+          {ever && (
+            <div className="mt-0.5 ml-[7px] pl-3 shadow-[inset_1px_0_0_var(--edge)]">
+              <div className="relative min-w-0">
+                <div aria-hidden className={cn("pointer-events-none absolute inset-x-0 top-0 z-10 h-5 bg-[linear-gradient(to_bottom,var(--paper),transparent)] transition-opacity duration-(--dur-1)", edges.top ? "opacity-100" : "opacity-0")} />
+                <div ref={listRef} onScroll={(e) => syncEdges(e.currentTarget)} className="steps-scroll flex max-h-[min(48dvh,380px)] min-w-0 flex-col overflow-y-auto pr-1">
+                  {steps.map((s, index) => {
+                    if (s.kind === "tool" && toldOf(s)) return <Dispatch key={s.at} call={s as Tool} session={session} />;
+                    if (s.kind === "tool" && s.result?.images?.length) return <StepView key={s.at} s={s} session={session} cwd={cwd} lifted num={index + 1} />;
+                    const took = tookOf(s);
+                    const activeRow = sel?.at === s.at;
+                    return (
+                      <button
+                        key={s.at}
+                        type="button"
+                        aria-haspopup="dialog"
+                        aria-expanded={activeRow}
+                        onPointerDown={() => (wasSelAt.current = sel?.at ?? null)}
+                        onClick={(e) => {
+                          if (e.detail > 0 && wasSelAt.current === s.at) return setSel(null);
+                          setSel(activeRow ? null : { at: s.at, rect: e.currentTarget.getBoundingClientRect() });
+                        }}
+                        className={cn(ROW, "w-full shrink-0 px-1.5 text-left outline-none focus-visible:text-ink-2", activeRow && "text-ink")}
+                      >
+                        <span className="w-6 shrink-0 text-right text-xs text-ink-4 tabular-nums">{index + 1}</span>
+                        <StepLine s={s} cwd={cwd} />
+                        {took !== undefined && <span className="ml-auto shrink-0 pl-2 text-xs text-ink-4 tabular-nums">{lasted(took)}</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div aria-hidden className={cn("pointer-events-none absolute inset-x-0 bottom-0 z-10 h-5 bg-[linear-gradient(to_top,var(--paper),transparent)] transition-opacity duration-(--dur-1)", edges.bottom ? "opacity-100" : "opacity-0")} />
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+      {everCard && (
+        <Popover.Root open={!!selStep} onOpenChange={(o) => !o && setSel(null)}>
+          <PopoverPortal>
+            <Popover.Positioner anchor={anchor} side={sel && sel.rect.top + sel.rect.height / 2 > window.innerHeight / 2 ? "top" : "bottom"} align="start" sideOffset={4} collisionPadding={8} collisionAvoidance={{ side: "none", align: "shift", fallbackAxisSide: "none" }} className="z-50">
+              <Popover.Popup initialFocus={(type) => type === "keyboard"} className="g-unfold glass thick float flex max-h-[min(72dvh,620px,var(--available-height))] w-[min(620px,calc(100vw-16px))] flex-col overflow-hidden rounded-xl text-ink outline-none">
+                {selStep && <StepCard key={selStep.at} s={selStep} session={session} />}
+              </Popover.Popup>
+            </Popover.Positioner>
+          </PopoverPortal>
+        </Popover.Root>
+      )}
+    </div>
+  );
+}
+
+
 
 /** A step's line; pressed, what it was given and what came back open in a card at the press, like a
  *  context menu, instead of under the line (the user, 2026-11-08): the conversation stays put.
  *  One whose result gave the model pictures is otherwise (otae, 2026-11-10, again 2026-11-23):
  *  they are shut at first, and the whole line opens and shuts them, no card; its icon, hovered,
  *  turns to the chevron (the user, 2026-11-09: the tool's own icon otherwise). */
-function StepView({ s, session, cwd, lifted }: { s: Step; session: string; cwd: string; lifted?: boolean }) {
+function StepView({ s, session, cwd, lifted, num }: { s: Step; session: string; cwd: string; lifted?: boolean; num?: number }) {
   const images = s.kind === "tool" ? s.result?.images : undefined;
   const [shown, setShown] = useState(false);
   const opened = !lifted && s.kind === "tool" ? newOfCall(s) : undefined;
@@ -806,15 +934,16 @@ function StepView({ s, session, cwd, lifted }: { s: Step; session: string; cwd: 
       <StepCall s={s} session={session} cwd={cwd} />
     );
   return (
-    <div className="min-w-0">
+    <div className="min-w-0 shrink-0">
       {/* Touch has no hover: the chevron shows always, the line where it was. */}
       <button
         type="button"
         aria-expanded={shown}
         aria-label={t(shown ? "msg.hidePictures" : "msg.showPictures")}
         onClick={() => setShown(!shown)}
-        className="group/step flex w-full min-w-0 items-center gap-2 text-left outline-none"
+        className={cn("group/step flex w-full min-w-0 items-center gap-2 text-left outline-none", num !== undefined && "px-1.5")}
       >
+        {num !== undefined && <span className="w-6 shrink-0 text-right text-xs text-ink-4 tabular-nums">{num}</span>}
         <span className="grid h-7 shrink-0 place-items-center rounded-sm group-hover/step:bg-fill group-focus-visible/step:bg-fill pointer-coarse:h-9 [&>*]:[grid-area:1/1] [&>*]:transition-[opacity,rotate] [&>*]:duration-(--dur-1)">
           <StepIcon s={s} className="group-hover/step:opacity-0 group-focus-visible/step:opacity-0 pointer-coarse:opacity-0" />
           <ChevronRight size={14} aria-hidden className={cn("text-ink-3 opacity-0 group-hover/step:opacity-100 group-focus-visible/step:opacity-100 pointer-coarse:opacity-100", shown && "rotate-90")} />
@@ -833,7 +962,7 @@ function StepCall({ s, session, cwd, bare }: { s: Step; session: string; cwd: st
   // Where it was pressed stays as the card goes: put away, it folds back into that point, not
   // first thrown to the window's corner by an anchor gone (the user, 2026-11-08).
   const [open, setOpen] = useState(false);
-  const [at, setAt] = useState<{ x: number; y: number } | null>(null);
+  const [at, setAt] = useState<{ x: number; y: number; h: number } | null>(null);
   const row = useRef<HTMLButtonElement>(null);
   const toggle = (o: boolean, d: { event?: Event }) => {
     setOpen(o);
@@ -841,21 +970,24 @@ function StepCall({ s, session, cwd, bare }: { s: Step; session: string; cwd: st
     const r = row.current?.getBoundingClientRect();
     const e = d.event as MouseEvent | undefined;
     const pointed = e && "clientX" in e && e.detail > 0;
-    setAt({ x: pointed ? e.clientX : (r?.left ?? 0) + 22, y: r?.bottom ?? (pointed ? e.clientY : 0) });
+    setAt({ x: pointed ? e.clientX : (r?.left ?? 0) + 22, y: r?.top ?? (pointed ? e.clientY : 0), h: r?.height ?? 0 });
   };
-  const anchor = usePointAnchor(at);
+  // Its line's height at the press: the card is under the line or over it, never on it, so the
+  // line can be pressed again to put the card away (kumo, 2026-11-24: over the line when there
+  // was no room under, the pointer was left on the card).
+  const anchor = useMemo(() => (at ? { getBoundingClientRect: () => DOMRect.fromRect({ x: at.x, y: at.y, width: 0, height: at.h }) } : null), [at]);
   return (
     <Popover.Root open={open} onOpenChange={toggle}>
-      <Popover.Trigger ref={row} className={cn(ROW, "w-full text-left outline-none focus-visible:text-ink-2", open && "text-ink-2")}>
+      <Popover.Trigger ref={row} className={cn(ROW, "w-full shrink-0 text-left outline-none focus-visible:text-ink-2", open && "text-ink-2")}>
         <StepLine s={s} cwd={cwd} bare={bare} />
       </Popover.Trigger>
-      <Popover.Portal>
-        <Popover.Positioner anchor={anchor} side="bottom" align="start" sideOffset={4} collisionPadding={8} className="z-50">
+      <PopoverPortal>
+        <Popover.Positioner anchor={anchor} side={at && at.y + at.h / 2 > window.innerHeight / 2 ? "top" : "bottom"} align="start" sideOffset={4} collisionPadding={8} collisionAvoidance={{ side: "none", align: "shift", fallbackAxisSide: "none" }} className="z-50">
           <Popover.Popup initialFocus={(type) => type === "keyboard"} className="g-unfold glass thick float flex max-h-[min(72dvh,620px,var(--available-height))] w-[min(620px,calc(100vw-16px))] flex-col overflow-hidden rounded-xl text-ink outline-none">
             <StepCard s={s} session={session} />
           </Popover.Popup>
         </Popover.Positioner>
-      </Popover.Portal>
+      </PopoverPortal>
     </Popover.Root>
   );
 }
@@ -897,62 +1029,57 @@ function CpArg({ from, to }: { from: CpSide; to: CpSide }) {
   );
 }
 
-/** The card: no head (its line is right above it, a press elsewhere puts it away; the user,
- *  2026-11-08), only its input field by field and its output, each with a key to copy it; a
- *  thought its words. */
-function StepCard({ s, session }: { s: Step; session: string }) {
-  return (
-    <>
-      <div className="grid min-h-0 gap-4 overflow-y-auto overscroll-contain px-3 pt-3 pb-3.5">
-        {s.kind === "thinking" ? (
-          <Clipped text={s.text ?? ""} length={s.length} at={s.at} session={session} prose />
-        ) : (
-          <>
-            <Part label={t("msg.input")} copy={s.input}>
-              <Clipped text={s.input ?? ""} length={s.length} at={s.at} session={session} fields />
-            </Part>
-            <Part label={t("msg.output")} copy={s.result?.text} error={s.result?.error}>
-              {/* A subagent's result is its words to the agent, not to you: folded when long
-                  (kumo, 2026-11-15: 子代理交回的结果折起). */}
-              {s.result ? (
-                <SubResult r={s.result} session={session} fold={s.name === "Agent" || s.name === "Task"} />
-              ) : (
-                <span className="text-xs text-ink-3">{t("msg.noResult")}</span>
-              )}
-            </Part>
-            {/* The sessions it names by id, each a card going there (ir send, ir wait); not a list's
-                many (ir ls): the sidebar has those. ir new's is under its line (Opened). */}
-            {!newOfCall(s) && <NamedCards text={s.input ?? ""} also={s.result?.text} />}
-          </>
-        )}
-      </div>
-    </>
-  );
-}
+/** The card: no head and no Input/Output labels (kumo, 2026-11-24: its line is right above it,
+ *  the blocks themselves are enough). Shell calls show their command directly without a "command"
+ *  field label. All of it shown, however long: the card scrolls (kumo, 2026-11-25). */
+/** A part of a step's card as a terminal writes it (kumo, 2026-11-25): the command after a "$",
+ *  what came back under it after a "⎿", lighter; one font, no rule between. The marks themselves
+ *  in the words' own ink, bold: in a lighter one they were hardly seen (kumo, 2026-11-25). */
+const Lead = ({ mark, dim, children }: { mark: string; dim?: boolean; children: ReactNode }) => (
+  <div className={cn("flex min-w-0 items-start", dim && "[&_pre]:text-ink-3")}>
+    <span aria-hidden className="w-3.5 shrink-0 py-1 text-center font-mono text-xs leading-[18px] font-semibold text-ink select-none">{mark}</span>
+    <div className="min-w-0 flex-1">{children}</div>
+  </div>
+);
 
-/** One part of the card: its small label, a key to copy it, its body. */
-function Part({ label, copy, error, children }: { label: string; copy?: string; error?: boolean; children: ReactNode }) {
-  const [copied, setCopied] = useState(false);
+export function StepCard({ s, session }: { s: Step; session: string }) {
+  const rawCmd = (() => {
+    if (s.kind !== "tool" || !isShell(s.name)) return undefined;
+    const i = inputOf(s.input);
+    const v = i.command ?? i.cmd;
+    return typeof v === "string" && v ? v : undefined;
+  })();
+  const hasOut = s.kind === "tool" && s.result && (s.result.text.trim() !== "" || !!s.result.length);
   return (
-    <section className="grid min-w-0 gap-1.5">
-      <div className="flex h-5 items-center gap-2">
-        <span className={cn("text-[11px] font-medium tracking-wide text-ink-4 uppercase", error && "text-err")}>{label}</span>
-        {error && <CircleX size={12} className="text-err" aria-label={t("msg.failed")} />}
-        <span className="flex-1" />
-        {!!copy && (
-          <button type="button" onClick={() => void navigator.clipboard.writeText(copy).then(() => (setCopied(true), setTimeout(() => setCopied(false), 1500)))} className="g-press flex h-5 items-center gap-1 rounded-sm px-1 text-[11px] text-ink-4 hover:text-ink-2">
-            {copied ? <Check size={12} /> : <Copy size={12} />}
-            {copied ? t("msg.copied") : t("msg.copy")}
-          </button>
-        )}
-      </div>
-      {children}
-    </section>
+    <div className="grid min-h-0 gap-1 overflow-y-auto overscroll-contain px-3 py-3">
+      {s.kind === "thinking" ? (
+        <Clipped text={s.text ?? ""} length={s.length} at={s.at} session={session} prose asked />
+      ) : (
+        <>
+          {rawCmd !== undefined ? (
+            <Lead mark="$">
+              <Clipped text={s.input ?? ""} length={s.length} at={s.at} session={session} shell asked />
+            </Lead>
+          ) : (
+            <Clipped text={s.input ?? ""} length={s.length} at={s.at} session={session} fields asked />
+          )}
+          {hasOut && s.result ? (
+            <Lead mark="⎿" dim>
+              {s.name === "Agent" || s.name === "Task" ? <SubResult r={s.result} session={session} fold={false} /> : <Clipped text={s.result!.text} length={s.result!.length} at={s.result!.at} session={session} error={s.result!.error} asked />}
+            </Lead>
+          ) : null}
+          {/* Nothing came back (a cd), or not yet: no line for it, no 暂无结果 (kumo, 2026-11-25). */}
+          {/* The sessions it names by id, each a card going there (ir send, ir wait); not a list's
+              many (ir ls): the sidebar has those. ir new's is under its line (Opened). */}
+          {!newOfCall(s) && <NamedCards text={s.input ?? ""} also={s.result?.text} />}
+        </>
+      )}
+    </div>
   );
 }
 
 /** An input object's fields, each its name and its value: a short one on the line, a long one or
- *  one of many lines in a block; an edit's old text red, its new text green. A command in a shell's
+ *  one of many lines in a block; an edit's old/new pair as a unified diff. A command in a shell's
  *  colours, a file's text in its language's (by its extension). Anything else as it is. */
 function Fields({ text }: { text: string }) {
   let v: unknown;
@@ -965,16 +1092,21 @@ function Fields({ text }: { text: string }) {
     v = part;
   }
   if (!v || typeof v !== "object" || Array.isArray(v)) return <Pre text={pretty(text)} />;
-  const rows = Object.entries(v as Record<string, unknown>);
+  const rows = Object.entries(v as Record<string, unknown>).filter(([k]) => k !== "_diff");
   const file = rows.find(([k, x]) => FILE.has(k) && typeof x === "string")?.[1] as string | undefined;
+  const oldRow = rows.find(([k, x]) => OLD.has(k) && typeof x === "string");
+  const newRow = rows.find(([k, x]) => EDIT_NEW.has(k) && typeof x === "string");
+  const hasEditDiff = !!(oldRow && newRow);
   if (!rows.length) return <span className="text-xs text-ink-4">{"{}"}</span>;
   return (
     <div className="grid min-w-0 gap-2">
       {rows.map(([k, x]) => {
+        if (hasEditDiff && k === newRow[0]) return null;
+        if (hasEditDiff && k === oldRow[0]) return <DiffBlock key="diff" oldText={oldRow[1] as string} newText={newRow[1] as string} />;
         const str = typeof x === "string" ? x : JSON.stringify(x, null, 2);
-        const tone = OLD.has(k) ? "minus" : NEW.has(k) ? "plus" : undefined;
-        const inline = !tone && !SHELL.has(k) && !str.includes("\n") && str.length <= 80;
-        const lang = typeof x !== "string" ? undefined : SHELL.has(k) ? "bash" : OLD.has(k) || NEW.has(k) ? file : undefined;
+        const block = OLD.has(k) || NEW.has(k);
+        const inline = !block && !SHELL.has(k) && !str.includes("\n") && str.length <= 80;
+        const lang = typeof x !== "string" ? undefined : SHELL.has(k) ? "bash" : block ? file : undefined;
         return inline ? (
           <div key={k} className="flex min-w-0 items-baseline gap-2 text-xs">
             <span className="shrink-0 font-mono text-ink-4">{k}</span>
@@ -983,7 +1115,7 @@ function Fields({ text }: { text: string }) {
         ) : (
           <div key={k} className="grid min-w-0 gap-1">
             <span className="font-mono text-xs text-ink-4">{k}</span>
-            <Pre text={str} tone={tone} lang={lang} />
+            <Pre text={str} lang={lang} />
           </div>
         );
       })}
@@ -991,19 +1123,44 @@ function Fields({ text }: { text: string }) {
   );
 }
 const OLD = new Set(["old_string", "old_str", "oldText"]);
-const NEW = new Set(["new_string", "new_str", "newText", "content"]);
+const EDIT_NEW = new Set(["new_string", "new_str", "newText"]);
+const NEW = new Set([...EDIT_NEW, "content"]);
 const SHELL = new Set(["command", "cmd", "script"]);
 const FILE = new Set(["file_path", "path", "filePath", "notebook_path"]);
 
-function Pre({ text, error, tone, cap, lang }: { text: string; error?: boolean; tone?: "plus" | "minus"; cap?: boolean; lang?: string }) {
+/** Unified line diff for Edit calls (old_string → new_string), replacing side-by-side red/green
+ *  bordered boxes (kumo, 2026-11-24). */
+function DiffBlock({ oldText, newText }: { oldText: string; newText: string }) {
+  const lines = useMemo(() => unifiedDiff(oldText, newText), [oldText, newText]);
+  return (
+    <pre className="m-0 min-w-0 overflow-x-auto py-1.5 font-mono text-xs leading-[18px]">
+      {lines.map((l, i) => (
+        <div
+          key={i}
+          className={cn(
+            "flex min-w-0 px-2.5 whitespace-pre-wrap [overflow-wrap:anywhere]",
+            l.kind === "add" && "bg-plus/12 text-ink",
+            l.kind === "del" && "bg-minus/12 text-ink",
+            l.kind === "eq" && "text-ink-3",
+          )}
+        >
+          <span aria-hidden className={cn("w-4 shrink-0 select-none", l.kind === "add" ? "text-plus" : l.kind === "del" ? "text-minus" : "text-ink-4")}>
+            {l.kind === "add" ? "+" : l.kind === "del" ? "−" : " "}
+          </span>
+          <span className="min-w-0 flex-1">{l.line || "\u00a0"}</span>
+        </div>
+      ))}
+    </pre>
+  );
+}
+
+function Pre({ text, error, cap, lang }: { text: string; error?: boolean; cap?: boolean; lang?: string }) {
   return (
     <pre
       className={cn(
-        "m-0 min-w-0 rounded-md bg-fill px-2.5 py-2 font-mono text-xs leading-[18px] whitespace-pre-wrap [overflow-wrap:anywhere]",
+        "m-0 min-w-0 py-1 pl-2.5 font-mono text-xs leading-[18px] whitespace-pre-wrap [overflow-wrap:anywhere]",
         error ? "text-err" : "text-ink-2",
         cap && "max-h-80 overflow-auto",
-        tone === "plus" && "shadow-[inset_2px_0_0_var(--plus)]",
-        tone === "minus" && "shadow-[inset_2px_0_0_var(--minus)]",
       )}
     >
       <Code text={text} lang={error ? undefined : lang} label />
@@ -1031,12 +1188,13 @@ function SubResult({ r, session, fold }: { r: Result; session: string; fold: boo
 /** Text the page may have only the start of (length: the whole's), with a key to bring the whole.
  *  fields: an input, shown field by field; cap: inline in the conversation, scrolled past 20 lines.
  *  asked: in a fold whose opening brings the whole (false till then): no key of its own. */
-function Clipped({ text, length, at, session, error, prose, fields, cap, asked }: { text: string; length?: number; at: string; session: string; error?: boolean; prose?: boolean; fields?: boolean; cap?: boolean; asked?: boolean }) {
-  const [whole, setWhole] = useState<string>();
+function Clipped({ text, length, at, session, error, prose, fields, shell, cap, asked }: { text: string; length?: number; at: string; session: string; error?: boolean; prose?: boolean; fields?: boolean; shell?: boolean; cap?: boolean; asked?: boolean }) {
+  // Asked for ahead (wholeAhead: its row pointed at or pressed): had as it opens, or once it comes.
+  const [whole, setWhole] = useState<string | undefined>(() => wholes.get(wholeKey(session, at)));
   const [state, setState] = useState<"idle" | "busy" | "failed">("idle");
   const more = () => {
     setState("busy");
-    api.block(session, at).then(
+    wholeOf(session, at).then(
       (d) => (setWhole(d.text), setState("idle")),
       () => setState("failed"),
     );
@@ -1044,9 +1202,10 @@ function Clipped({ text, length, at, session, error, prose, fields, cap, asked }
   const cut = length !== undefined && length > 0 && whole === undefined;
   useEffect(() => void (asked && cut && state === "idle" && more()), [asked]);
   const shown = whole ?? text;
+  const cmd = shell ? (() => { const i = inputOf(shown); const v = i.command ?? i.cmd; return typeof v === "string" && v ? v : undefined; })() : undefined;
   return (
     <div className="grid min-w-0 gap-1">
-      {prose ? <Markdown text={shown} className="text-sm text-ink-2" /> : fields ? <Fields text={shown} /> : <Pre text={pretty(shown)} error={error} cap={cap} lang="auto" />}
+      {prose ? <Markdown text={shown} className="text-sm text-ink-2" /> : cmd !== undefined ? <Pre text={cmd} cap={cap} lang="bash" /> : fields || shell ? <Fields text={shown} /> : <Pre text={pretty(shown)} error={error} cap={cap} lang="auto" />}
       {cut && asked === undefined && (
         <button type="button" onClick={more} disabled={state === "busy"} className="g-press justify-self-start rounded-sm text-xs text-ink-3 underline decoration-ink-4 underline-offset-2 hover:text-ink">
           {state === "busy" ? <LoaderCircle size={12} className="inline animate-spin" /> : t("msg.whole", { n: length })}
@@ -1055,6 +1214,33 @@ function Clipped({ text, length, at, session, error, prose, fields, cap, asked }
       {state === "failed" && <span className="text-xs text-err">{t("err.whole")}</span>}
     </div>
   );
+}
+
+// A block's whole text, kept once read; coming: being read.
+const wholes = new Map<string, string>();
+const coming = new Map<string, Promise<{ text: string }>>();
+const wholeKey = (session: string, at: string) => `${session} ${at}`;
+function wholeOf(session: string, at: string): Promise<{ text: string }> {
+  const k = wholeKey(session, at);
+  const had = wholes.get(k);
+  if (had !== undefined) return Promise.resolve({ text: had });
+  let p = coming.get(k);
+  if (!p) {
+    p = api.block(session, at).then((d) => (wholes.set(k, d.text), d));
+    coming.set(k, p);
+    void p.catch(() => {}).finally(() => coming.delete(k));
+  }
+  return p;
+}
+/** What step s's card shows cut short (a long command, a long output), read whole ahead of the
+ *  card: as its row is pointed at or pressed, so the card opens with it and is not drawn again
+ *  (kumo, 2026-11-25: 一打开内容变了). Settles once they are had, or could not be. */
+export function wholeAhead(session: string, s: Step): Promise<unknown> {
+  const parts: string[] = [];
+  if (s.length && s.at) parts.push(s.at);
+  const r = s.kind === "tool" ? s.result : undefined;
+  if (r?.length && r.at) parts.push(r.at);
+  return Promise.all(parts.map((at) => wholeOf(session, at).catch(() => {})));
 }
 
 /** JSON as an object's lines; any other text as it is. */
@@ -1085,63 +1271,5 @@ export function Running({ tool, cwd }: { tool: Tool; cwd: string }) {
       <span className={cn("shine min-w-0 truncate", a.code ? "font-mono text-xs" : "text-xs")}>{a.arg}</span>
       {secs !== null && <span className="ml-auto shrink-0 text-xs text-ink-3 tabular-nums">{secs < 60 ? `${secs}s` : `${Math.floor(secs / 60)}m${secs % 60}s`}</span>}
     </div>
-  );
-}
-
-/** What an agent's finished turn did and said before its last words, as one line (kumo,
- *  2026-11-16: so its face is by its answer): how many words and steps; pressed, all of it, its
- *  height gliding, pressed again, the line. A turn that ends in front of you folds as it ends; one
- *  still at work is open. */
-/** after: the rows after those it holds. While its turn goes on and it is open they are drawn in
- *  it, under the others: one place for all the turn's rows, so that a row which comes to be among
- *  the earlier ones (each time the agent says more) is not taken out of the page and put in again
- *  (kumo, 2026-11-19: its pictures came in anew, a fold opened in it shut). bare: nothing to hold
- *  yet, no line of its own; the place is there from the turn's first row. */
-export function Earlier({ done, fresh, words, steps, children, after, bare }: { done: boolean; fresh?: boolean; words: number; steps: number; children: ReactNode; after?: ReactNode; bare?: boolean }) {
-  // fresh: its turn ended in front of you as it came to have something to fold: drawn open, then
-  // folding, not gone at once.
-  const [open, setOpen] = useState(!done || !!fresh);
-  const was = useRef(done);
-  useEffect(() => {
-    if (!done || !fresh) return;
-    const f = requestAnimationFrame(() => requestAnimationFrame(() => setOpen(false)));
-    return () => cancelAnimationFrame(f);
-  }, []);
-  useEffect(() => {
-    if (done !== was.current) setOpen(!done);
-    was.current = done;
-  }, [done]);
-  // Its line drawn as the steps' fold's is (Fold; kumo, 2026-11-16: no design of its own): an
-  // icon, its name and how many, the chevron. Open, what it holds as it stood in the turn: no
-  // rule beside it, not set in (kumo, 2026-11-16: the rule is the steps' fold's alone; with one
-  // here too, a fold of steps in it stood behind two, and the turn's rows moved aside as it ended).
-  const within = !done && open;
-  // after is always in the one place, after the fold, the turn going on or ended: put inside it
-  // while the turn went on and taken out as it ended, the last thing said was drawn anew as its
-  // turn ended (kumo, 2026-11-23: a flicker as each answer was done). The gap between the two is
-  // the turn's own (TurnFrame's), as wide as the fold's; nothing to fold yet, no fold to stand
-  // in it.
-  const has = Children.count(children) > 0;
-  return (
-    <>
-    {(has || !bare) && <div className="flex min-w-0 flex-col">
-      {!bare && <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className={cn(ROW, "-my-0.5 w-full text-left")}>
-        <span className="min-w-0 truncate">
-          <MessagesSquare size={14} className="mr-2 inline-block align-[-2.5px]" />
-          <span className="text-ink-2">{t("msg.earlier")}</span>
-          <span className="tabular-nums"> ×{words + steps}</span>
-        </span>
-        <ChevronRight size={13} className={cn("shrink-0 text-ink-4 transition-transform duration-(--dur-2)", open && "rotate-90")} />
-      </button>}
-      <div inert={!open || undefined} aria-hidden={!open || undefined} className="g-reveal" data-open={open ? "" : undefined}>
-        <div className={cn("min-h-0 min-w-0", !within && "overflow-hidden")}>
-          <div className={cn("flex min-w-0 flex-col gap-5", !bare && "mt-0.5 pt-4")}>
-            {children}
-          </div>
-        </div>
-      </div>
-    </div>}
-    {after}
-    </>
   );
 }

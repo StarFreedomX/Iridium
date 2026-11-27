@@ -169,11 +169,8 @@ type SessionState struct {
 	Session `tstype:",extends"`
 	Asks    []Ask  `json:"asks"`
 	Tasks   []Task `json:"tasks"`
-	// Denials: steps Claude's auto mode classifier turned down since the daemon started, waiting
-	// for you to switch to manual for them or let them be (docs/api.md "临时切换至 manual"); the oldest first.
-	Denials []Denial `json:"denials"`
-	Model   string   `json:"model,omitempty"`
-	Mode    string   `json:"mode,omitempty"` // the approval (permission) mode
+	Model   string `json:"model,omitempty"`
+	Mode    string `json:"mode,omitempty"` // the approval (permission) mode
 	// End: how far the transcript has been read; GET messages?after=<your end> for new blocks.
 	End int64 `json:"end"`
 	// Proc: the agent process's number, up by one at each start; drafts of another are stale.
@@ -199,8 +196,6 @@ type SessionState struct {
 	// Tokens: what its turns read so far, as recorded (GET /v1/internal/usage counts the same rows);
 	// absent before its first.
 	Tokens *InputTokens `json:"tokens,omitempty"`
-	// QuotaUntil: the agent's quota ran out; Iridium goes on at this time (ms).
-	QuotaUntil int64 `json:"quotaUntil,omitempty"`
 	// Tail: the newest blocks, when they are few and small; else the page fetches after its end.
 	Tail *BlockTail `json:"tail,omitempty"`
 	// Commands: the slash commands its agent offers, as its last handshake named them.
@@ -232,7 +227,7 @@ type Command struct {
 // Ask is a question, a plan to confirm or a tool to approve, open until answered or withdrawn.
 type Ask struct {
 	RequestID   string `json:"requestId"`
-	Kind        string `json:"kind"` // question | plan | permission
+	Kind        string `json:"kind"` // question | plan | permission | manual (ManualAsk)
 	Tool        string `json:"tool"`
 	Input       any    `json:"input" tstype:"unknown"`
 	ToolUseID   string `json:"toolUseId,omitempty"`
@@ -244,21 +239,22 @@ type Ask struct {
 	Card *Card `json:"card,omitempty"`
 }
 
-// Denial is a step Claude's auto mode classifier turned down: the call (ToolUseID), its tool and
-// input, the classifier's reason, when (ms).
-type Denial struct {
-	ToolUseID string `json:"toolUseId"`
-	Tool      string `json:"tool"`
-	Input     any    `json:"input" tstype:"unknown"`
-	Reason    string `json:"reason,omitempty"`
-	At        int64  `json:"at"`
-}
-
 // Task is a background task of the agent's. While one runs the session is not reaped.
 type Task struct {
 	ID          string `json:"id"`
 	Type        string `json:"type,omitempty"` // Claude: local_bash, local_agent...
 	Description string `json:"description,omitempty"`
+	// Since: when it began (ms), where the agent says: the page counts from it, not from when it
+	// first saw the task.
+	Since int64 `json:"since,omitempty"`
+	// Call: the id of the tool call that started it (Claude's), which a subagent's session names
+	// as its Call: the page opens that session's record from it.
+	Call string `json:"call,omitempty"`
+	// Steps, Now: a subagent's tool calls so far and what it is at, as its last progress says.
+	Steps int    `json:"steps,omitempty"`
+	Now   string `json:"now,omitempty"`
+	// Stop: POST …/tasks/{task}/stop stops it alone (Claude's stop_task).
+	Stop bool `json:"stop,omitempty"`
 }
 
 // Context is the carried state "context:<id>": how full the context window is.
@@ -276,7 +272,8 @@ type ContextCategory struct {
 	Kind   string `json:"kind"` // used | buffer | free | deferred
 }
 
-// Quota is the carried state "quota": the agents' quota windows, as last read.
+// Quota is GET /v1/internal/quota: each agent's account as last read, its quota windows or its
+// balance.
 type Quota struct {
 	Agents []AgentQuota `json:"agents"`
 }
@@ -335,7 +332,7 @@ type Block struct {
 	// FromDevice: the device a browser of ir_web sent it from (the passkey it logged in with),
 	// for the badge on its avatar; "" not known (that login's device now).
 	FromDevice Device `json:"fromDevice,omitempty"`
-	ID        string `json:"id,omitempty"` // tool, result: the call's id
+	ID         string `json:"id,omitempty"` // tool, result: the call's id
 	// tool: Name, Input as JSON, and Result when it is on the same page.
 	Name   string  `json:"name,omitempty"`
 	Input  string  `json:"input,omitempty"`
@@ -463,21 +460,20 @@ type NewSession struct {
 	Members *ChannelSetup `json:"members,omitempty"`
 	// Role: start it as this role (its id or name): the role's agent, model, preset and card,
 	// where the fields above say nothing; its effort and mode are these fields' or the agent's
-	// own. Nick, Intro, Persona, Avatar, Background: its card (ProfilePatch), over the role's.
-	Role       string `json:"role,omitempty"`
-	Nick       string `json:"nick,omitempty"`
-	Intro      string `json:"intro,omitempty"`
-	Persona    string `json:"persona,omitempty"`
-	Avatar     string `json:"avatar,omitempty"`
-	Background string `json:"background,omitempty"`
+	// own. Nick, Persona, Avatar: its card (ProfilePatch), over the role's.
+	Role    string `json:"role,omitempty"`
+	Nick    string `json:"nick,omitempty"`
+	Persona string `json:"persona,omitempty"`
+	Avatar  string `json:"avatar,omitempty"`
 	// Name: the name channel.create gives it (its data.name), for one an agent starts to be
 	// called by in its channel when it gives no Nick. Not of the JSON: set by the Satori side.
 	Name string `json:"-"`
+	// ForChannel: started directly for a shared channel (not of the JSON; set by the server).
+	ForChannel bool `json:"-"`
 }
 
 // Send gives the session a message: a new turn when idle; while a turn runs it joins that turn
-// (kumo, 2026-11-19: no choice of waiting for its end). Only a command, or words while the quota
-// is out, wait.
+// (kumo, 2026-11-19: no choice of waiting for its end). Only a command waits.
 type Send struct {
 	Text string `json:"text"`
 	// Attachments are file refs of the session (uploads, attached paths): their paths are written
@@ -512,13 +508,22 @@ type SendReply struct {
 	Desktop bool `json:"desktop,omitempty"`
 }
 
-// Release puts the process in manual mode for call ToolUseID, which Claude's auto mode classifier
-// denied, till the step is run again or the turn ends; nothing is said to Claude (docs/api.md
-// "临时切换至 manual").
-type Release struct {
-	ToolUseID string `json:"toolUseId"`
-	// Dismiss: let it be, not run: only its card goes.
-	Dismiss bool `json:"dismiss,omitempty"`
+// ManualAsk is Claude asking a person to switch it to manual approval for a while (POST
+// internal/sessions/<id>/manual; docs/api.md "临时切换至 manual"): why, in a line; Minutes: how long
+// it waits for the answer and, approved, how long manual mode lasts at most (1 to 30, 10 if none).
+type ManualAsk struct {
+	Reason  string `json:"reason"`
+	Minutes int    `json:"minutes,omitempty"`
+}
+
+// ManualState is how a ManualAsk stands: pending (Until: when the wait ends, ms); approved (manual
+// mode till the turn ends, or Until); refused; expired (no answer in time, or the turn ended
+// first). The ask is an Ask of kind "manual", RequestID its id.
+type ManualState struct {
+	RequestID string `json:"requestId"`
+	State     string `json:"state"`
+	Minutes   int    `json:"minutes"`
+	Until     int64  `json:"until,omitempty"`
 }
 
 // Answer answers an ask. permission: Allow (and Message if not); question: Answers, by question

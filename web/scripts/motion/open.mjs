@@ -1,0 +1,10 @@
+import { chromium } from "playwright-core";
+import fs from "node:fs";
+const [base, id] = process.argv.slice(2);
+const b = await chromium.launch({ executablePath: "/home/iridium/.cache/ms-playwright/chromium-1254/chrome-linux64/chrome", args: ["--no-sandbox"] });
+const p = await b.newPage({ viewport: { width: 1200, height: 950 }, serviceWorkers: "block" });
+p.on("pageerror", (e) => console.log("ERR", e.message.slice(0, 200)));
+await p.goto(base + "?lang=zh#/s/" + id); await p.waitForTimeout(5000);
+console.log(JSON.stringify(await p.evaluate(() => { const e = document.querySelector("main [role=log]"); const col = e?.firstElementChild; return { title: (document.querySelector("main header")?.innerText || "").split("\n")[0], rows: col?.children.length, h: e?.scrollHeight, composer: !!document.querySelector("main textarea"), steps: e?.querySelectorAll("details, button[aria-expanded]").length, last: [...(col?.children ?? [])].slice(-3).map((r) => (r.innerText || "").replace(/\s+/g, " ").slice(0, 50)) }; })));
+await p.screenshot({ path: "/tmp/irperf/import.png" });
+await b.close();

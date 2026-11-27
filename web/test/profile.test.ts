@@ -47,10 +47,10 @@ describe("an agent's menu", () => {
   const all = { may: true, own: false, call: true, models: 3, modes: 2, busy: true, session: true };
   const keys = (x: Parameters<typeof memberMenu>[0]) => memberMenu(x).map((i) => i.key);
   test("all of it, in order", () => {
-    expect(keys(all)).toEqual(["call", "compact", "clear", "model", "mode", "stop", "recv", "edit", "session", "given", "remove"]);
+    expect(keys(all)).toEqual(["call", "compact", "model", "stop", "recv", "edit", "remove"]);
   });
   test("what it has none of is left out: no model, one mode, at rest", () => {
-    expect(keys({ ...all, models: 0, modes: 1, busy: false })).toEqual(["call", "compact", "clear", "recv", "edit", "session", "given", "remove"]);
+    expect(keys({ ...all, models: 0, modes: 1, busy: false })).toEqual(["call", "compact", "recv", "edit", "remove"]);
   });
   test("the channel's own agent: 移出 shown, not offered", () => {
     const m = memberMenu({ ...all, own: true, session: false });
@@ -58,8 +58,8 @@ describe("an agent's menu", () => {
     expect(m.map((i) => i.key)).not.toContain("session");
     expect(memberMenu(all).at(-1)).toEqual({ key: "remove" });
   });
-  test("one who only reads: what reads", () => {
-    expect(keys({ ...all, may: false, call: false })).toEqual(["session", "given"]);
+  test("one who only reads: nothing", () => {
+    expect(keys({ ...all, may: false, call: false })).toEqual([]);
   });
 });
 
@@ -70,19 +70,22 @@ describe("a changed card's line", () => {
     profileChannel: "{by} 更新了频道资料：{what}",
     profileNoBy: "{nick} 的资料已更新：{what}",
     profileChannelNoBy: "频道资料已更新：{what}",
-    what: { name: "名称", intro: "介绍", avatar: "头像", background: "背景" },
+    what: { name: "名称", persona: "设定", avatar: "头像" },
     whatSep: "、",
   } as unknown as EventWords;
   test("a member's: who, whose, what", () => {
-    expect(eventParts({ type: "profile", member: "agent:s", nick: "pi2", what: ["intro", "avatar"], by: "kumo" }, w)).toEqual(["kumo 更新了 ", { nick: "pi2" }, " 的资料：介绍、头像"]);
-    expect(eventParts({ type: "profile", member: "agent:s", nick: "pi2", what: ["background"], by: "主机" }, w)).toEqual(["Iridium 更新了 ", { nick: "pi2" }, " 的资料：背景"]);
+    expect(eventParts({ type: "profile", member: "agent:s", nick: "pi2", what: ["persona", "avatar"], by: "kumo" }, w)).toEqual(["kumo 更新了 ", { nick: "pi2" }, " 的资料：设定、头像"]);
+    expect(eventParts({ type: "profile", member: "agent:s", nick: "pi2", what: ["avatar"], by: "主机" }, w)).toEqual(["Iridium 更新了 ", { nick: "pi2" }, " 的资料：头像"]);
   });
   test("the channel's own", () => {
     expect(eventParts({ type: "profile", what: ["name"], by: "kumo" }, w)).toEqual(["kumo 更新了频道资料：名称"]);
   });
   test("by no one known: the same without", () => {
-    expect(eventParts({ type: "profile", member: "agent:s", nick: "pi2", what: ["intro"] }, w)).toEqual([{ nick: "pi2" }, " 的资料已更新：介绍"]);
-    expect(eventParts({ type: "profile", what: ["avatar", "later"] }, w)).toEqual(["频道资料已更新：头像、later"]);
+    expect(eventParts({ type: "profile", member: "agent:s", nick: "pi2", what: ["persona"] }, w)).toEqual([{ nick: "pi2" }, " 的资料已更新：设定"]);
+  });
+  test("fields cards no longer have (an intro, a background): left out; none else, no line", () => {
+    expect(eventParts({ type: "profile", what: ["avatar", "background"] }, w)).toEqual(["频道资料已更新：头像"]);
+    expect(eventParts({ type: "profile", member: "agent:s", nick: "pi2", what: ["intro", "background"], by: "kumo" }, w)).toBeUndefined();
   });
   test("nothing changed, or words not given: its own text is shown", () => {
     expect(eventParts({ type: "profile", nick: "pi2", by: "kumo" }, w)).toBeUndefined();

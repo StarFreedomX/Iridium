@@ -9,9 +9,10 @@ import { api } from "../../api/client";
 import type { ChannelMembers } from "../../api/types.gen";
 import { t } from "../../i18n";
 import { openChat } from "../../route";
-import { isComputer, useApps } from "../../data";
+import { isComputer, selfQ, useApps } from "../../data";
+import { useQueryClient } from "@tanstack/react-query";
 import { errText, toast } from "../../toast";
-import { Avatar, cn, isHost, usePointAnchor } from "../../ui";
+import { Avatar, cn, isHost, usePointAnchor, MenuPortal } from "../../ui";
 import { ITEM, POPUP } from "./invite";
 import { mayDM, userOf, type AgentRow } from "./lib";
 import { SelfEdit } from "./edit";
@@ -31,6 +32,7 @@ export function PersonCard({ user, name, avatar, app, call, dm: other = true }: 
   const [edit, setEdit] = useState(false);
   const dm = mayDM(user, useApps().data?.logins ?? []) && other;
   const card = useCard(user);
+  const qc = useQueryClient();
   const talk = () => {
     setBusy(true);
     void api.dm(user).then(
@@ -41,9 +43,9 @@ export function PersonCard({ user, name, avatar, app, call, dm: other = true }: 
   const keys: CardKey[] = [];
   if (dm) keys.push({ icon: <MessageCircle size={14} />, label: t("channel.dm"), run: talk, disabled: busy });
   if (call) keys.push({ icon: <AtSign size={14} />, label: t("channel.call"), run: () => call(name) });
-  if (card?.mine) keys.push({ icon: <PencilLine size={14} />, label: t("profile.edit"), run: () => setEdit(true) });
+  if (card?.mine) keys.push({ icon: <PencilLine size={14} />, label: t("profile.edit"), run: () => setEdit(true), ahead: () => void qc.prefetchQuery({ ...selfQ, staleTime: 30_000 }) });
   if (edit) return <SelfEdit back={() => setEdit(false)} />;
-  return <ProfileCard face={<Avatar src={avatar ?? card?.avatar} name={name} size={56} host={isHost(user)} />} name={name} sub={app} intro={card?.intro} background={card?.background} keys={keys} />;
+  return <ProfileCard face={<Avatar src={avatar ?? card?.avatar} name={name} size={56} host={isHost(user)} />} name={name} sub={app} keys={keys} />;
 }
 
 /** A person's face's menu, the right button or a finger held down (kumo, 2026-11-16: an agent's
@@ -61,7 +63,7 @@ export function PersonMenu({ user, name, call, dm: other = true, at, close }: { 
   if (!items.length) return null;
   return (
     <Menu.Root open={at !== null} onOpenChange={(o) => !o && close()}>
-      <Menu.Portal>
+      <MenuPortal>
         <Menu.Positioner anchor={anchor} side="bottom" align="start" sideOffset={4} collisionPadding={8} className="z-50">
           <Menu.Popup finalFocus={false} className={cn(POPUP, "min-w-52 p-1.5")}>
             <div className="g-stagger flex flex-col">
@@ -74,7 +76,7 @@ export function PersonMenu({ user, name, call, dm: other = true, at, close }: { 
             </div>
           </Menu.Popup>
         </Menu.Positioner>
-      </Menu.Portal>
+      </MenuPortal>
     </Menu.Root>
   );
 }
@@ -89,9 +91,9 @@ export function usePeople(members?: ChannelMembers): AgentRow[] {
     for (const a of apps?.apps ?? []) {
       if (isComputer(a)) continue;
       const appName = a.web ? t("term.panel") : a.name;
-      if (hasApp(ps, a.id)) out.push({ session: "", member: `${a.id}/*`, agent: "" as AgentRow["agent"], nick: appName, name: t("channel.app"), status: "idle", recv: [], avatar: a.avatar, person: true });
+      if (hasApp(ps, a.id)) out.push({ session: "", member: `${a.id}/*`, agent: "" as AgentRow["agent"], nick: appName, name: t("channel.app"), status: "idle", on: [], avatar: a.avatar, person: true });
       for (const l of (apps?.logins ?? []).filter((x) => x.app === a.id)) {
-        if (hasLogin(ps, a.id, l.id)) out.push({ session: "", member: `${a.id}/${l.id}`, agent: "" as AgentRow["agent"], nick: l.name, name: appName, status: "idle", recv: [], avatar: l.avatar, person: true });
+        if (hasLogin(ps, a.id, l.id)) out.push({ session: "", member: `${a.id}/${l.id}`, agent: "" as AgentRow["agent"], nick: l.name, name: appName, status: "idle", on: [], avatar: l.avatar, person: true });
       }
     }
     return out;

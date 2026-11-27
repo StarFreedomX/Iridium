@@ -1,6 +1,7 @@
 package session
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -34,19 +35,58 @@ func (m *Manager) finder() Finder {
 	return f
 }
 
-// found is session id as discovery found it, if Iridium does not host it.
+// found is session id as discovery found it, if Iridium does not host it; else the channel that
+// is no session's of that id. That one is asked for alone: listing them all to find it cost two
+// queries a channel, for every session of a list and every block of a page (otae, 2026-11-25:
+// the daemon at 350% CPU, no list in 150 s).
 func (m *Manager) found(id string) (api.Session, *transcript.File, bool) {
-	if f := m.finder(); f != nil {
-		if s, tf, ok := f.Found(id); ok {
-			return s, tf, true
-		}
+	if s, tf, ok := m.discovered(id); ok {
+		return s, tf, true
 	}
-	for _, s := range m.bares() {
-		if s.ID == id {
+	if b := m.bare.Load(); b != nil && b.one != nil {
+		if s, ok := b.one(id); ok {
 			return s, nil, true
 		}
 	}
 	return api.Session{}, nil, false
+}
+
+// discovered is session id as discovery found it on disk.
+func (m *Manager) discovered(id string) (api.Session, *transcript.File, bool) {
+	if f := m.finder(); f != nil {
+		return f.Found(id)
+	}
+	return api.Session{}, nil, false
+}
+
+// Called is what session id goes by: the name it was given, else its title; "" for one not known.
+// What State says of it, without making its state.
+func (m *Manager) Called(id string) string {
+	var title string
+	if h, err := m.get(id); err == nil {
+		h.mu.Lock()
+		title = h.said.title
+		h.mu.Unlock()
+	} else if s, _, ok := m.found(id); ok {
+		title = s.Title
+	} else {
+		return ""
+	}
+	return cmp.Or(m.o.Store.Named(id), title)
+}
+
+// Where is where session id is, as State says it (its id, computer and folder): what says who
+// sees it, without making its state; false for one not known.
+func (m *Manager) Where(id string) (api.Session, bool) {
+	if h, err := m.get(id); err == nil {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		return api.Session{ID: h.id, Machine: h.meta.Machine, Cwd: h.meta.Cwd}, true
+	}
+	if s, _, ok := m.found(id); ok {
+		return api.Session{ID: s.ID, Machine: s.Machine, Cwd: s.Cwd}, true
+	}
+	return api.Session{}, false
 }
 
 // HasIR: session id's agent has an ir that reaches Iridium: here always; at another machine,
@@ -64,9 +104,18 @@ func (m *Manager) HasIR(id string) bool {
 	return hi != nil && hi.IRClient
 }
 
-// SetBare has f list the channels that are no session's (docs/channels.md), each as a session
-// with no agent: listed, named, pinned, grouped and archived as the sessions found on disk are.
-func (m *Manager) SetBare(f func() []api.Session) { m.bare.Store(&f) }
+// SetBare has all list the channels that are no session's (docs/channels.md), each as a session
+// with no agent: listed, named, pinned, grouped and archived as the sessions found on disk are;
+// one is the one of an id, if there is one.
+func (m *Manager) SetBare(all func() []api.Session, one func(id string) (api.Session, bool)) {
+	m.bare.Store(&bareChannels{all: all, one: one})
+}
+
+// bareChannels is how the channels that are no session's are read (SetBare).
+type bareChannels struct {
+	all func() []api.Session
+	one func(id string) (api.Session, bool)
+}
 
 // SetChannelLast has f give the last words a session is listed with when its channel says them
 // rather than its record (record: the record's): one with other agents in it, where people and
@@ -93,8 +142,8 @@ func (m *Manager) channelLast(s *api.Session) {
 }
 
 func (m *Manager) bares() []api.Session {
-	if f := m.bare.Load(); f != nil {
-		return (*f)()
+	if b := m.bare.Load(); b != nil && b.all != nil {
+		return b.all()
 	}
 	return nil
 }
@@ -106,7 +155,7 @@ func (m *Manager) ListBare(id, machine, cwd, caller string) error {
 		return err
 	}
 	m.intoGroup(id, groupPath(machine, cwd), caller)
-	m.Refresh([]string{id})
+	m.RefreshSoon([]string{id})
 	return nil
 }
 
@@ -194,12 +243,13 @@ func (m *Manager) take(ctx context.Context, id string) (*Hosted, error) {
 }
 
 // elsewhere marks a hosted session whose agent Iridium is not running but another process is;
-// as: the id discovery finds it under.
+// as: the id discovery finds it under. Discovery alone is asked: a channel that is no session's
+// is no hosted session, and runs nowhere.
 func (m *Manager) elsewhere(s api.Session, as string) api.Session {
 	if s.Live {
 		return s
 	}
-	if f, _, ok := m.found(as); ok && f.Status == api.StatusElsewhere {
+	if f, _, ok := m.discovered(as); ok && f.Status == api.StatusElsewhere {
 		s.Status, s.Live, s.Needs = api.StatusElsewhere, true, f.Needs
 	}
 	return s
@@ -212,15 +262,17 @@ func (m *Manager) foreignState(id string, over map[string]store.Overlay) (*api.S
 	if !ok {
 		return nil, ErrNotFound
 	}
-	if over == nil {
-		over, _ = m.o.Store.Overlays()
-	}
 	o := over[id]
+	if over == nil {
+		o = m.o.Store.Overlay(id)
+	}
 	s.Name, s.Pinned, s.Workspace, s.Color = o.Name, o.Pinned, o.Workspace, api.Color(o.Color)
-	s.Archived = !m.visibility().Shown(string(s.Agent), s.ID)
+	// Its own marker alone, as a hosted one's is read (shown): not every marker for one session.
+	r, ok, _ := m.o.Store.ShownRow(string(s.Agent), s.ID)
+	s.Archived = !(ok && r.Shown)
 	m.parentOf(&s)
 	s.Own = ownOf(s, o)
-	st := &api.SessionState{Session: s, Asks: []api.Ask{}, Tasks: []api.Task{}, Denials: []api.Denial{}}
+	st := &api.SessionState{Session: s, Asks: []api.Ask{}, Tasks: []api.Task{}}
 	if f != nil {
 		st.End, _ = f.Size()
 	}
@@ -273,6 +325,19 @@ type fetcher interface {
 // named, hosted or not.
 func (m *Manager) Refresh(ids []string) {
 	m.publishList()
+	m.publishStates(ids)
+}
+
+// RefreshSoon is Refresh with the list made again apart, after: what asked (a channel made, kumo
+// 2026-11-26: the "+" waited on the whole list made twice, most of a second, more while
+// discovery was busy) is answered at once; the sessions' own states are set first.
+func (m *Manager) RefreshSoon(ids []string) {
+	m.publishStates(ids)
+	go m.publishList()
+}
+
+// publishStates sets the carried state of each session of ids.
+func (m *Manager) publishStates(ids []string) {
 	over, _ := m.o.Store.Overlays()
 	for _, id := range ids {
 		if h, err := m.get(id); err == nil {
@@ -292,9 +357,7 @@ func (m *Manager) Refresh(ids []string) {
 func (m *Manager) intoGroup(id, cwd, caller string) {
 	var prefer int64
 	if caller != "" {
-		if over, err := m.o.Store.Overlays(); err == nil {
-			prefer = over[caller].Workspace
-		}
+		prefer = m.o.Store.Overlay(caller).Workspace
 	}
 	g, ok := m.o.Discovery.(grouper)
 	if !ok {

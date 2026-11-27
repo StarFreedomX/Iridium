@@ -1,59 +1,28 @@
 // The conversations the page holds (docs/api.md "消息页", Rhodium architecture §7.7): each session's
-// blocks as fetched, paged back as you scroll up, the drafts after them, and what you sent that the
-// transcript has yet to bring. Those seen lately stay in memory, up to KEPT_BLOCKS blocks in all, so
+// blocks as fetched, paged back as you scroll up, the drafts after them. Those seen lately stay in memory, up to KEPT_BLOCKS blocks in all, so
 // going back to one draws it at once and fetches only what came since. Also what is fetched ahead
 // (plan "弱网"): a row the mouse rests on, a session whose turn ends off screen, and those the page
 // warms of its own (src/warm.ts picks them): each one's newest page, held apart till it is visited.
 import { api, queryClient, type First } from "./api/client";
 import type { Block, DraftEvent, MessagePage, Session, SessionState } from "./api/types.gen";
-import { saidBefore, workKey, workOf, type Src } from "./chat/channel/lib";
-import { channelLog, heldLog, several } from "./chat/channel/log";
+import { anyUnsentChannel, channelLog, heldLog } from "./chat/channel/log";
+import { seedSpans } from "./chat/spans";
 import { getCarried, setCarried } from "./store";
 
 /** Whether what came at at (ms) is of just now: a page that opens right after a first screen (or
  *  a read ahead of its turn) asks for none of it again. */
 export const fresh = (at: number) => Date.now() - at < 3_000;
 
-/** A message of yours sent from this page, till the transcript has it: input, the id the server gave
- *  it (Claude's uuid, which the user block carries); text, as typed; files, upload refs with their
- *  names; from, where the transcript ended as it was sent. failed: why it did not go. mid: sent into a turn already on. seq: its
+/** A message of yours sent from this page, till the channel's log has it (channel/log.ts): input,
+ *  its id, chosen here (its message and the agent's record have it by that id); text, as typed; files, upload refs with their
+ *  names; from, where the log ended as it was sent. failed: why it did not go. mid: sent into a turn already on. seq: its
  *  number in its channel, once the server said it. queued: the server keeps it for the turn's end (a command) or the quota (a clock by
  *  its bubble); waited: seen in the session's queue; gone: answered, and nothing of it will come
  *  in the transcript (a command the agent ran itself); at: when it was answered. */
-export type Sent = { key: string; text: string; files: { ref: string; name: string; type: string; size?: number; url?: string; w?: number; h?: number }[]; from: number; input?: string; failed?: string; queued?: boolean; waited?: boolean; left?: number; gone?: boolean; at?: number; mid?: boolean; seq?: number; quote?: number };
+export type Sent = { key: string; made?: number; text: string; files: { ref: string; name: string; type: string; size?: number; url?: string; w?: number; h?: number }[]; from: number; input?: string; failed?: string; queued?: boolean; waited?: boolean; left?: number; gone?: boolean; at?: number; mid?: boolean; seq?: number; quote?: number; place?: number };
 
 /** Where a block's transcript line begins: its at up to the dot. */
 export const lineOf = (b: { at: string }) => parseInt(b.at);
-
-/** A /compact you sent: no bubble, the chat's compaction line says it (chat/said.tsx Compaction). */
-export const compactSent = (s: Sent) => /^\/compact(\s|$)/.test(s.text.trim());
-
-/** Whether user block b is s by what it says, for an agent whose transcript keeps no input id
- *  (pi): its words at the head; with none, attachments alone, the same files (a ref is the path's,
- *  the upload's and the block's alike), or else a block of attachment lines alone. */
-const sameWords = (s: Sent, b: Block) => {
-  const text = s.text.trim();
-  if (text) return b.text !== undefined && b.text.trim().startsWith(text.slice(0, 200));
-  if (!s.files.length) return false;
-  if (s.files.every((f) => b.files?.some((g) => g.ref === f.ref))) return true;
-  return /^\[附件\] `/.test((b.text ?? "").trim());
-};
-
-/** Those sent not yet in the transcript: each finds its own among the user blocks written since it
- *  was sent, by its input id, else by its words (attachments alone: their files); a /compact, the compaction written since. A
- *  failed one stays, unless its block came after all (only the answer was lost): by its id alone. */
-export function unsent(sent: Sent[], blocks: Block[]): Sent[] {
-  let past = 0;
-  return sent.filter((s) => {
-    s.from = Math.max(s.from, past);
-    if (s.failed !== undefined) return !(s.input && blocks.some((b) => b.kind === "user" && b.id === s.input));
-    if (compactSent(s)) return !blocks.some((b) => b.kind === "system" && b.event === "compact" && lineOf(b) >= s.from);
-    const b = blocks.find((b) => b.kind === "user" && ((s.input && b.id === s.input) || (lineOf(b) >= s.from && sameWords(s, b))));
-    if (!b) return true;
-    past = lineOf(b) + 1;
-    return false;
-  });
-}
 
 /** How long one answered as queued may be missing from the session's queue before it counts as
  *  gone from it: its state comes on another stream than the answer. */
@@ -113,7 +82,6 @@ const same = (d: Draft, block: string) => {
 export class Messages {
   blocks: Block[] = [];
   drafts: Draft[] = [];
-  sent: Sent[] = [];
   start = 0;
   end = 0;
   more = false;
@@ -177,7 +145,7 @@ export class Messages {
     for (;;) {
       const from = this.end;
       const p = await this.get(this.id, { after: from });
-      if (p.end <= this.end) return (this.came = Date.now()), this.recheck();
+      if (p.end <= this.end) return void (this.came = Date.now());
       // Two fetches may ask from the same place: each block goes in once.
       const added = p.blocks.filter((b) => lineOf(b) >= this.end);
       this.blocks = [...this.blocks, ...added];
@@ -253,16 +221,7 @@ export class Messages {
         this.forget(this.drafts.shift()!);
       } else this.loose.push(text);
     }
-    this.sent = unsent(this.sent, this.blocks);
     this.version++;
-  }
-
-  /** What was sent, checked again against the blocks it has: an answer (the input id) that came
-   *  after its block, a turn that ended with nothing new to fetch. */
-  recheck() {
-    const n = this.sent.length;
-    this.sent = unsent(this.sent, this.blocks);
-    if (this.sent.length !== n) this.version++;
   }
 
   /** The blocks the session's state carries (SessionState.tail, with the files they name), when
@@ -390,7 +349,10 @@ export class Messages {
 export const KEPT_BLOCKS = 2000;
 
 /** A session's chat as kept: its conversation, its scroll place as it was left. */
-export type Chat = { log: Messages; place: { top: number | null }; coming?: Promise<void> };
+/** place.from, n: the first turn drawn (its key) and how many from the end, when not all are
+ *  (chat/chat.tsx: a long conversation is drawn from its end, the turns before as they are gone
+ *  up to). */
+export type Chat = { log: Messages; place: { top: number | null; from?: string; n?: number }; coming?: Promise<void> };
 const newChat = (id: string, get?: Get): Chat => ({ log: new Messages(id, get), place: { top: null } });
 
 const kept = new Map<string, Chat>();
@@ -419,8 +381,6 @@ export function chatOf(id: string): Chat {
   for (const c of kept.values()) all += c.log.blocks.length;
   for (const [k, c] of kept) {
     if (all <= KEPT_BLOCKS || c === it) break;
-    // One with words that did not go is kept: they are nowhere else.
-    if (c.log.sent.some((s) => s.failed !== undefined)) continue;
     all -= c.log.blocks.length;
     kept.delete(k);
     whole.delete(k);
@@ -503,50 +463,56 @@ export function turnEnded(id: string, open: string | null): void {
  *  screen, or the page turns to it (motion.ts pageTurn), which draws it with them, not without and
  *  then jumping. */
 export function since(it: Chat, visit = false): void {
-  if (it.coming || !it.log.loaded) return;
-  // Turned to and never drawn whole (warmed: the record alone): the rest of its first screen.
+  if (it.coming) return;
+  const ch = heldLog(it.log.id);
+  if (!ch && !it.log.loaded) return;
   if (visit && !isWhole(it.log.id)) return void firstScreen(it.log.id, it);
-  it.coming = Promise.all([it.log.newer(), visit ? heldLog(it.log.id)?.newer() : undefined])
+  it.coming = Promise.all([it.log.loaded ? it.log.newer() : undefined, ch?.newer(true)])
     .then(() => {})
     .catch(() => {})
     .finally(() => (it.coming = undefined));
 }
 
-/** The sessions whose first screen came: their pages draw at once, and ask only for what came
+/** The channels whose first screen came: their pages draw at once, and ask only for what came
  *  since. Gone with the chat as it is let go. */
 const whole = new Set<string>();
-/** Whether session id's page has all of its first screen: its channel's log too, once the
- *  channel has another agent (the logs kept are fewer than the chats). */
-export const isWhole = (id: string) => whole.has(id) && (!several.has(id) || !!heldLog(id));
+/** Whether channel id's page has all of its first screen: its channel's log (or its record for a
+ *  transcript-only session). */
+export const isWhole = (id: string) => whole.has(id) && (!!heldLog(id) || !!peekChat(id)?.log.loaded);
 const firsts = new Map<string, Promise<void>>();
 /** When each state the first screens brought came (ms). */
 const stateCame = new Map<string, number>();
 export const freshState = (id: string) => fresh(stateCame.get(id) ?? 0);
 
-/** Session id's first screen, in one answer (GET …/first), put where the page reads each part:
- *  its state, its record's newest page (into it), its channel's members, and, with another agent
- *  in the channel, the log, how far each has read, the others' states and the work under their
- *  words. So the page draws once, with all of it, and asks for
- *  none of it again. Asked from the address alone: neither the list nor anything drawn is waited
- *  for. One whose record is held (warmed) asks for the rest, and for what the record missed.
- *  Failed, the page asks for each part as it did. Never rejects. */
-export function firstScreen(id: string, it: Chat = chatOf(id), init?: RequestInit): Promise<void> {
+/** Channel id's first screen, in one answer (GET …/first), put where the page reads each part:
+ *  its state, members, reads, newest log and agents' states.
+ *  record: true fetches the raw transcript alone (TranscriptView). Never rejects. */
+export function firstScreen(id: string, it: Chat = chatOf(id), init?: RequestInit, record = false): Promise<void> {
+  if (record) {
+    const log = it.log;
+    return api
+      .first(id, { record: true }, init)
+      .then((f) => {
+        const key = `session:${id}`;
+        if (!getCarried(key)) setCarried(key, f.session);
+        if (f.page) log.take(f.page);
+      })
+      .catch(() => {});
+  }
   let p = firsts.get(id);
   if (p) return p;
   const key = `session:${id}`;
   const was = getCarried<SessionState>(key);
   const log = it.log;
-  const have = log.loaded;
-  const top = log.blocks[0]?.time;
   p = (async () => {
-    // This device's copy (device/chats.ts): drawn at once (its record's page too unless held),
-    // the server's first screen taking its place as it comes, apart from this promise; not its
-    // coming: read ahead as a row is pointed at, it stays as the pointer leaves (behind).
+    // This device's copy (device/chats.ts): drawn at once, the server's first screen taking its
+    // place as it comes, apart from this promise.
     if (await fromDevice(id, it)) {
       whole.add(id);
       const mine = getCarried<SessionState>(key);
-      void Promise.all([api.first(id, have ? { have, ...(top !== undefined ? { since: log.more ? top : 0 } : {}) } : {}, init), have ? log.newer().catch(() => {}) : undefined])
-        .then(([f]) => {
+      void api
+        .first(id, {}, init)
+        .then((f) => {
           if (getCarried(key) === mine) setCarried(key, f.session);
           putFirst(id, f, log);
           copyLater(id);
@@ -555,7 +521,7 @@ export function firstScreen(id: string, it: Chat = chatOf(id), init?: RequestIni
       return;
     }
     try {
-      const [f] = await Promise.all([api.first(id, have ? { have, ...(top !== undefined ? { since: log.more ? top : 0 } : {}) } : {}, init), have ? log.newer().catch(() => {}) : undefined]);
+      const f = await api.first(id, {}, init);
       if (getCarried(key) === was) setCarried(key, f.session);
       putFirst(id, f, log);
       whole.add(id);
@@ -573,21 +539,24 @@ export function firstScreen(id: string, it: Chat = chatOf(id), init?: RequestIni
   return p;
 }
 
-/** The pictures of chat it's newest page (their thumbnails, as said.tsx shows them) fetched and
+/** The pictures of channel id's newest page (their thumbnails, as said.tsx shows them) fetched and
  *  decoded ahead, low, a few: opened, its pictures are there with its words (kumo, 2026-11-23),
- *  from the cache (sw.js) and the browser's memory. Not the tool's pictures, shut at first. */
+ *  from the cache (sw.js) and the browser's memory. */
 const PICTURES_AHEAD = 6;
 const picturesAsked = new Set<string>();
 function picturesAhead(id: string, it: Chat) {
   if (typeof Image === "undefined") return;
   const urls: string[] = [];
-  for (let i = it.log.blocks.length - 1; i >= 0 && urls.length < PICTURES_AHEAD; i--)
-    for (const f of it.log.blocks[i]!.files ?? []) {
+  const ch = heldLog(id);
+  const items = ch ? ch.msgs.map((m) => ({ session: m.author.kind === "agent" && !m.input ? m.author.session : id, files: m.files })) : it.log.blocks.map((b) => ({ session: id, files: b.files ?? [] }));
+  for (let i = items.length - 1; i >= 0 && urls.length < PICTURES_AHEAD; i--)
+    for (const f of items[i]!.files) {
       if (f.kind !== "image" || urls.length >= PICTURES_AHEAD) continue;
-      const url = f.thumb && f.mime.split(";")[0] !== "image/gif" ? api.thumbURL(id, f.ref, 1024, f.mtime) : api.fileURL(id, f.ref, false, f.mtime);
+      const url = f.thumb && f.mime.split(";")[0] !== "image/gif" ? api.thumbURL(items[i]!.session, f.ref, 1024, f.mtime) : api.fileURL(items[i]!.session, f.ref, false, f.mtime);
       if (!picturesAsked.has(url)) urls.push(url);
     }
   for (const url of urls) {
+    if (picturesAsked.size >= 500) picturesAsked.clear();
     picturesAsked.add(url);
     const img = new Image();
     (img as HTMLImageElement & { fetchPriority?: string }).fetchPriority = "low";
@@ -622,16 +591,9 @@ function putFirst(id: string, f: First, log: Messages): void {
     stateCame.set(x, Date.now());
   }
   if (!f.log) return;
-  several.add(id);
-  const ch = channelLog(id).log;
-  ch.take(f.log);
+  channelLog(id).log.take(f.log);
+  if (f.work?.length) seedSpans(f.work);
   if (f.reads && !getCarried(`reads:${id}`)) setCarried(`reads:${id}`, f.reads);
-  // The work under the others' words, as page.tsx Work would have fetched it.
-  const said = new Map(ch.msgs.flatMap((m) => (m.src ? [[workKey(m.src).join(" "), m.text] as const] : [])));
-  for (const w of f.work ?? []) {
-    const src: Src = { session: w.session, ...(w.block ? { block: w.block } : {}), ...(typeof w.from === "number" ? { from: w.from } : {}), ...(w.to ? { to: w.to } : {}) };
-    queryClient.setQueryData(workKey(src), workOf(w.blocks, src, said.get(workKey(src).join(" ")), saidBefore(ch.msgs, src)));
-  }
 }
 
 /** Watches the list for turns that end: tells turnEnded. */
@@ -645,7 +607,7 @@ export function watchTurns(list: Session[] | undefined, was: Map<string, string>
 
 /** Whether a message you sent failed and waits to be tried again, in any chat kept: one loading the
  *  page again would lose (src/upgrade.ts). */
-export const anyUnsent = () => [...kept.values()].some((c) => c.log.sent.some((s) => s.failed !== undefined));
+export const anyUnsent = anyUnsentChannel;
 
 /** A chat the page warms of its own (src/warm.ts): seen, the session's updatedAt as its page was
  *  last asked for (a later one: more to fetch); mine, visited (kept now): its fetches are no longer
@@ -701,8 +663,8 @@ async function pump() {
       // (kumo, 2026-11-23); held: what came since.
       if (!isWhole(id)) await firstScreen(id, it, { signal: w.stop.signal, priority: "low" } as RequestInit);
       else {
-        it.coming = it.log
-          .newer()
+        const ch = heldLog(id);
+        it.coming = (ch ? ch.newer(true) : it.log.newer())
           .catch(() => {})
           .finally(() => (it.coming = undefined));
         await it.coming;

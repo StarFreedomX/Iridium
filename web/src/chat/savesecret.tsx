@@ -1,7 +1,8 @@
 // Over the composer when the draft has what looks like a key or a password (secretish.ts): store it
 // as a credential, and the draft says {{NAME}} in its place, which the agent puts into a command with
 // ir run; or leave it (plan "凭据"). The value goes to the daemon and is gone from the draft.
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "../api/query";
 import { LoaderCircle, LockKeyhole } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api/client";

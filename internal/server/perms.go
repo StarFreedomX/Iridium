@@ -18,8 +18,8 @@ import (
 
 // Permissions (draft 二「权限」, decisions 14-19): what an app or a login may use, its agents and
 // its scope (places "应用名:路径", or all). What a caller may use is its login's within its app's
-// (checked as they meet: the intersection). The host may use all. Claude stays the owner's own
-// (access.Rules): Perms narrow it further, never widen it.
+// (checked as they meet: the intersection). The host may use all. Claude is an agent like the
+// others.
 //
 // A session is out of scope when its place (the app it runs at, its folder) is in none of the
 // scope's places: it is not there for the caller (not listed, not found). A session of an agent
@@ -412,17 +412,4 @@ func (s *Server) remoteScope(c caller, ref, path string) error {
 		return nil
 	}
 	return &access.Denied{Reason: ref + ":" + path + " is out of this one's scope"}
-}
-
-// LoginSees says whether login (a login of ir_web by its ID, or the host) may see session id:
-// Web Push sends a session's notices to those only.
-func (s *Server) LoginSees(login, id string) bool {
-	if login == "" || login == gate.HostID {
-		return true
-	}
-	st, err := s.m.State(id)
-	if err != nil {
-		return false
-	}
-	return s.seenBy(caller{Identity: gate.Identity{App: gate.WebApp, Login: login}}, st.Session)
 }

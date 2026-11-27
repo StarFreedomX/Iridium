@@ -3,14 +3,14 @@
 // addressed to it, a line that opens to the whole of them; what it hands back is one message
 // of its own, its face and name over it, folded when long. Which call, which notice goes with
 // which subagent: dispatch.ts. Its face and card: subwork.tsx; its turn at work: chat.tsx SubTurn.
-import { useQuery } from "@tanstack/react-query";
+import { useQuery } from "../api/query";
 import { ArrowRight, ChevronRight, CircleX, LoaderCircle } from "lucide-react";
 import { useContext, useState } from "react";
 import { api } from "../api/client";
 import type { Block, Session } from "../api/types.gen";
 import { t } from "../i18n";
 import { cn, tokens as tokensText } from "../ui";
-import { FOLD_AT, linesOf } from "./channel/merge";
+import { FOLD_AT, linesOf } from "./channel/folds";
 import { Copyable } from "./copyable";
 import { backAt, firstWords, handBack, launchOf, messageOf, reportsOf, toldOf, tookText, type Start, type Told } from "./dispatch";
 import type { Tool } from "./fold";

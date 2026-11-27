@@ -218,11 +218,6 @@ export interface LastSaid {
 export interface SessionState extends Session {
   asks: Ask[];
   tasks: Task[];
-  /**
-   * Denials: steps Claude's auto mode classifier turned down since the daemon started, waiting
-   * for you to switch to manual for them or let them be (docs/api.md "临时切换至 manual"); the oldest first.
-   */
-  denials: Denial[];
   model?: string;
   mode?: string; // the approval (permission) mode
   /**
@@ -267,10 +262,6 @@ export interface SessionState extends Session {
    */
   tokens?: InputTokens;
   /**
-   * QuotaUntil: the agent's quota ran out; Iridium goes on at this time (ms).
-   */
-  quotaUntil?: number /* int64 */;
-  /**
    * Tail: the newest blocks, when they are few and small; else the page fetches after its end.
    */
   tail?: BlockTail;
@@ -314,7 +305,7 @@ export interface Command {
  */
 export interface Ask {
   requestId: string;
-  kind: string; // question | plan | permission
+  kind: string; // question | plan | permission | manual (ManualAsk)
   tool: string;
   input: unknown;
   toolUseId?: string;
@@ -330,23 +321,31 @@ export interface Ask {
   card?: Card;
 }
 /**
- * Denial is a step Claude's auto mode classifier turned down: the call (ToolUseID), its tool and
- * input, the classifier's reason, when (ms).
- */
-export interface Denial {
-  toolUseId: string;
-  tool: string;
-  input: unknown;
-  reason?: string;
-  at: number /* int64 */;
-}
-/**
  * Task is a background task of the agent's. While one runs the session is not reaped.
  */
 export interface Task {
   id: string;
   type?: string; // Claude: local_bash, local_agent...
   description?: string;
+  /**
+   * Since: when it began (ms), where the agent says: the page counts from it, not from when it
+   * first saw the task.
+   */
+  since?: number /* int64 */;
+  /**
+   * Call: the id of the tool call that started it (Claude's), which a subagent's session names
+   * as its Call: the page opens that session's record from it.
+   */
+  call?: string;
+  /**
+   * Steps, Now: a subagent's tool calls so far and what it is at, as its last progress says.
+   */
+  steps?: number /* int */;
+  now?: string;
+  /**
+   * Stop: POST …/tasks/{task}/stop stops it alone (Claude's stop_task).
+   */
+  stop?: boolean;
 }
 /**
  * Context is the carried state "context:<id>": how full the context window is.
@@ -364,7 +363,8 @@ export interface ContextCategory {
   kind: string; // used | buffer | free | deferred
 }
 /**
- * Quota is the carried state "quota": the agents' quota windows, as last read.
+ * Quota is GET /v1/internal/quota: each agent's account as last read, its quota windows or its
+ * balance.
  */
 export interface Quota {
   agents: AgentQuota[];
@@ -579,19 +579,16 @@ export interface NewSession {
   /**
    * Role: start it as this role (its id or name): the role's agent, model, preset and card,
    * where the fields above say nothing; its effort and mode are these fields' or the agent's
-   * own. Nick, Intro, Persona, Avatar, Background: its card (ProfilePatch), over the role's.
+   * own. Nick, Persona, Avatar: its card (ProfilePatch), over the role's.
    */
   role?: string;
   nick?: string;
-  intro?: string;
   persona?: string;
   avatar?: string;
-  background?: string;
 }
 /**
  * Send gives the session a message: a new turn when idle; while a turn runs it joins that turn
- * (kumo, 2026-11-19: no choice of waiting for its end). Only a command, or words while the quota
- * is out, wait.
+ * (kumo, 2026-11-19: no choice of waiting for its end). Only a command waits.
  */
 export interface Send {
   text: string;
@@ -642,16 +639,24 @@ export interface SendReply {
   desktop?: boolean;
 }
 /**
- * Release puts the process in manual mode for call ToolUseID, which Claude's auto mode classifier
- * denied, till the step is run again or the turn ends; nothing is said to Claude (docs/api.md
- * "临时切换至 manual").
+ * ManualAsk is Claude asking a person to switch it to manual approval for a while (POST
+ * internal/sessions/<id>/manual; docs/api.md "临时切换至 manual"): why, in a line; Minutes: how long
+ * it waits for the answer and, approved, how long manual mode lasts at most (1 to 30, 10 if none).
  */
-export interface Release {
-  toolUseId: string;
-  /**
-   * Dismiss: let it be, not run: only its card goes.
-   */
-  dismiss?: boolean;
+export interface ManualAsk {
+  reason: string;
+  minutes?: number /* int */;
+}
+/**
+ * ManualState is how a ManualAsk stands: pending (Until: when the wait ends, ms); approved (manual
+ * mode till the turn ends, or Until); refused; expired (no answer in time, or the turn ended
+ * first). The ask is an Ask of kind "manual", RequestID its id.
+ */
+export interface ManualState {
+  requestId: string;
+  state: string;
+  minutes: number /* int */;
+  until?: number /* int64 */;
 }
 /**
  * Answer answers an ask. permission: Allow (and Message if not); question: Answers, by question
@@ -734,29 +739,6 @@ export const HostID = "local";
  */
 export const WebApp = "ir_web";
 /**
- * Rules is what an app or login may do: everything, all alike, but Claude (the user, 2026-11-08).
- * Stored as before, the other fields of old tables are no longer read. S2 puts permissions in place.
- */
-export interface Rules {
-  /**
-   * ClaudeOwner: it is the owner's own (Claude's terms), so it may use Claude. Set as it was
-   * made, by the server only, and never changed. Without it, it sees Claude's sessions but may
-   * not start, write to or answer one.
-   */
-  claudeOwner?: OwnerConfirm;
-}
-/**
- * OwnerConfirm is how, and when (ms), an app or login was found the owner's own.
- */
-export interface OwnerConfirm {
-  /**
-   * By: "local" (a person's ir at the host), "panel" (a person on a login of ir_web that has
-   * Claude, or one that confirmed an agent's ask) or "first" (the first login of ir_web).
-   */
-  by: string;
-  at: number /* int64 */;
-}
-/**
  * App is an app as listed, or the host (Host) or ir_web (Web) beside them. No secrets.
  */
 export interface App {
@@ -783,7 +765,6 @@ export interface App {
   connections?: number /* int */; // its live connections (a Bot's)
   createdAt?: number /* int64 */;
   lastSeenAt?: number /* int64 */;
-  rules: Rules;
   /**
    * Perms: what an app was given as it paired (nil: all, as one paired before 0.2). Not the
    * host's or ir_web's.
@@ -899,7 +880,6 @@ export interface Login {
   createdAt?: number /* int64 */;
   lastSeenAt?: number /* int64 */;
   approvedAt?: number /* int64 */; // 0: waits to be approved
-  rules: Rules;
   usedToday: number /* int64 */;
   device?: Device;
   /**
@@ -967,14 +947,13 @@ export interface PendingInvite {
   id: string;
   name?: string;
   setup?: boolean; // the first-run link in the state directory
-  claude?: boolean; // the login gets Claude
   createdAt: number /* int64 */;
   expiresAt?: number /* int64 */;
 }
 /**
  * Apps is GET /v1/internal/apps (ir apps): the host first, ir_web (with a public origin), the apps; the
  * logins of ir_web; the invites not taken. Public (draft 二「消息」): any caller gets the apps
- * (names, types, avatars, online, computers) and the approved logins; their rules, perms and
+ * (names, types, avatars, online, computers) and the approved logins; their perms and
  * usage, the logins waiting and the invites only one that manages (Full).
  */
 export interface Apps {
@@ -1000,19 +979,16 @@ export interface Me {
    */
   named?: boolean;
   web?: boolean; // a login of ir_web
-  rules: Rules;
   usedToday: number /* int64 */;
   device?: Device;
   public: boolean; // a public origin is set: passkeys are on
 }
 /**
- * NewInvite asks for a slot for a new login of ir_web (ir invite [name] [--claude]). Claude: the
- * login gets Claude, the owner's own; only a person at the host or on a login of ir_web that has
- * Claude may say so. An agent's goes to a confirmation that only such a login (or the host) allows.
+ * NewInvite asks for a slot for a new login of ir_web. An agent's goes to a confirmation that one
+ * who may approve (or the host) allows.
  */
 export interface NewInvite {
   name?: string;
-  claude?: boolean;
   /**
    * Perms: what the login that takes it may use (nil: all); set as the slot is made.
    */
@@ -1041,7 +1017,7 @@ export interface Token {
 }
 /**
  * Perms is what an app or login asks for or is given (0.2 "权限"): the agents it may use and the
- * places it may use, each ["*"] for all. Plain data till S2 checks it; Claude stays Rules'.
+ * places it may use, each ["*"] for all. Claude is an agent like the others.
  */
 export interface Perms {
   agents: string[];
@@ -1085,7 +1061,6 @@ export interface Need {
    * app_update, app_change: the app's; login_join: the login's.
    */
   name?: string;
-  owner?: boolean; // it gets Claude; only one that has Claude allows it
   asker: string; // who asked (the app or login, or 主机)
   session?: string; // the session whose agent asked, if known
   createdAt: number /* int64 */;
@@ -1167,10 +1142,6 @@ export interface NeedAnswer {
    * ForSession: secret_use allowed for the rest of the session (till it stops).
    */
   forSession?: boolean;
-  /**
-   * Owner: app_join allowed as the owner's own: the app has Claude. Only one that has Claude says so.
-   */
-  owner?: boolean;
   /**
    * Name: app_join, app_update allowed as a new app by this name in place of the one asked for.
    */
@@ -1268,7 +1239,6 @@ export interface NeedState {
   kind: NeedKind;
   state: string; // pending | allowed | denied | expired | failed
   name?: string;
-  owner?: boolean; // it was asked with --claude
   expiresAt?: number /* int64 */; // allowed invite: until when the link works
   error?: string;
 }
@@ -1304,9 +1274,11 @@ export interface PublicState {
 /**
  * ChannelMember is a member of a channel (docs/channels.md). Member: "agent:<session>", an
  * app's login "<app>/<login>", or all of an app's "<app>/*". An agent's: Session, the session
- * it is; Agent, its harness; Name, what it runs as now ("Claude Opus 5.5 High"); Nick, what it is
- * called by, in every channel (@nick); Status, its lamp; Cwd, Machine, where it runs. Recv: an
- * agent's receive set (Recv), what wakes it beside what names it. What an agent writes in a turn
+ * it is; Agent, its harness; Name, what it runs as now ("Claude Opus 5.5 High"), for people; Model,
+ * the model's own id (claude-opus-5-5, mistral/deepseek-v4-1-flash-1017), Effort, its thinking
+ * level, for agents; Nick, what it is
+ * called by, in every channel (@nick); Status, its lamp; Cwd, Machine, where it runs. On: an
+ * agent's subscriptions (Trigger), what wakes it beside what names it. What an agent writes in a turn
  * a channel called is said in that channel. Seen: the number of the last message the agent was
  * given.
  */
@@ -1315,19 +1287,19 @@ export interface ChannelMember {
   session?: string;
   agent?: Agent;
   name?: string;
+  model?: string;
+  effort?: string;
   nick?: string;
-  recv?: Recv;
+  on?: Trigger[];
   seen?: number /* int64 */;
   status?: Status;
   cwd?: string;
   machine?: string;
   /**
-   * Its card (Profile): Intro; Avatar, Background where they are an emoji or a colour, or the
-   * background's image; Role, the role its session was started as.
+   * Its card (Profile): Avatar where it is an emoji or a colour; Role, the role its session was
+   * started as.
    */
-  intro?: string;
   avatar?: string;
-  background?: string;
   role?: string;
 }
 /**
@@ -1344,12 +1316,21 @@ export interface ChannelMembers {
    */
   joined: boolean;
   me?: string;
+  /**
+   * Warn: what a change just made may lead to (a loop of subscriptions), a line each.
+   */
+  warn?: string[];
+  /**
+   * Archived: its agents taken out and archived (移出并归档) whose sessions are still in the
+   * archive, newest first; POST …/archived/{member} brings one back (kumo, 2026-11-27).
+   */
+  archived?: ChannelMember[];
 }
 /**
  * NewMember adds an agent to a channel: Session, a session there is; else a new session of
  * Agent (Model, Mode, Effort, Preset as NewSession's) started in Cwd at Machine (none: the
  * channel's folder), listed there as any session. Nick: what it is called by ("": the one it
- * has, else one made); Recv: what wakes it beside what names it (none: nothing).
+ * has, else one made); On: what wakes it beside what names it (none: nothing).
  */
 export interface NewMember {
   session?: string;
@@ -1361,17 +1342,15 @@ export interface NewMember {
   effort?: string;
   preset?: string;
   nick?: string;
-  recv?: Recv;
+  on?: Trigger[];
   /**
    * Role: start it as this role (its id or name): the role's agent, model, preset and card,
    * where the fields above say nothing; its effort and mode are these fields' or the agent's
-   * own. Intro, Persona, Avatar, Background: its card (ProfilePatch).
+   * own. Persona, Avatar: its card (ProfilePatch).
    */
   role?: string;
-  intro?: string;
   persona?: string;
   avatar?: string;
-  background?: string;
   /**
    * Text: its first words, said in the channel by the one inviting it as "@nick text" once it
    * is in (one call: no @ before it has joined). Given, it does not greet.
@@ -1384,20 +1363,12 @@ export interface NewMember {
   greet?: boolean;
 }
 /**
- * MemberPatch changes a member: its nick, an agent's receive set (Recv; [] only what names it).
+ * MemberPatch changes a member: its nick, an agent's subscriptions (On; [] only what names it).
  */
 export interface MemberPatch {
   nick?: string;
-  recv?: Recv;
+  on?: Trigger[];
 }
-/**
- * Recv is what wakes an agent of a channel beside what names it (docs/channels.md "接收"): the
- * senders whose messages that name nobody it is given. "*" every person (not an agent),
- * "<app>/*" an app's logins, "<app>/<login>" one login, "agent:<session>" an agent (its turn's
- * last words). Empty: only what names it. Read from JSON, the old words go too: "all" is ["*"],
- * "at" is [].
- */
-export type Recv = string[];
 /**
  * Injection is what an agent was given once (docs/channels.md "可追溯"): for message Seq of
  * its channel, as input Input, at At (ms); Record says where each part of it came from
@@ -1442,10 +1413,11 @@ export interface ChannelSetup {
   agents?: NewMember[];
   people?: string[];
   /**
-   * Nick, Recv: the first agent's own (the session's), as NewMember's; none: made, ["*"].
+   * Nick, On: the first agent's own (the session's), as NewMember's; On none: the messages of
+   * whoever makes it (docs/channels.md "订阅事件").
    */
   nick?: string;
-  recv?: Recv;
+  on?: Trigger[];
 }
 /**
  * ChannelReads is how far each member has read a channel (GET …/reads, the carried state
@@ -1962,6 +1934,68 @@ export interface CLIOutput {
 }
 
 //////////
+// source: github.go
+
+/**
+ * GitHubBinding is a person's GitHub account (docs/api.md "GitHub"): Member, the login it is
+ * bound to (a login of ir_web, or "local" the host); Name, what that login goes by; Login, ID,
+ * Avatar, the account's; At, when it was bound (ms). Never the token.
+ */
+export interface GitHubBinding {
+  member: string;
+  name?: string;
+  login: string;
+  id: number /* int64 */;
+  avatar?: string;
+  at: number /* int64 */;
+}
+/**
+ * GitHubList is GET /v1/internal/github: the bindings; Mine, the caller's own login (whose a
+ * bind or unbind is); Turn, whose git and gh an agent's turn now runs as ("" none: the machine's
+ * own).
+ */
+export interface GitHubList {
+  bindings: GitHubBinding[];
+  mine?: string;
+  turn?: string;
+}
+/**
+ * SetGitHub is PUT /v1/internal/github: the caller's login's token, checked with GitHub first.
+ */
+export interface SetGitHub {
+  token: string;
+}
+/**
+ * GitHubToken is GET /v1/internal/github/token, for an agent's git and gh alone (ir github):
+ * the token of the turn's login (or of User, asked by name), and its account; none bound: 204.
+ */
+export interface GitHubToken {
+  member: string;
+  login: string;
+  token: string;
+}
+/**
+ * GitHubDevice is POST /v1/internal/github/device: a binding begun by GitHub's device flow. The
+ * person opens URI and types Code there; the page asks POST /v1/internal/github/device/{id} every
+ * Interval seconds till it is done or Expires (ms).
+ */
+export interface GitHubDevice {
+  id: string;
+  code: string;
+  uri: string;
+  interval: number /* int */;
+  expires: number /* int64 */;
+}
+/**
+ * GitHubDeviceState is POST /v1/internal/github/device/{id}: State "waiting" (not yet allowed
+ * at GitHub), "done" (Binding made), "expired" or "denied" (begin again).
+ */
+export interface GitHubDeviceState {
+  state: string;
+  binding?: GitHubBinding;
+}
+
+//////////
 // source: profile.go
 
 export const CardKindAgent = "agent";
@@ -1975,19 +2009,18 @@ export type CardKind = typeof CardKindAgent | typeof CardKindPerson | typeof Car
 /**
  * Profile is the card of a member or of a channel. ID: an agent's member ("agent:<session>"), a
  * person's or an app's user id, a channel's id. Name: what it is called by (an agent's nick, a
- * login's name, a channel's name). Avatar, Background: where the image is fetched ("/v1/…"), or
- * an emoji, or a colour ("#2f4f6f"); "" none. Persona: an agent's own words on how it works,
- * in its system prompt after its intro (otae, 2026-11-21). Model: what an agent runs as. Role:
+ * login's name, a channel's name). Avatar: where the image is fetched ("/v1/…"), or an emoji,
+ * or a colour ("#2f4f6f"); "" none. No background: its card's banner is its face's colours
+ * (kumo, 2026-11-25). Persona: an agent's own words on how it works,
+ * in its system prompt (otae, 2026-11-21). Model: what an agent runs as. Role:
  * the role its session was started as.
  */
 export interface Profile {
   id: string;
   kind: string;
   name?: string;
-  intro?: string;
   persona?: string;
   avatar?: string;
-  background?: string;
   session?: string;
   agent?: Agent;
   model?: string;
@@ -2000,28 +2033,22 @@ export interface Profile {
 }
 /**
  * ProfilePatch changes a profile; a nil field stays. Nick and Name are the same thing (an
- * agent's is its nick, a channel's its name). Avatar, Background: an image (a data: URL or
+ * agent's is its nick, a channel's its name). Avatar: an image (a data: URL or
  * base64; for the host's own ir, a file's path), an emoji, a colour ("#2f4f6f"), or "" for none.
  * Persona: an agent's alone.
  */
 export interface ProfilePatch {
   nick?: string;
   name?: string;
-  intro?: string;
   persona?: string;
   avatar?: string;
-  background?: string;
 }
 /**
- * IntroMax is how many characters an intro may have; PersonaMax, a persona; MemoryMax, a memory.
- */
-export const IntroMax = 200;
-/**
- * IntroMax is how many characters an intro may have; PersonaMax, a persona; MemoryMax, a memory.
+ * PersonaMax is how many characters a persona may have; MemoryMax, a memory.
  */
 export const PersonaMax = 5000;
 /**
- * IntroMax is how many characters an intro may have; PersonaMax, a persona; MemoryMax, a memory.
+ * PersonaMax is how many characters a persona may have; MemoryMax, a memory.
  */
 export const MemoryMax = 300;
 /**
@@ -2071,6 +2098,32 @@ export interface Memory {
   at: number /* int64 */;
 }
 /**
+ * Favorites are the channels the caller favoured (GET/PUT internal/favorites), in its order: a
+ * session's own channel is its id. Its own alone; PUT gives the whole list.
+ */
+export interface Favorites {
+  channels: string[];
+  /**
+   * Color: the colour tag of the favorites' folder, the caller's own (PATCH); none: untagged.
+   */
+  color?: Color;
+  /**
+   * Name: what the caller named its favorites (PATCH); none: the page's own (收藏).
+   */
+  name?: string;
+}
+/**
+ * FavoritesPatch changes the caller's favorites' colour tag or name ("" takes either off).
+ */
+export interface FavoritesPatch {
+  color?: Color;
+  name?: string;
+}
+/**
+ * FavoritesNameMax is the longest name of the favorites, in characters.
+ */
+export const FavoritesNameMax = 40;
+/**
  * Remember is a memory to keep.
  */
 export interface Remember {
@@ -2110,8 +2163,8 @@ export interface MemberCard extends Profile {
 }
 /**
  * Role is an agent kept to start sessions as: its name (the nick its sessions take), what it
- * runs (Agent, its default Model and dsh's Preset, at Machine), its card (Persona, Avatar,
- * Background as Profile's; no intro: what it does each of its sessions writes, otae, 2026-11-23). ModelName: the model as shown. No effort and no mode: they are the
+ * runs (Agent, its default Model and dsh's Preset, at Machine), its card (Persona, Avatar as
+ * Profile's; no intro: what it does each of its sessions writes, otae, 2026-11-23). ModelName: the model as shown. No effort and no mode: they are the
  * task's, chosen as a session starts (otae, 2026-11-21).
  */
 export interface Role {
@@ -2124,7 +2177,6 @@ export interface Role {
   machine?: string;
   persona?: string;
   avatar?: string;
-  background?: string;
   memories?: number /* int */;
 }
 /**
@@ -2151,9 +2203,9 @@ export interface NewRole extends Role {
   session?: string;
 }
 /**
- * RolePatch changes a role; a nil field stays. Avatar, Background as ProfilePatch's. Session:
- * take the card from this session, as it is now (its persona, face, background; not its intro,
- * nick, model or preset: those change here alone).
+ * RolePatch changes a role; a nil field stays. Avatar as ProfilePatch's. Session: take the card
+ * from this session, as it is now (its persona and face; not its nick, model or preset: those
+ * change here alone).
  */
 export interface RolePatch {
   name?: string;
@@ -2161,139 +2213,8 @@ export interface RolePatch {
   preset?: string;
   persona?: string;
   avatar?: string;
-  background?: string;
   sort?: number /* float64 */;
   session?: string;
-}
-
-//////////
-// source: public.go
-
-/**
- * PublicLink is GET/POST /v1/internal/sessions/{id}/public: the session's public read-only link.
- * Ready: the public address is set and the Passkey gate on, without which no link works. On: a
- * link is there. URL: the link itself, only in the answer to the POST that made it (only its
- * token's hash is kept). By: the app or login that made it; CreatedAt in ms.
- */
-export interface PublicLink {
-  ready: boolean;
-  on: boolean;
-  url?: string;
-  by?: string;
-  createdAt?: number /* int64 */;
-}
-/**
- * PublicPage is GET /p/{token}/api/messages: what was said in the session the link shows, a
- * page of it, oldest first. ?before= the page before Before's offset; ?after= what came after
- * End's. Only people's and the agent's words, credentials masked: no thinking, tools or system
- * lines. Before: "" when there is nothing earlier.
- */
-export interface PublicPage {
-  title: string;
-  agent: Agent;
-  status: Status;
-  messages: PublicMessage[];
-  before?: string;
-  end: number /* int64 */;
-}
-/**
- * PublicMessage is one thing said: by a person (Role "user"; From, the name Iridium wrote it
- * with, if any) or the agent ("agent"); its words, and the pictures it gave, each at its URL
- * under the link.
- */
-export interface PublicMessage {
-  at: string;
-  time?: number /* int64 */;
-  role: string;
-  from?: string;
-  text: string;
-  pictures?: PublicImage[];
-}
-/**
- * PublicImage is a picture of a message: its URL under the link, name and size in pixels.
- */
-export interface PublicImage {
-  url: string;
-  name?: string;
-  w?: number /* int */;
-  h?: number /* int */;
-}
-
-//////////
-// source: push.go
-
-/**
- * PushState is the Web Push settings: the total switch (off by default), the VAPID public key a
- * page subscribes with, the events pushed where no rule says otherwise, and the rules.
- */
-export interface PushState {
-  enabled: boolean;
-  publicKey: string; // base64url, uncompressed P-256 point
-  defaults: PushEvents;
-  rules: PushRule[];
-}
-/**
- * PushEvents are the events pushed, all on by default. TurnEnd takes in a compaction you asked for
- * (/compact); the agent's own is not pushed.
- */
-export interface PushEvents {
-  needsYou: boolean;
-  error: boolean;
-  turnEnd: boolean;
-}
-/**
- * PushScope is what a push rule is on.
- */
-export const PushScopeWorkspace = "workspace";
-export const PushScopeFolder = "folder";
-export const PushScopeSession = "session";
-export type PushScope = typeof PushScopeWorkspace | typeof PushScopeFolder | typeof PushScopeSession;
-/**
- * PushMode is a push rule's say: on or off; inherit (PUT, or ""): as above, the rule dropped.
- */
-export const PushModeOn = "on";
-export const PushModeOff = "off";
-export const PushModeInherit = "inherit";
-export type PushMode = typeof PushModeOn | typeof PushModeOff | typeof PushModeInherit;
-/**
- * PushRule is what a workspace, a folder or a session says over the defaults. A session's event
- * goes by the nearest rule of its session, its folder (its cwd), its workspace: off pushes nothing;
- * on pushes the events of the nearest of them with events of their own, else the defaults.
- */
-export interface PushRule {
-  scope: PushScope;
-  target: string; // workspace: its id ("0": sessions in none); folder: its absolute path; session: its id
-  mode: PushMode;
-  events?: PushEvents; // with on: its own; none: the ones from above
-}
-export interface PushSwitch {
-  enabled: boolean;
-}
-/**
- * PushSubscription is a browser's PushSubscription.toJSON().
- */
-export interface PushSubscription {
-  endpoint: string;
-  keys: {
-    p256dh: string;
-    auth: string;
-  };
-}
-/**
- * PushUnsubscribe drops the subscription at Endpoint.
- */
-export interface PushUnsubscribe {
-  endpoint: string;
-}
-/**
- * PushMessage is a push's payload, as the service worker gets it.
- */
-export interface PushMessage {
-  kind: string; // needs_you | error | turn_end | compact | at | test
-  session?: string;
-  title: string;
-  body: string;
-  tag?: string;
 }
 
 //////////
@@ -2304,34 +2225,37 @@ export interface PushMessage {
  * (Iridium itself, one of every channel's members) runs when one of its triggers (On) fires, in
  * the channel's folder at the host. What it prints is said in the channel under its name; with
  * ir it may do anything else (IRIDIUM_SCRIPT names it, its words are said as its own).
- * Name: one in the channel, as a nick is written; Intro, Avatar (an emoji, or a colour
- * "#rrggbb"): its card. Enabled: off, it keeps its place and does not run. Made, Changed: who
+ * Name: one in the channel, as a nick is written; Enabled: off, it keeps its place and does not run. Made, Changed: who
  * made it and who changed it last; Last: its latest run.
  */
 export interface Script {
   channel: string;
   name: string;
-  intro?: string;
-  avatar?: string;
   run: string;
   on: Trigger[];
   enabled: boolean;
   made: ScriptBy;
   changed: ScriptBy;
   last?: ScriptRun;
+  /**
+   * Warn: what a change just made may lead to (a loop of subscriptions), a line each.
+   */
+  warn?: string[];
 }
 /**
- * Trigger is one way a script is run; one of its fields is set. Message: a message said in the
- * channel (MessageTrigger). Command: a message that begins "/<command>" (a person's; it goes to
- * the script, not to the agents). Cron: a time, as cron writes it ("m h dom mon dow", the
- * host's time zone). Event: a line of Iridium's own of these types (join, leave, rename,
- * recv, people, script).
+ * Trigger is one subscription of a member of a channel (docs/channels.md "订阅事件"): what
+ * wakes an agent or runs a script; one of Message, Command, Cron, Event is set. Message: a
+ * message said in the channel (MessageTrigger). Command: a message that begins "/<command>" (a
+ * person's). Cron: a time, as cron writes it ("m h dom mon dow", the host's time zone). Event:
+ * a line of the channel's own or a message of an agent of these kinds (Events). Text: words an
+ * agent woken by it is given beside what woke it.
  */
 export interface Trigger {
   message?: MessageTrigger;
   command?: string;
   cron?: string;
   event?: string[];
+  text?: string;
 }
 /**
  * MessageTrigger: a message of a sender in From (as a receive set names them, Recv: "*" every
@@ -2361,8 +2285,6 @@ export interface ScriptBy {
  */
 export interface NewScript {
   name: string;
-  intro?: string;
-  avatar?: string;
   run: string;
   on: Trigger[];
   enabled?: boolean;
@@ -2372,8 +2294,6 @@ export interface NewScript {
  */
 export interface ScriptPatch {
   name?: string;
-  intro?: string;
-  avatar?: string;
   run?: string;
   on?: Trigger[];
   enabled?: boolean;
@@ -2407,13 +2327,12 @@ export interface ScriptTry {
 // source: secrets.go
 
 /**
- * SecretScope is which sessions may use a secret: all, those in some workspaces, or only those the
- * owner's own terminals (本机, those that have Claude) opened.
+ * SecretScope is which sessions may use a secret: all, or those in some workspaces. A scope stored
+ * as "owner" (before 2026-11-27) is all.
  */
 export type SecretScope = string;
 export const ScopeAll: SecretScope = "all";
 export const ScopeWorkspaces: SecretScope = "workspaces";
-export const ScopeOwner: SecretScope = "owner";
 /**
  * SecretInfo is a secret as listed: never its value.
  */
@@ -2423,7 +2342,7 @@ export interface SecretInfo {
   scope: SecretScope;
   workspaces: number /* int64 */[]; // scope workspaces: which
   /**
-   * Always: every use is confirmed on a panel, the owner's own sessions' too.
+   * Always: every use is confirmed on a panel.
    */
   always?: boolean;
   by?: string; // the terminal that stored it, by name
@@ -2488,18 +2407,13 @@ export interface SecretValues {
 
 /**
  * Settings is GET /v1/internal/settings: the config file's fields the settings page edits (plan "运行",
- * "推送", "网页"). PUT /v1/internal/settings takes a SettingsPatch and answers the whole again.
+ * "网页"). PUT /v1/internal/settings takes a SettingsPatch and answers the whole again.
  */
 export interface Settings {
   /**
    * IdleReap: a hosted agent idle this long is stopped (its session stays), as "1h"; "0" never.
    */
   idleReap: string;
-  /**
-   * CrashResume and QuotaResume: go on with a turn after the agent crashed, or its quota came back.
-   */
-  crashResume: boolean;
-  quotaResume: boolean;
   /**
    * QuotaHidden: the quota bars not shown, each "<agent>:<account>:<group>:<model>".
    */
@@ -2510,32 +2424,19 @@ export interface Settings {
    */
   modes: { [key: string]: string};
   /**
-   * Push: Web Push's total switch (off by default); GET /v1/internal/web/push has the rest.
-   */
-  push: boolean;
-  /**
    * Lang: the user's language, as a web page's settings last set it ("zh", "en"; "" not yet):
    * hosted agents are told it from their next start.
    */
   lang: string;
-  /**
-   * AutoUpdate: Iridium looks for a newer version by itself and downloads it ahead (on by
-   * default); off, only 检查更新 looks (config update.manual).
-   */
-  autoUpdate: boolean;
 }
 /**
  * SettingsPatch changes what it gives and nothing else. A mode "" goes back to the agent's own.
  */
 export interface SettingsPatch {
   idleReap?: string;
-  crashResume?: boolean;
-  quotaResume?: boolean;
   quotaHidden?: string[];
   modes?: { [key: string]: string};
-  push?: boolean;
   lang?: string;
-  autoUpdate?: boolean;
 }
 
 //////////
@@ -2595,20 +2496,6 @@ export interface UpdateState {
   notes?: string;
   available: boolean;
   source: boolean; // an update source is configured
-  /**
-   * Auto: a newer version is downloaded as soon as it is seen (release builds; not a build from
-   * source).
-   */
-  auto: boolean;
-  /**
-   * Manual: automatic updates are off (config update.manual): nothing looked for on a timer or
-   * downloaded ahead; the page does not look when the settings open.
-   */
-  manual?: boolean;
-  /**
-   * Ready: Latest is downloaded and checked; 更新 only swaps it in and restarts.
-   */
-  ready?: boolean;
   /**
    * Size is Latest's download in bytes (0 unknown); Got how much of it came, while downloading.
    */

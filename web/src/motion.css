@@ -6,11 +6,13 @@
      g-unfold   popover / menu / tooltip grows out of its anchor (Base UI's --transform-origin)
      g-pop      a small surface appears in place (toast, approval card, lamp change)
      g-slide    a panel's content arrives from the side (popover pages)
+     g-page     a menu's pages pushed: the next in from the right, the one under it out to the left,
+                both seen as they move (chat/channel/pages.tsx)
      g-sheet    on a phone, the sidebar rises from the foot over the composer (sheet.tsx, g-sink)
      g-dialog   the settings rise out of their key at the sidebar's foot (app.tsx)
      g-fade     plain cross-fade
      g-arrive   a row comes in under the last (an agent called, taking over): it rises in, the
-                conversation above pushed up by the chat's glide (chat/stick.tsx); g-depart: it fades
+                conversation above pushed up by the chat's follow (chat/stick.tsx); g-depart: it fades
      g-wait     a placeholder of what is coming, of its size: comes after a moment, breathes
      g-swap     one icon for another in place, both drawn, cross-faded (a folder shut / open)
      g-lid      the archive bin's lid, hinged at its right end, springs up as it opens
@@ -30,46 +32,59 @@
      up, rows changing places, a fold, a row of reactions, the composer's rows, a chat swapped);
      fade: anything that comes or goes in place; a reveal is a move whose content fades in over
      its last REVEAL (motion.ts reveal), or the other way round as it goes. The dur-n are these. */
-  --move: 160ms;
-  --fade: 100ms;
-  --reveal: 40ms;
+  --move: 220ms;
+  --fade: 150ms;
+  --reveal: 110ms;
   --dur-1: var(--fade); /* fade, press */
   --dur-2: var(--move); /* unfold, pop, fold */
   --dur-3: var(--move); /* slide, reorder */
-  --dur-4: 220ms; /* a long way */
-  --stagger: 12ms;
+  --dur-4: 280ms; /* a long way */
+  --stagger: 14ms;
 
-  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
-  --ease-in: cubic-bezier(0.55, 0, 1, 0.45);
-  --ease-spring: cubic-bezier(0.34, 1.32, 0.64, 1); /* slight overshoot */
+  --ease-out: cubic-bezier(0.25, 0.85, 0.35, 1);
+  --ease-in: cubic-bezier(0.4, 0, 0.8, 0.6);
+  --ease-spring: cubic-bezier(0.2, 0.9, 0.3, 1); /* damped soft settle, no jelly overshoot */
 
-  --unfold-from: scale(0.9);
-  --pop-from: scale(0.92) translateY(4px);
-  --slide-x: 24px;
+  --unfold-from: scale(0.96);
+  --pop-from: scale(0.96) translateY(3px);
+  --slide-x: 20px;
 
   /* turn: how far the chats drift as they swap, down the sidebar or up */
-  --turn-dur: 120ms; /* the next coming in */
-  --turn-out-dur: 80ms; /* the one before going, as the next comes */
+  --turn-dur: 160ms; /* the next coming in */
+  --turn-out-dur: 100ms; /* the one before going, as the next comes */
   --turn-gap: 0ms; /* both at once: the whole swap is --turn-dur */
-  --turn-in: 8px;
+  --turn-in: 6px;
   --turn-out: 4px;
 }
 
-/* --- unfold / fold: Base UI popups (data-starting-style / data-ending-style) --- */
+/* --- unfold / fold: every popup, Base UI's (data-ending-style) and the page's own (ui.tsx
+   usePresence, the same attribute). Transitions, not keyframes: pressed again
+   while it opens or shuts, it turns back from where it is, on the press (web/scripts/motion/pop.mjs
+   P2). Only opacity and transform: its box is where it will stay from its first frame. --- */
+/* Its first style is @starting-style's, not Base UI's data-starting-style: that one is taken off
+   two or three frames after the popup is put in (a layout effect, then a frame, then React's
+   render), so it began to move some 50ms after the press; this way it moves from the first frame
+   it is drawn in. Base UI turns transitions off while it starts (an inline transition: none), so
+   these are !important. Going, by data-closed: Base UI writes it on the press itself, its
+   data-ending-style a layout effect and a frame later (pressed again as it goes, it turned back
+   some 50ms late). */
 .g-unfold {
   transform-origin: var(--transform-origin, center);
   transition:
     transform var(--dur-2) var(--ease-spring),
-    opacity var(--dur-2) var(--ease-out);
+    opacity var(--dur-2) var(--ease-out) !important;
 }
-.g-unfold[data-starting-style],
-.g-unfold[data-ending-style] {
+@starting-style {
+  .g-unfold {
+    opacity: 0;
+    transform: var(--unfold-from);
+  }
+}
+.g-unfold:is([data-closed], [data-ending-style]) {
   opacity: 0;
   transform: var(--unfold-from);
-}
-.g-unfold[data-ending-style] {
-  transition-duration: var(--dur-1);
-  transition-timing-function: var(--ease-in);
+  transition-duration: var(--dur-1) !important;
+  transition-timing-function: var(--ease-out) !important;
 }
 
 /* --- pop: own elements; enter on mount, leave with [data-leaving] --- */
@@ -77,7 +92,7 @@
   animation: g-pop-in var(--dur-2) var(--ease-spring) both;
 }
 .g-pop[data-leaving] {
-  animation: g-pop-out var(--dur-1) var(--ease-in) both;
+  animation: g-pop-out var(--dur-1) var(--ease-out) both;
 }
 /* Base UI surfaces (toasts) that pop */
 .g-pop-t {
@@ -92,7 +107,7 @@
 }
 .g-pop-t[data-ending-style] {
   transition-duration: var(--dur-1);
-  transition-timing-function: var(--ease-in);
+  transition-timing-function: var(--ease-out);
 }
 @keyframes g-pop-in {
   from {
@@ -107,33 +122,54 @@
   }
 }
 
-/* --- slide: forward (default) or back ([data-dir=back]) --- */
+/* --- slide: a page put in a popup, forward (default) or back ([data-dir=back]). A transition from
+   its first style (@starting-style): the page it replaced is gone on the press, the popup as big as
+   this one from that frame on; one pressed back midway is a new page sliding from where it starts. --- */
 .g-slide {
-  animation: g-slide-in var(--dur-3) var(--ease-out) both;
+  transition:
+    opacity var(--dur-3) var(--ease-out),
+    transform var(--dur-3) var(--ease-out);
 }
 .g-slide[data-dir="back"] {
   --slide-x: -24px;
 }
-@keyframes g-slide-in {
-  from {
+@starting-style {
+  .g-slide {
     opacity: 0;
     transform: translateX(var(--slide-x));
   }
 }
 
-/* --- sheet: the phone's sidebar from the foot (sheet.tsx), out or in by its inline transform, its height eased as it
-   grows for the jump box; the composer under it stays, covered, hidden once it is up, and sinks only when taller
-   than it (.g-sink) --- */
+/* --- page: a menu's pages (chat/channel/pages.tsx), pushed one over another: the one shown at
+   its place; the one under it out to the left, then not drawn; the one gone back from out to the
+   right. One shown anew comes in from the right; the menu's own list is there as it opens. --- */
+.g-page {
+  transition:
+    translate var(--dur-3) var(--ease-out),
+    visibility 0s;
+}
+.g-page[data-page="under"] {
+  translate: -100% 0;
+  visibility: hidden;
+  transition-delay: 0s, var(--dur-3);
+}
+.g-page[data-page="gone"] {
+  translate: 100% 0;
+}
+@starting-style {
+  .g-page:not(.g-page-first) {
+    translate: 100% 0;
+  }
+}
+
+/* --- sheet: the phone's sidebar from the foot (sheet.tsx), out or in by its inline transform; made
+   another size out (the jump box), its top glides there by translate (sheet.tsx), never its height;
+   the composer under it stays, covered, hidden once it is up, and sinks only when taller than it
+   (.g-sink) --- */
 .g-sheet {
   transition:
     transform var(--dur-3) var(--ease-out),
-    box-shadow var(--dur-3) var(--ease-out);
-}
-/* Its height only as it is made another size (sheet.tsx), not as the keyboard moves dvh. */
-.g-sheet.g-sizing {
-  transition:
-    transform var(--dur-3) var(--ease-out),
-    height var(--dur-3) var(--ease-out),
+    translate var(--dur-3) var(--ease-out),
     box-shadow var(--dur-3) var(--ease-out);
 }
 .g-sink {
@@ -159,23 +195,19 @@
   transform-origin: calc(100% - 20px) calc(100% + 28px);
   transition:
     transform var(--dur-2) var(--ease-spring),
-    opacity var(--dur-2) var(--ease-out);
+    opacity var(--dur-2) var(--ease-out) !important;
 }
-/* Its height glides as it is made as tall as another page (app.tsx useFit). */
-.g-dialog[data-glide-h] {
-  transition:
-    transform var(--dur-2) var(--ease-spring),
-    opacity var(--dur-2) var(--ease-out),
-    height var(--dur-3) var(--ease-out);
+@starting-style {
+  .g-dialog {
+    opacity: 0;
+    transform: var(--unfold-from);
+  }
 }
-.g-dialog[data-starting-style],
-.g-dialog[data-ending-style] {
+.g-dialog:is([data-closed], [data-ending-style]) {
   opacity: 0;
   transform: var(--unfold-from);
-}
-.g-dialog[data-ending-style] {
-  transition-duration: var(--dur-1);
-  transition-timing-function: var(--ease-in);
+  transition-duration: var(--dur-1) !important;
+  transition-timing-function: var(--ease-out) !important;
 }
 
 /* --- reveal: room opened, then what is in it (kumo, 2026-11-23: not both at once, its rows
@@ -186,61 +218,80 @@
 .g-reveal {
   display: grid;
   grid-template-rows: 0fr;
-  transition: grid-template-rows var(--move) var(--ease-out) calc(var(--fade) - var(--reveal));
+  transition: grid-template-rows var(--move) var(--ease-out);
 }
 .g-reveal[data-open] {
   grid-template-rows: 1fr;
-  transition-delay: 0s;
+}
+/* What opens is there from the first frame, cut where the box ends and fading into the cut (kumo,
+   2026-11-24: 从中间劈开，向上长出，交界处淡化): the cut's fade is gone once it is whole. */
+@property --reveal-cut {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
 }
 .g-reveal > * {
   min-height: 0;
-  opacity: 0;
-  transition: opacity var(--fade) var(--ease-out);
+  --reveal-cut: 18px;
+  transition: --reveal-cut var(--move) var(--ease-out);
+}
+/* The mask only while shut or opening: one left on what is open has every open list a layer of
+   its own, painted again for each change in it (WebKit). */
+.g-reveal:not([data-open]) > * {
+  mask-image: linear-gradient(to bottom, #000 calc(100% - var(--reveal-cut)), transparent);
 }
 .g-reveal[data-open] > * {
-  opacity: 1;
-  transition-delay: calc(var(--move) - var(--reveal));
+  --reveal-cut: 0px;
+  animation: g-reveal-cut var(--move) linear;
+}
+@keyframes g-reveal-cut {
+  from,
+  to {
+    mask-image: linear-gradient(to bottom, #000 calc(100% - var(--reveal-cut)), transparent);
+  }
+}
+/* The room under a conversation for what stands under it (the composer): to its new size the
+   same way taller and shorter (chat/stick.tsx keeps the end in place each frame). */
+.g-room {
+  transition: padding-bottom var(--move) var(--ease-out);
 }
 .g-reveal.g-snap,
 .g-reveal.g-snap > * {
   transition: none;
+  animation: none;
 }
 
 /* --- fade --- */
-/* A fold shutting (chat/stick.tsx toggleFold): still open as its height glides down, its chevron already turning back. */
-details[data-shut] > summary .fold-chev {
-  rotate: none !important;
-}
-
 .g-fade {
   animation: g-fade-in var(--dur-2) var(--ease-out) both;
 }
+/* --- the work panel (chat/channel/workkey.tsx): a task ended fades out at the end of its moment. --- */
+.wb-task[data-done] {
+  animation: g-fade-out var(--fade) var(--ease-out) calc(4s - var(--fade)) both; /* workstate.ts DONE_FOR */
+}
+
 /* --- arrive: a row comes in at the conversation's end (an agent called, a subagent at work): whole
    at once in the layout, what is in it rising in; the conversation above is pushed up by the chat's
-   own glide (chat/stick.tsx), on the compositor. Its height is not animated: a track opening laid
+   follow (chat/stick.tsx: its scroll place). Its height is not animated: a track opening laid
    the whole conversation out again each frame, and moved it against the glide (kumo, 2026-11-17). --- */
 .g-arrive > * {
   animation: g-rise var(--dur-2) var(--ease-out) both;
 }
-/* --- depart: a reveal backwards (moves.ts useLeaving): what is in it fades out, then its room
-   shuts, the gap over it too (--depart-gap, the list's), and it is gone with nothing left to
-   jump; the chat keeps its end under it as it shuts (stick.tsx moves). One child. --- */
+/* --- depart: one that goes (moves.ts useLeaving) gives up its room at once, the gap over it too
+   (--depart-gap, the list's), and fades where it stood, over what takes its place: the layout
+   is as it will stay from the frame it leaves in, and nothing is moved twice for it (its room
+   shut by an animation after its fading had the conversation follow a row a part of a pixel
+   shorter each frame, a turn's end going up and down; kumo, 2026-11-24). One child. --- */
 .g-depart {
   pointer-events: none;
-  display: grid !important;
-  grid-template-rows: 1fr;
-  animation: g-depart-room var(--move) var(--ease-out) calc(var(--fade) - var(--reveal)) both;
+  display: block !important;
+  height: 0;
+  min-height: 0;
+  margin-top: calc(-1 * var(--depart-gap, 0px));
+  overflow: visible;
 }
 .g-depart > * {
-  min-height: 0;
-  overflow: hidden;
   animation: g-fade-out var(--fade) var(--ease-out) both;
-}
-@keyframes g-depart-room {
-  to {
-    grid-template-rows: 0fr;
-    margin-top: calc(-1 * var(--depart-gap, 0px));
-  }
 }
 @keyframes g-fade-out {
   to {
@@ -340,11 +391,15 @@ html[data-turn]::view-transition-old(page) {
 html[data-turn]::view-transition-new(page) {
   animation: turn-in var(--turn-dur) var(--ease-out) var(--turn-gap) both;
 }
-html[data-turn="next"] {
+/* On the snapshots themselves, not on html: a custom property set there is inherited, and every
+   element of the page was styled again as a turn began and as it ended. */
+html[data-turn="next"]::view-transition-old(page),
+html[data-turn="next"]::view-transition-new(page) {
   --turn-from: var(--turn-in);
   --turn-to: calc(var(--turn-out) * -1);
 }
-html[data-turn="prev"] {
+html[data-turn="prev"]::view-transition-old(page),
+html[data-turn="prev"]::view-transition-new(page) {
   --turn-from: calc(var(--turn-in) * -1);
   --turn-to: var(--turn-out);
 }
@@ -411,12 +466,24 @@ html[data-turn] .vt-drawer {
   display: none;
 }
 
-/* --- stagger: children of an opening popup rise in turn (set --i on each) --- */
+/* --- stagger: children of an opening popup rise in turn (set --i on each), from their first style
+   (@starting-style), a transition like the popup's own. A key's own press (g-press) goes with it. --- */
 /* All in place by the time the popup has unfolded: the last ones coming after it, its foot still
    empty a moment, read as a flash (the user, 2026-11-08). */
-.g-stagger > * {
-  animation: g-rise var(--dur-2) var(--ease-out) both;
-  animation-delay: calc(min(var(--i, 0), 4) * var(--stagger));
+.g-stagger > *,
+.g-stagger > .g-press {
+  --stagger-at: calc(min(var(--i, 0), 4) * var(--stagger));
+  transition:
+    opacity var(--dur-2) var(--ease-out) var(--stagger-at),
+    transform var(--dur-2) var(--ease-out) var(--stagger-at),
+    background-color var(--dur-1) var(--ease-out),
+    color var(--dur-1) var(--ease-out);
+}
+@starting-style {
+  .g-stagger > * {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
 }
 @keyframes g-rise {
   from {
@@ -495,7 +562,7 @@ html[data-turn] .vt-drawer {
     --slide-x: 0px;
   }
   .g-stagger > * {
-    animation: none;
+    transition: none;
   }
   .g-wait {
     animation: g-wait-in var(--dur-1) linear 160ms both;
@@ -504,17 +571,22 @@ html[data-turn] .vt-drawer {
     transform: none !important;
   }
   .g-sheet,
+  .g-page,
   .g-sink {
     transition-duration: var(--dur-1);
   }
   .g-sink[data-sunk] {
     transform: none;
   }
-  .g-dialog[data-starting-style],
-  .g-dialog[data-ending-style] {
+  .g-dialog:is([data-closed], [data-ending-style]) {
     transform: none;
   }
-  html[data-turn] {
+  @starting-style {
+    .g-dialog {
+      transform: none;
+    }
+  }
+  :root {
     --turn-in: 0px;
     --turn-out: 0px;
   }

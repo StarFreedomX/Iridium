@@ -3,29 +3,38 @@
 // a dialog over it (the user, 2026-11-06), the chat under it the one open before.
 import { useSyncExternalStore } from "react";
 
-export type Route = { name: "home" } | { name: "chat"; id: string } | { name: "settings" } | { name: "apps" } | { name: "secrets" } | { name: "roles" } | { name: "cache" } | { name: "usage" };
+/** The 管理 window's parts (kumo, 2026-11-27): one window over the page, as the usage is. */
+export const MANAGE_TABS = ["ir", "accounts", "apps", "computers", "agents", "roles", "secrets"] as const;
+export type ManageTab = (typeof MANAGE_TABS)[number];
+
+export type Route = { name: "home" } | { name: "chat"; id: string; record?: boolean } | { name: "settings" } | { name: "manage"; tab: ManageTab } | { name: "cache" } | { name: "usage" };
 
 export function parse(hash: string): Route {
   const h = hash.replace(/^#/, "");
-  const chat = /^\/s\/([^/?]+)/.exec(h);
+  const chat = /^\/s\/([^/?]+)(?:\?(.*))?/.exec(h);
   if (chat) {
     // A link cut short ("%E4") is no address of a chat: home, not a page that draws nothing.
     try {
-      return { name: "chat", id: decodeURIComponent(chat[1]!) };
+      const id = decodeURIComponent(chat[1]!);
+      const record = new URLSearchParams(chat[2] ?? "").get("record") === "1";
+      return record ? { name: "chat", id, record: true } : { name: "chat", id };
     } catch {
       return { name: "home" };
     }
   }
-  if (h.startsWith("/settings/apps") || h.startsWith("/settings/terminals")) return { name: "apps" };
-  if (h.startsWith("/settings/secrets")) return { name: "secrets" };
-  if (h.startsWith("/settings/roles")) return { name: "roles" };
+  const manage = /^\/manage\/([a-z]+)/.exec(h);
+  if (manage) return { name: "manage", tab: (MANAGE_TABS as readonly string[]).includes(manage[1]!) ? (manage[1] as ManageTab) : "accounts" };
+  // The addresses of the pages it took the place of.
+  if (h.startsWith("/settings/apps") || h.startsWith("/settings/terminals")) return { name: "manage", tab: "apps" };
+  if (h.startsWith("/settings/secrets")) return { name: "manage", tab: "secrets" };
+  if (h.startsWith("/settings/roles")) return { name: "manage", tab: "roles" };
   if (h.startsWith("/settings/cache")) return { name: "cache" };
   if (h.startsWith("/settings/usage")) return { name: "usage" };
   if (h.startsWith("/settings")) return { name: "settings" };
   return { name: "home" };
 }
 
-export const hashOf = (r: Route) => (r.name === "chat" ? `#/s/${encodeURIComponent(r.id)}` : r.name === "home" ? "#/" : r.name === "apps" ? "#/settings/apps" : r.name === "secrets" ? "#/settings/secrets" : r.name === "roles" ? "#/settings/roles" : r.name === "cache" ? "#/settings/cache" : r.name === "usage" ? "#/settings/usage" : `#/${r.name}`);
+export const hashOf = (r: Route) => (r.name === "chat" ? `#/s/${encodeURIComponent(r.id)}${r.record ? "?record=1" : ""}` : r.name === "home" ? "#/" : r.name === "manage" ? `#/manage/${r.tab}` : r.name === "cache" ? "#/settings/cache" : r.name === "usage" ? "#/settings/usage" : `#/${r.name}`);
 
 /** The sessions opened lately in this tab, the latest first, for the jump box. */
 export function recent(): string[] {
@@ -98,10 +107,6 @@ function leave() {
 
 export const route = () => current;
 
-/** Where the usage panel was asked for: a point, the panel's left edge on it, or its right (end). */
-export type At = { x: number; y: number; end?: boolean };
-let usageAt: At | null = null;
-export const usagePoint = () => usageAt;
 /** The computer the usage was asked for at (a session's there: an executor's app ID), "" everyone's. */
 let usageMachine = "";
 const machineSubs = new Set<() => void>();
@@ -115,17 +120,26 @@ export const useUsageMachine = () =>
     (f) => (machineSubs.add(f), () => void machineSubs.delete(f)),
     () => usageMachine,
   );
-/** The usage: with the sidebar shown a panel at the point it was asked from, as a row's menu
- *  (app.tsx, the user, 2026-11-08); on a phone the sheet's 用量 page. Asked twice (a long press,
- *  then its contextmenu): once. machine: a session's at another computer asks for that one's. */
-export function openUsage(at?: At, machine?: string) {
+/** The usage: a window over the whole page, as the file browser is (app.tsx, kumo, 2026-11-25).
+ *  Asked twice (a long press, then its contextmenu): once. machine: a session's at another
+ *  computer asks for that one's. */
+export function openUsage(machine?: string) {
   if (current.name === "usage") return;
-  usageAt = at ?? null;
   setUsageMachine(machine);
   go({ name: "usage" }, over(current));
 }
 /** The settings and the terminals: a dialog over the chat, not a page of their own. */
-export const over = (r: Route) => r.name === "settings" || r.name === "apps" || r.name === "secrets" || r.name === "roles" || r.name === "cache" || r.name === "usage";
+export const over = (r: Route) => r.name === "settings" || r.name === "manage" || r.name === "cache" || r.name === "usage";
+
+/** The part of 管理 where a need waits: credentials', apps', computers', else the accounts'. */
+export const needTab = (kind: string): ManageTab =>
+  kind.startsWith("secret_") ? "secrets" : kind.startsWith("app_") || kind === "login_join" ? "apps" : kind === "machine_grant" ? "computers" : "accounts";
+
+/** 管理 at tab: a window over the page; going from one part to another is no step of its own. */
+export function openManage(tab: ManageTab = "accounts") {
+  if (current.name === "manage") return void (current.tab !== tab && go({ name: "manage", tab }, true));
+  go({ name: "manage", tab }, over(current));
+}
 export const useRoute = () =>
   useSyncExternalStore(
     (f) => (subs.add(f), () => void subs.delete(f)),
@@ -181,3 +195,4 @@ export function close(under: Route) {
 }
 
 export const openChat = (id: string) => go({ name: "chat", id }, route().name === "chat");
+export const openRecord = (id: string) => go({ name: "chat", id, record: true }, false);

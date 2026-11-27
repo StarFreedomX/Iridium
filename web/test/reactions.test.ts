@@ -69,7 +69,7 @@ describe("a message taken back", () => {
     };
     const log = new ChannelLog("c", get);
     await log.newer();
-    log.heard(person(2), true);
+    log.heard(person(2), "message-deleted");
     expect(log.msgs.map((m) => m.n)).toEqual([1, 3]);
     log.take({ data: [person(1), person(2), person(3)], start: 1, end: 3, more: false });
     expect(log.msgs.map((m) => m.n)).toEqual([1, 3]);

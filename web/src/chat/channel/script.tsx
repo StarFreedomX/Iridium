@@ -1,17 +1,16 @@
 // The scripts of a channel's IR (docs/channels.md "脚本"): a script's face, its card and its
-// editor, one popover's pages (g-slide; back at the top left): the card (its face, name, intro;
+// editor, one popover's pages (g-slide; back at the top left): the card (its face, name;
 // who changed it last and from where, who made it; its triggers in words; its command line; 运行,
 // 停用/启用, 编辑, 删除 asked again in place; what a run gave; its latest runs, sliding open); the
 // editor (名称, 介绍, 头像, 命令, 触发), a new one from a template first (唤醒词, 定时提醒, 空白).
 // Opened from a script's face beside what it said, and from the members' list (top.tsx).
 import { Popover } from "@base-ui/react/popover";
-import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { AlarmClock, ChevronLeft, ChevronRight, CircleOff, CirclePlay, File, LoaderCircle, Megaphone, PencilLine, Play, Plus, SquareTerminal, Trash2 } from "lucide-react";
+import { useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { useQuery } from "../../api/query";
+import { ChevronLeft, ChevronRight, CircleOff, CirclePlay, LoaderCircle, PencilLine, Play, Plus, SquareTerminal, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { api, ApiError } from "../../api/client";
 import type { Agent, NewScript, Script, ScriptBy, ScriptRun } from "../../api/types.gen";
-import { FacePick } from "../../facepick";
-import { isColour } from "../../facevalue";
 import { t, useLang } from "../../i18n";
 import { Segmented } from "../../me";
 import { openChat } from "../../route";
@@ -23,8 +22,8 @@ import { Face, MemberFace } from "./face";
 import { mayAct, useMembers } from "./gate";
 import { validNick } from "./lib";
 import { CARD_POP, ProfileCard, type CardKey } from "./profilecard";
-import { useRecvName, useRecvOptions } from "./recv";
-import { blankTrigger, cronReading, dailyCron, draftOf, remindScript, SCRIPT_EVENTS, scriptRefusal, splitWords, toggle, triggerLine, triggerOf, wakeScript, type CronWords, type TriggerDraft, type TriggerKind, type TriggerWords } from "./scripts";
+import { cronWords, triggerWords, useRecvName, useRecvOptions } from "./recv";
+import { blankTrigger, cronReading, draftOf, EVENTS, scriptRefusal, toggle, triggerLine, triggerOf, type TriggerDraft, type TriggerKind } from "./scripts";
 
 const scriptsKey = (channel: string) => ["scripts", channel];
 const runsKey = (channel: string, name: string) => ["scriptRuns", channel, name];
@@ -48,25 +47,22 @@ export function useScripts(channel: string): Script[] | undefined {
  *  open whole. */
 export const prefetchScripts = (qc: QueryClient, channel: string) => void qc.prefetchQuery({ queryKey: scriptsKey(channel), queryFn: () => api.scripts(channel), staleTime: 5_000 });
 
-/** A script's face (its avatar): an emoji on a soft disc, a colour's disc; none, a terminal. */
-export function ScriptFace({ avatar, size }: { avatar?: string; size: number }) {
-  const style = { width: size, height: size };
-  if (avatar && isColour(avatar)) return <span className="block shrink-0 rounded-full shadow-[inset_0_0_0_0.5px_var(--edge)]" style={{ ...style, background: avatar }} />;
+/** A command's mark in a list (a command line's): no face of its own (kumo, 2026-11-24: what it
+ *  says, it says as Iridium). */
+export function ScriptFace({ size }: { size: number }) {
   return (
-    <span className="grid shrink-0 place-items-center rounded-full bg-fill-2 leading-none text-ink-2 select-none" style={{ ...style, fontSize: Math.round(size * 0.58) }}>
-      {avatar || <SquareTerminal size={Math.round(size * 0.58)} strokeWidth={1.75} />}
+    <span className="grid shrink-0 place-items-center rounded-full bg-fill-2 text-ink-2" style={{ width: size, height: size }}>
+      <SquareTerminal size={Math.round(size * 0.58)} strokeWidth={1.75} />
     </span>
   );
 }
-
-/** "IR" by a script's name: what speaks is the channel's IR. */
 export const IrTag = () => <span className="shrink-0 rounded-sm bg-fill-2 px-1 text-[10px] leading-4 font-semibold text-ink-3">IR</span>;
 
 /** A script's state in a word: 已停用, 出错 (its last run did not end well); else none. */
 export const scriptState = (x: Script) => (!x.enabled ? t("script.off") : x.last && x.last.code !== 0 ? t("script.failed") : "");
 
-/** A page of the popover: a script's card, its editor, a new one's templates, its draft. */
-export type ScriptPage = { k: "card"; name: string } | { k: "edit"; name: string } | { k: "new" } | { k: "wake" } | { k: "remind" } | { k: "draft"; x: NewScript };
+/** A page of the popover: a command's card, its editor, a new one's draft. */
+export type ScriptPage = { k: "card"; name: string } | { k: "edit"; name: string };
 
 /** The popover at anchor, open while page is (a press elsewhere or Esc: done). still: out of a
  *  face in a conversation, where it opened. */
@@ -81,21 +77,6 @@ export function ScriptPop({ channel, anchor, page, done, still, align }: { chann
         {x && <ScriptPages key={JSON.stringify(x)} channel={channel} start={x} done={done} />}
       </PopSurface>
     </Popover.Root>
-  );
-}
-
-/** A script's face beside what it said: pressed, its card. */
-export function ScriptFaceKey({ channel, name }: { channel: string; name: string }) {
-  const face = useRef<HTMLButtonElement>(null);
-  const [open, setOpen] = useState(false);
-  const x = useScripts(channel)?.find((s) => s.name === name);
-  return (
-    <>
-      <button ref={face} type="button" aria-label={name} disabled={!x} onClick={() => setOpen(!open)} className="g-press grid size-7 shrink-0 place-items-center rounded-full select-none">
-        <ScriptFace avatar={x?.avatar} size={28} />
-      </button>
-      <ScriptPop channel={channel} anchor={face} page={open && x ? { k: "card", name } : null} done={() => setOpen(false)} still />
-    </>
   );
 }
 
@@ -115,34 +96,8 @@ function ScriptPages({ channel, start, done }: { channel: string; start: ScriptP
       return <Card key={key} channel={channel} name={page.name} dir={dir} back={back} edit={() => go({ k: "edit", name: page.name })} done={done} />;
     case "edit":
       return <Editor key={key} channel={channel} name={page.name} dir={dir} back={back} saved={saved} />;
-    case "new":
-      return <Templates key={key} dir={dir} back={back} go={go} />;
-    case "wake":
-    case "remind":
-      return <Template key={key} kind={page.k} channel={channel} dir={dir} back={back} go={go} />;
-    case "draft":
-      return <Editor key={key} channel={channel} draft={page.x} dir={dir} back={back} saved={saved} />;
   }
 }
-
-/** The words a trigger is said in, in the page's language. */
-export function triggerWords(): TriggerWords {
-  return {
-    message: t("script.line.message"),
-    messageHas: t("script.line.messageHas"),
-    quote: t("script.line.quote"),
-    or: t("script.line.or"),
-    anyone: t("script.line.anyone"),
-    command: t("script.line.command"),
-    cron: t("script.line.cron"),
-    event: t("script.line.event"),
-    events: Object.fromEntries(SCRIPT_EVENTS.map((e) => [e, t(`script.ev.${e}`)])),
-    sep: t("channel.what.sep"),
-    recv: { all: t("channel.recvEveryone") },
-    when: cronWords(),
-  };
-}
-const cronWords = (): CronWords => ({ minute: t("cron.minute"), everyMin: t("cron.everyMin"), hourly: t("cron.hourly"), everyHour: t("cron.everyHour"), daily: t("cron.daily"), weekdays: t("cron.weekdays"), weekly: t("cron.weekly"), monthly: t("cron.monthly"), days: t("cron.days").split(","), sep: t("channel.what.sep") });
 
 /** A refusal of the server's in the page's words. */
 function why(e: unknown): string {
@@ -232,11 +187,10 @@ function Card({ channel, name, dir, back, edit, done }: { channel: string; name:
         </IconKey>
       )}
       <ProfileCard
-        face={<ScriptFace avatar={x.avatar} size={56} />}
+        face={<ScriptFace size={56} />}
         name={x.name}
-        sub={<IrTag />}
+        sub={t("script.group")}
         state={state && <span className={cn(x.enabled && "text-err")}>{state}</span>}
-        intro={x.intro}
         keys={keys}
         more={
           <>
@@ -354,26 +308,6 @@ function Runs({ runs, lang }: { runs?: ScriptRun[]; lang: string }) {
   );
 }
 
-/** A new script: what it starts from. */
-function Templates({ dir, back, go }: { dir?: "back"; back?: () => void; go: (p: ScriptPage) => void }) {
-  const row = (icon: ReactNode, label: string, p: ScriptPage) => (
-    <button type="button" onClick={() => go(p)} className="g-press flex h-10 items-center gap-2.5 rounded-md px-2 text-left text-base hover:bg-fill pointer-coarse:h-12">
-      <span className="text-ink-2">{icon}</span>
-      <span className="flex-1">{label}</span>
-      <ChevronRight size={14} className="text-ink-4" />
-    </button>
-  );
-  return (
-    <Frame title={t("script.new")} back={back} dir={dir}>
-      <div className="-mx-2 flex flex-col">
-        {row(<Megaphone size={16} />, t("script.tplWake"), { k: "wake" })}
-        {row(<AlarmClock size={16} />, t("script.tplRemind"), { k: "remind" })}
-        {row(<File size={16} />, t("script.tplBlank"), { k: "draft", x: { name: "", run: "", on: [{ message: {} }] } })}
-      </div>
-    </Frame>
-  );
-}
-
 const INPUT = "no-ring w-full min-w-0 rounded-md bg-fill px-2.5 text-base placeholder:text-ink-3";
 const LABEL = "flex flex-col gap-1.5 py-1.5 text-sm";
 
@@ -386,75 +320,12 @@ function Chip({ on, onClick, children }: { on: boolean; onClick: () => void; chi
   );
 }
 
-/** 唤醒词, 定时提醒: what it needs (the words; the time and text), and which agent it calls. */
-function Template({ kind, channel, dir, back, go }: { kind: "wake" | "remind"; channel: string; dir?: "back"; back?: () => void; go: (p: ScriptPage) => void }) {
-  const agents = (useMembers(channel)?.members ?? []).filter((m) => m.session && m.nick);
-  const [nick, setNick] = useState(agents[0]?.nick ?? "");
-  const [words, setWords] = useState("");
-  const [time, setTime] = useState("09:00");
-  const [text, setText] = useState("");
-  const cron = dailyCron(time);
-  const when = cron ? (cronReading(cron, cronWords()) ?? cron) : "";
-  const ok = !!nick && (kind === "wake" ? splitWords(words).length > 0 : !!cron && !!text.trim());
-  const next = () => {
-    if (!ok) return;
-    if (kind === "wake") {
-      const ws = splitWords(words);
-      go({ k: "draft", x: wakeScript(nick, ws, { name: t("script.tplWakeName", { nick }), intro: t("script.tplWakeIntro", { nick, words: ws.map((x) => t("script.line.quote", { w: x })).join(t("script.line.or")) }), say: t("script.tplWakeSay") }) });
-    } else go({ k: "draft", x: remindScript(nick, cron!, text.trim(), { name: t("script.tplRemindName", { nick }), intro: t("script.tplRemindIntro", { nick, when }) }) });
-  };
-  return (
-    <Frame title={t(kind === "wake" ? "script.tplWake" : "script.tplRemind")} back={back} dir={dir}>
-      {kind === "wake" ? (
-        <label className={LABEL}>
-          {t("script.words")}
-          <input value={words} onChange={(e) => setWords(e.target.value)} className={cn(INPUT, "h-8 pointer-coarse:h-10")} />
-        </label>
-      ) : (
-        <>
-          <label className={LABEL}>
-            <span className="flex items-baseline gap-2">
-              <span className="flex-1">{t("script.tplTime")}</span>
-              <span className="text-xs text-ink-3">{when}</span>
-            </span>
-            <input type="time" value={time} onChange={(e) => setTime(e.target.value)} className={cn(INPUT, "h-8 pointer-coarse:h-10")} />
-          </label>
-          <label className={LABEL}>
-            {t("script.tplText")}
-            <input value={text} onChange={(e) => setText(e.target.value)} className={cn(INPUT, "h-8 pointer-coarse:h-10")} />
-          </label>
-        </>
-      )}
-      <div className={LABEL}>
-        {t("script.tplAgent")}
-        <div className="flex flex-wrap gap-1.5">
-          {agents.map((m) => (
-            <Chip key={m.member} on={nick === m.nick} onClick={() => setNick(m.nick!)}>
-              <span className="grid size-4 shrink-0 place-items-center rounded-full bg-fill">
-                <Face id={m.session!} agent={m.agent ?? "claude"} size={16} logo={10} />
-              </span>
-              <span className="truncate">@{m.nick}</span>
-            </Chip>
-          ))}
-        </div>
-      </div>
-      <div className="mt-2 flex justify-end">
-        <button type="button" disabled={!ok} onClick={next} className="g-press flex h-8 items-center gap-1.5 rounded-md bg-ink px-3 text-sm font-medium text-on-ink disabled:opacity-40 pointer-coarse:h-10">
-          {t("script.next")}
-        </button>
-      </div>
-    </Frame>
-  );
-}
-
 /** 编辑脚本, 新建脚本: its fields and triggers, saved together; what the server refused under them. */
 function Editor({ channel, name, draft, dir, back, saved }: { channel: string; name?: string; draft?: NewScript; dir?: "back"; back?: () => void; saved: (name: string) => void }) {
   const qc = useQueryClient();
   const was = useScripts(channel)?.find((s) => s.name === name);
   const from = was ?? draft;
   const [nm, setName] = useState(from?.name ?? "");
-  const [intro, setIntro] = useState(from?.intro ?? "");
-  const [avatar, setAvatar] = useState(from?.avatar ?? "");
   const [run, setRun] = useState(from?.run ?? "");
   const [on, setOn] = useState<TriggerDraft[]>(() => (from?.on.length ? from.on.map(draftOf) : [blankTrigger()]));
   const [busy, setBusy] = useState(false);
@@ -464,7 +335,7 @@ function Editor({ channel, name, draft, dir, back, saved }: { channel: string; n
     if (!ok || busy) return;
     setBusy(true);
     setError("");
-    const x = { name: nm, intro: intro.trim(), avatar, run, on: on.map(triggerOf) };
+    const x = { name: nm, run, on: on.map(triggerOf) };
     try {
       const s = name ? await api.patchScript(channel, name, x) : await api.addScript(channel, x);
       qc.setQueryData<Script[]>(scriptsKey(channel), (all) => [...(all ?? []).filter((y) => y.name !== name && y.name !== s.name), s]);
@@ -483,11 +354,6 @@ function Editor({ channel, name, draft, dir, back, saved }: { channel: string; n
         {t("script.name")}
         <input value={nm} maxLength={32} onChange={(e) => (setName(e.target.value), setError(""))} aria-invalid={(!!nm && !validNick(nm)) || undefined} className={cn(INPUT, "h-8 pointer-coarse:h-10", nm && !validNick(nm) && "text-err")} />
       </label>
-      <label className={LABEL}>
-        {t("script.intro")}
-        <textarea value={intro} rows={2} onChange={(e) => (setIntro(e.target.value.replace(/\n/g, " ")), setError(""))} className={cn(INPUT, "field-sizing-content max-h-32 min-h-[3.25rem] resize-none py-1.5 leading-5")} />
-      </label>
-      <FacePick label={t("script.avatar")} preview={<ScriptFace avatar={avatar} size={28} />} set={async (v) => setAvatar(v)} still />
       <label className={LABEL}>
         {t("script.command")}
         <textarea value={run} rows={2} spellCheck={false} onChange={(e) => (setRun(e.target.value), setError(""))} className={cn(INPUT, "field-sizing-content max-h-40 min-h-[3.25rem] resize-none py-1.5 font-mono text-sm leading-5")} />
@@ -564,9 +430,9 @@ function TriggerEdit({ channel, d, set, remove }: { channel: string; d: TriggerD
         <div className={LABEL}>
           {t("script.events")}
           <div className="flex flex-wrap gap-1.5">
-            {SCRIPT_EVENTS.map((e) => (
+            {EVENTS.map((e) => (
               <Chip key={e} on={d.event.includes(e)} onClick={() => set({ event: toggle(d.event, e) })}>
-                {t(`script.ev.${e}`)}
+                {t(`on.ev.${e}`)}
               </Chip>
             ))}
           </div>

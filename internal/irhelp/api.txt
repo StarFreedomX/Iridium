@@ -1,20 +1,20 @@
 # METHOD internal/x is /v1/internal/x; a bare name (channel.list) is POST /v1/<name>. Errors: {code, message}.
-# {id}, channel_id: an id's unique start, or self (your session); guild_id=self: your group. person only: not an agent.
+# {id}, channel_id: an id, or its unique start; no self or here: your session's id and your channel's are in your context. person only: not an agent.
 # message.create: _data.text (plain words, escaped by the server) for content; _data.text=@- takes them from the standard input (a quoted here-document: <<'IR' … IR); _data.paths: local files (socket only). In a channel of several agents: said there, given to whom it names (@nick); what you had not seen of it is printed; 409 behind: read what it prints, then send again.
 # A path or folder: ~/x, app:path at an app's computer, host:path; a relative one goes from your session's folder.
 
 # common
-channel.create {_data.agent?, _data.cwd, _data.text?, _data.model?, _data.mode?, _data.effort?, _data.preset?, _data.role?, _data.nick?, _data.intro?, _data.persona?, _data.avatar?, data.name?, data.parent_id?, guild_id?} -> Channel  start a session, a child of yours; _data.cwd=. your folder. Another agent to work with in this chat: invite it instead (POST internal/channels/{id}/members)
+channel.create {_data.agent?, _data.cwd, _data.text?, _data.model?, _data.mode?, _data.effort?, _data.preset?, _data.role?, _data.nick?, _data.persona?, _data.avatar?, data.name?, data.parent_id?, guild_id?} -> Channel  start a session, a child of yours; _data.cwd=. your folder. Another agent to work with in this chat: invite it instead (POST internal/channels/{id}/members)
   data.parent_id: the session it hangs under on the page (its launcher). Not given: the session your ir runs in, so one you start is your child: listed under you, archived with you. To start one of its own: channel.update data.parent_id:=null after.
   _data.cwd: . is your own folder and a relative path goes from it; ~ and ~/x the home; host:path here; app:path at that app's computer (GET internal/apps), where it then runs; an absolute path as it is.
-  guild_id: a folder group's id (guild.list), self yours; not given: its folder's group, yours when yours holds its folder.
+  guild_id: a folder group's id (guild.list); not given: its folder's group, yours when yours holds its folder.
   _data.agent: not given: a channel with no agent of its own, listed in _data.cwd; agents join it (POST internal/channels/{id}/members) and people speak in it. Given: claude, codex, pi, dsh or agy (GET internal/agents: those that can start here, their modes); _data.mode: one of them; model, effort, preset: the agent's own (SessionState.models, efforts; GET internal/sessions/{id}/presets).
-  _data.role: start it as a kept role (GET internal/roles): its agent, model (dsh: preset) and card; effort and mode are this start's (_data.effort, _data.mode) or the agent's own. _data.nick, _data.intro, _data.persona, _data.avatar, _data.background: its card from the start (ir api help profile).
+  _data.role: start it as a kept role (GET internal/roles): its agent, model (dsh: preset) and card; effort and mode are this start's (_data.effort, _data.mode) or the agent's own. _data.nick, _data.persona, _data.avatar: its card from the start (ir api help profile).
   _data.text: its first message, from you: it reads [ir:<your session>] before it. ir prints the id, with text once the agent took it. Started from a session, it joins that session's channel: the text is then said to it there, its answer said there.
   --wait: holds your turn till its first turn ends, then prints its reply: for a session that does a job apart from your channel and reports to you. Not for an agent in your channel (one you invited or started there): its words are said in the channel and its answer to you calls you, so waiting only holds your turn and gets you words everyone has already seen.
 channel.list {guild_id?, next?, _data.all?} -> List<Channel>  the folders (type 2), then the sessions; _data.all adds archived  view=id,name,_data.status,_data.agent,_data.cwd,_data.title
   parent_id: what it is under: the session it hangs under (its launcher, a subagent's session), else its folder (folder:<path>); --pick id,name,parent_id shows who is under whom.
-  _data: a session's Session (_data.own: a person opened it or took it out); a folder's path, color, pinned, order. guild_id: a folder group's (guild.list); self: yours.
+  _data: a session's Session (_data.own: a person opened it or took it out); a folder's path, color, pinned, order. guild_id: a folder group's (guild.list).
 channel.get {channel_id} -> Channel  one session, or a folder (folder:<path>); _data is its Session  view=id,name,_data.status,_data.cwd,_data.title,_data.last.text
 channel.update {channel_id, data.name?, data.parent_id?, _data.archived?, _data.pinned?, _data.color?, _data.order?, _data.workspace?} -> {}  rename (not over a person's name), archive, restore, pin, tag, move
   data.name: a short name; an agent's never covers one a person gave. _data.archived: true archives it and the sessions hung under it (their agents stop), false brings them back.
@@ -28,12 +28,10 @@ guild.member.get {guild_id?, user_id, _data.channel_id?} -> GuildMember  one of 
 message.list {channel_id, next?, direction?, limit?, order?, _data.q?} -> BidiList<Message>  what was said in the channel, each message under its number (its id); direction before|after|around, next a number  view=id,user.name,content
   _data.q="words": only the messages that have all these words (their text, the files their agent changed, the programs it ran), the latest limit of them.
 message.get {channel_id, message_id} -> Message  one message, whole
-GET internal/channels/{id}/members - -> ChannelMembers  who is in the channel (id: a session's own channel, or one that is no session's): its agents (nick, recv: its receive set, name, status, where they run), the people; multi: more than one agent  view=members.member,members.nick,members.recv,members.name
-POST internal/channels/{id}/members {session | agent | role, cwd?, machine?, model?, mode?, effort?, preset?, nick?, intro?, persona?, avatar?, recv?, text?} -> ChannelMembers  put an agent in the channel (id=self: your own): a session there is, or a new one (in the channel's folder unless cwd); it is a session as any, sees there only what is said, is given what names it (@nick) and what its receive set (recv, below) has; what it writes in a turn the channel called is said there
-  The way to bring another agent in to work with you and the people here: invite it with a nick and an intro, and text: what you want of it, said by you in the channel as "@nick text" once it is in. Its answers are said in the channel; one that answers you calls you. Later, @ its nick in what you say there.
+GET internal/channels/{id}/members - -> ChannelMembers  who is in the channel (id: a session's own channel, or one that is no session's): its agents (nick, on: what wakes each beside @, name, status, where they run), the people; multi: more than one agent  view=members.member,members.nick,members.on,members.name
+POST internal/channels/{id}/members {session | agent | role, cwd?, machine?, model?, mode?, effort?, preset?, nick?, persona?, avatar?, on?, text?} -> ChannelMembers  put an agent in the channel: a session there is, or a new one (in the channel's folder unless cwd); it is a session as any, sees there only what is said, is woken by what names it (@nick) and by what its on names (ir api help wake; none: @ only); what it writes in a turn the channel called is said there
+  The way to bring another agent in to work with you and the people here: invite it with a nick and text: what you want of it, said by you in the channel as "@nick text" once it is in. Its answers are said in the channel; one that answers you calls you. Later, @ its nick in what you say there.
 PUT internal/channels/{id}/people {people} -> ChannelMembers  who may speak in the channel: ["*"] everyone (also none given), "<app>/*", "<app>/<login>"; whoever sets them stays one; the rest still read; person only
-PATCH internal/channels/{id}/members/{member} {nick?, recv?} -> ChannelMembers  rename a member (agent:<session>; its nick is the same in every channel), set an agent's receive set; any member, any agent's, and the channel says so  [more]
-  recv: whom a message that names nobody wakes the agent by: "*" every person, "<app>/<login>" one, "<app>/*" an app's, "agent:<session>" another agent's turn's last words; [] @ only. recv:='["*","agent:<session>"]'. 8 wakes in a row at most since a person spoke.
 GET internal/channels/{id}/avatar - -> image  the channel's face (a session's: its agent's); its own, else the one last given to a session of its model; 404 none
 PUT internal/channels/{id}/avatar {avatar} -> {ok}  give it a face: avatar a PNG, JPEG or WebP image in base64 (or the image itself as the body), at most 2 MB; a session's: its agent's face, kept for its model too. The channel's own face (the list's, the title's): PATCH internal/channels/{id} avatar=<image file>
 DELETE internal/channels/{id}/avatar - -> {ok}  take its own face away
@@ -42,9 +40,11 @@ PUT internal/face {avatar} -> {}  give it one: a PNG, JPEG or WebP image in base
 DELETE internal/face - -> {}  take it away; a manager only
 GET internal/channels/{id}/reads - -> ChannelReads  how far each member has read the channel: a person as they said, an agent as far as it was given; who read message n: those with seq >= n  view=readers.member,readers.name,readers.nick,readers.seq
 POST internal/channels/{id}/read {seq} -> ChannelReads  you have read the channel up to message seq (never back); person only
+POST internal/channels/{id}/continue {seq} -> {ok}  go on where agents passing message seq on were paused (已暂停): the count begins anew and it is passed on; once each; person only
 GET internal/ats - -> ChannelAts  per channel, the first message that names you (@name, @全体成员, a quote of your words) and you have not read: {seq, everyone}; person only
 POST internal/dm {user} -> {channel}  the channel of you and one person (a login's user id; "local" the host): the same two, the same one; no agent, the two its people
-DELETE internal/channels/{id}/members/{member} - -> ChannelMembers  take a member out; its session stays as it is; person only
+DELETE internal/channels/{id}/members/{member} {archive?} -> ChannelMembers  take a member out; its session stays as it is, or archive=1: archived in the same step (those hung under it too); person only
+POST internal/channels/{id}/archived/{member} - -> ChannelMembers  bring back an agent the channel took out and archived (ChannelMembers.archived): out of the archive, in the channel again under its nick; person only
 GET internal/sessions/{id}/injections - -> Injection[]  what the agent was given by the channel, newest first: where each part came from  view=id,seq,at
 POST internal/block.list {channel_id, next?, direction?, limit?, order?, _data.blocks?} -> BidiList<Message>  a session's own record, a message a block (thinking, tool calls too)  view=id,content
   _data.blocks:=true: the page's blocks as Iridium keeps them too, in _data.blocks (kind, text, from, tool calls).
@@ -53,11 +53,11 @@ POST internal/block.outline {channel_id, from?, to?, limit?} -> Outline  a sessi
 message.update {channel_id, message_id, content?, _data.text?} -> {}  change a message you sent while it waits in the queue (message_id: message.create's id)
 message.delete {channel_id, message_id} -> {}  take back a message: one said in a channel (message_id its number) for everyone; one still waiting in the queue
   Whoever may speak in the channel may take back any message said there, a person's or an agent's words (not an ask, not Iridium's own lines), with no time limit: its words and reactions go for everyone, the channel says who took it back, copies still queued for agents are withdrawn, and an agent that was given it is told its number the next time it is called there.
-reaction.create {channel_id, message_id, emoji} -> {}  put an emoji (one Unicode emoji, also emoji_id) on a message of the channel: the agents whose receive set has you get "#n [you reacted 👍 to: …]"
+reaction.create {channel_id, message_id, emoji} -> {}  put an emoji (one Unicode emoji, also emoji_id) on a message of the channel: the agents your words wake get "#n [you reacted 👍 to: …]"
 reaction.delete {channel_id, message_id, emoji, user_id?} -> {}  take an emoji off a message: yours, or user_id's
 reaction.list {channel_id, message_id, emoji} -> List<User>  who put that emoji on the message; message.list and message.get give each message's in _data.reactions  view=id,name
 reaction.clear {channel_id, message_id, emoji?} -> {}  take every reaction (of that emoji) off a message
-message.create {channel_id, content?, _data.text?, _data.paths?, _data.attachments?} -> Message[]  send; joins a running turn (only a command, or words while the quota is out, wait: _data.queued)  view=id,_data.queued
+message.create {channel_id, content?, _data.text?, _data.paths?, _data.attachments?} -> Message[]  send; joins a running turn (only a command waits: _data.queued)  view=id,_data.queued
   _data.text: plain words (the server escapes them); content: Satori elements as they are. The session reads [ir:<your session>] before it.
   _data.paths: files here to attach (relative: from your folder; socket only); _data.attachments: refs upload.create gave.
   Returns once the agent took it; --wait: holds your turn till that turn ended, then prints its reply (exit 2: it waits for a person). For a session apart from your channel. Not for an agent in your channel (one you invited or started there): its words are said in the channel and its answer to you calls you, so waiting only holds your turn and gets you words everyone has already seen. In a channel of several, message.create is said there and never waits.
@@ -65,7 +65,8 @@ POST internal/links {path} -> FileLink  a file's ir: link and the Markdown to pu
 PUT internal/secrets/{name} {note?, value?, scope?, workspaces?, always?} -> SecretInfo  set; an agent gets 202 {need}: --wait for the user to type it in
 GET internal/sessions/{id} - -> SessionState  live state; --wait: wait for the turn to end, print its reply  view=id,status,model,mode,error,asks,queue,end
   --wait: holds your turn until its turn ends, then prints its last reply; exit 2 when it waits for a person (asks: its questions; POST internal/button answers one). For a session doing a job apart from your channel. Not for an agent in your channel (one you invited or started there): its words are said in the channel and its answer to you calls you, so waiting only holds your turn and gets you words everyone has already seen.
-POST internal/sessions/{id}/interrupt - -> {ok}  end the current turn (Esc); what waits in the queue pauses, and goes ahead of the next message
+POST internal/sessions/{id}/interrupt - -> {ok}  end the current turn (Esc); what waits in the queue pauses, and goes ahead of the next message; an agent: its own (its id), or another agent's of a channel it is in, by its nick (one going round or off track)
+POST internal/sessions/{id}/tasks/{task}/stop - -> {ok}  stop one background task alone (tasks[].stop: Claude's); the turn and the other tasks go on
 POST internal/sessions/{id}/stop - -> {ok}  stop the agent process; the next message restarts it
 POST internal/button {id, option?, choices?, words?, message?} -> {}  answer an ask: id its card (asks[].card.id); or press a button (<card>#<option>; one attached: att:<session>:<from>:<id>, SessionState.attached)
 POST internal/files/copy {from, to} -> ndjson  copy a file: from, to are paths here or app:path at an app's computer; prints path, size, sha256; run again to resume; socket only
@@ -90,34 +91,33 @@ GET internal/agents/{agent}/choices?machine&channel - -> AgentChoices  the model
 GET internal/agents - -> AgentInfo[]  agents that can start here, their modes  view=agent,modes,defaultMode,missing
 GET internal/sessions/{id}/first?record&since - -> {session, page?, members?, reads?, log?, sessions?, work?}  a session's first screen in one answer, each part as its own API gives it: state, the record's newest page, members; with another agent in the channel also reads, the log, the others' states and the work under their words
 GET internal/sessions/{id}/image?at&n - -> image  the n-th image a tool result gave the model
-POST internal/sessions/{id}/release {toolUseId, dismiss?} -> {ok}  run a step auto mode denied under manual; person only
-GET internal/sessions/{id}/public - -> PublicLink  the session's public read-only link: ready (public address on), on, by, createdAt
-POST internal/sessions/{id}/public - -> PublicLink  make it (a new one replaces it): url only here; 403 not_public without the public address; person only
-DELETE internal/sessions/{id}/public - -> {ok}  revoke it at once; person only
+POST internal/sessions/{id}/manual {reason, minutes?} -> ManualState  Claude, id: your session's: auto mode denied a step you need; ask the person to switch you to manual approval for a while (a card above their composer, they are called as by an @); --wait waits for the answer
+  minutes: 1 to 10, 10 if not given: how long it waits for the answer, and manual mode lasts at most. Approved: each step not allowed by a rule is asked of the person till this turn ends, then the mode is back; run the step again. Refused, or no answer in time (it is withdrawn): the mode stays. Only a person answers it.
+GET internal/sessions/{id}/manual?wait - -> ManualState  how the latest ask stands: pending, approved, refused, expired; wait up to 60 s
 GET internal/sessions/{id}/commands - -> Command[]  the agent's slash commands  view=name,description
 
 # profile
-GET internal/self - -> Self  your own card (nick, intro, persona, face, background, what you run as), the channels you are in with when you last spoke there, your earlier contexts (cleared since), what you chose to remember  view=name,intro,model,channels.name,channels.last,before.session,before.first,memory.id,memory.text
-PATCH internal/self {nick?, intro?, persona?, avatar?, background?} -> Profile  change your own card
-  nick: letters, digits, _ and -, at most 32, no other agent's; intro: who you are and what you do here, one paragraph, at most 200 characters, for the others to read: it is also what you are told you are. persona: how you work (manner, tone, rules), in your own system prompt alone, after your intro; at most 5000 characters, "" none.
-  avatar, background: an image file's path (PNG, JPEG, WebP, at most 2 MB), one emoji (avatar=🧪), or a colour (background=#2f4f6f); "" takes it away.
-  When: a role becomes clear or changes, or someone asks; in the same turn as the work at hand, all fields in one call. Starting an agent, give its card at once: channel.create … _data.nick=tester _data.intro='runs the tests only' _data.avatar=🧪.
-GET internal/members/{who} - -> MemberCard  another member: an agent (its nick, agent:<session>, a session's id) or a person (a login's name): its card, the channels you share, the last things it said  view=name,kind,intro,model,said.name,said.seq,said.head
-PATCH internal/members/{who} {nick?, intro?, persona?, avatar?, background?} -> Profile  change another agent's card (one in a channel you are in, one you started); fields as PATCH internal/self; a person's is the person's own
-GET internal/channels/{id}/profile - -> Profile  a channel's card; id: here (the channel you are working for), self, an id
-PATCH internal/channels/{id} {name?, intro?, avatar?, background?} -> Profile  change the channel's card (id=here: the one you are working for); fields as PATCH internal/self
+GET internal/self - -> Self  your own card (nick, persona, face, what you run as), the channels you are in with when you last spoke there, your earlier contexts (cleared since), what you chose to remember  view=name,model,channels.name,channels.last,before.session,before.first,memory.id,memory.text
+PATCH internal/self {nick?, persona?, avatar?} -> Profile  change your own card
+  nick: letters, digits, _ and -, at most 32, no other agent's. persona: who you are and how you work (manner, tone, rules), in your own system prompt alone; at most 5000 characters, "" none.
+  avatar: an image file's path (PNG, JPEG, WebP, at most 2 MB), one emoji (avatar=🧪), or a colour (avatar=#2f4f6f); "" takes it away. A card has no background: its banner is drawn from its face.
+  When: a role becomes clear or changes, or someone asks; in the same turn as the work at hand, all fields in one call. Starting an agent, give its card at once: channel.create … _data.nick=tester _data.avatar=🧪.
+GET internal/members/{who} - -> MemberCard  another member: an agent (its nick, agent:<session>, a session's id) or a person (a login's name): its card, the channels you share, the last things it said  view=name,kind,model,said.name,said.seq,said.head
+PATCH internal/members/{who} {nick?, persona?, avatar?} -> Profile  change another agent's card (one in a channel you are in, one you started); fields as PATCH internal/self; a person's is the person's own
+GET internal/channels/{id}/profile - -> Profile  a channel's card
+PATCH internal/channels/{id} {name?, avatar?} -> Profile  change the channel's card; fields as PATCH internal/self
 POST internal/recall {q, all?, limit?} -> RecallHit[]  what the records say of these words: your memory, then the messages of your channels and of your earlier contexts, the latest first; all:=true: every channel you see; each with how to read it whole (get)  view=kind,name,seq,who,head,get
 POST internal/remember {text} -> {id}  keep one short note (at most 300 characters) for yourself across contexts and channels; your role's if your session is of one (shared by its sessions). Rarely: when asked to, a major piece of work done, something the user plainly cares about, a clear preference, a serious problem; once at the turn's end, with where it is from
 GET internal/memory {session?} -> Memory[]  what you chose to remember, the latest first, each with the session, channel and message number it is from  view=id,text,name,seq
 DELETE internal/memory/{id} - -> {ok}  forget one
-GET internal/channels/{id}/background - -> image  the background of the channel's card (a session's: its agent's); 404 none
-GET internal/people/{id}/background - -> image  the background of a person's card; 404 none
-POST internal/roles {session | name, agent, machine?, model?, preset?, persona?, avatar?, background?} -> Role  keep a role: from a session as it is now (its card, agent, model, preset; the session is the role's from then on), or as given; no effort or mode: those are each start's; no intro: each of its sessions writes its own; person only
-PATCH internal/roles/{id} {name?, model?, preset?, persona?, avatar?, background?, sort?, session?} -> Role  change a role (its agent stays); session: take its card (persona, face, background) from that session again, not its model; person only
+GET internal/favorites - -> Favorites  the channels you favoured (a session's is its id), in your order: the page lists them first; your own alone
+PUT internal/favorites {channels} -> Favorites  your favorites made this whole list (at most 200), in its order; [] none
+PATCH internal/favorites {color?, name?} -> Favorites  your favorites' colour tag (red, orange, yellow, green, blue, purple; "" none) or name (one line, at most 40 characters; "" the page's own)
+POST internal/roles {session | name, agent, machine?, model?, preset?, persona?, avatar?} -> Role  keep a role: from a session as it is now (its card, agent, model, preset; the session is the role's from then on), or as given; no effort or mode: those are each start's; no intro: each of its sessions writes its own; person only
+PATCH internal/roles/{id} {name?, model?, preset?, persona?, avatar?, sort?, session?} -> Role  change a role (its agent stays); session: take its card (persona, face) from that session again, not its model; person only
 DELETE internal/roles/{id} - -> {ok}  take a role away, its memory with it; its sessions stay; person only
 DELETE internal/sessions/{id}/role - -> {ok}  the session is no role's from now on: its card stays, what it remembered stays the role's; person only
 GET internal/roles/{id}/avatar - -> image  a role's face; 404 none
-GET internal/roles/{id}/background - -> image  a role's background; 404 none
 GET internal/roles - -> Role[]  the roles kept to start sessions as (channel.create _data.role=<name>; POST internal/channels/{id}/members role=<name>): name, agent, model  view=name,agent,model
 GET internal/personas - -> HostPersona[]  the personas the agents' hosts give where they run (dsh's persona plugin), each whole: one to take as a persona (persona=<its text>); none: empty  view=name,from,machineName,description
 
@@ -163,11 +163,23 @@ POST internal/sessions/{id}/attach {path} -> FileRef  attach a local file to the
 POST internal/cli {args, cwd} -> ndjson  ir of a session at another computer, by its TOKEN; not on the socket
 
 # usage
+GET internal/quota - -> Quota  each agent's account as last read: quota windows (percent used, resetsAt) or balance; at: when read; live: a process of it runs  view=agents.agent,agents.account,agents.machine,agents.windows,agents.balance,agents.at  [more]
+  What is read: claude (5-hour and weekly windows, and a model's own such as Fable's; account, plan), codex (its windows, by model), agy (a window per group of models), dsh (the DeepSeek balance, by currency); pi none. Read each minute through a running process of that agent, account and computer; none running, the last read stays and at says how old.
 
 # secrets
 GET internal/secrets - -> Secrets  no values; host only  view=secrets.name,secrets.note,secrets.scope
 DELETE internal/secrets/{name} - -> {ok}  host only, person only
 POST internal/secrets/use {names, command, session?, confirm?} -> {values}  ir run only; socket only; may be 202 {need}
+
+# github
+GET internal/github - -> GitHubList  the GitHub accounts people bound to their logins; turn: whose your git and gh act as now (none: this machine's own login)  view=bindings.name,bindings.login,turn
+  Your git (github.com) and gh are already signed in as the person whose message your turn runs for, at each use: just run them. Not as them but as another bound person: IR_GITHUB_USER=<name or GitHub login> git push … (or gh …). Never gh auth login, never a token in chat. ir github alone prints the same list.
+PUT internal/github {token} -> GitHubBinding  bind your own login to the account of a GitHub token (checked with GitHub first); person only, from a panel or the host
+POST internal/github/device - -> GitHubDevice  begin binding by GitHub's link: a code to type at its uri; person only, from a panel or the host
+POST internal/github/device/{id} - -> GitHubDeviceState  ask whether GitHub allowed it: waiting, done (its binding), expired, denied; every interval seconds
+DELETE internal/github - -> {ok}  unbind your own; person only
+DELETE internal/github/{member} - -> {ok}  unbind another's; person only
+GET internal/github/token?user - -> GitHubToken  the token your git and gh use (ir github alone; 204 none bound)
 
 # apps (admin)
 GET internal/me - -> Me  the caller: app, login, host, web, rules
@@ -183,10 +195,10 @@ PUT internal/apps/{id}/perms {agents, scope} -> Perms  an app's permissions; per
 PUT internal/apps/{id}/logins/{login}/perms {agents, scope} -> Perms  a login's; person only
 DELETE internal/apps/{id} - -> {ok}  remove an app, an ir_web login or an invite; person only
 DELETE internal/apps/{id}/logins/{login} - -> {ok}  remove a login; person only
-POST internal/invites {name?, claude?, perms?} -> Invite  a one-time ir_web link (10 min); an agent gets 202 {need}
+POST internal/invites {name?, perms?} -> Invite  a one-time ir_web link (10 min); an agent gets 202 {need}
 GET internal/needs - -> Needs  waiting for a person; person only  view=pending.id,pending.kind,pending.name
 GET internal/needs/{id}?wait - -> NeedState  how a need went; wait up to 60 s
-POST internal/needs/{id} {allow, value?, forSession?, owner?, name?, perms?, agentsOff?} -> NeedReply  allow or deny; person only
+POST internal/needs/{id} {allow, value?, forSession?, name?, perms?, agentsOff?} -> NeedReply  allow or deny; person only
 GET internal/pairing - -> PairWindow  whether pairing is on; person only
 PUT internal/pairing {open} -> PairWindow  pairing on (till turned off) or off; person only
 POST internal/pair {name, type?, os?, arch?, program?, agents?, shell?, noShell?, agentShell?, home?, machineId?, wants?} -> {code, request}  ask to pair
@@ -194,27 +206,25 @@ GET internal/pair/{request} - -> {status, token?}  pairing outcome; token given 
 GET internal/exec - -> ws  an executor's connection; its app TOKEN only
 
 # settings (admin)
-GET internal/settings - -> Settings  idle reaping, resumes, default modes, push, language; host or web
-PUT internal/settings {idleReap?, crashResume?, quotaResume?, quotaHidden?, modes?, push?, lang?, autoUpdate?} -> Settings  person only
+GET internal/settings - -> Settings  idle reaping, default modes, language; host or web
+PUT internal/settings {idleReap?, quotaHidden?, modes?, lang?} -> Settings  person only
 GET internal/public - -> {origin?, passkeys}  public address; host or web
 PUT internal/public {origin} -> {origin?, passkeys}  set the public origin ("" off); the host's own ir, person only
-GET internal/update - -> UpdateState  versions and update progress  view=current,latest,available,ready,phase,error
-POST internal/update/check - -> UpdateState  check for a release now; person only
+GET internal/update - -> UpdateState  versions and update progress  view=current,latest,available,phase,error
+POST internal/update/check - -> UpdateState  check for a release now (downloads nothing); person only
 POST internal/update {force?} -> UpdateState  install the update and restart; person only
-GET internal/web/push - -> PushState  web push switch, key, defaults, rules; person only
-PUT internal/web/push {enabled} -> {ok}  on or off; person only
-PUT internal/web/push/defaults {needsYou, error, turnEnd} -> PushState  events pushed by default; person only
-PUT internal/web/push/rules {scope, target, mode, events?} -> PushState  group, folder, session rule; person only
-POST internal/web/push/subscriptions {endpoint, keys.p256dh, keys.auth} -> {ok}  add a browser; person only
-DELETE internal/web/push/subscriptions {endpoint} -> {ok}  remove a subscription; person only
-POST internal/web/push/test - -> {sent}  push a test to your own subscriptions; person only
 
-# scripts
-GET internal/channels/{id}/scripts - -> Script[]  the scripts the channel's IR (Iridium) runs: name, intro, run, on, enabled, who made and last changed it, its last run  view=name,intro,on,enabled,run
-POST internal/channels/{id}/scripts {name, run, on, intro?, avatar?, enabled?} -> Script  add a script: a command line run at the host in the channel's folder when one of on fires; any member  [more]
-  on: a list, each one of {"message":{"from":[…],"words":[…]}} (senders as recv names them; words: any of them; none: anything), {"command":"name"} (a person's /name: goes to the script, not the agents), {"cron":"m h dom mon dow"}, {"event":["join","leave","rename","recv","people"]}.
-  Given the message as JSON on stdin and as IR_TEXT, IR_FROM, IR_ARGS, IR_TRIGGER. What it prints (exit 0) is said under its name; @nick in it wakes that agent; ir in it speaks as the script. 60 s at most. E.g. on:='[{"message":{"from":["*"],"words":["<word>"]}}]' run='echo "@<nick> $IR_TEXT"'.
-PATCH internal/channels/{id}/scripts/{name} {name?, intro?, avatar?, run?, on?, enabled?} -> Script  change a script; enabled:=false keeps it and stops it running
+# wake
+PATCH internal/channels/{id}/members/{member} {nick?, on?} -> ChannelMembers  rename a member (agent:<session>; its nick is the same in every channel), set what wakes an agent (on: the whole list); any member, any agent's, and the channel says so; refused (422 bad_on): a loop of agents waking each other by their last words alone (an agent calls another with @); warn: a ring through a command  [more]
+  Every member is given all that is said in the channel when it is next woken; on says what wakes it beside @nick (always). A list, each one of:
+  {"message":{"from":[…],"words":[…]}}: from "*" every person, "<app>/<login>", "<app>/*", "agent:<session>" (its turn's last words); none: anyone. words: any of them (case not minded); none: any words.
+  {"command":"name"} a person's /name; {"cron":"m h dom mon dow"} the host's time; {"event":["join","leave","rename","wake","error","ask"]} a member came or went, an agent renamed, someone's wake rules changed, an agent's error, an agent asks.
+  Each may have "text": what it is to do then, given with what woke it ("greet them"). [] @ only. A new session's own agent: its maker's words. E.g. on:='[{"message":{"from":["*"]}},{"event":["join"],"text":"greet them"}]'.
+  Take care: a message entry of no from wakes on every agent's last words too; two agents woken by each other's words go round till paused (30 in a row, or 4 turns of words alone; warned as set). Read GET internal/channels/{id}/members first: set on whole.
+GET internal/channels/{id}/scripts - -> Script[]  the commands of the channel (scripts): name, run, on, enabled, who made and last changed it, its last run  view=name,on,enabled,run
+POST internal/channels/{id}/scripts {name, run, on, enabled?} -> Script  add a command: a command line run at the host in the channel's folder when its on (as above; text not used) fires; any member; warn: a ring  [more]
+  Given the message as JSON on stdin and as IR_TEXT, IR_FROM, IR_ARGS, IR_TRIGGER. What it prints (exit 0) is said by Iridium; @nick in it wakes that agent; ir in it speaks as Iridium too. 60 s at most. To wake an agent on words or a time, give the agent an on, not a command that prints @nick.
+PATCH internal/channels/{id}/scripts/{name} {name?, run?, on?, enabled?} -> Script  change a script; enabled:=false keeps it and stops it running
 DELETE internal/channels/{id}/scripts/{name} - -> {ok}  take a script away, its runs with it
 GET internal/channels/{id}/scripts/{name}/runs - -> ScriptRun[]  its latest runs, newest first: trigger, code, what it printed (out), its errors (err), said: the message it became  view=at,trigger,code,said,err
 POST internal/channels/{id}/scripts/{name}/run {text?} -> ScriptRun  run it now, given text as the message; what it does is said as ever

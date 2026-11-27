@@ -20,8 +20,8 @@ const Usage = `ir api [METHOD] <path|satori.method> [k=v | k:=json | k==query]..
   exit: 0 done, 2 needs the user (a question, an approval), 1 error
 `
 
-// Layers is how ir api help is read, a layer at a time; the system prompt carries it, so an agent
-// goes to the layer it needs at once.
+// Layers is how ir api help is read, a layer at a time, as ir api help prints it (the system
+// prompt says it in its own words: internal/prompts/texts/cli.discover.md).
 func Layers() string {
 	var ts []string
 	for _, t := range Topics() {
@@ -31,7 +31,7 @@ func Layers() string {
 	return `ir api help, a layer at a time: read only what the next call needs, no more.
   1. The route known: ir api help <METHOD path | satori.method> (channel.create, GET internal/sessions/{id}): its line and notes; one marked ` + More + ` in a list has notes on its fields: read them before its first call.
   2. Not known: ir api help <topic> (` + strings.Join(ts, ", ") + `), a line a route; or ir api help <words>, the routes and notes they are in.
-  Agents: another in this chat, invite it (POST internal/channels/self/members), then @ its nick; one apart, channel.create. ir api help alone: how ir api is written, the common routes; all: every route.
+  Agents: another in this chat, invite it (POST internal/channels/<its id>/members), then @ its nick; one apart, channel.create. ir api help alone: how ir api is written, the common routes; all: every route.
 `
 }
 

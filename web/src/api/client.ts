@@ -12,7 +12,6 @@ import type {
   CompleteUpload,
   NeedAnswer,
   NeedReply,
-  PublicLink,
   Needs,
   FolderReply,
   Folders,
@@ -23,16 +22,10 @@ import type {
   NewInvite,
   NewSession,
   NewUpload,
-  Release,
-  PushEvents,
-  PushRule,
-  PushState,
   Role,
   RolePatch,
   NewRole,
   HostPersona,
-  PushSubscription,
-  PushSwitch,
   SendReply,
   SessionPatch,
   SessionState,
@@ -58,13 +51,14 @@ import type {
   GuildPatch,
 } from "./types.gen";
 import type { Device, Passkeys, PasskeyDevice, ShellOutput, ShellRun, ShellStarted } from "./types.gen";
-import type { SecretInfo, Secrets, SetSecret, Usage } from "./types.gen";
+import type { Quota, SecretInfo, Secrets, SetSecret, Usage } from "./types.gen";
 import type { AgentChoices, Block, ChannelMembers, ChannelReads, Injection, MemberPatch, NewMember } from "./types.gen";
-import type { MemberCard, Memory, Profile as Card, ProfilePatch, Self } from "./types.gen";
+import type { Favorites, FavoritesPatch, MemberCard, Memory, Profile as Card, ProfilePatch, Self } from "./types.gen";
 import type { NewScript, Script, ScriptPatch, ScriptRun } from "./types.gen";
+import type { GitHubBinding, GitHubDevice, GitHubDeviceState, GitHubList, SetGitHub } from "./types.gen";
 
 /** A message of a channel's log (Satori's message.list): id its number there. */
-export type ChannelMessage = { id: string; content: string; created_at?: number; user?: { id: string; name?: string; nick?: string; is_bot?: boolean }; _data?: { kind?: string; event?: unknown; session?: string; block?: string; from?: number; to?: number; input?: string; device?: Device; script?: string; reactions?: ReactionSum[] } };
+export type ChannelMessage = { id: string; content: string; created_at?: number; user?: { id: string; name?: string; nick?: string; is_bot?: boolean }; _data?: { kind?: string; ask?: unknown; card?: string; event?: unknown; session?: string; block?: string; from?: number; to?: number; input?: string; device?: Device; script?: string; reactions?: ReactionSum[]; writing?: boolean } };
 /** One emoji on a message (docs/channels.md "表情"): who put it on, in that order. */
 export type ReactionSum = { emoji: string; count: number; users: { id: string; name?: string }[]; me?: boolean };
 /** Told what the page reads of a channel's log and of a session's record (chat/reactions.ts:
@@ -231,17 +225,16 @@ function channelPatch(id: string, p: SessionPatch) {
  *  its channel's members; with another agent in the channel, how far each has read, the log as
  *  far back as the record's page, the others' states, and the work under their words (where in
  *  whose record, the blocks there). A part the server could not give is absent. */
-export type First = { session: SessionState; page?: MessagePage; members?: ChannelMembers; reads?: ChannelReads; log?: ChannelPage; sessions?: Record<string, SessionState>; work?: { session: string; block?: string; from?: number; to?: number; blocks: Block[] }[] };
+export type First = { session: SessionState; page?: MessagePage; members?: ChannelMembers; reads?: ChannelReads; log?: ChannelPage; sessions?: Record<string, SessionState>; work?: { session: string; block?: string; from?: number; to?: number; brief?: boolean; blocks: Block[] }[] };
 type RawPage<T> = { data: T[]; _data?: { start: number; end: number; more: boolean } };
 
 export const api = {
   // --- served (docs/api.md) ---
   session: (id: string, init?: RequestInit) => get<SessionState>(S(id), init),
-  /** have: the page holds the record already (its page is left out); since: how far back the
-   *  others' words are to go then (the record's first block's time; 0: all of them). */
-  first: async (id: string, q: { have?: boolean; since?: number } = {}, init?: RequestInit): Promise<First> => {
-    const args = q.have ? `?record=0${q.since !== undefined ? `&since=${q.since}` : ""}` : "";
-    const f = await get<{ session: SessionState; page?: RawPage<SatoriMessage>; members?: ChannelMembers; reads?: ChannelReads; log?: RawPage<ChannelMessage>; sessions?: Record<string, SessionState>; work?: { session: string; block?: string; from?: number; to?: number; data: SatoriMessage[] }[] }>(`${S(id)}/first${args}`, init);
+  /** record: true asks for the session's raw transcript alone (TranscriptView). */
+  first: async (id: string, q: { record?: boolean } = {}, init?: RequestInit): Promise<First> => {
+    const args = q.record ? "?record=1" : "";
+    const f = await get<{ session: SessionState; page?: RawPage<SatoriMessage>; members?: ChannelMembers; reads?: ChannelReads; log?: RawPage<ChannelMessage>; sessions?: Record<string, SessionState>; work?: { session: string; block?: string; from?: number; to?: number; brief?: boolean; blocks?: Block[]; data?: SatoriMessage[] }[] }>(`${S(id)}/first${args}`, init);
     const at = (p: RawPage<unknown>) => ({ start: p._data?.start ?? 0, end: p._data?.end ?? 0, more: p._data?.more ?? false });
     if (f.page) for (const fn of seenBlocks) fn(id, f.page.data);
     if (f.log) for (const fn of seenLog) fn(id, f.log.data);
@@ -252,7 +245,7 @@ export const api = {
       ...(f.reads ? { reads: f.reads } : {}),
       ...(f.log ? { log: { data: f.log.data, ...at(f.log) } } : {}),
       ...(f.sessions ? { sessions: f.sessions } : {}),
-      ...(f.work ? { work: f.work.map(({ data, ...w }) => ({ ...w, blocks: data.map(blockOf) })) } : {}),
+      ...(f.work ? { work: f.work.map(({ data, blocks, ...w }) => ({ ...w, blocks: blocks ?? (data ?? []).map(blockOf) })) } : {}),
     };
   },
   /** A page of session id's transcript: the newest, the one before line before, or what came after
@@ -295,7 +288,10 @@ export const api = {
   members: (id: string) => get<ChannelMembers>(`/v1/internal/channels/${enc(id)}/members`),
   addMember: (id: string, m: NewMember) => write<ChannelMembers>("POST", `/v1/internal/channels/${enc(id)}/members`, m, { signal: AbortSignal.timeout(SEND_WAIT) }),
   patchMember: (id: string, member: string, p: MemberPatch) => write<ChannelMembers>("PATCH", `/v1/internal/channels/${enc(id)}/members/${enc(member)}`, p),
-  removeMember: (id: string, member: string) => write<ChannelMembers>("DELETE", `/v1/internal/channels/${enc(id)}/members/${enc(member)}`),
+  /** archive: its session archived in the same step (the list never has it out and not yet archived). */
+  /** An agent the channel took out and archived, back: out of the archive, in the channel again. */
+  restoreMember: (id: string, member: string) => write<ChannelMembers>("POST", `/v1/internal/channels/${enc(id)}/archived/${enc(member)}`),
+  removeMember: (id: string, member: string, archive = false) => write<ChannelMembers>("DELETE", `/v1/internal/channels/${enc(id)}/members/${enc(member)}${archive ? "?archive=1" : ""}`),
   // --- the scripts of a channel's IR (docs/channels.md "脚本") ---
   scripts: (id: string) => get<Script[]>(`/v1/internal/channels/${enc(id)}/scripts`),
   addScript: (id: string, x: NewScript) => write<Script>("POST", `/v1/internal/channels/${enc(id)}/scripts`, x),
@@ -321,8 +317,10 @@ export const api = {
   channelProfile: (id: string) => get<Card>(`/v1/internal/channels/${enc(id)}/profile`),
   patchChannel: (id: string, p: ProfilePatch) => write<Card>("PATCH", `/v1/internal/channels/${enc(id)}`, p),
   self: () => get<Self>("/v1/internal/self"),
-  /** The one looking's own card: its intro, its background (name and avatar: profile below). */
-  patchSelf: (p: Pick<ProfilePatch, "intro" | "background">) => write<Card>("PATCH", "/v1/internal/self", p),
+  /** The channels this login favoured, in its order; put: the whole list. */
+  favorites: () => get<Favorites>("/v1/internal/favorites"),
+  putFavorites: (channels: string[]) => write<Favorites>("PUT", "/v1/internal/favorites", { channels }),
+  patchFavorites: (p: FavoritesPatch) => write<Favorites>("PATCH", "/v1/internal/favorites", p),
   /** What a session's agent chose to remember; forget: one of them gone. */
   memory: (session: string) => get<Memory[]>(`/v1/internal/memory?session=${enc(session)}`),
   forget: (session: string, id: number) => write<unknown>("DELETE", `/v1/internal/memory/${id}?session=${enc(session)}`),
@@ -333,6 +331,8 @@ export const api = {
   /** How far each member has read the channel; read: this login has read it up to message seq. */
   reads: (id: string) => get<ChannelReads>(`/v1/internal/channels/${enc(id)}/reads`),
   read: (id: string, seq: number) => write<ChannelReads>("POST", `/v1/internal/channels/${enc(id)}/read`, { seq }),
+  /** Go on where agents passing message seq on were paused (已暂停): the count begins anew. */
+  goOn: (id: string, seq: number) => write<{ ok: boolean }>("POST", `/v1/internal/channels/${enc(id)}/continue`, { seq }),
   /** A channel's people set ("*" everyone, "<app>/*", "<app>/<login>"); the caller stays one. */
   setPeople: (id: string, people: string[]) => write<ChannelMembers>("PUT", `/v1/internal/channels/${enc(id)}/people`, { people }),
   /** The channel of the caller and the login whose Satori user id user is ("local": the host's):
@@ -351,7 +351,7 @@ export const api = {
     const ch = await sat<{ id: string }>("channel.create", { ...(workspace ? { guild_id: String(workspace) } : {}), ...(caller ? { data: { parent_id: caller } } : {}), _data: start });
     return { id: ch.id };
   },
-  /** A message: it joins a running turn (queued in the reply: a command, or the quota is out).
+  /** A message: it joins a running turn (queued in the reply: a command).
    *  attachments: upload refs. input: its id, chosen here (a UUID): the transcript's block has it
    *  as it comes, before the answer; lost on the way, the send goes again under it, never twice. */
   send: async (id: string, text: string, attachments?: string[], input?: string, quote?: number): Promise<SendReply> => {
@@ -376,11 +376,10 @@ export const api = {
   },
   interrupt: (id: string) => write<{ ok: boolean }>("POST", `${S(id)}/interrupt`),
   stop: (id: string) => write<{ ok: boolean }>("POST", `${S(id)}/stop`),
+  /** Stops one background task of the session's agent alone (Task.stop). */
+  stopTask: (id: string, task: string) => write<{ ok: boolean }>("POST", `${S(id)}/tasks/${enc(task)}/stop`),
   /** The session's public read-only link (docs/api.md "公开链接"): its state; made anew (its URL only
    *  in this answer); revoked. */
-  publicLink: (id: string) => get<PublicLink>(`${S(id)}/public`),
-  makePublicLink: (id: string) => write<PublicLink>("POST", `${S(id)}/public`),
-  revokePublicLink: (id: string) => write<{ ok: boolean }>("DELETE", `${S(id)}/public`),
   /** A command line at the session's machine, in cwd ("": its folder) (docs/api.md "命令"). */
   shell: (id: string, line: string, cwd?: string) => write<ShellStarted>("POST", `${S(id)}/shell`, { line, ...(cwd ? { cwd } : {}) } satisfies ShellRun),
   shellRead: (run: string, from: number) => get<ShellOutput>(`/v1/internal/shell/${enc(run)}?from=${from}`),
@@ -389,8 +388,6 @@ export const api = {
   answer: (_id: string, a: CardAnswer) => sat<object>("internal/button", { id: a.card, option: a.option, choices: a.choices, words: a.words, message: a.message }),
   /** A button attached to a session's page pressed (its id "att:<session>:<from>:<id>"). */
   button: (id: string) => sat<object>("internal/button", { id }),
-  /** A step Claude's auto mode denied, run again (session/release.go). */
-  release: (id: string, toolUseId: string, dismiss?: boolean) => write<{ ok: boolean }>("POST", `/v1/internal/sessions/${enc(id)}/release`, { toolUseId, dismiss } satisfies Release),
   /** Satori's meta (advanced/meta.md): the page asks it only for its status, a 401 taking it to the login. */
   meta: () => request("/v1/meta", { method: "POST" }),
   agents: () => get<AgentInfo[]>("/v1/internal/agents"),
@@ -464,14 +461,6 @@ export const api = {
   rules: (id: string) => get<AllowRule[]>(`${S(id)}/rules`),
   clearRules: (id: string) => write<{ ok: boolean }>("DELETE", `${S(id)}/rules`),
 
-  // --- push ---
-  push: () => get<PushState>("/v1/internal/web/push"),
-  pushSwitch: (enabled: boolean) => writeAgain<{ ok: boolean }>("PUT", "/v1/internal/web/push", { enabled } satisfies PushSwitch),
-  pushDefaults: (e: PushEvents) => writeAgain<PushState>("PUT", "/v1/internal/web/push/defaults", e),
-  pushRule: (r: PushRule) => writeAgain<PushState>("PUT", "/v1/internal/web/push/rules", r),
-  pushSubscribe: (sub: PushSubscription) => write<{ ok: boolean }>("POST", "/v1/internal/web/push/subscriptions", sub),
-  pushUnsubscribe: (endpoint: string) => write<{ ok: boolean }>("DELETE", "/v1/internal/web/push/subscriptions", { endpoint }),
-
   // --- settings, update ---
   settings: () => get<Settings>("/v1/internal/settings"),
   putSettings: (p: SettingsPatch) => writeAgain<Settings>("PUT", "/v1/internal/settings", p),
@@ -500,7 +489,7 @@ export const api = {
 
   // --- the apps and their logins (docs/api.md "应用"), the confirmations agents ask for ---
   apps: () => get<Apps>("/v1/internal/apps"),
-  invite: (name: string, claude?: boolean) => write<Invite>("POST", "/v1/internal/invites", { ...(name ? { name } : {}), ...(claude ? { claude } : {}) } satisfies NewInvite),
+  invite: (name: string) => write<Invite>("POST", "/v1/internal/invites", { ...(name ? { name } : {}) } satisfies NewInvite),
   revoke: (id: string) => write<{ ok: boolean }>("DELETE", `/v1/internal/apps/${enc(id)}`),
   /** DELETE /v1/internal/apps/{app}/logins/{login}: another app's login asks again as it next speaks. */
   removeLogin: (app: string, login: string) => write<{ ok: boolean }>("DELETE", `/v1/internal/apps/${enc(app)}/logins/${enc(login)}`),
@@ -528,6 +517,8 @@ export const api = {
 
   /** GET /v1/internal/usage: the last days' tokens by day, app, agent and model; terminal: one app only; by hour: the last 24 hours'; by weekhour: by weekday and hour; machine: only the sessions at that computer (an executor's app ID). */
   usage: (days: number, terminal?: string, by?: "hour" | "weekhour", machine?: string) => get<Usage>(`/v1/internal/usage?days=${days}${terminal ? `&app=${enc(terminal)}` : ""}${by ? `&by=${by}` : ""}${machine ? `&machine=${enc(machine)}` : ""}`),
+  /** GET /v1/internal/quota: each agent's account as last read, its quota windows or its balance. */
+  quota: () => get<Quota>("/v1/internal/quota"),
   confirms: () => get<Needs>("/v1/internal/needs"),
   /** extra: a secret-set's value, a secret-use's "this session". */
   answerConfirm: (id: string, allow: boolean, extra?: Omit<NeedAnswer, "allow">) => write<NeedReply>("POST", `/v1/internal/needs/${enc(id)}`, { allow, ...extra } satisfies NeedAnswer),
@@ -536,6 +527,14 @@ export const api = {
   secrets: () => get<Secrets>("/v1/internal/secrets"),
   putSecret: (name: string, s: SetSecret) => write<SecretInfo>("PUT", `/v1/internal/secrets/${enc(name)}`, s),
   deleteSecret: (name: string) => write<{ ok: boolean }>("DELETE", `/v1/internal/secrets/${enc(name)}`),
+
+  // --- GitHub (docs/api.md "GitHub"): a login's account; never its token back ---
+  github: () => get<GitHubList>("/v1/internal/github"),
+  bindGitHub: (token: string) => write<GitHubBinding>("PUT", "/v1/internal/github", { token } satisfies SetGitHub),
+  /** GitHub's device flow: a code to type at GitHub, then asked again till it is allowed. */
+  githubDevice: () => write<GitHubDevice>("POST", "/v1/internal/github/device"),
+  githubDeviceState: (id: string) => write<GitHubDeviceState>("POST", `/v1/internal/github/device/${enc(id)}`),
+  unbindGitHub: (member?: string) => write<{ ok: boolean }>("DELETE", member ? `/v1/internal/github/${enc(member)}` : "/v1/internal/github"),
 };
 
 /** Whether an error is the route not being there (an older daemon, a part turned off): the page

@@ -28,13 +28,8 @@ type Config struct {
 	IdleReap Duration `json:"idleReap"`
 	// StopGrace is how long a stop waits after closing the agent's stdin, before signals.
 	StopGrace Duration `json:"stopGrace"`
-	// CrashResume and QuotaResume run a turn again after the agent crashed or its quota came back.
-	CrashResume bool `json:"crashResume"`
-	QuotaResume bool `json:"quotaResume"`
 	// Modes are the approval mode a new session of each agent starts in; none: the agent's own.
 	Modes map[string]string `json:"modes,omitempty"`
-	// Push is Web Push's total switch, off by default.
-	Push bool `json:"push"`
 	// Pairing takes apps' requests to pair (a person still allows each); off by default.
 	Pairing bool `json:"pairing,omitempty"`
 	// QuotaHidden are the quota bars the page does not show, each "<agent>:<account>:<group>:<model>".
@@ -58,6 +53,13 @@ type Config struct {
 	Public Public `json:"public,omitzero"`
 	// Update is where new versions are looked for.
 	Update Update `json:"update,omitzero"`
+	// GitHub is the OAuth App people bind their GitHub accounts through.
+	GitHub GitHub `json:"github,omitzero"`
+}
+
+type GitHub struct {
+	// ClientID is the OAuth App's (its device flow on, no secret); "" is Iridium's own.
+	ClientID string `json:"clientId,omitempty"`
 }
 
 type Uploads struct {
@@ -78,20 +80,17 @@ type Update struct {
 	// URL is where new versions are looked for: a GitHub repository ("github:owner/repo") or a
 	// manifest's URL (package update); "" is Iridium's own releases, "off" looks nowhere.
 	URL string `json:"url,omitempty"`
-	// Every is how often to look; "" or "0" is once a day.
-	Every Duration `json:"every,omitzero"`
-	// Manual turns automatic updates off (the settings' 自动更新): no looking on a timer, nothing
-	// downloaded ahead; 检查更新 still looks, downloads and installs.
-	Manual bool `json:"manual,omitempty"`
 }
 
 // legacy are fields an older file may still have that are no longer read, as dotted paths:
-// update.manual (2026-11-08: release builds always download ahead, builds from source never);
+// update.manual and update.every (kumo, 2026-11-26: updates only when asked, nothing on a timer);
+// push (kumo, 2026-11-26: Web Push is gone);
 // pairClosed (0.2: pairing opens for a while, docs/next/decisions.md) and chatDir (0.2: the
 // plugins' chat layer is gone); enterInTurn (2026-11-19: words sent while a turn runs always
-// join it). One is dropped before decoding only once Config has no field by
-// its name, so it is listed ahead of its removal; any other unknown field is still an error.
-var legacy = []string{"pairClosed", "chatDir", "update.manual", "enterInTurn"}
+// join it); crashResume and quotaResume (2026-11-24: nothing is continued by itself). One is
+// dropped before decoding only once Config has no field by its name, so it is listed ahead of its
+// removal; any other unknown field is still an error.
+var legacy = []string{"pairClosed", "chatDir", "update.manual", "update.every", "push", "enterInTurn", "crashResume", "quotaResume"}
 
 // Source is where to look for new versions, "" for nowhere.
 func (u Update) Source(fallback string) string {
@@ -106,12 +105,10 @@ func (u Update) Source(fallback string) string {
 
 func Default() Config {
 	return Config{
-		Listen:      "127.0.0.1:7810",
-		IdleReap:    Duration(time.Hour),
-		StopGrace:   Duration(5 * time.Second),
-		CrashResume: true,
-		QuotaResume: true,
-		Programs:    map[string]string{"claude": "claude", "codex": "codex", "pi": "pi", "dsh": "dsh", "agy": "agy"},
+		Listen:    "127.0.0.1:7810",
+		IdleReap:  Duration(time.Hour),
+		StopGrace: Duration(5 * time.Second),
+		Programs:  map[string]string{"claude": "claude", "codex": "codex", "pi": "pi", "dsh": "dsh", "agy": "agy"},
 		// Every agent approves by itself unless a session picks a mode that asks (2026-11-05).
 		Modes:   map[string]string{"claude": "auto", "codex": "auto", "pi": "auto"},
 		Uploads: Uploads{Keep: Duration(30 * 24 * time.Hour), MaxFile: 2 << 30},

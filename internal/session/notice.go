@@ -2,7 +2,7 @@ package session
 
 import "github.com/kumoSleeping/iridium/internal/api"
 
-// NoticeKind is what happened in a session, for those that pass it on: Web Push, plugins.
+// NoticeKind is what happened in a session, for those that pass it on: plugins, bots.
 type NoticeKind string
 
 const (
@@ -24,6 +24,16 @@ const (
 	// NoticeModel: the model the session runs as became known or changed (its agent said it, or
 	// one was picked): what follows its model (its face) is looked at again.
 	NoticeModel NoticeKind = "model"
+	// NoticeWriting: the agent is writing a message, Text what came of it now (a piece; the
+	// whole follows as NoticeMessage). Many a second: who watches must take it lightly.
+	NoticeWriting NoticeKind = "writing"
+	// NoticeUserRecorded: a user message was actually recorded into the agent's transcript at
+	// byte range [Before, After). Unlike NoticeTaken (fired before Send), this marks the exact
+	// moment the agent accepted the input into its conversation (matching TranscriptView).
+	NoticeUserRecorded NoticeKind = "user_recorded"
+	// NoticeTasks: the agent's background tasks changed (one began, one ended; none are left once
+	// its process is gone): the session's state has them.
+	NoticeTasks NoticeKind = "tasks"
 )
 
 // Notice is one thing that happened in a session, live (never from a replay).
@@ -36,6 +46,9 @@ type Notice struct {
 	RequestID  string
 	Status     api.Status
 	Background bool
+	// Before, After on NoticeUserRecorded: byte offsets [Before, After) of the user block in the
+	// session's transcript, used to bound the settled prior work and start the next carrier's work.
+	Before, After int64
 	// Asked: a compaction you asked for (/compact), not the agent's own as its context ran full.
 	Asked bool
 	// Denied: at a turn's end, how many of its calls auto mode denied.

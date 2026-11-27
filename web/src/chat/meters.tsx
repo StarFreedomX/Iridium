@@ -6,7 +6,7 @@
 import { Menu } from "@base-ui/react/menu";
 import { Popover } from "@base-ui/react/popover";
 import { Check, ChevronDown, ChevronRight, Workflow } from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery } from "../api/query";
 import { Fragment, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from "react";
 import type { SessionState as LiveSession } from "../api/types.gen";
 import { api } from "../api/client";
@@ -14,14 +14,14 @@ import type { Agent, AgentQuota, Context, ContextCategory, InputTokens, Model, P
 import { parse, type El } from "../satori";
 import { useAgent } from "../data";
 import { t, useLang } from "../i18n";
-import { useContextState, useQuota } from "../store";
+import { useContextState } from "../store";
 import { errText, toast } from "../toast";
-import { agentName, ago, cn, PHONE, PopSurface, Tip, tokens as tok, useLongPress, useMedia, useMinute } from "../ui";
+import { agentName, ago, cn, PHONE, PopSurface, Tip, tokens as tok, useLongPress, useMedia, useMinute, MenuPortal } from "../ui";
 import { choicesQ } from "./choices";
 import { EffortSlider, levelName, noteLevelNames } from "./effort";
 import { hasMark, ModeMark, modeName } from "../modes";
 import { openUsage } from "../route";
-import { quotaKey, windowFor, windowName } from "../quota";
+import { quotaKey, useQuota, windowFor, windowName } from "../quota";
 
 const k = (n: number) => (n >= 100_000 ? `${Math.round(n / 1000)}k` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`);
 
@@ -206,11 +206,17 @@ function Meter({ parts, label }: { parts: Part[]; label: (n: number) => string }
   );
 }
 
+/** The formats, made once each: a toLocaleString with options makes one anew each call, and the
+ *  bars are drawn under every agent's head. */
+const formats = new Map<string, Intl.DateTimeFormat>();
 function resetIn(at: number | undefined, lang: string): string {
   if (!at) return "";
   const d = new Date(at);
   const today = new Date().toDateString() === d.toDateString();
-  return d.toLocaleString(lang === "zh" ? "zh-CN" : "en", today ? { hour: "2-digit", minute: "2-digit" } : { weekday: "short", hour: "2-digit", minute: "2-digit" });
+  const key = `${lang}${today}`;
+  let f = formats.get(key);
+  if (!f) formats.set(key, (f = new Intl.DateTimeFormat(lang === "zh" ? "zh-CN" : "en", today ? { hour: "2-digit", minute: "2-digit" } : { weekday: "short", hour: "2-digit", minute: "2-digit" })));
+  return f.format(d);
 }
 
 const STALE = 15 * 60_000;
@@ -244,14 +250,12 @@ export function QuotaBars({ agent, machine, live, using, open, onOpenChange, com
   useMinute(); // "read 5 min ago" and the fading, again each minute
   const quota = useQuota();
   // Held down (a finger), or the right button: the usage, at the bars (the user, 2026-11-08).
-  const key = useRef<HTMLButtonElement>(null);
-  const toUsage = (at?: { x: number; y: number }) => {
-    const b = key.current?.getBoundingClientRect();
+  const toUsage = () => {
     onOpenChange?.(false);
-    openUsage(at ?? (b && { x: b.left, y: b.top - 8 }), machine);
+    openUsage(machine);
   };
   const lp = useLongPress(() => toUsage());
-  const hold = { ...lp, onContextMenu: (e: MouseEvent) => (e.preventDefault(), toUsage({ x: e.clientX, y: e.clientY })) };
+  const hold = { ...lp, onContextMenu: (e: MouseEvent) => (e.preventDefault(), toUsage()) };
   const q: AgentQuota | undefined = quota?.agents.filter((a) => a.agent === agent && (a.machine ?? "") === (machine ?? "")).sort((a, b) => b.at - a.at)[0];
   const windows = (q?.windows ?? []).filter((w) => windowFor(w, using)); // all shown: no setting hides one (the user, 2026-11-06)
   // dsh has no windows but money: its balance where the bars would be (the user, 2026-11-08).
@@ -277,7 +281,7 @@ export function QuotaBars({ agent, machine, live, using, open, onOpenChange, com
       <Tip label={title}>
         <Popover.Trigger
           render={
-            <button ref={key} type="button" aria-label={label} {...hold} className={cn("g-press flex shrink-0 items-center rounded-md select-none hover:bg-fill data-popup-open:bg-fill [-webkit-touch-callout:none]", compact ? "-my-1 h-6 px-1 pointer-coarse:h-8" : "h-7 px-1.5 pointer-coarse:h-9")}>
+            <button type="button" aria-label={label} {...hold} className={cn("g-press flex shrink-0 items-center rounded-md select-none hover:bg-fill data-popup-open:bg-fill [-webkit-touch-callout:none]", compact ? "-my-1 h-6 px-1 pointer-coarse:h-8" : "h-7 px-1.5 pointer-coarse:h-9")}>
               {!windows.length ? (
                 <span className={cn("text-xs text-ink-3 tabular-nums transition-opacity", stale && "opacity-50")}>{balance.map((b) => money(b.currency, b.total)).join(" · ")}</span>
               ) : phone ? (
@@ -355,7 +359,7 @@ export function QuotaBars({ agent, machine, live, using, open, onOpenChange, com
             {t("quota.read", { ago: ago(q.at) })}
             {idle && ` · ${t("quota.idle")}`}
           </p>
-          <button type="button" onClick={(e) => toUsage({ x: e.clientX, y: e.clientY })} className="g-press -my-1 -mr-1.5 flex shrink-0 items-center gap-0.5 rounded-md px-1.5 py-1 text-xs text-ink-2 hover:bg-fill hover:text-ink">
+          <button type="button" onClick={() => toUsage()} className="g-press -my-1 -mr-1.5 flex shrink-0 items-center gap-0.5 rounded-md px-1.5 py-1 text-xs text-ink-2 hover:bg-fill hover:text-ink">
             {t("quota.stats")}
             <ChevronRight size={12} />
           </button>
@@ -431,12 +435,12 @@ export function ModeKey({ mode, open, onOpenChange }: { mode: ReturnType<typeof 
           }
         />
       </Tip>
-      <Menu.Portal>
+      <MenuPortal>
         <Menu.Positioner side="top" align="start" sideOffset={6} collisionPadding={8} className="z-50">
           <Menu.Popup finalFocus={false} className="g-unfold glass thick float min-w-52 rounded-lg p-1.5 text-ink outline-none">
             <Menu.RadioGroup value={mode.now} onValueChange={(v) => void mode.set(v as string)} className="g-stagger flex flex-col">
               {mode.modes.map((m, i) => (
-                <Menu.RadioItem key={m.id} value={m.id} closeOnClick style={{ "--i": i } as CSSProperties} className="flex h-8 cursor-default items-center gap-2.5 rounded-md pr-2 pl-2.5 text-base outline-none select-none data-highlighted:bg-fill pointer-coarse:h-11">
+                <Menu.RadioItem key={m.id} value={m.id} closeOnClick style={{ "--i": i } as CSSProperties} className="flex h-8 cursor-default items-center gap-2.5 rounded-md pr-2 pl-2.5 text-base outline-none select-none data-highlighted:bg-fill pointer-coarse:h-9">
                   <ModeMark agent={mode.agent} id={m.id} size={16} className="shrink-0 text-ink-3" />
                   <span className="flex-1">{modeName(m)}</span>
                   <Menu.RadioItemIndicator className="text-ink">
@@ -447,7 +451,7 @@ export function ModeKey({ mode, open, onOpenChange }: { mode: ReturnType<typeof 
             </Menu.RadioGroup>
           </Menu.Popup>
         </Menu.Positioner>
-      </Menu.Portal>
+      </MenuPortal>
     </Menu.Root>
   );
 }
@@ -464,7 +468,9 @@ const MODELS: Partial<Record<Agent, Model[]>> = {
 
 /** A list that scrolls inside a popup: its edges fade where there is more to see; opened, the
  *  checked item is brought into view. */
-function Scrolled({ className, children }: { className?: string; children: ReactNode }) {
+/** bar: its scrollbar seen, thin (the phone's layout: what may be scrolled said so, kumo
+ *  2026-11-25). */
+function Scrolled({ className, bar, children }: { className?: string; bar?: boolean; children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
   const [edge, setEdge] = useState({ top: false, bottom: false });
   const look = () => {
@@ -486,7 +492,7 @@ function Scrolled({ className, children }: { className?: string; children: React
   }, []);
   const mask = `linear-gradient(to bottom, ${edge.top ? "transparent" : "#000"}, #000 24px, #000 calc(100% - 24px), ${edge.bottom ? "transparent" : "#000"})`;
   return (
-    <div ref={ref} onScroll={look} className={cn("no-bar relative overflow-y-auto overscroll-contain", className)} style={{ maskImage: mask, WebkitMaskImage: mask }}>
+    <div ref={ref} onScroll={look} className={cn("relative overflow-y-auto overscroll-contain", bar ? "thin-bar" : "no-bar", className)} style={{ maskImage: mask, WebkitMaskImage: mask }}>
       {children}
     </div>
   );
@@ -733,13 +739,13 @@ export function ModelKey({ s, open, onOpenChange }: { s: LiveSession; open?: boo
           }
         />
       </Tip>
-      <Menu.Portal>
+      <MenuPortal>
         <Menu.Positioner side="top" align="start" sideOffset={6} collisionPadding={8} className="z-50">
           <Menu.Popup finalFocus={false} className={MODEL_POPUP}>
             <SessionModels m={m} />
           </Menu.Popup>
         </Menu.Positioner>
-      </Menu.Portal>
+      </MenuPortal>
     </Menu.Root>
   );
 }
@@ -749,11 +755,33 @@ export function ModelKey({ s, open, onOpenChange }: { s: LiveSession; open?: boo
  *  track's right (featKey) even with no levels. */
 export function ModelList({ models, value, pickModel, levels, level, setEffort, featKey, featTag, foot, name }: { models: Model[]; value: string; pickModel: (v: string) => void; levels: string[]; level: string; setEffort: (e: string) => Promise<boolean>; featKey?: ReactNode; featTag?: ReactNode; foot?: boolean; name?: string }) {
   const grouped = new Set(models.map((m) => m.group).filter(Boolean)).size > 1;
+  // The phone's layout (kumo, 2026-11-25): the models' list in the middle, as high as the panel
+  // (at most half the window) leaves it under its head and over the effort and 添加, scrolling itself, its bar seen; the effort under it as everywhere, a rule over it
+  // and no words (EffortSlider bare), as little room as it can.
+  const phone = useMedia(PHONE);
+  const effort = (
+    <>
+      {(levels.length > 1 || foot) && (
+        // The foot: tuned in place, never closing the menu; the model's own levels drawn anew.
+        // UltraCode a switch at the track's right, not a row of its own (the user, 2026-11-06).
+        <div className="mt-1 shrink-0 border-t border-(--edge) pt-0.5">
+          {levels.length > 1 ? (
+            <EffortSlider key={levels.join(" ")} levels={levels} value={level || undefined} set={setEffort} aside={featKey} tag={featTag} bare={phone} />
+          ) : (
+            <div className="flex h-10 items-center justify-between gap-3 px-2.5">
+              <span className="text-xs text-ink-3">{name}</span>
+              {featKey}
+            </div>
+          )}
+        </div>
+      )}
+    </>
+  );
   return (
     <>
       {/* The models scroll inside, the foot stays; as high as there is room above, short of the
           top by 40px, at most 640px (the user, 2026-11-06). */}
-      <Scrolled className="-mr-1 min-h-0 pr-1">
+      <Scrolled bar={phone} className={cn("-mr-1 min-h-0 pr-1", phone && "max-h-[calc(min(480px,50dvh)-9.5rem)] shrink-0 touch-pan-y")}>
         <Menu.RadioGroup value={value} onValueChange={(x) => pickModel(x as string)} className="g-stagger flex flex-col">
           {models.map((m, i) => (
             <Fragment key={m.value}>
@@ -774,20 +802,7 @@ export function ModelList({ models, value, pickModel, levels, level, setEffort, 
           ))}
         </Menu.RadioGroup>
       </Scrolled>
-      {(levels.length > 1 || foot) && (
-        // The foot: tuned in place, never closing the menu; the model's own levels drawn anew.
-        // UltraCode a switch at the track's right, not a row of its own (the user, 2026-11-06).
-        <div className="mt-1 shrink-0 border-t border-(--edge) pt-0.5">
-          {levels.length > 1 ? (
-            <EffortSlider key={levels.join(" ")} levels={levels} value={level || undefined} set={setEffort} aside={featKey} tag={featTag} />
-          ) : (
-            <div className="flex h-10 items-center justify-between gap-3 px-2.5">
-              <span className="text-xs text-ink-3">{name}</span>
-              {featKey}
-            </div>
-          )}
-        </div>
-      )}
+      {effort}
     </>
   );
 }

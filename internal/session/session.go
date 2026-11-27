@@ -27,6 +27,7 @@ import (
 	"github.com/kumoSleeping/iridium/internal/api"
 	"github.com/kumoSleeping/iridium/internal/config"
 	"github.com/kumoSleeping/iridium/internal/ctx/assemble"
+	"github.com/kumoSleeping/iridium/internal/ghenv"
 	"github.com/kumoSleeping/iridium/internal/harness"
 	"github.com/kumoSleeping/iridium/internal/hub"
 	"github.com/kumoSleeping/iridium/internal/platform"
@@ -69,12 +70,14 @@ type Options struct {
 	ClearPoll time.Duration
 	// Tag names an interactive terminal (by ID) in the source tag "[name] "; nil or "" is the ID.
 	Tag func(terminal string) string
+	// Owner is the person a session's turn is for (its ID, as usage is kept by), down the chain of
+	// agents to the first person; "" if none is known. A turn Iridium began (a channel's relay,
+	// a greeting, a recovery) has its usage counted to that person, not to the host (kumo,
+	// 2026-11-26). nil: none.
+	Owner func(session string) string
 	// QuotaEvery: how often running agents' quota windows are read, on their own, not with a turn
 	// (the user, 2026-11-06); 0 is a minute.
 	QuotaEvery time.Duration
-	// QuotaStagger: sessions going on after the quota came back wait up to this much more, so
-	// they do not all go at once; 0 is a minute, below 0 none.
-	QuotaStagger time.Duration
 }
 
 var (
@@ -90,12 +93,20 @@ type Manager struct {
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 
+	// ghOnce, ghExe, ghShim: GitHub in the agents' environment (githubEnv).
+	ghOnce        sync.Once
+	ghExe, ghShim string
+
 	mu     sync.Mutex
 	hosted map[string]*Hosted
 	quota  map[string]api.AgentQuota // by quotaKey
 
 	wmu      sync.Mutex
 	watchers []func(Notice)
+
+	listMu      sync.Mutex
+	listRunning bool
+	listAgain   bool
 
 	tune     atomic.Pointer[Tunables] // tune.go
 	annotate atomic.Pointer[Annotate] // carry.go
@@ -105,7 +116,7 @@ type Manager struct {
 	cleared  atomic.Pointer[func(old, next string)]
 	created  atomic.Pointer[func(ctx context.Context, id string, req api.NewSession) error]
 	selfOf   atomic.Pointer[func(id string) *assemble.Self]
-	bare     atomic.Pointer[func() []api.Session]
+	bare     atomic.Pointer[bareChannels]
 	chanLast atomic.Pointer[func(string, *api.LastSaid) (*api.LastSaid, bool)]
 	speaksIn atomic.Pointer[func(session, channel string) bool]
 }
@@ -138,9 +149,6 @@ func New(o Options) (*Manager, error) {
 	}
 	if o.QuotaEvery == 0 {
 		o.QuotaEvery = time.Minute
-	}
-	if o.QuotaStagger == 0 {
-		o.QuotaStagger = time.Minute
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	m := &Manager{o: o, ctx: ctx, cancel: cancel, hosted: map[string]*Hosted{}, quota: map[string]api.AgentQuota{}}
@@ -323,7 +331,7 @@ func (m *Manager) create(ctx context.Context, req api.NewSession, from, name str
 	if _, err := m.o.Store.Workspace(req.Workspace); req.Workspace != 0 && err != nil {
 		return "", err
 	}
-	mt := meta{ID: newUUID(), Agent: req.Agent, Cwd: cwd, Created: time.Now().UnixMilli(), Model: req.Model, Mode: req.Mode, Launcher: req.Caller, Machine: machine}
+	mt := meta{ID: newUUID(), Agent: req.Agent, Cwd: cwd, Created: time.Now().UnixMilli(), Model: req.Model, Mode: req.Mode, Launcher: req.Caller, Machine: machine, ForChannel: req.ForChannel || (req.Members != nil && len(req.Members.Agents) > 0)}
 	if h := m.byAgentID(req.Caller); req.Caller != "" && h != nil {
 		mt.Launcher = h.id // a hosted Codex session calls itself by its thread
 	}
@@ -449,6 +457,26 @@ func (m *Manager) source(from string) (terminal, tag, login, device string) {
 	return from, m.tagOf(from), "", ""
 }
 
+// StopTask stops one background task of the session's agent (api.Task.Stop); its turn and its
+// other tasks go on.
+func (m *Manager) StopTask(ctx context.Context, id, task string) error {
+	h, err := m.get(id)
+	if err != nil {
+		return err
+	}
+	h.mu.Lock()
+	live := h.live
+	h.mu.Unlock()
+	if !live {
+		return ErrNotLive
+	}
+	st, ok := h.drv.(agent.TaskStopper)
+	if !ok {
+		return fmt.Errorf("%w: its agent stops no task alone", ErrBadRequest)
+	}
+	return st.StopTask(ctx, task)
+}
+
 // Interrupt stops the running turn; the agent stays.
 func (m *Manager) Interrupt(ctx context.Context, id string) error {
 	h, err := m.get(id)
@@ -456,13 +484,8 @@ func (m *Manager) Interrupt(ctx context.Context, id string) error {
 		return err
 	}
 	h.mu.Lock()
-	live, quota := h.live, h.quotaUntil != 0
-	h.quotaStop = h.quotaStop || quota // no "继续" when the quota is back; what waits still goes
+	live := h.live
 	h.mu.Unlock()
-	if quota && (!live || h.drv.State() == agent.Idle) {
-		h.publish()
-		return nil
-	}
 	if !live {
 		return ErrNotLive
 	}
@@ -510,9 +533,6 @@ func (m *Manager) Stop(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	h.mu.Lock()
-	h.quotaStop = h.quotaStop || h.quotaUntil != 0
-	h.mu.Unlock()
 	h.pause()
 	return h.stop(ctx)
 }
@@ -609,8 +629,7 @@ func (m *Manager) State(id string) (*api.SessionState, error) {
 		return st, err
 	}
 	m.warmModels(h.meta.Agent, h.meta.Machine)
-	over, _ := m.o.Store.Overlays()
-	s := h.state(over[id], !h.shown())
+	s := h.state(m.o.Store.Overlay(id), !h.shown())
 	return &s, nil
 }
 
@@ -661,8 +680,6 @@ func (m *Manager) provide(key string) (any, bool) {
 	case key == "list":
 		l, err := m.List(m.ctx)
 		return l, err == nil
-	case key == "quota":
-		return m.quotaState(), true
 	case strings.HasPrefix(key, "session:"):
 		s, err := m.State(strings.TrimPrefix(key, "session:"))
 		if err != nil {
@@ -682,19 +699,41 @@ func (m *Manager) provide(key string) (any, bool) {
 // PublishList sends every stream the list again (a chat moved to another session).
 func (m *Manager) PublishList() { m.publishList() }
 
+// publishList rebuilds and publishes the session list, serialized so a slower earlier build
+// cannot overwrite a newer list in the hub, coalescing concurrent callers into one trailing run.
 func (m *Manager) publishList() {
-	// Closed: no list to make (a timer that fires after, its store gone).
 	if m.ctx.Err() != nil {
 		return
 	}
-	l, err := m.List(m.ctx)
-	if err != nil {
-		if m.ctx.Err() == nil {
-			m.o.Logf("session: list: %v", err)
-		}
+	m.listMu.Lock()
+	if m.listRunning {
+		m.listAgain = true
+		m.listMu.Unlock()
 		return
 	}
-	m.o.Hub.Set("list", l)
+	m.listRunning = true
+	m.listMu.Unlock()
+	for {
+		if m.ctx.Err() == nil {
+			l, err := m.List(m.ctx)
+			if err != nil {
+				if m.ctx.Err() == nil {
+					m.o.Logf("session: list: %v", err)
+				}
+			} else {
+				m.o.Hub.Set("list", l)
+			}
+		}
+		m.listMu.Lock()
+		if !m.listAgain || m.ctx.Err() != nil {
+			m.listAgain = false
+			m.listRunning = false
+			m.listMu.Unlock()
+			return
+		}
+		m.listAgain = false
+		m.listMu.Unlock()
+	}
 }
 
 // reap stops agents idle for longer than their session's idle reap, or the config's: no turn,
@@ -765,6 +804,25 @@ func (m *Manager) agentEnv() []string {
 		env = agent.SetEnv(env, "CLAUDE_CONFIG_DIR", m.o.Config.ClaudeHome)
 	}
 	return env
+}
+
+// githubEnv is env with GitHub as the turn's person (ghenv): git's helper, Iridium's gh. Only
+// from the iridium binary itself (a test's binary is no ir).
+func (m *Manager) githubEnv(env []string) []string {
+	m.ghOnce.Do(func() {
+		exe, err := os.Executable()
+		if err != nil {
+			return
+		}
+		if b := strings.ToLower(filepath.Base(exe)); !strings.HasPrefix(b, "iridium") {
+			return
+		}
+		m.ghExe = exe
+		if dir := filepath.Join(m.o.Config.StatePath(), "bin"); ghenv.Shim(dir, exe) {
+			m.ghShim = dir
+		}
+	})
+	return ghenv.Env(env, m.ghExe, m.ghShim)
 }
 
 func (m *Manager) newDriver(a api.Agent, emit func(agent.Event)) agent.Driver {

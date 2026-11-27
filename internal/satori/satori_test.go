@@ -209,6 +209,12 @@ func (f *fake) Sees(c Caller, id string) bool {
 	return !f.hidden[id]
 }
 
+func (f *fake) SeesListed(c Caller, ss api.Session) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return !f.hidden[ss.ID]
+}
+
 func (f *fake) Messages(id string, before, after int64) (api.MessagePage, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

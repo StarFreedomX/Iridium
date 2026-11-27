@@ -2,7 +2,7 @@
 // said fold into one line; the calls still running at the end show on their own. Pure, for tests.
 import type { Block } from "../api/types.gen";
 import { t } from "../i18n";
-import { cmdOfCall, cpOfCall, opensSession, renameOnly, type Cmd, type CpSide } from "./cmd";
+import { cmdOfCall, cpOfCall, isShell, opensSession, renameOnly, type Cmd, type CpSide } from "./cmd";
 
 export type Tool = Block & { kind: "tool" };
 export type Step = Block & { kind: "tool" | "thinking" };
@@ -10,17 +10,33 @@ export type Step = Block & { kind: "tool" | "thinking" };
  *  fold, and the calls still running. */
 export type Shown = (Block & { kind: "user" | "assistant" | "system" }) | { kind: "fold"; at: string; steps: Step[] } | { kind: "running"; at: string; tool: Tool };
 
-export function folded(blocks: Block[]): Shown[] {
+/** atWork: its turn goes on, so its last calls may still be running. False for a stretch that is
+ *  over (what an agent did before its words in a channel, a part of its turn given something more
+ *  after it): a call there with no result is one whose result never came (the agent stopped in the
+ *  middle of it, its limit out), and it is a step like any other, not a call running for hours. */
+/** An agent stopping its own turn (ir api POST internal/sessions/<its id>/interrupt; self in older
+ *  records) is stopped in that
+ *  call, which its record has as an error: not a failure when its result says it was stopped
+ *  (kumo, 2026-11-26). The server's rule (internal/transcript/selfstop.go) for a result paired here. */
+const SELF_STOP = /\bir\s+api\s+(?:POST\s+)?\/?(?:v1\/)?internal\/sessions\/[\w.-]+\/interrupt\b/;
+const STOPPED = ["stopped while running", "The user doesn't want to proceed with this tool use", "[Request interrupted by user"];
+export function selfStopped(b: Block): boolean {
+  return b.kind === "tool" && !!b.result?.error && SELF_STOP.test(b.input ?? "") && STOPPED.some((w) => b.result!.text.includes(w));
+}
+
+export function folded(blocks: Block[], atWork = true): Shown[] {
   // A result whose call was on another page goes with it by id.
   const results = new Map(blocks.flatMap((b) => (b.kind === "result" && b.id ? [[b.id, b] as const] : [])));
   const all = blocks.flatMap((b): Block[] => {
     // An agent naming its session (ir rename) is the list's, not the chat's.
     if (b.kind === "result" || (b.kind === "tool" && renameOnly(b))) return [];
     const r = b.kind === "tool" && !b.result && b.id ? results.get(b.id) : undefined;
-    return r ? [{ ...b, result: { at: r.at, time: r.time, text: r.text ?? "", length: r.length, error: r.error, images: r.images } }] : [b];
+    if (!r) return [b];
+    const p: Block = { ...b, result: { at: r.at, time: r.time, text: r.text ?? "", length: r.length, error: r.error, images: r.images } };
+    return [selfStopped(p) ? { ...p, result: { ...p.result!, error: false } } : p];
   });
   let end = all.length;
-  while (all[end - 1]?.kind === "tool" || all[end - 1]?.kind === "thinking") end--;
+  if (atWork) while (all[end - 1]?.kind === "tool" || all[end - 1]?.kind === "thinking") end--;
   const running = new Set(all.slice(end).filter((b): b is Tool => b.kind === "tool" && !b.result));
   const shown: Shown[] = [];
   // A step that starts another agent's session is a line of its own, never folded with the
@@ -168,6 +184,12 @@ export function diffOf(t: { name?: string; input?: string }): Diff | undefined {
   if (kindOf(t.name) !== "edit") return undefined;
   const name = (t.name ?? "").toLowerCase();
   const i = inputOf(t.input);
+  // Precomputed diff on brief blocks from /first or device cache (no full file/patch body).
+  const pre = i._diff as { added?: unknown; taken?: unknown } | undefined;
+  if (pre && typeof pre === "object" && (typeof pre.added === "number" || typeof pre.taken === "number")) {
+    const d = { added: Number(pre.added) || 0, taken: Number(pre.taken) || 0 };
+    return d.added || d.taken ? d : undefined;
+  }
   const pair = (e: unknown): Diff => {
     const o = (e && typeof e === "object" ? e : {}) as Record<string, unknown>;
     return lineDiff(o.old_string ?? o.oldText, o.new_string ?? o.newText);
@@ -190,6 +212,17 @@ export function diffOf(t: { name?: string; input?: string }): Diff | undefined {
 
 /** What a call is about, on one line: its file, command, pattern, address or what it is told; code:
  *  shown in monospace. diff: an edit's lines added and taken. */
+/** A call that sent work to the background and came back at once (Claude's run_in_background):
+ *  a subagent's, a shell command's (Monitor's always); none for another. */
+export function bgLaunch(t: { name?: string; input?: string }): "agent" | "shell" | undefined {
+  const name = (t.name ?? "").toLowerCase();
+  if (name === "monitor") return "shell";
+  if (inputOf(t.input).run_in_background !== true) return undefined;
+  if (name === "agent" || name === "task") return "agent";
+  if (isShell(name)) return "shell";
+  return undefined;
+}
+
 export function argOf(t: { name?: string; input?: string }, cwd?: string): { arg: string; code: boolean; diff?: Diff } {
   const i = inputOf(t.input);
   const str = (...ks: string[]) => ks.map((k) => i[k]).find((v): v is string => typeof v === "string" && v !== "");
@@ -277,4 +310,77 @@ export function foldSaid(runs: Run[]): string {
   const said = runs.map((r) => [r.name || t("msg.thinking"), r.n > 1 && `×${r.n}`, r.diff && diffText(r.diff)].filter(Boolean).join(" "));
   if (bad) said.push(t("msg.failedN", { n: bad }));
   return t("msg.toolsSaid", { list: said.join(t("msg.sep")) });
+}
+
+/** Total elapsed ms from the first timed step to the last timed result/step, if positive. */
+export function foldSpan(steps: Step[]): number | undefined {
+  const first = steps.find((s) => s.time)?.time;
+  const last = steps.findLast((s) => (s.kind === "tool" && s.result?.time) || s.time);
+  const end = last && ((last.kind === "tool" && last.result?.time) || last.time);
+  return first && end && end > first ? end - first : undefined;
+}
+
+/** Stable React key for a tool fold across draft → running → completed steps, so a live fold
+ *  stays one mounted instance as its first call finishes and later calls arrive. */
+export function foldKey(steps: Step[], running: Tool[] = [], calls: { tool?: { id: string } }[] = []): string | undefined {
+  const s0 = steps[0];
+  if (s0) return s0.kind === "tool" && s0.id ? `fold:${s0.id}` : s0.at;
+  const r0 = running[0];
+  if (r0) return r0.id ? `fold:${r0.id}` : r0.at;
+  const c0 = calls[0]?.tool?.id;
+  return c0 ? `fold:${c0}` : undefined;
+}
+
+export type DiffLine = { kind: "eq" | "del" | "add"; line: string };
+
+/** Unified line diff between oldText and newText: trims common prefix/suffix first, then runs
+ *  LCS DP for bounded middle slices (falling back to delete-then-add on very large diffs). */
+export function unifiedDiff(oldText: string, newText: string): DiffLine[] {
+  const a = oldText.split("\n");
+  const b = newText.split("\n");
+  let head = 0;
+  while (head < a.length && head < b.length && a[head] === b[head]) head++;
+  let tail = 0;
+  while (tail < a.length - head && tail < b.length - head && a[a.length - 1 - tail] === b[b.length - 1 - tail]) tail++;
+  const out: DiffLine[] = [];
+  for (let i = 0; i < head; i++) out.push({ kind: "eq", line: a[i]! });
+  const am = a.slice(head, a.length - tail);
+  const bm = b.slice(head, b.length - tail);
+  const m = am.length;
+  const n = bm.length;
+  if (m === 0) {
+    for (const line of bm) out.push({ kind: "add", line });
+  } else if (n === 0) {
+    for (const line of am) out.push({ kind: "del", line });
+  } else if (m * n > 40_000) {
+    for (const line of am) out.push({ kind: "del", line });
+    for (const line of bm) out.push({ kind: "add", line });
+  } else {
+    const w = n + 1;
+    const dp = new Int32Array((m + 1) * w);
+    for (let i = m - 1; i >= 0; i--) {
+      for (let j = n - 1; j >= 0; j--) {
+        dp[i * w + j] = am[i] === bm[j] ? dp[(i + 1) * w + (j + 1)]! + 1 : Math.max(dp[(i + 1) * w + j]!, dp[i * w + (j + 1)]!);
+      }
+    }
+    let i = 0;
+    let j = 0;
+    while (i < m && j < n) {
+      if (am[i] === bm[j]) {
+        out.push({ kind: "eq", line: am[i]! });
+        i++;
+        j++;
+      } else if (dp[(i + 1) * w + j]! >= dp[i * w + (j + 1)]!) {
+        out.push({ kind: "del", line: am[i]! });
+        i++;
+      } else {
+        out.push({ kind: "add", line: bm[j]! });
+        j++;
+      }
+    }
+    while (i < m) out.push({ kind: "del", line: am[i++]! });
+    while (j < n) out.push({ kind: "add", line: bm[j++]! });
+  }
+  for (let i = a.length - tail; i < a.length; i++) out.push({ kind: "eq", line: a[i]! });
+  return out;
 }

@@ -1,28 +1,54 @@
-// The conversation's glide (chat/stick.tsx): a spring that keeps its speed when pushed again.
+// The conversation's follow (chat/stick.tsx approach): eased to the end, never past it, and what
+// comes meanwhile never makes it stand or slow.
 import { describe, expect, test } from "vitest";
-import { springAt } from "../src/chat/stick";
+import { approach, far, overFoot } from "../src/chat/stick";
 
-describe("the glide's spring", () => {
-  const w = 0.025;
-  test("comes to rest once, without going past its place", () => {
-    const s = { y: 80, v: 0, t: 0 };
-    let last = 80;
-    for (let t = 0; t <= 400; t += 8) {
-      const { y } = springAt(s, t, w);
-      expect(y).toBeLessThanOrEqual(last + 1e-9);
-      expect(y).toBeGreaterThanOrEqual(0);
-      last = y;
+describe("the follow", () => {
+  const tau = 220;
+  test("comes to rest once, without going past its place, moving from the first frame", () => {
+    let y = 80;
+    expect(80 - approach(80, 16, tau)).toBeGreaterThan(4);
+    for (let t = 0; t < 2000; t += 16) {
+      const n = approach(y, 16, tau);
+      expect(n).toBeLessThanOrEqual(y);
+      expect(n).toBeGreaterThanOrEqual(0);
+      y = n;
     }
-    expect(springAt(s, 9 / w, w).y).toBeLessThan(0.2);
+    expect(y).toBeLessThan(0.5);
   });
-  test("pushed again as it moves, it goes on at the speed it had: no standstill", () => {
-    const a = { y: 80, v: 0, t: 0 };
-    const at = springAt(a, 60, w);
-    expect(at.v).toBeLessThan(0); // on its way up
-    const b = { y: at.y + 40, v: at.v, t: 60 };
-    // A frame later it has moved by about what it moved the frame before.
-    const before = springAt(a, 44, w).y - at.y;
-    const after = b.y - springAt(b, 76, w).y;
-    expect(after).toBeGreaterThan(before * 0.9);
+  test("pushed again as it moves, it goes on faster, not from a standstill", () => {
+    let y = 80;
+    for (let t = 0; t < 60; t += 16) y = approach(y, 16, tau);
+    const before = y - approach(y, 16, tau);
+    const after = y + 40 - approach(y + 40, 16, tau);
+    expect(after).toBeGreaterThan(before);
+  });
+  test("over frames of any length it ends at the same place", () => {
+    expect(approach(approach(100, 10, tau), 22, tau)).toBeCloseTo(approach(100, 32, tau), 9);
+  });
+});
+
+describe("what changes over the last row", () => {
+  const last = {} as Element;
+  test("moves the scroll at once by as much: the last row stays where it is", () => {
+    expect(overFoot({ el: last, at: 400 }, 423)).toBe(23);
+    expect(overFoot({ el: last, at: 400 }, 380)).toBe(-20);
+  });
+  test("one gone, or none moved, is left to the follow", () => {
+    expect(overFoot({ el: last, at: 400 }, null)).toBe(0);
+    expect(overFoot({ el: last, at: 400 }, 400.3)).toBe(0);
+    expect(overFoot(null, 400)).toBe(0);
+  });
+});
+
+// More than a pane left to the end is no line written: put there at once, not eased through.
+describe("far from the end", () => {
+  test("is more than the pane's height left", () => {
+    expect(far(601, 600)).toBe(true);
+    expect(far(600, 600)).toBe(false);
+    expect(far(40, 600)).toBe(false);
+  });
+  test("is nothing for a pane not laid out", () => {
+    expect(far(5000, 0)).toBe(false);
   });
 });

@@ -4,7 +4,9 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -78,5 +80,55 @@ func agyRecord(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 	if b := r.messages(id); len(b) != 6 || b[4].Text != "three" {
 		t.Errorf("blocks after the restart: %+v", b)
+	}
+}
+
+// Live 2026-11-26: a message sent while agy writes a code block has the running prompt answered
+// at once, the block still being written. The record keeps the message whole (not cut inside a
+// word and its fence) and has the new one after it, where the model's next step begins; the
+// user's block is told recorded (NoticeUserRecorded) only then, so a channel splits there.
+func TestAgyJoinedMidMessage(t *testing.T) {
+	t.Setenv(testagent.AgyNoEcho, "1")
+	r := newRig(t, nil)
+	var mu sync.Mutex
+	var notes []Notice
+	r.m.Watch(func(n Notice) {
+		mu.Lock()
+		notes = append(notes, n)
+		mu.Unlock()
+	})
+	id, err := r.m.Create(context.Background(), api.NewSession{Agent: api.AgentAgy, Cwd: r.cwd, Text: testagent.AgySteer + " write it"}, "网页")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.waitState(id, "the turn", func(s *api.SessionState) bool { return s.Status == api.StatusRunning })
+	time.Sleep(200 * time.Millisecond) // the block's start written
+	if _, _, err := r.m.SendWith(context.Background(), id, "@Neon also check", "网页", true); err != nil {
+		t.Fatal(err)
+	}
+	r.waitState(id, "the reply", func(s *api.SessionState) bool {
+		return s.Status == api.StatusIdle && s.Last != nil && s.Last.Text == "ok"
+	})
+	var got []string
+	for _, b := range r.messages(id) {
+		if b.Kind == api.BlockKindUser || b.Kind == api.BlockKindAssistant {
+			got = append(got, string(b.Kind)+":"+b.Text)
+		}
+	}
+	want := []string{"user:" + testagent.AgySteer + " write it", "assistant:Here:\n```go\nfunc main() {}\n```", "user:@Neon also check", "assistant:ok"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("blocks %q, want %q", got, want)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	var seq []string
+	for _, n := range notes {
+		if n.Session == id && (n.Kind == NoticeUserRecorded || n.Kind == NoticeMessage) {
+			seq = append(seq, string(n.Kind)+":"+n.Text)
+		}
+	}
+	// The second user block is told recorded after the whole message, never between its halves.
+	if len(seq) < 3 || seq[len(seq)-3] != string(NoticeMessage)+":Here:\n```go\nfunc main() {}\n```" || !strings.HasPrefix(seq[len(seq)-2], string(NoticeUserRecorded)+":") {
+		t.Fatalf("notices %q", seq)
 	}
 }

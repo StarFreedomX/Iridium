@@ -10,12 +10,17 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/kumoSleeping/iridium/internal/hold"
 )
+
+// titleLine is the session's or a channel's title put after a message now and then
+// (assemble.TitleNow): not its words.
+var titleLine = regexp.MustCompile(`\n\n(?:Session|Channel \S+) title: `)
 
 // TinyPNG is a 2×1 black PNG (base64), the picture a PICTURE turn's Read gives; TinyHandle names
 // it in an agent's own store.
@@ -61,14 +66,17 @@ func Main() (code int, ok bool) {
 //     joins it (ten seconds at most), however slow the machine. One that comes meanwhile ending in
 //     LATER waits in the agent instead, as Claude's queue does while a call runs: once the turn
 //     ends (an interrupt too), it runs as the next turn, LATER taken off.
-//   - crash begins the turn, then exits 3. Resumed with CLAUDE_CODE_RESUME_INTERRUPTED_TURN=1, it
-//     runs that turn again by itself, saying "ok: continued". crash! exits the same way but is
-//     never run again by itself; crashloop crashes again each time it is run again.
+//   - crash begins the turn, then exits 3.
 //   - STREAM writes a turn as a real one comes: words, two calls and a long answer, piece by piece.
 //     FASTSTREAM writes the same pieces without the pauses between the letters (for tests); a
 //     call still takes its time.
-//   - QUOTA is refused for the quota, which comes back in half a second to one and a half;
-//     QUOTA LONG for one that comes back in an hour (what is sent meanwhile stays in the queue).
+//   - QUOTA is refused for the quota, which comes back in an hour.
+//   - BACKGROUND sends a subagent and a shell command to the background and ends the turn: the
+//     subagent goes on till stop_task stops it, the command ends after bgBash.
+//   - BGREPORT sends a shell command to the background and ends the turn; the command ends after
+//     bgReport, and the agent begins a turn of its own (no message) that says "report: <task>",
+//     as Claude does when a task of its ends. BGSTAY: the same, the command going on till
+//     stop_task stops it. BGQUIET: as BGSTAY, and no turn follows its end.
 //
 // /compact compacts for three seconds (a compacting status, then the boundary with its figures).
 // /clear (as the whole message, its source prefix aside) clears it as Claude's own does: a
@@ -76,6 +84,23 @@ func Main() (code int, ok bool) {
 // command its first lines.
 // compactFor is how long a /compact takes.
 var compactFor = 3 * time.Second
+
+// bgBash is how long BACKGROUND's shell command runs: IRIDIUM_FAKE_BG_BASH (a duration), else 8s.
+var bgBash = func() time.Duration {
+	if d, err := time.ParseDuration(os.Getenv("IRIDIUM_FAKE_BG_BASH")); err == nil {
+		return d
+	}
+	return 8 * time.Second
+}()
+
+// bgReport is how long BGREPORT's shell command runs: IRIDIUM_FAKE_BG_REPORT (a duration), else
+// half a second.
+var bgReport = func() time.Duration {
+	if d, err := time.ParseDuration(os.Getenv("IRIDIUM_FAKE_BG_REPORT")); err == nil {
+		return d
+	}
+	return 500 * time.Millisecond
+}()
 
 func Claude() int {
 	session := ""
@@ -105,7 +130,6 @@ func Claude() int {
 	dir := filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "projects", strings.ReplaceAll(cwd, "/", "-"))
 	os.MkdirAll(dir, 0o700)
 	recordPath := filepath.Join(dir, session+".jsonl")
-	lastUser := lastUserText(recordPath)
 	record, _ := os.OpenFile(recordPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	out := bufio.NewWriter(os.Stdout)
 	say := func(v any) {
@@ -134,6 +158,10 @@ func Claude() int {
 		return f["message"].(map[string]any)["content"].([]any)[0].(map[string]any)["text"].(string)
 	}
 	unprefixed := func(text string) string {
+		// The session's title put after a message now and then (assemble.TitleNow): not its words.
+		if i := titleLine.FindStringIndex(text); i != nil {
+			text = text[:i[0]]
+		}
 		if _, rest, ok := strings.Cut(text, "] "); ok && strings.HasPrefix(text, "[") {
 			return rest
 		}
@@ -198,16 +226,6 @@ func Claude() int {
 		say(req)
 	}
 
-	// Run the interrupted turn again by itself, before initialize's answer, as Claude does.
-	if os.Getenv("CLAUDE_CODE_RESUME_INTERRUPTED_TURN") == "1" && (strings.HasSuffix(lastUser, "crash") || strings.HasSuffix(lastUser, "crashloop")) {
-		begin(nil)
-		if strings.HasSuffix(lastUser, "crashloop") {
-			return 3
-		}
-		assistant("ok: continued")
-		end(nil, "success")
-	}
-
 	lines := make(chan []byte)
 	go func() {
 		in := bufio.NewReader(os.Stdin)
@@ -222,13 +240,48 @@ func Claude() int {
 	}()
 	var pending map[string]any // the message waiting on an ask
 	asked := 0
-	var waiting map[string]any // a WAIT turn
-	holding := false           // a HOLD turn: it ends once a message joins it
+	var waiting map[string]any        // a WAIT turn
+	holding := false                  // a HOLD turn: it ends once a message joins it
+	steerFor := 50 * time.Millisecond // how long a held turn goes on once a message joined it
 	var steered []map[string]any
 	var later []map[string]any // LATER messages waiting for the turn's end
 	var timer <-chan time.Time
 	var compacting map[string]any // a /compact running
 	var compacted <-chan time.Time
+	// BACKGROUND's tasks: a subagent that goes on till stopped (its progress each second), and a
+	// shell command that ends after bgBash.
+	var bg []map[string]any
+	var bgTick <-chan time.Time
+	bgRuns := 0
+	bgSince := map[string]time.Time{}  // a subagent's id: when it began
+	bgShells := map[string]time.Time{} // a shell command's id: when it ends
+	bgReports := map[string]bool{}     // a task's id: its end begins a turn that reports it
+	var bgDue <-chan time.Time         // BGREPORT's command ends
+	bgDueID := ""
+	tellBg := func() {
+		say(map[string]any{"type": "system", "subtype": "background_tasks_changed", "tasks": bg, "uuid": "bg", "session_id": session})
+	}
+	dropBg := func(id, status string) bool {
+		for i, x := range bg {
+			if x["task_id"] == id {
+				bg = append(bg[:i], bg[i+1:]...)
+				say(map[string]any{"type": "system", "subtype": "task_notification", "task_id": id, "status": status, "summary": "done"})
+				tellBg()
+				return true
+			}
+		}
+		return false
+	}
+	// report: the turn the agent begins by itself as task id ends, saying so.
+	report := func(id string) {
+		if !bgReports[id] {
+			return
+		}
+		delete(bgReports, id)
+		begin(nil)
+		assistant("report: " + id)
+		end(nil, "success")
+	}
 	for {
 		var line []byte
 		if len(later) > 0 && waiting == nil && pending == nil && compacting == nil {
@@ -249,6 +302,27 @@ func Claude() int {
 			timer = nil
 			finish(waiting, steered)
 			waiting, steered, holding = nil, nil, false
+			continue
+		case <-bgDue:
+			bgDue = nil
+			if dropBg(bgDueID, "completed") {
+				report(bgDueID)
+			}
+			continue
+		case now := <-bgTick:
+			for _, x := range bg {
+				if x["task_type"] == "local_agent" {
+					ms := now.Sub(bgSince[x["task_id"].(string)]).Milliseconds()
+					n := int(ms/1000) + 1
+					say(map[string]any{"type": "system", "subtype": "task_progress", "task_id": x["task_id"], "description": fmt.Sprintf("Reading file %d", n), "usage": map[string]any{"total_tokens": 100 * n, "tool_uses": n, "duration_ms": ms}})
+				}
+			}
+			for id, at := range bgShells {
+				if now.After(at) {
+					delete(bgShells, id)
+					dropBg(id, "completed")
+				}
+			}
 			continue
 		case <-compacted:
 			compacted = nil
@@ -299,6 +373,15 @@ func Claude() int {
 				answer(id, map[string]any{})
 			case "set_permission_mode":
 				answer(id, map[string]any{})
+			case "stop_task":
+				tid, _ := req["task_id"].(string)
+				if !dropBg(tid, "killed") {
+					say(map[string]any{"type": "control_response", "response": map[string]any{"subtype": "error", "request_id": id, "error": "no task " + tid}})
+					break
+				}
+				delete(bgShells, tid)
+				answer(id, map[string]any{})
+				report(tid)
 			case "interrupt":
 				answer(id, map[string]any{"still_queued": []any{}})
 				if waiting != nil {
@@ -357,7 +440,7 @@ func Claude() int {
 				note(map[string]any{"type": "user", "uuid": f["uuid"], "timestamp": stamp(), "message": map[string]any{"role": "user", "content": text}})
 				steered = append(steered, f)
 				if holding {
-					holding, timer = false, time.After(50*time.Millisecond)
+					holding, timer = false, time.After(steerFor)
 				}
 				continue
 			}
@@ -387,12 +470,16 @@ func Claude() int {
 				continue
 			}
 			begin(f)
+			// A session's title put after a message now and then (assemble.TitleNow): not its words.
+			if i := titleLine.FindStringIndex(text); i != nil {
+				text = text[:i[0]]
+			}
 			// A channel's message: its words are before its context.
 			if i := strings.Index(text, "\n\n<channel-context>"); i >= 0 {
 				text = text[:i]
 			}
 			switch {
-			case strings.HasSuffix(text, "crash"), strings.HasSuffix(text, "crash!"), strings.HasSuffix(text, "crashloop"):
+			case strings.HasSuffix(text, "crash"):
 				record.Close()
 				return 3
 			case strings.HasSuffix(text, "QUESTION"):
@@ -407,8 +494,23 @@ func Claude() int {
 				waiting = f
 				timer = time.After(500 * time.Millisecond)
 				continue
+			case strings.HasSuffix(text, "WORKHOLD"):
+				// Two calls run, then held as HOLD is: a message sent meanwhile is taken into a turn
+				// that has done something already.
+				for i, cmd := range []string{"ls", "pwd"} {
+					id := fmt.Sprintf("toolu_wh%d_%d", i, time.Now().UnixNano())
+					call := map[string]any{"type": "tool_use", "id": id, "name": "Bash", "input": map[string]any{"command": cmd, "description": "look"}}
+					done := map[string]any{"type": "tool_result", "tool_use_id": id, "content": "a.txt"}
+					for _, m := range []map[string]any{{"role": "assistant", "content": []any{call}}, {"role": "user", "content": []any{done}}} {
+						say(map[string]any{"type": m["role"], "parent_tool_use_id": nil, "message": m})
+						note(map[string]any{"type": m["role"], "timestamp": stamp(), "message": m})
+					}
+				}
+				waiting, holding, steerFor = f, true, 3*time.Second
+				timer = time.After(20 * time.Second)
+				continue
 			case strings.HasSuffix(text, "HOLD"):
-				waiting, holding = f, true
+				waiting, holding, steerFor = f, true, 50*time.Millisecond
 				timer = time.After(10 * time.Second)
 				continue
 			case strings.HasSuffix(text, "DENIED"):
@@ -477,6 +579,64 @@ func Claude() int {
 				words(long.String())
 				end(f, "success")
 				continue
+			case strings.HasSuffix(text, "BACKGROUND"):
+				// A subagent and a shell command sent to the background, the turn over at once: the
+				// subagent (its record under subagents/, as Claude's) goes on till stopped, the
+				// command ends after bgBash.
+				bgRuns++
+				aid, sid := fmt.Sprintf("a%sbg%d%d", session[:6], bgRuns, time.Now().UnixMilli()%100000), fmt.Sprintf("bbg%d", bgRuns)
+				acall, scall := "toolu_bg_agent_"+session[:8]+aid, "toolu_bg_shell_"+session[:8]+sid
+				agentCall := map[string]any{"type": "tool_use", "id": acall, "name": "Agent", "input": map[string]any{"description": "Scan the dependencies", "prompt": "List what is out of date.", "subagent_type": "general-purpose", "run_in_background": true}}
+				agentDone := map[string]any{"type": "tool_result", "tool_use_id": acall, "content": "Async agent launched successfully.\nagentId: " + aid + " (internal ID - do not mention to user.)"}
+				shellCall := map[string]any{"type": "tool_use", "id": scall, "name": "Bash", "input": map[string]any{"command": "npm run build", "description": "Build the web", "run_in_background": true}}
+				shellDone := map[string]any{"type": "tool_result", "tool_use_id": scall, "content": "Command running in background with ID: " + sid + "."}
+				subs := filepath.Join(dir, session, "subagents")
+				os.MkdirAll(subs, 0o700)
+				os.WriteFile(filepath.Join(subs, "agent-"+aid+".meta.json"), []byte(`{"description":"Scan the dependencies","toolUseId":"`+acall+`"}`), 0o600)
+				sub, _ := json.Marshal(map[string]any{"parentUuid": nil, "isSidechain": true, "type": "user", "message": map[string]any{"role": "user", "content": "List what is out of date."}, "cwd": cwd, "sessionId": session, "agentId": aid, "timestamp": stamp()})
+				os.WriteFile(filepath.Join(subs, "agent-"+aid+".jsonl"), append(sub, '\n'), 0o600)
+				for _, m := range []map[string]any{{"role": "assistant", "content": []any{agentCall}}, {"role": "user", "content": []any{agentDone}}} {
+					say(map[string]any{"type": m["role"], "parent_tool_use_id": nil, "message": m})
+					note(map[string]any{"type": m["role"], "timestamp": stamp(), "message": m})
+				}
+				bg = append(bg, map[string]any{"task_id": aid, "task_type": "local_agent", "subagent_type": "general-purpose", "description": "Scan the dependencies"})
+				tellBg()
+				say(map[string]any{"type": "system", "subtype": "task_started", "task_id": aid, "tool_use_id": acall, "description": "Scan the dependencies", "is_backgrounded": true, "task_type": "local_agent"})
+				for _, m := range []map[string]any{{"role": "assistant", "content": []any{shellCall}}, {"role": "user", "content": []any{shellDone}}} {
+					say(map[string]any{"type": m["role"], "parent_tool_use_id": nil, "message": m})
+					note(map[string]any{"type": m["role"], "timestamp": stamp(), "message": m})
+				}
+				bg = append(bg, map[string]any{"task_id": sid, "task_type": "local_bash", "description": "Build the web"})
+				tellBg()
+				say(map[string]any{"type": "system", "subtype": "task_started", "task_id": sid, "tool_use_id": scall, "description": "Build the web", "is_backgrounded": true, "task_type": "local_bash"})
+				bgShells[sid] = time.Now().Add(bgBash)
+				bgSince[aid] = time.Now()
+				if bgTick == nil {
+					bgTick = time.NewTicker(time.Second).C
+				}
+				finish(f, nil)
+				continue
+			case strings.HasSuffix(text, "BGREPORT"), strings.HasSuffix(text, "BGSTAY"), strings.HasSuffix(text, "BGQUIET"):
+				// A shell command sent to the background, the turn over at once with its words; the
+				// command's end begins a turn of the agent's own that reports it (not BGQUIET's).
+				bgRuns++
+				sid := fmt.Sprintf("brep%d", bgRuns)
+				scall := "toolu_bg_report_" + session[:8] + sid
+				shellCall := map[string]any{"type": "tool_use", "id": scall, "name": "Bash", "input": map[string]any{"command": "make", "description": "Build", "run_in_background": true}}
+				shellDone := map[string]any{"type": "tool_result", "tool_use_id": scall, "content": "Command running in background with ID: " + sid + "."}
+				for _, m := range []map[string]any{{"role": "assistant", "content": []any{shellCall}}, {"role": "user", "content": []any{shellDone}}} {
+					say(map[string]any{"type": m["role"], "parent_tool_use_id": nil, "message": m})
+					note(map[string]any{"type": m["role"], "timestamp": stamp(), "message": m})
+				}
+				bg = append(bg, map[string]any{"task_id": sid, "task_type": "local_bash", "description": "Build"})
+				tellBg()
+				say(map[string]any{"type": "system", "subtype": "task_started", "task_id": sid, "tool_use_id": scall, "description": "Build", "is_backgrounded": true, "task_type": "local_bash"})
+				bgReports[sid] = !strings.HasSuffix(text, "BGQUIET")
+				if strings.HasSuffix(text, "BGREPORT") {
+					bgDue, bgDueID = time.After(bgReport), sid
+				}
+				finish(f, nil)
+				continue
 			case strings.HasSuffix(text, "PICTURE"):
 				// A Read of a picture: its result carries the picture (TinyPNG), then one more by a
 				// handle of an agent's own store, as dsh's are.
@@ -496,11 +656,8 @@ func Claude() int {
 				pending, asked = f, 1
 				ask("again", "npx -y some-tool")
 				continue
-			case strings.HasSuffix(text, "QUOTA"), strings.HasSuffix(text, "QUOTA LONG"):
-				back := time.Now().Add(1500 * time.Millisecond).Unix() // whole seconds: back in 0.5 to 1.5
-				if strings.HasSuffix(text, "QUOTA LONG") {
-					back = time.Now().Add(time.Hour).Unix()
-				}
+			case strings.HasSuffix(text, "QUOTA"):
+				back := time.Now().Add(time.Hour).Unix()
 				say(map[string]any{"type": "rate_limit_event", "rate_limit_info": map[string]any{"status": "rejected", "resetsAt": back, "rateLimitType": "five_hour"}})
 				assistant("You've hit your limit")
 				end(f, "error_during_execution")
@@ -528,27 +685,4 @@ func modeOf(args []string) string {
 		}
 	}
 	return "default"
-}
-
-// lastUserText is the text of the last user line in a transcript.
-func lastUserText(path string) string {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return ""
-	}
-	last := ""
-	for _, l := range strings.Split(string(b), "\n") {
-		var f struct {
-			Type    string `json:"type"`
-			Message struct {
-				Content any `json:"content"`
-			} `json:"message"`
-		}
-		if json.Unmarshal([]byte(l), &f) == nil && f.Type == "user" {
-			if s, ok := f.Message.Content.(string); ok {
-				last = s
-			}
-		}
-	}
-	return last
 }

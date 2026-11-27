@@ -1,0 +1,16 @@
+import { chromium, webkit } from "playwright-core";
+import fs from "node:fs";
+const [engine = "chromium"] = process.argv.slice(2);
+const url = `http://127.0.0.1:${fs.readFileSync("/tmp/irperf/run/port", "utf8").trim()}/`;
+const b = await (engine === "webkit" ? webkit : chromium).launch(engine === "chromium" ? { executablePath: "/home/iridium/.cache/ms-playwright/chromium-1254/chrome-linux64/chrome", args: ["--no-sandbox"] } : {});
+const p = await b.newPage({ viewport: { width: 1100, height: 900 }, serviceWorkers: "block" });
+p.on("pageerror", (e) => console.log("ERR", e.message.slice(0, 200)));
+await p.goto(url + "?lang=en"); await p.waitForTimeout(2500);
+const row = p.locator('[data-flip^="s:"]').nth(2);
+await row.click({ button: "right" }); await p.waitForTimeout(500);
+console.log(engine, "session menu items:", await p.locator("[role=menuitem]").count());
+await p.keyboard.press("Escape"); await p.waitForTimeout(400);
+console.log(engine, "after Esc:", await p.locator("[role=menuitem]").count());
+await row.click({ button: "right" }); await p.waitForTimeout(500);
+console.log(engine, "again:", await p.locator("[role=menuitem]").count());
+await b.close();

@@ -24,7 +24,6 @@ import (
 	"github.com/kumoSleeping/iridium/internal/access"
 	"github.com/kumoSleeping/iridium/internal/api"
 	"github.com/kumoSleeping/iridium/internal/channel"
-	"github.com/kumoSleeping/iridium/internal/ctx/assemble"
 	"github.com/kumoSleeping/iridium/internal/deliver"
 	"github.com/kumoSleeping/iridium/internal/gate"
 	"github.com/kumoSleeping/iridium/internal/session"
@@ -32,9 +31,10 @@ import (
 )
 
 // Profiles (docs/channels.md "资料"): a card for every member and every channel: what it is
-// called by, a few words on who it is, a face and a background. An agent's and a channel's are
-// kept under "c:<id>" (a session's channel has its id), a person's and an app's under
-// "u:<its id>". A face or a background is an image, or an emoji or a colour drawn as one.
+// called by, a few words on who it is, a face. An agent's and a channel's are kept under
+// "c:<id>" (a session's channel has its id), a person's and an app's under "u:<its id>". A face
+// is an image, or an emoji or a colour drawn as one. No background: a card's banner is drawn
+// from its face (kumo, 2026-11-25).
 
 func (s *Server) profileRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/internal/self", s.selfGet)
@@ -43,8 +43,6 @@ func (s *Server) profileRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PATCH /v1/internal/members/{who}", s.memberCardPatch)
 	mux.HandleFunc("GET /v1/internal/channels/{id}/profile", s.channelProfileGet)
 	mux.HandleFunc("PATCH /v1/internal/channels/{id}", s.channelProfilePatch)
-	mux.HandleFunc("GET /v1/internal/channels/{id}/background", s.backgroundGet)
-	mux.HandleFunc("GET /v1/internal/people/{id}/background", s.personBackgroundGet)
 	mux.HandleFunc("POST /v1/internal/recall", s.recall)
 	mux.HandleFunc("POST /v1/internal/remember", s.remember)
 	mux.HandleFunc("GET /v1/internal/memory", s.memoryGet)
@@ -52,10 +50,7 @@ func (s *Server) profileRoutes(mux *http.ServeMux) {
 	s.roleRoutes(mux)
 }
 
-// here is the channel "here" names for c: the one its agent is working for (called there),
-// else its own.
-const here = "here"
-
+// hereOf is the channel c's agent is working for (called there), else its own session.
 func (s *Server) hereOf(c caller) string {
 	if c.session == "" {
 		return ""
@@ -112,10 +107,10 @@ func glyphImage(key, g string, w, h int) []byte {
 		w, h, w, h, ground(key), w/2, h/2, min(w, h)*6/10, html.EscapeString(g)))
 }
 
-// face is the image under key, or the glyph of the profile there drawn as one: the face
-// (bg false: 128², else the model's given by fallback) or the background.
-func (s *Server) face(key string, bg bool, fallback string) (img []byte, version string, ok bool) {
-	return faceIn(liveFaces{s.st}, key, bg, fallback)
+// face is the image under key, or the glyph of the profile there drawn as one (128²), else the
+// one under fallback (a model's).
+func (s *Server) face(key, fallback string) (img []byte, version string, ok bool) {
+	return faceIn(liveFaces{s.st}, key, fallback)
 }
 
 // faceSrc is where faces are looked up: the store, one at a time (liveFaces), or what it had at
@@ -135,16 +130,11 @@ func (l liveFaces) avatar(key string) ([]byte, string, bool) {
 }
 
 // faceIn is face, looked up in src.
-func faceIn(src faceSrc, key string, bg bool, fallback string) (img []byte, version string, ok bool) {
-	p := src.profile(key)
-	g, w, h, at := p.Avatar, gate.AvatarSize, gate.AvatarSize, key
-	if bg {
-		g, w, h, at = p.Background, gate.BannerWidth, gate.BannerHeight, store.BackgroundKey(key)
+func faceIn(src faceSrc, key string, fallback string) (img []byte, version string, ok bool) {
+	if g := src.profile(key).Avatar; g != "" {
+		return glyphImage(key, g, gate.AvatarSize, gate.AvatarSize), "g" + shortHash(g), true
 	}
-	if g != "" {
-		return glyphImage(key, g, w, h), "g" + shortHash(g), true
-	}
-	if img, v, ok := src.avatar(at); ok {
+	if img, v, ok := src.avatar(key); ok {
 		return img, v, true
 	}
 	if fallback != "" {
@@ -179,33 +169,7 @@ func cacheFor(r *http.Request, v string) string {
 	return "private, no-cache"
 }
 
-func (s *Server) backgroundGet(w http.ResponseWriter, r *http.Request) {
-	ch, _, err := s.seeingChannel(callerOf(r), r.PathValue("id"))
-	if err != nil {
-		s.error(w, err)
-		return
-	}
-	img, v, ok := s.face(store.ChannelProfileKey(ch), true, "")
-	if r.URL.Query().Get("of") == "channel" {
-		img, v, ok = s.channelFace(ch, nil, true)
-	}
-	if !ok {
-		refuse(w, http.StatusNotFound, "not_found", "no background")
-		return
-	}
-	serveFace(w, r, img, v)
-}
-
-func (s *Server) personBackgroundGet(w http.ResponseWriter, r *http.Request) {
-	img, v, ok := s.face(store.PersonProfileKey(r.PathValue("id")), true, "")
-	if !ok {
-		refuse(w, http.StatusNotFound, "not_found", "no background")
-		return
-	}
-	serveFace(w, r, img, v)
-}
-
-// faceValue reads what a patch gives for a face or a background: "" none; a glyph; else an
+// faceValue reads what a patch gives for a face: "" none; a glyph; else an
 // image: a data: URL or base64, or (from the host's own ir) a file's path, from dir if it is
 // not absolute.
 func (s *Server) faceValue(c caller, v, dir string) (glyphOf string, image []byte, err error) {
@@ -243,64 +207,35 @@ func (s *Server) faceValue(c caller, v, dir string) (glyphOf string, image []byt
 	return "", image, nil
 }
 
-// setFaces writes the face and the background a patch gives into the profile under key (p,
-// changed in place); extra: another key the face's image is kept under too (a session's
-// model's). It says what changed ("avatar", "background").
-func (s *Server) setFaces(c caller, key string, p *store.Profile, avatar, background *string, dir, extra string) (what []string, err error) {
-	for _, f := range []struct {
-		v    *string
-		bg   bool
-		name string
-	}{{avatar, false, "avatar"}, {background, true, "background"}} {
-		if f.v == nil {
-			continue
+// setFace writes the face a patch gives (avatar; nil: none given) into the profile under key
+// (p, changed in place); extra: another key its image is kept under too (a session's model's).
+// It says what changed ("avatar").
+func (s *Server) setFace(c caller, key string, p *store.Profile, avatar *string, dir, extra string) (what []string, err error) {
+	if avatar == nil {
+		return nil, nil
+	}
+	g, img, err := s.faceValue(c, *avatar, dir)
+	if err != nil {
+		return nil, err
+	}
+	if img != nil {
+		var v string
+		if img, v, err = gate.MakeAvatar(img); err != nil {
+			return nil, fmt.Errorf("%w: avatar: a PNG, JPEG or WebP image of at most 2 MB", session.ErrBadRequest)
 		}
-		g, img, err := s.faceValue(c, *f.v, dir)
-		if err != nil {
-			return what, err
-		}
-		at := key
-		if f.bg {
-			at = store.BackgroundKey(key)
-		}
-		if img != nil {
-			var v string
-			if f.bg {
-				img, v, err = gate.MakeBanner(img)
-			} else {
-				img, v, err = gate.MakeAvatar(img)
-			}
-			if err != nil {
-				return what, fmt.Errorf("%w: %s: a PNG, JPEG or WebP image of at most 2 MB", session.ErrBadRequest, f.name)
+		for _, at := range []string{key, extra} {
+			if at == "" {
+				continue
 			}
 			if err := s.st.PutAvatar(at, img, v); err != nil {
-				return what, err
+				return nil, err
 			}
-			if !f.bg && extra != "" {
-				if err := s.st.PutAvatar(extra, img, v); err != nil {
-					return what, err
-				}
-			}
-		} else if err := s.st.DeleteAvatar(at); err != nil {
-			return what, err
 		}
-		if f.bg {
-			p.Background = g
-		} else {
-			p.Avatar = g
-		}
-		what = append(what, f.name)
+	} else if err := s.st.DeleteAvatar(key); err != nil {
+		return nil, err
 	}
-	return what, nil
-}
-
-// intro checks an intro: at most api.IntroMax characters, one paragraph.
-func intro(v string) (string, error) {
-	v = strings.Join(strings.Fields(v), " ")
-	if len([]rune(v)) > api.IntroMax {
-		return "", fmt.Errorf("%w: intro: at most %d characters", session.ErrBadRequest, api.IntroMax)
-	}
-	return v, nil
+	p.Avatar = g
+	return []string{"avatar"}, nil
 }
 
 // persona is v as a persona is kept: its lines as written (an agent's persona is read as it was
@@ -319,33 +254,26 @@ func persona(v string) (string, error) {
 func (s *Server) agentProfile(id string) api.Profile {
 	key := store.ChannelProfileKey(id)
 	p := s.st.Profile(key)
-	out := api.Profile{ID: store.AgentMember(id), Kind: api.CardKindAgent, Session: id, Name: s.ch.Nick(id), Intro: p.Intro, Persona: p.Persona, Role: s.st.RoleOf(id)}
+	out := api.Profile{ID: store.AgentMember(id), Kind: api.CardKindAgent, Session: id, Name: s.ch.Nick(id), Persona: p.Persona, Role: s.st.RoleOf(id)}
 	st, err := s.m.State(id)
 	if err == nil {
 		out.Agent, out.Status = st.Agent, st.Status
 		out.Model = s.sessionName(st)
 	}
 	out.Avatar = s.AgentAvatar(id)
-	if _, v, ok := s.face(key, true, ""); ok {
-		out.Background = "/v1/internal/channels/" + id + "/background?v=" + v
-	}
 	return out
 }
 
 // channelProfile is the card of channel ch: a session's own channel's its own, not its
-// agent's (roomKey); a face or a background it has not been given, its agent's.
+// agent's (roomKey); a face it has not been given, its agent's.
 func (s *Server) channelProfile(ch string) api.Profile {
-	p := s.st.Profile(s.roomKey(ch))
-	out := api.Profile{ID: ch, Kind: api.CardKindChannel, Name: s.channelName(ch), Intro: p.Intro}
+	out := api.Profile{ID: ch, Kind: api.CardKindChannel, Name: s.channelName(ch)}
 	st, err := s.m.State(ch)
 	if err != nil {
 		st = nil
 	}
-	if _, v, ok := s.channelFace(ch, st, false); ok {
+	if _, v, ok := s.channelFace(ch, st); ok {
 		out.Avatar = "/v1/internal/channels/" + ch + "/avatar?of=channel&v=" + v
-	}
-	if _, v, ok := s.channelFace(ch, st, true); ok {
-		out.Background = "/v1/internal/channels/" + ch + "/background?of=channel&v=" + v
 	}
 	return out
 }
@@ -356,13 +284,9 @@ func (s *Server) personProfile(id string) (api.Profile, bool) {
 	if !ok {
 		return api.Profile{}, false
 	}
-	key := store.PersonProfileKey(id)
-	out := api.Profile{ID: id, Kind: api.CardKindPerson, Name: info.Name, Intro: s.st.Profile(key).Intro, Avatar: info.Avatar}
+	out := api.Profile{ID: id, Kind: api.CardKindPerson, Name: info.Name, Avatar: info.Avatar}
 	if info.Kind != gate.KindPanel && !info.Host() {
 		out.Kind = api.CardKindApp
-	}
-	if _, v, ok := s.face(key, true, ""); ok {
-		out.Background = "/v1/internal/people/" + id + "/background?v=" + v
 	}
 	return out, true
 }
@@ -420,7 +344,7 @@ func (s *Server) profileNote(c caller, ch, member, nick string, what []string) {
 	if ch == "" || len(what) == 0 {
 		return
 	}
-	names := map[string]string{"nick": "称呼", "name": "名称", "intro": "介绍", "persona": "设定", "avatar": "头像", "background": "背景"}
+	names := map[string]string{"nick": "称呼", "name": "名称", "persona": "设定", "avatar": "头像"}
 	var parts []string
 	for _, w := range what {
 		parts = append(parts, names[w])
@@ -495,16 +419,6 @@ func (s *Server) patchAgent(c caller, id, in string, p api.ProfilePatch) error {
 	}
 	key := store.ChannelProfileKey(id)
 	prof := s.st.Profile(key)
-	if p.Intro != nil {
-		v, err := intro(*p.Intro)
-		if err != nil {
-			return err
-		}
-		if v != prof.Intro {
-			prof.Intro = v
-			what = append(what, "intro")
-		}
-	}
 	if p.Persona != nil {
 		v, err := persona(*p.Persona)
 		if err != nil {
@@ -523,7 +437,7 @@ func (s *Server) patchAgent(c caller, id, in string, p api.ProfilePatch) error {
 	if !c.byAgent() {
 		extra = modelAvatarKey(st) // a person's choice of face is its model's too, as before
 	}
-	faces, err := s.setFaces(c, key, &prof, p.Avatar, p.Background, dir, extra)
+	faces, err := s.setFace(c, key, &prof, p.Avatar, dir, extra)
 	if err != nil {
 		return err
 	}
@@ -582,24 +496,14 @@ func (s *Server) patchChannel(ctx context.Context, c caller, ch string, p api.Pr
 		}
 		what = append(what, "name")
 	}
-	// A session's own channel too: its own intro, face and background, not its agent's.
+	// A session's own channel too: its own face and background, not its agent's.
 	key := s.roomKey(ch)
 	prof := s.st.Profile(key)
-	if p.Intro != nil {
-		v, err := intro(*p.Intro)
-		if err != nil {
-			return err
-		}
-		if v != prof.Intro {
-			prof.Intro = v
-			what = append(what, "intro")
-		}
-	}
 	dir := ""
 	if st, err := s.m.State(ch); err == nil && st.Machine == "" {
 		dir = st.Cwd
 	}
-	faces, err := s.setFaces(c, key, &prof, p.Avatar, p.Background, dir, "")
+	faces, err := s.setFace(c, key, &prof, p.Avatar, dir, "")
 	if err != nil {
 		return err
 	}
@@ -620,29 +524,12 @@ func (s *Server) patchChannel(ctx context.Context, c caller, ch string, p api.Pr
 	return nil
 }
 
-// patchPerson changes c's own card: its intro and its background (its name and its face are
-// the gate's: the profile page).
-func (s *Server) patchPerson(c caller, p api.ProfilePatch) error {
+// patchPerson changes c's own card: nothing is changed of it here now (its name and its face are
+// the gate's: the profile page; no background, kumo 2026-11-25), only who may is said.
+func (s *Server) patchPerson(c caller, _ api.ProfilePatch) error {
 	if c.byAgent() {
 		return &access.Denied{Reason: "a person's card is the person's own to change"}
 	}
-	key := store.PersonProfileKey(c.ID())
-	prof := s.st.Profile(key)
-	if p.Intro != nil {
-		v, err := intro(*p.Intro)
-		if err != nil {
-			return err
-		}
-		prof.Intro = v
-	}
-	faces, err := s.setFaces(c, key, &prof, nil, p.Background, "", "")
-	if err != nil {
-		return err
-	}
-	if err := s.st.SetProfile(key, prof); err != nil {
-		return err
-	}
-	s.cardsChanged(len(faces) > 0)
 	return nil
 }
 
@@ -742,8 +629,9 @@ func (s *Server) memberCardPatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in := r.URL.Query().Get("channel")
-	if in == here {
-		in = s.hereOf(c)
+	if in == self || in == here {
+		s.error(w, s.noAlias(c, in))
+		return
 	}
 	if err := s.patchAgent(c, id, in, p); err != nil {
 		s.profileFault(w, err)
@@ -754,13 +642,8 @@ func (s *Server) memberCardPatch(w http.ResponseWriter, r *http.Request) {
 	reply(w, http.StatusOK, out)
 }
 
-// channelArg is the channel {id} names for c: "here", or as seeingChannel.
+// channelArg is the channel {id} names for c, as seeingChannel.
 func (s *Server) channelArg(c caller, id string) (string, error) {
-	if id == here {
-		if id = s.hereOf(c); id == "" {
-			return "", errSelf
-		}
-	}
 	ch, _, err := s.seeingChannel(c, id)
 	return ch, err
 }
@@ -1104,22 +987,17 @@ func (s *Server) saidBy(c caller, member, id string) []api.RecallHit {
 
 // card is a card as an agent is told of it: what it compares to say what changed.
 type card struct {
-	Name       string `json:"name,omitempty"`
-	Intro      string `json:"intro,omitempty"`
-	Persona    string `json:"persona,omitempty"` // the agent's own alone (cardsFor)
-	Avatar     string `json:"avatar,omitempty"`
-	Background string `json:"background,omitempty"`
+	Name    string `json:"name,omitempty"`
+	Persona string `json:"persona,omitempty"` // the agent's own alone (cardsFor)
+	Avatar  string `json:"avatar,omitempty"`
 }
 
 // cardOf is the card under key, by name; its images by their versions.
 func (s *Server) cardOf(key, name string) card {
 	p := s.st.Profile(key)
-	c := card{Name: name, Intro: p.Intro, Persona: p.Persona, Avatar: p.Avatar, Background: p.Background}
-	if _, v, ok := s.face(key, false, ""); ok {
+	c := card{Name: name, Persona: p.Persona, Avatar: p.Avatar}
+	if _, v, ok := s.face(key, ""); ok {
 		c.Avatar = v
-	}
-	if _, v, ok := s.face(key, true, ""); ok {
-		c.Background = v
 	}
 	return c
 }
@@ -1153,7 +1031,7 @@ func (s *Server) cardsFor(ch, to string) map[string]card {
 }
 
 // ProfileChange is a card changed since an agent was last told: Who ("" the channel), What
-// ("name", "intro", "persona": its own, "avatar", "background"), From and To (words; none for
+// ("name", "persona": its own, "avatar", "background"), From and To (words; none for
 // an image).
 type ProfileChange struct{ Who, What, From, To string }
 
@@ -1190,17 +1068,11 @@ func (s *Server) profileChanges(ch, to string) []ProfileChange {
 		if n.Name != w.Name {
 			out = append(out, ProfileChange{who, "name", w.Name, n.Name})
 		}
-		if n.Intro != w.Intro {
-			out = append(out, ProfileChange{who, "intro", w.Intro, n.Intro})
-		}
 		if n.Persona != w.Persona {
 			out = append(out, ProfileChange{who, "persona", w.Persona, n.Persona})
 		}
 		if n.Avatar != w.Avatar {
 			out = append(out, ProfileChange{Who: who, What: "avatar"})
-		}
-		if n.Background != w.Background {
-			out = append(out, ProfileChange{Who: who, What: "background"})
 		}
 	}
 	return out
@@ -1224,14 +1096,10 @@ func (s *Server) toldNow(session, key string, what ...string) {
 			switch f {
 			case "nick", "name":
 				w.Name = now.Name
-			case "intro":
-				w.Intro = now.Intro
 			case "persona":
 				w.Persona = now.Persona
 			case "avatar":
 				w.Avatar = now.Avatar
-			case "background":
-				w.Background = now.Background
 			}
 		}
 		was[key] = w
@@ -1239,32 +1107,4 @@ func (s *Server) toldNow(session, key string, what ...string) {
 			_ = s.st.SetProfileTold(session, ch, string(enc))
 		}
 	}
-}
-
-// peopleOf are the people of channel ch that have an intro (at most 8), as an agent there is
-// told of them.
-func (s *Server) peopleOf(ch string) []assemble.ChannelPerson {
-	profs, err := s.st.Profiles(store.PersonProfileKey(""))
-	if err != nil {
-		return nil
-	}
-	var out []assemble.ChannelPerson
-	for key, p := range profs {
-		if p.Intro == "" {
-			continue
-		}
-		info, ok := s.gate().Endpoint(strings.TrimPrefix(key, store.PersonProfileKey("")))
-		if !ok {
-			continue
-		}
-		if id := info.Identity(); !id.Host() && !s.ch.Has(ch, id.App, id.Login) {
-			continue
-		}
-		out = append(out, assemble.ChannelPerson{Name: info.Name, Intro: head(p.Intro, 80)})
-	}
-	slices.SortFunc(out, func(a, b assemble.ChannelPerson) int { return cmp.Compare(a.Name, b.Name) })
-	if len(out) > 8 {
-		out = out[:8]
-	}
-	return out
 }

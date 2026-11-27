@@ -7,12 +7,12 @@ import (
 )
 
 // Self is what a hosted agent is told of itself in its system prompt (docs/channels.md
-// "资料", "模糊记忆", "记忆"): the nick it goes by, its intro and its persona, what it chose to
+// "资料", "模糊记忆", "记忆"): the nick it goes by and its persona, what it chose to
 // remember, and what Iridium's records say of where it has been: the channels it is in, the
 // contexts it had before it was cleared. All of it from the records, none of it a summary.
 type Self struct {
-	// Persona: its own words on how it works, as written, after its intro (otae, 2026-11-21).
-	Nick, Intro, Persona string
+	// Persona: its own words on how it works, as written (otae, 2026-11-21).
+	Nick, Persona string
 	// Memory: the latest of what it chose to remember; More: how many more there are.
 	Memory []SelfMemory
 	More   int
@@ -59,7 +59,18 @@ func (s *Self) day(at int64) string {
 	return time.UnixMilli(at).In(zone).Format("2006-01-02")
 }
 
-// selfPieces are what the system prompt says of the agent itself; none for nil.
+// collabPieces are the Collaboration & Memory section of an agent with ir: how to get help from
+// another agent; with what it is told of itself, how to look the records up, remember, change
+// profiles.
+func collabPieces(s *Self) []piece {
+	ps := []piece{text(idSelfSection), text(idSelfHelpers)}
+	if s != nil && s.IR {
+		ps = append(ps, text(idSelfTools), text(idSelfRemember), text(idSelfProfile))
+	}
+	return ps
+}
+
+// selfPieces are what the system prompt's Runtime says of the agent itself; none for nil.
 func selfPieces(s *Self) []piece {
 	if s == nil {
 		return nil
@@ -68,11 +79,8 @@ func selfPieces(s *Self) []piece {
 	if s.Nick != "" {
 		ps = append(ps, text(idSelfWho, "nick", s.Nick))
 	}
-	if s.Intro != "" {
-		ps = append(ps, text(idSelfIntro), words(s.Intro, Ref{Kind: "profile", ID: "intro"}), text(idNL))
-	}
 	if s.Persona != "" {
-		ps = append(ps, words(s.Persona, Ref{Kind: "profile", ID: "persona"}), text(idNL))
+		ps = append(ps, text(idSelfPersona), words(s.Persona, Ref{Kind: "profile", ID: "persona"}), text(idNL))
 	}
 	if len(s.Memory) > 0 {
 		ps = append(ps, text(idSelfMemory))
@@ -108,9 +116,6 @@ func selfPieces(s *Self) []piece {
 			ps = append(ps, text(idSelfBeforeLine, "date", s.day(b.At), "turns", strconv.Itoa(b.Turns), "session", b.Session),
 				words(b.First, Ref{Kind: "session", ID: b.Session}), text(idNL))
 		}
-	}
-	if s.IR {
-		ps = append(ps, text(idSelfTools), text(idSelfRemember), text(idSelfProfile), text(idSelfHelpers))
 	}
 	return ps
 }

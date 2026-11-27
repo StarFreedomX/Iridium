@@ -44,8 +44,15 @@ func fromSource(b *api.Block, text, sender, tag string) {
 	b.From = tag
 	b.FromTerminal, b.FromLogin = api.SplitSender(sender)
 	b.FromDevice = api.Device(api.SenderDevice(sender))
-	b.Text = strings.TrimPrefix(text, "["+tag+"] ")
+	b.Text = withoutTitleNow(strings.TrimPrefix(text, "["+tag+"] "))
 }
+
+// titleNow is the line Iridium puts after a message now and then (internal/ctx/assemble TitleNow,
+// prompts title.now, title.none): the session's title, for the agent, not part of the words.
+var titleNow = regexp.MustCompile(`\n\n(?:Session|Channel \S+) title: (?:"[^\n]*"|none yet)$`)
+
+// withoutTitleNow is a message Iridium wrote without the title line after it.
+func withoutTitleNow(text string) string { return titleNow.ReplaceAllString(text, "") }
 
 // Format gives the blocks of one line of an agent's transcript: max is the characters to cut
 // texts to (-1: none); sources names the user messages Iridium wrote (may be nil).
@@ -301,6 +308,9 @@ func paired(blocks []api.Block) []api.Block {
 		if b.Kind == api.BlockKindResult {
 			if i, ok := calls[b.ID]; ok && out[i].Result == nil {
 				out[i].Result = &api.Result{At: b.At, Time: b.Time, Text: b.Text, Length: b.Length, Error: b.Error, Images: b.Images}
+				if SelfStopped(out[i]) {
+					out[i].Result.Error = false
+				}
 				continue
 			}
 		}
@@ -371,10 +381,16 @@ var (
 	space   = regexp.MustCompile(`\s+`)
 )
 
+func isOverhearBlock(b api.Block) bool {
+	return b.Kind == api.BlockKindUser && strings.HasPrefix(strings.TrimSpace(b.Text), "<channel-overhear>")
+}
+
 // LastSaid is the last thing you or the agent said, on one line, Markdown's marks for headings,
 // bold, code and links taken off; nil if nothing was said.
 func (f *File) LastSaid() (*api.LastSaid, error) {
-	b, err := f.walk(true, func(b api.Block) bool { return b.Kind == api.BlockKindUser || b.Kind == api.BlockKindAssistant })
+	b, err := f.walk(true, func(b api.Block) bool {
+		return (b.Kind == api.BlockKindUser && !isOverhearBlock(b)) || b.Kind == api.BlockKindAssistant
+	})
 	if b == nil || err != nil {
 		return nil, err
 	}
@@ -398,7 +414,7 @@ func (f *File) Title() (string, error) {
 	if (f.dsh || f.own) && (err != nil || t != "") {
 		return cut(oneLine(t), TitleLen), err
 	}
-	b, err := f.walk(false, func(b api.Block) bool { return b.Kind == api.BlockKindUser })
+	b, err := f.walk(false, func(b api.Block) bool { return b.Kind == api.BlockKindUser && !isOverhearBlock(b) })
 	if b == nil || err != nil {
 		return "", err
 	}

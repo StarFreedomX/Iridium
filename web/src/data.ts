@@ -2,7 +2,8 @@
 // other terminals, the home folder. Each a query; a route an older daemon lacks leaves its part
 // empty rather than failing the page. The workspaces and the update are carried on the stream,
 // asked for once at first.
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "./api/query";
 import { useEffect, useMemo } from "react";
 import { api, ApiError, missing, speakAs } from "./api/client";
 import type { AgentInfo, App, Apps, LastSaid, Me, Session, Settings, UpdateState, Workspace } from "./api/types.gen";
@@ -31,12 +32,12 @@ export function useWorkspaces(): { data: Workspace[] | null | undefined } {
   const q = useQuery({ queryKey: ["workspaces"], queryFn: orNone(api.workspaces), staleTime: Infinity, enabled: carried === undefined });
   return { data: carried ?? q.data };
 }
-export const agentsQ = { queryKey: ["agents"], queryFn: orNone(api.agents), staleTime: Infinity };
+export const agentsQ = { queryKey: ["agents"], staleTime: 3_600_000, ...keptQuery("agents", orNone(api.agents)) };
+/** One's own card: 编辑资料 of one's own card. */
+export const selfQ = { queryKey: ["self"], queryFn: () => api.self(), retry: false };
 export const useAgents = () => useQuery(agentsQ);
 export const useAgent = (a: string) => useAgents().data?.find((x: AgentInfo) => x.agent === a);
-/** Push's keys and each workspace's events, the daemon's own (GET /v1/internal/web/push): the settings show them. */
-export const pushQ = { queryKey: ["push"], queryFn: orNone(api.push), staleTime: 30_000 };
-export const useSettings = () => useQuery({ queryKey: ["settings"], queryFn: orNone(api.settings), staleTime: 60_000 });
+export const useSettings = () => useQuery({ queryKey: ["settings"], staleTime: 60_000, ...keptQuery("settings", orNone(api.settings)) });
 /** The update: as the stream carries it, else as asked for. */
 export function useUpdate(): { data: UpdateState | null | undefined } {
   const carried = useUpdateState();
@@ -47,13 +48,53 @@ export function useUpdate(): { data: UpdateState | null | undefined } {
 export const useHome = () => useQuery({ queryKey: ["folders", "~"], queryFn: () => api.folders("~"), staleTime: 60_000, select: (f) => (setHome(f.path), f.path) });
 
 /** The host, as the page is with no gate in front (and while /v1/internal/me has not answered). */
-export const LOCAL_ME: Me = { id: "local", name: "Iridium", app: "local", host: true, public: false, usedToday: 0, rules: { claudeOwner: { by: "local", at: 0 } } };
+export const LOCAL_ME: Me = { id: "local", name: "Iridium", app: "local", host: true, public: false, usedToday: 0 };
+
+/** What this browser kept from the page before, for its first draw: who this is, whose faces the
+ *  messages have. A channel is drawn from this device's copy at once as the page loads; without
+ *  these it was drawn as the host's, everyone's words on the left under a letter, till the two
+ *  answered (kumo, 2026-11-25). No more than names and faces; asked for afresh at once. */
+function kept<T>(key: string): T | undefined {
+  try {
+    const v = localStorage.getItem(key);
+    return v ? (JSON.parse(v) as T) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+function keep<T>(key: string, v: T): T {
+  try {
+    localStorage.setItem(key, JSON.stringify(v));
+  } catch {
+    // A full or closed store: not kept.
+  }
+  return v;
+}
+/** A query kept in this browser too (kumo, 2026-11-27: 管理 and the usage drew empty, then filled
+ *  as their answers came): drawn at once from the copy the page before kept, asked afresh at once
+ *  all the same, the answer kept again. name: its place in the store. */
+export function keptQuery<T>(name: string, fn: () => Promise<T>) {
+  const key = `ir:q1:${name}`;
+  return {
+    queryFn: async () => keep(key, await fn()),
+    initialData: () => kept<T>(key),
+    initialDataUpdatedAt: 0,
+  };
+}
+const ME_KEY = "ir:me1";
+const WHO_KEY = "ir:who1";
 
 /** Who this page is: GET /v1/internal/me, else the gate's session (a login of ir_web), else the host. */
 export const useMe = () =>
   useQuery({
     queryKey: ["me"],
     staleTime: 300_000,
+    initialData: () => {
+      const me = kept<Me>(ME_KEY);
+      if (me) speakAs(me.app, me.login || me.app);
+      return me;
+    },
+    initialDataUpdatedAt: 0,
     queryFn: async (): Promise<Me> => {
       // Refused or not there: what the gate says, else the host's page. The network or the daemon
       // a moment away (no answer, a 5xx) is neither: asked again, not taken for five minutes as
@@ -66,7 +107,7 @@ export const useMe = () =>
       const me = await orNone(api.me)().catch((e) => soft<Me>(e));
       if (me) {
         speakAs(me.app, me.login || me.app);
-        return me;
+        return keep(ME_KEY, me);
       }
       const s = await orNone(api.gateSession)().catch((e) => soft<Awaited<ReturnType<typeof api.gateSession>>>(e));
       if (s && !s.local) return { ...LOCAL_ME, id: "", name: s.name ?? "", app: "ir_web", host: false, web: true, public: true };
@@ -97,7 +138,7 @@ export function useApps() {
     terminalsSeen = changed; // once for all the hook's users
     if (!first) void qc.invalidateQueries({ queryKey: ["apps"] });
   }, [changed, qc]);
-  return useQuery({ queryKey: ["apps"], queryFn: orNone(api.apps), staleTime: 60_000, enabled: may });
+  return useQuery({ queryKey: ["apps"], staleTime: 60_000, enabled: may, ...keptQuery("apps", orNone(api.apps)) });
 }
 
 /** A computer (k_glossary "电脑"): the host, or an app that paired as one or has said its system.
@@ -128,8 +169,12 @@ export function useMachines(includeHost = false): Machine[] {
 const NO_WHO: Who[] = [];
 export function useWhoList(): Who[] {
   const d = useApps().data;
+  // Not come yet: the one kept from the page before.
+  const was = useMemo(() => kept<Who[]>(WHO_KEY) ?? NO_WHO, []);
   // The same list while the apps are the same: what is drawn from it is not drawn again each time.
-  return useMemo(() => (d ? [...d.apps.filter((a) => !a.web).map((a) => ({ id: a.id, name: a.name, avatar: a.avatar, device: a.device, host: a.host, type: a.type })), ...d.logins.map((l) => ({ id: l.id, name: l.name, avatar: l.avatar, device: l.device, web: true }))] : NO_WHO), [d]);
+  const now = useMemo(() => (d ? [...d.apps.filter((a) => !a.web).map((a) => ({ id: a.id, name: a.name, avatar: a.avatar, device: a.device, host: a.host, type: a.type })), ...d.logins.map((l) => ({ id: l.id, name: l.name, avatar: l.avatar, device: l.device, web: true }))] : undefined), [d]);
+  useEffect(() => void (now && keep(WHO_KEY, now)), [now]);
+  return now ?? was;
 }
 
 /** The last thing said, on one line: yours after 你：, another's after its name. Yours: none tagged

@@ -75,7 +75,7 @@ export function SubCard({ sub, by, done }: { sub: Sub; by?: string; done?: () =>
           {t(sub.working ? "sub.working" : "sub.back")}
         </>
       }
-      intro={by ? t("sub.by", { name: by }) : undefined}
+      note={by ? t("sub.by", { name: by }) : undefined}
       keys={id ? [{ icon: <ScrollText size={14} />, label: t("channel.session"), run: () => (done?.(), openChat(id)) }] : []}
     />
   );
