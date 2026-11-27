@@ -47,7 +47,7 @@ test('the key and its sub-modes with their marks, switched by a press; Ultra kep
     s2: { eligible: false, mode: 'off', reason: 'not on an OMD preset', selected: sel },
   }
   const f = fake(views)
-  omdIridium.apply(f.ctx, { poll: 60_000 })
+  omdIridium.apply(f.ctx, { gather: 0 })
   await until(() => f.attached.size === 2)
   const { MARKS } = omdIridium
   const subs = (on) => [['workflow', 'Workflow'], ['free', 'Free']].map(([id, t]) => `<button id="omd.ultra.${id}" type="action"${id === on ? ' pressed' : ''}><img src="${MARKS[id]}"/>${t}</button>`).join('')
@@ -90,4 +90,67 @@ test('the key and its sub-modes with their marks, switched by a press; Ultra kep
 test('attribute values escaped', () => {
   const c = omdIridium.contentOf({ eligible: false, mode: 'off', reason: 'a "b" <c> & d' })
   assert.match(c.en, /title="a &quot;b&quot; &lt;c&gt; &amp; d"/)
+})
+
+/** A dsh with OMD (or not), its agent presets' rows and its loader's entries. */
+function cold({ omd = true, teams = true, team = { disabled: false, state: 2 }, inventory } = {}) {
+  const selects = []
+  const services = {
+    omd: omd
+      ? {
+          ultracode: {
+            inspect: async () => ({ mode: 'off', selected: sel, revision: 3 }),
+            select: async (id, input) => selects.push({ session: id, ...input }),
+          },
+        }
+      : undefined,
+    agentTeams: teams ? { defaultEnabled: teams !== 'off' } : undefined,
+    loader: { entries: () => [{ options: { name: 'other' }, fiber: { state: 2 } }, ...(team ? [{ options: { name: '@deepseek-ai/dsh-tool-agent-team' }, disabled: team.disabled, fiber: { state: team.state } }] : [])] },
+    agentPresets: inventory === undefined ? undefined : { compositionInventory: async () => inventory },
+  }
+  return { ctx: { get: (n) => services[n] }, selects, services }
+}
+
+const wf = (enabled = true) => ({ moduleName: 'oh-my-dsh/host/tool-workflow', enabled })
+const inventory = [
+  { id: 'omd', rows: [{ moduleName: 'x', enabled: true }, wf()] },
+  { id: 'omd-off', rows: [wf(false)] },
+  { id: 'omd-cond', rows: [wf('conditional')] },
+  { id: 'broken', broken: 'bad yaml', rows: [wf()] },
+  { id: 'plain', rows: [{ moduleName: 'x', enabled: true }] },
+]
+
+test('start keys: OMD\'s Ultra, off, for its presets; Agent Team while dsh\'s runs, on for new sessions', async () => {
+  const { startKeys, contentOf } = omdIridium
+  const k = await startKeys(cold({ inventory }).ctx)
+  assert.deepEqual(k, [{ place: 'effort', from: '', content: contentOf({ eligible: true, mode: 'off', teamAvailable: true }), presets: ['omd'] }])
+  assert.match(k[0].content.en, /omd\.ultra\.team/)
+  assert.doesNotMatch(k[0].content.en, /pressed|disabled/)
+  for (const o of [{ teams: false }, { teams: 'off' }, { team: { disabled: true, state: 2 } }, { team: { disabled: false, state: 1 } }, { team: null }]) {
+    const [x] = await startKeys(cold({ inventory, ...o }).ctx)
+    assert.doesNotMatch(x.content.en, /omd\.ultra\.team/, JSON.stringify(o))
+    assert.match(x.content.en, /omd\.ultra\.workflow/)
+  }
+  // No OMD; no preset of OMD's; the registry failing: none. No inventory to read: for any preset.
+  assert.deepEqual(await startKeys(cold({ omd: false, inventory }).ctx), [])
+  assert.deepEqual(await startKeys(cold({ inventory: [inventory[4]] }).ctx), [])
+  const failing = cold({ inventory: [] })
+  failing.services.agentPresets.compositionInventory = async () => {
+    throw new Error('no')
+  }
+  assert.deepEqual(await startKeys(failing.ctx), [])
+  const [any] = await startKeys(cold().ctx)
+  assert.equal(any.presets, undefined)
+})
+
+test('a start key applied: Ultra on, at a sub-mode or OMD\'s own', async () => {
+  const { applyStartKey } = omdIridium
+  const f = cold()
+  await applyStartKey(f.ctx, 's1', 'omd.ultra')
+  assert.deepEqual(f.selects.at(-1), { session: 's1', provider: 'deepseek', model: 'v4', mode: 'ultra', expectedRevision: 3 })
+  await applyStartKey(f.ctx, 's1', 'omd.ultra.workflow')
+  assert.deepEqual(f.selects.at(-1), { session: 's1', provider: 'deepseek', model: 'v4', mode: 'ultra', submode: 'workflow', expectedRevision: 3 })
+  for (const id of ['omd.ultra.nope', 'claude.ultracode', 'omd.ultrax', '']) await applyStartKey(f.ctx, 's1', id)
+  assert.equal(f.selects.length, 2)
+  await applyStartKey(cold({ omd: false }).ctx, 's1', 'omd.ultra') // no OMD: nothing
 })

@@ -125,6 +125,13 @@ type Provider interface {
 	ProvidedHere() bool
 }
 
+// LocalHost says whether a session on this computer should run through a local executor
+// (its machine ID in remote.Hub, e.g. a local app connected over loopback WS) rather than
+// spawning a local OS child directly.
+type LocalHost interface {
+	LocalExecutor(ctx context.Context, r Ref) (machineID string, ok bool)
+}
+
 // Models are the models an agent offers at a machine, as it says them (a probe), kept by the
 // channel. Warm asks again in the background if what is kept is old.
 type Models interface {
@@ -139,6 +146,15 @@ type Presets interface {
 	Presets(ctx context.Context, machine string) ([]agent.Preset, string, error)
 }
 
+// StartKeyer: the keys (api.Attached at a place, as a running session's: OMD's Ultra) a session
+// of the agent at machine may be started with, all off, each with the presets it is for (Presets;
+// none: any), as last told (not asked: called with a session's lock held); none: nil.
+// DefaultPreset is the preset a session given none runs with there, as known now ("": not known).
+type StartKeyer interface {
+	StartKeys(machine string) []api.Attached
+	DefaultPreset(machine string) string
+}
+
 // Imager reads a picture a session's record names by a handle of its agent's own (dsh's
 // attachments) instead of carrying it, where the session runs. done false: not a handle of its;
 // the core has none to show.
@@ -150,6 +166,33 @@ type Imager interface {
 // workspaces and sessions), not as kept.
 type Syncer interface {
 	Sync(ctx context.Context, machine string) error
+}
+
+// ComputerState is per-computer configuration state reported by an agent channel (e.g.
+// "sync new sessions" toggle and optional manual host-app path fallback on the host).
+type ComputerState struct {
+	Sync       *bool
+	PathNeeded bool
+	Path       string
+	Version    string
+}
+
+// ComputerConfig updates per-computer configuration for an agent channel.
+type ComputerConfig struct {
+	Sync *bool
+	Path *string
+}
+
+// ComputerStater reports and updates per-computer agent settings (sync switch, manual path).
+type ComputerStater interface {
+	ComputerState(machine string) ComputerState
+	SetComputerConfig(ctx context.Context, machine string, cfg ComputerConfig) (ComputerState, error)
+}
+
+// SessionSearcher searches and adopts unsynced sessions held by external host apps.
+type SessionSearcher interface {
+	SearchExternal(ctx context.Context, query string, limit int) ([]api.ExternalSession, error)
+	AdoptExternal(ctx context.Context, s api.ExternalSession) error
 }
 
 // Set is the channels by agent.

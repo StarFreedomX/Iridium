@@ -2,10 +2,11 @@
 // mode past the effort track, with a sub-mode and a level OMD picks for it, through OMD's own
 // service (omd.ultracode). It hangs a key at the place "effort" of each session here with this
 // plugin's service iridium (in DSH Desktop's process, and in a dsh process the Iridium started
-// here: index.js and session.js run it), and its sub-modes, each with its mark: the page shows one
+// here: index.js runs it), and its sub-modes, each with its mark: the page shows one
 // key, off or the sub-mode on, a press the next (off, then each sub-mode, then off). A sub-plugin: on only while OMD is there (inject), and the only file here that knows OMD. Ultra on owns the effort: a level picked
 // in the Iridium is a plain model selection, which OMD takes for leaving Ultra, so it is turned
-// on again at the new level.
+// on again at the new level. The same key, off, is one a new session may start with (startKeys,
+// told in desktop.config; applyStartKey, at its first launch).
 
 export const name = 'remote-iridium-omd'
 export const inject = ['omd', 'iridium']
@@ -24,8 +25,8 @@ export const MARKS = {
   free: svg('<path d="M6 16c5 0 7-8 12-8a4 4 0 0 1 0 8c-5 0-7-8-12-8a4 4 0 1 0 0 8"/>'),
 }
 
-/** How often the sessions shown are looked at again, for a change nothing here tells of. */
-const POLL = 5000
+/** How long a session's events are gathered before it is looked at again. */
+const GATHER = 200
 
 export const texts = {
   zh: {
@@ -167,20 +168,26 @@ export function apply(ctx, o = {}) {
       iridium.attach(id, 'effort', null)
     } catch {}
   })
+  // A session looked at again shortly after its events (OMD's Ultra switched in Desktop's window
+  // writes some): once for a burst of them.
+  const soon = new Map() // session → timer
+  const later = (id) => {
+    if (soon.has(id)) return
+    const t = setTimeout(() => {
+      soon.delete(id)
+      render(id)
+    }, o.gather ?? GATHER)
+    t.unref?.()
+    soon.set(id, t)
+  }
   // A model selected: OMD's own (Ultra switched) or a level picked elsewhere (in the Iridium: a
   // plain selection, which takes OMD's Ultra off): Ultra was on, it is on again at that level.
-  // A session first heard of by its events (it began before this plugin did): shown once.
-  const seen = new Set()
   on('session/event', (session, event) => {
     const id = session?.id
-    if (!id) return
-    if (!seen.has(id) && !shown.has(id) && live(id)) {
-      seen.add(id)
-      render(id)
-    }
-    if (event?.type !== 'model/selection') return
+    if (!id || !live(id)) return
+    if (event?.type !== 'model/selection') return later(id)
     const was = shown.get(id)
-    if (busy.has(id) || !was?.on) return void render(id)
+    if (busy.has(id) || !was?.on) return later(id)
     switching(id, async () => {
       const v = await omd.inspect(id)
       if (v?.mode === 'ultra') return
@@ -189,19 +196,13 @@ export function apply(ctx, o = {}) {
     }).catch(() => {})
   })
 
-  // The sessions open here now, and again now and then.
-  const sweep = () => {
-    const ids = new Set(shown.keys())
-    try {
-      for (const s of ctx.get('sessions')?.list?.() ?? []) if (live(s.id)) ids.add(s.id)
-    } catch {}
-    for (const id of ids) render(id)
-  }
-  sweep()
-  const timer = setInterval(sweep, o.poll ?? POLL)
-  timer.unref?.()
+  // The sessions open here now.
+  try {
+    for (const s of ctx.get('sessions')?.list?.() ?? []) if (live(s.id)) render(s.id)
+  } catch {}
   ctx.effect?.(() => () => {
-    clearInterval(timer)
+    for (const t of soon.values()) clearTimeout(t)
+    soon.clear()
     offButton()
     for (const id of shown.keys()) {
       try {
@@ -210,6 +211,50 @@ export function apply(ctx, o = {}) {
     }
     shown.clear()
   }, 'remote-iridium-omd')
+}
+
+/** The plugin rows whose presence makes an agent preset OMD's (its Workflow), and dsh's Agent Team. */
+const WORKFLOW = 'oh-my-dsh/host/tool-workflow'
+const TEAM = '@deepseek-ai/dsh-tool-agent-team'
+
+/**
+ * OMD's Ultra as a key a new session may start with (desktop.config's keys), off: its sub-modes
+ * as OMD offers them (Agent Team while dsh's is loaded, running and on for new sessions), for the
+ * agent presets with OMD's Workflow on (presets: all, when the registry cannot tell). None without
+ * OMD, or with no such preset. Read through ctx at each call: OMD may come and go.
+ */
+export async function startKeys(ctx) {
+  try {
+    if (!ctx.get('omd')?.ultracode) return []
+    // A new session is in team mode only where dsh turns it on for each new one (its
+    // defaultEnabled); else Agent Team is not there at its first turn.
+    const teamAvailable =
+      ctx.get('agentTeams')?.defaultEnabled === true &&
+      [...(ctx.get('loader')?.entries?.() ?? [])].some((e) => e?.options?.name === TEAM && !e.disabled && e.fiber?.state === 2)
+    const key = { place: 'effort', from: '', content: contentOf({ eligible: true, mode: 'off', teamAvailable }) }
+    const reg = ctx.get('agentPresets')
+    if (typeof reg?.compositionInventory !== 'function') return [key]
+    const presets = []
+    for (const p of (await reg.compositionInventory()) ?? []) {
+      if (p?.broken != null || !Array.isArray(p.rows)) continue
+      if (p.rows.some((r) => r?.moduleName === WORKFLOW && r.enabled === true)) presets.push(String(p.id))
+    }
+    return presets.length ? [{ ...key, presets }] : []
+  } catch {
+    return []
+  }
+}
+
+/**
+ * The start key pressed for a new session (id: the head, on at OMD's own sub-mode; or a sub-mode),
+ * turned on before its first turn. Other ids, or no OMD: nothing.
+ */
+export async function applyStartKey(ctx, session, id) {
+  const omd = ctx.get('omd')
+  if (!omd?.ultracode || typeof id !== 'string') return
+  if (id === KEY) return ultra(omd).select(session, true)
+  const sub = id.startsWith(KEY + '.') ? id.slice(KEY.length + 1) : ''
+  if (SUBMODES.includes(sub)) return ultra(omd).select(session, true, { option: sub })
 }
 
 /** This file as a cordis sub-plugin (ctx.plugin). */

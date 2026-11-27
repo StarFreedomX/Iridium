@@ -557,6 +557,12 @@ export interface NewSession {
   effort?: string;
   preset?: string;
   /**
+   * Attach: a key it starts with pressed (AgentChoices.Attached: one button's id there, as
+   * "claude.ultracode", "omd.ultra.workflow"); before its first message a press of the keys
+   * shown changes it.
+   */
+  attach?: string;
+  /**
    * Workspace: the workspace it goes in (0: as discovery classifies its folder; the caller's if
    * that holds it).
    */
@@ -1191,11 +1197,45 @@ export interface PairLogin {
 }
 /**
  * ExecAgent is an agent an executor has. Off: turned off at that app (Computer's only).
+ * Sync: non-nil when the agent supports "sync new sessions" on that computer.
+ * PathNeeded/Path: manual install path fallback on the host computer when the host app
+ * is neither connected nor auto-discovered.
  */
 export interface ExecAgent {
   agent: string;
   version?: string;
   off?: boolean;
+  sync?: boolean;
+  pathNeeded?: boolean;
+  path?: string;
+}
+/**
+ * ComputerAgentConfig is PUT /v1/internal/computers/{id}/{agent}/config.
+ */
+export interface ComputerAgentConfig {
+  sync?: boolean;
+  path?: string;
+}
+/**
+ * ComputerAgentState answers PUT /v1/internal/computers/{id}/{agent}/config.
+ */
+export interface ComputerAgentState {
+  sync?: boolean;
+  pathNeeded?: boolean;
+  path?: string;
+}
+/**
+ * ExternalSession is an unsynced session found on demand in an external host app
+ * (GET /v1/internal/external/sessions) and passed to POST /v1/internal/external/adopt.
+ */
+export interface ExternalSession {
+  id: string;
+  agent: Agent;
+  machine?: string; // "" = host
+  cwd?: string;
+  title?: string;
+  updatedAt?: number /* int64 */;
+  archived?: boolean;
 }
 /**
  * DshWorkspace is a folder a new dsh session at a machine may open in (GET
@@ -1341,6 +1381,7 @@ export interface NewMember {
   mode?: string;
   effort?: string;
   preset?: string;
+  attach?: string;
   nick?: string;
   on?: Trigger[];
   /**
@@ -1521,6 +1562,11 @@ export interface AgentChoices {
   presets?: Presets;
   ran?: string;
   effort?: string;
+  /**
+   * Attached: the keys a new session may start with, as a running one's (SessionState.Attached),
+   * all off (Claude's UltraCode, OMD's Ultra): a pick is one button's id (NewSession.Attach).
+   */
+  attached?: Attached[];
 }
 
 //////////
@@ -1610,6 +1656,11 @@ export interface Attached {
   place: string;
   from: string;
   content: { [key: string]: string};
+  /**
+   * Presets: a key a session may start with (AgentChoices.Attached) is for these presets alone
+   * (dsh's); none: any.
+   */
+  presets?: string[];
 }
 /**
  * Attach is PUT /v1/internal/sessions/{id}/attach/{place}: Content, Satori elements, or one a

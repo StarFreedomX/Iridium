@@ -9,7 +9,7 @@
 // (colors.ts); a group's: rename, its path. The mouse resting
 // on a row fetches its chat ahead.
 import { Menu } from "@base-ui/react/menu";
-import { Archive, ArchiveRestore, Bookmark, BookmarkMinus, BookmarkX, Bot, Check, ChevronRight, Copy, Ellipsis, Ungroup, Folder, FolderOpen, ListCollapse, Moon, Pencil, Pin, PinOff, Plus, RefreshCw, Square, FolderPlus } from "lucide-react";
+import { Archive, ArchiveRestore, Bookmark, BookmarkMinus, BookmarkX, Bot, Check, ChevronRight, Copy, Ellipsis, Ungroup, Folder, FolderOpen, ListCollapse, Moon, Pencil, Pin, PinOff, Plus, Search, Square, FolderPlus } from "lucide-react";
 import { ConfirmIcon, confirmName, confirmTitle } from "./confirmname";
 import { Fragment, lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactElement, type ReactNode, type RefObject } from "react";
 import { api } from "./api/client";
@@ -407,6 +407,8 @@ export function Sidebar(p: Props) {
     const folderEl = (f: FolderNode, lane: string, level: number): ReactNode => {
       const at = Math.min(level, MAX_IN);
       const first = f.sessions[0];
+      const fOpen = p.expanded(f.key);
+      const fKeys = allFolders([f]).map((x) => x.key);
       return (
         <div key={f.key} role="group">
           <FolderRow
@@ -414,9 +416,10 @@ export function Sidebar(p: Props) {
             depth={at}
             label={level === 0 && w.id === 0 ? <FolderLabel path={f.path} /> : f.name}
             hung={hungOf(folderSessions(f))}
-            open={p.expanded(f.key)}
-            onToggle={() => p.toggle(f.key)}
-            foldBack={foldBackOf(allFolders([f]).map((x) => x.key))}
+            open={fOpen}
+            // Folding a folder folds any expanded sessions inside it too (otae-c, 2026-11-27).
+            onToggle={() => (fOpen && p.foldBack(fKeys), p.toggle(f.key))}
+            foldBack={foldBackOf(fKeys)}
             lane={lane}
             place={placeFolderAt}
             pin={pinFolderOn}
@@ -425,14 +428,14 @@ export function Sidebar(p: Props) {
             // (the user, 2026-11-06).
             plus={!gone(f.path) && p.wsPlus(
               { ...w, key: f.key, root: f.path },
-              <button type="button" onClick={(e) => e.stopPropagation()} aria-label={t("nav.newHere", { ws: f.name })} className={plusKey(p.expanded(f.key))}>
+              <button type="button" onClick={(e) => e.stopPropagation()} aria-label={t("nav.newHere", { ws: f.name })} className={plusKey(fOpen)}>
                 <Plus size={15} />
               </button>,
               plusOpen === f.key,
               (o) => setPlusOpen(o ? f.key : null),
             )}
           />
-          {p.expanded(f.key) && (
+          {fOpen && (
             <>
               {f.children.flatMap((c) => (c.pinned ? [folderEl(c, f.key, level + 1)] : []))}
               {folded(f.sessions, f.key, at + 1, (s) => row(s, at + 1, !!w.machine, undefined, f.key, first && f.children.length > 0 ? dropMark({ kind: "s", id: first.id, lane: f.key }) : undefined))}
@@ -442,6 +445,7 @@ export function Sidebar(p: Props) {
         </div>
       );
     };
+    const wKeys = [w.key, ...allFolders(tops(w)).map((x) => x.key)];
     return (
       <div key={w.key} className={apart ? "mt-4" : "mt-1"} role="group">
         <WsRow
@@ -455,8 +459,8 @@ export function Sidebar(p: Props) {
           root={w.root}
           folders={w.rows.some((r) => r.kind === "folder")}
           open={open}
-          onToggle={() => p.toggle(w.key)}
-          foldBack={foldBackOf([w.key, ...allFolders(tops(w)).map((x) => x.key)])}
+          onToggle={() => (open && p.foldBack(wKeys), p.toggle(w.key))}
+          foldBack={foldBackOf(wKeys)}
           newSub={w.id !== 0 && !gone(w.root) ? () => setPlusOpen(w.key) : undefined}
           wkey={w.key}
           place={placeGroup}
@@ -634,12 +638,28 @@ export function SideKey({ label, onClick, className }: { label: string; onClick?
   );
 }
 
-/** The file browser (a channel in a folder no group holds is made in it: no "+" here, kumo,
- *  2026-11-25). On a phone the keys stand right of the
- *  sheet's tabs. The jump box is a keyboard's (nav.searchKey, the user, 2026-11-08). */
-export function HeadKeys(p: Pick<Props, "filesKey">) {
+/** Search (Jump box, ⌘K / Ctrl+K) and the file browser. On a phone the keys stand right of the
+ *  sheet's tabs. */
+export function HeadKeys(p: Pick<Props, "filesKey" | "searching" | "onSearch" | "panelsCode">) {
+  const tip = `${t("nav.search")} ${t("nav.searchKey")}`;
   return (
     <span className="flex shrink-0 items-center gap-0.5">
+      <Tip label={tip}>
+        <button
+          type="button"
+          data-search-key=""
+          aria-label={t("nav.search")}
+          aria-pressed={p.searching}
+          onPointerEnter={p.panelsCode}
+          onClick={p.onSearch}
+          className={cn(
+            "g-press grid size-8 shrink-0 place-items-center rounded-md text-ink-3 hover:bg-fill hover:text-ink pointer-coarse:size-10",
+            p.searching && "bg-fill text-ink",
+          )}
+        >
+          <Search size={17} />
+        </button>
+      </Tip>
       {p.filesKey}
     </span>
   );
@@ -875,15 +895,6 @@ function WsRow({ flip, id, name, root, sessions, hung, machine, remote, folders,
           // Taken apart at its folder, its subfolders groups of their own (the user, 2026-11-09).
           ...(folders ? [{ icon: <Ungroup size={15} />, label: t("menu.split"), run: () => void api.patchGuild(id, { split: true }).then(() => toast(t("toast.split", { ws: name })), failed) }] : []),
         ]
-      : []),
-    // A group at a machine with dsh: what its dsh offers read again now, its workspaces and
-    // sessions, models and presets with DSH Desktop's settings (the user, 2026-11-09: here, not in
-    // the head's switch).
-    ...(machine?.agents.some((a) => a.agent === "dsh")
-      ? [{ icon: <RefreshCw size={15} />, label: t("menu.syncDsh"), run: () => {
-          toast(t("toast.syncing"));
-          void api.dshSync(machine.id).then(() => toast(t("toast.synced", { m: machine.name })), (e: unknown) => toast(t("err.sync"), { error: true, description: errText(e) }));
-        } }]
       : []),
   ];
   const menu = items.length > 0 || !!tags;
