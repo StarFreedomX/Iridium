@@ -246,6 +246,12 @@ type ListReply struct {
 	Entries []Entry `json:"entries"`
 }
 
+// BrowseReply is fs.list.browser's listing. If Open is false, entries only lead to open directories.
+type BrowseReply struct {
+	Entries []Entry `json:"entries"`
+	Open    bool    `json:"open"`
+}
+
 type ReadParams struct {
 	Path   string   `json:"path"`
 	Offset int64    `json:"offset"`

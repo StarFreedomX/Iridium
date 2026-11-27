@@ -105,7 +105,8 @@ func (s *Server) browserAt(w http.ResponseWriter, r *http.Request) *browserLocat
 }
 
 // browseFiles is GET /v1/internal/web/files: one level of a folder on the host or a connected
-// computer. An empty path opens the first allowed root or home.
+// computer. An empty path opens the first allowed root or home; an ancestor outside the open
+// scope returns open=false with only the entries leading to open directories.
 func (s *Server) browseFiles(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	at := s.browserAt(w, r)
@@ -123,12 +124,14 @@ func (s *Server) browseFiles(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), browseTimeout)
 	defer cancel()
-	var out wire.ListReply
+	var out wire.BrowseReply
 	if err := at.machine.Call(ctx, "fs.list.browser", wire.PathParams{Path: at.path, Scope: at.scope}, &out); err != nil {
 		s.browserRemoteError(w, err)
 		return
 	}
-	reply(w, http.StatusOK, remoteDirListing(pagePath(at.hello, at.path), out.Entries))
+	list := remoteDirListing(pagePath(at.hello, at.path), out.Entries)
+	list.Open = out.Open
+	reply(w, http.StatusOK, list)
 }
 
 // browseFile is GET /v1/internal/web/files/content: one regular file on the host or a connected

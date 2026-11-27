@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -64,10 +65,17 @@ func TestFileBrowserScope(t *testing.T) {
 	hub := &remote.Hub{}
 	l := startWith(t, func(s *Server, _ config.Config, _ string) { s.Remote = hub; s.WatchMachines() })
 	here := filepath.Join(l.work, "here")
+	hostBranch := filepath.Join(l.work, "host-branch")
+	first, second := filepath.Join(hostBranch, "first"), filepath.Join(hostBranch, "second")
+	hiddenRoot := filepath.Join(l.work, ".hidden-root")
 	shared := filepath.Join(l.work, "shared")
 	there := filepath.Join(shared, "there")
 	sibling := filepath.Join(shared, "sibling")
-	for _, dir := range []string{here, there, sibling} {
+	remoteBranch := filepath.Join(l.work, "remote-branch")
+	remoteProject := filepath.Join(remoteBranch, "project")
+	ungranted := filepath.Join(l.work, "no-login-grant")
+	denied := filepath.Join(l.work, "denied")
+	for _, dir := range []string{here, first, second, hiddenRoot, there, sibling, remoteProject, ungranted, denied} {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -75,11 +83,15 @@ func TestFileBrowserScope(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	if err := os.WriteFile(filepath.Join(l.work, name), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	tok := l.newApp("pc")
 	exe, err := executor.New(executor.Options{
 		URL:   "ws" + strings.TrimPrefix(l.base, "http") + "/v1/internal/exec",
-		Token: tok.Token, State: t.TempDir(), Roots: []string{shared}, Logf: t.Logf,
+		Token: tok.Token, State: t.TempDir(), Roots: []string{shared, remoteProject, ungranted, hiddenRoot, denied},
+		Deny: []string{denied}, Logf: t.Logf,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -102,7 +114,7 @@ func TestFileBrowserScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	l.want(http.StatusOK, "socket", http.MethodPut, "/v1/internal/apps/"+gate.WebApp+"/logins/"+login.ID+"/perms", api.Perms{
-		Scope: []string{here, "pc:" + there, "pc:" + here},
+		Scope: []string{here, first, second, hiddenRoot, "pc:" + there, "pc:" + here, "pc:" + remoteBranch, "pc:" + hiddenRoot, "pc:" + denied},
 	}, nil)
 	c := caller{Identity: gate.Identity{App: gate.WebApp, Login: login.ID}}
 	mux := http.NewServeMux()
@@ -127,13 +139,42 @@ func TestFileBrowserScope(t *testing.T) {
 		if err := json.Unmarshal(w.Body.Bytes(), &list); err != nil {
 			t.Fatalf("listing at %q: %v", machine, err)
 		}
-		if filepath.FromSlash(list.Path) != dir || len(list.Entries) != 1 || list.Entries[0].Name != name {
+		if !list.Open || filepath.FromSlash(list.Path) != dir || len(list.Entries) != 1 || list.Entries[0].Name != name {
 			t.Fatalf("starting folder at %q: %+v, want %s with %s", machine, list, dir, name)
 		}
 		if w := req(t, "/content", machine, filepath.Join(dir, name), http.StatusPartialContent); w.Body.String() != content[:7] {
 			t.Fatalf("preview at %q: %q", machine, w.Body)
 		}
 	}
+	assertNavigation := func(machine, path string, want ...string) {
+		t.Helper()
+		w := req(t, "", machine, path, http.StatusOK)
+		var list api.DirListing
+		if err := json.Unmarshal(w.Body.Bytes(), &list); err != nil {
+			t.Fatal(err)
+		}
+		var names []string
+		for _, e := range list.Entries {
+			if e.Type != "dir" || e.Mtime != 0 || e.Size != 0 {
+				t.Fatalf("navigation entry includes filesystem data: %+v", e)
+			}
+			names = append(names, e.Name)
+		}
+		if list.Open || filepath.FromSlash(list.Path) != path || !slices.Equal(names, want) {
+			t.Fatalf("navigation at %q on %q: %+v, want %v", path, machine, list, want)
+		}
+	}
+	assertNavigation("", l.work, "here", "host-branch")
+	assertNavigation("", hostBranch, "first", "second")
+	assertNavigation("pc", l.work, "remote-branch", "shared")
+	assertNavigation("pc", shared, "there")
+	assertNavigation("pc", remoteBranch, "project")
+	req(t, "", "pc", remoteProject, http.StatusOK)
+	for _, machine := range []string{"", "pc"} {
+		req(t, "/content", machine, filepath.Join(l.work, name), http.StatusForbidden)
+		req(t, "", machine, hiddenRoot, http.StatusForbidden)
+	}
+	req(t, "", "pc", denied, http.StatusForbidden)
 	req(t, "", "", there, http.StatusForbidden)
 	req(t, "/content", "", filepath.Join(there, name), http.StatusForbidden)
 	req(t, "", "pc", here, http.StatusForbidden) // The login has it, the computer does not share it.

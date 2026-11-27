@@ -91,6 +91,43 @@ func TestGrant(t *testing.T) {
 	}
 }
 
+func TestBrowseDenialNotice(t *testing.T) {
+	base := t.TempDir()
+	project, denied := filepath.Join(base, "project"), filepath.Join(base, "blocked")
+	for _, dir := range []string{project, denied} {
+		if err := os.Mkdir(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var told []Denial
+	e, err := New(Options{
+		State: t.TempDir(), Roots: []string{denied, project}, Deny: []string{denied},
+		Denied: func(d Denial) { told = append(told, d) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	list, err := e.browse(base, nil)
+	if err != nil || list.Open || len(list.Entries) != 1 || list.Entries[0].Name != "project" {
+		t.Fatalf("browsing a closed parent: %+v, %v", list, err)
+	}
+	if len(told) != 0 {
+		t.Fatalf("checking candidate roots reported denial: %v", told)
+	}
+	if _, err := e.browse(project, []string{filepath.Join(base, "other")}); !wire.IsCode(err, wire.CodeDenied) {
+		t.Fatalf("browsing outside the login's scope: %v", err)
+	}
+	if len(told) != 0 {
+		t.Fatalf("login scope check reported denial: %v", told)
+	}
+	if _, err := e.browse(denied, nil); !wire.IsCode(err, wire.CodeDenied) {
+		t.Fatalf("browsing a blocked directory: %v", err)
+	}
+	if !slices.Equal(told, []Denial{{What: DeniedSecret, Path: denied}}) {
+		t.Fatalf("request denial was not reported: %v", told)
+	}
+}
+
 // With no one at its terminal, or no answer in time, a grant of more is declined.
 func TestGrantNoOne(t *testing.T) {
 	yes := true

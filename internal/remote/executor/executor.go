@@ -459,8 +459,10 @@ func (e *Executor) handle(ctx context.Context, method string, params json.RawMes
 		return struct{}{}, nil
 	case "fs.stat", "fs.stat.browser":
 		return e.stat(p.Path, p.Head, read)
-	case "fs.list", "fs.list.browser":
+	case "fs.list":
 		return e.list(p.Path, read)
+	case "fs.list.browser":
+		return e.browse(p.Path, p.Scope)
 	case "fs.read", "fs.read.browser":
 		return e.read(p.Path, p.Offset, p.Length, read)
 	case "fs.write":
@@ -798,8 +800,30 @@ type fileRead struct {
 	browser bool
 }
 
+// fileDenial records whether a denied path can lead to open roots, and what to report.
+type fileDenial struct {
+	err          *wire.Error
+	outsideRoots bool
+	notice       string // Denial.What, or empty if no notice is due
+}
+
+func (d *fileDenial) Error() string { return d.err.Error() }
+func (d *fileDenial) Unwrap() error { return d.err }
+
+// reportFileDenial tells the terminal only about an actual request refused by this computer.
+func (e *Executor) reportFileDenial(path string, err error) error {
+	var d *fileDenial
+	if errors.As(err, &d) && d.notice != "" {
+		e.deny(Denial{What: d.notice, Path: filepath.Clean(path)})
+	}
+	return err
+}
+
 // allowed is path cleaned, its links resolved, if under a root and not denied.
-func (e *Executor) allowed(path string) (string, error) { return e.allowedIn(path, nil) }
+func (e *Executor) allowed(path string) (string, error) {
+	p, err := e.checkAllowed(path, nil)
+	return p, e.reportFileDenial(path, err)
+}
 
 // readable is allowed for reading: also under the folders its agents are installed in (an
 // agent's Scope: dsh's packages, which the Iridium reads its presets from to start it). They
@@ -808,18 +832,27 @@ func (e *Executor) allowed(path string) (string, error) { return e.allowedIn(pat
 // served). When read.scope is given, the resolved path must also lie inside one of those roots;
 // when read.browser is set, dot-prefixed paths are denied.
 func (e *Executor) readable(path string, read fileRead) (string, error) {
+	p, err := e.checkReadable(path, read)
+	return p, e.reportFileDenial(path, err)
+}
+
+// checkReadable makes the same check without notifying the terminal.
+func (e *Executor) checkReadable(path string, read fileRead) (string, error) {
 	var more []string
 	for _, a := range e.o.Agents {
 		if a.Scope != "" {
 			more = append(more, a.Scope)
 		}
 	}
-	real, err := e.allowedIn(path, more)
+	real, err := e.checkAllowed(path, more)
 	if err != nil {
 		return "", err
 	}
 	if len(read.scope) > 0 && !pathsafe.InRoots(real, read.scope) {
-		return "", &wire.Error{Code: wire.CodeDenied, Message: path + " is out of this login's scope"}
+		return "", &fileDenial{
+			err:          &wire.Error{Code: wire.CodeDenied, Message: path + " is out of this login's scope"},
+			outsideRoots: true,
+		}
 	}
 	if read.browser {
 		if err := pathsafe.CheckBrowser(path, real); err != nil {
@@ -829,8 +862,8 @@ func (e *Executor) readable(path string, read fileRead) (string, error) {
 	return real, nil
 }
 
-// allowedIn is allowed, the folders in more served beside the roots.
-func (e *Executor) allowedIn(path string, more []string) (string, error) {
+// checkAllowed checks the computer's roots and the extra roots in more, without notifying.
+func (e *Executor) checkAllowed(path string, more []string) (string, error) {
 	if !filepath.IsAbs(path) {
 		return "", bad("not absolute: %s", path)
 	}
@@ -855,8 +888,10 @@ func (e *Executor) allowedIn(path string, more []string) (string, error) {
 	}
 	for _, d := range e.denied() {
 		if under(d) {
-			e.deny(Denial{What: DeniedSecret, Path: path})
-			return "", &wire.Error{Code: wire.CodeDenied, Message: path + ": never served (keys and logins)"}
+			return "", &fileDenial{
+				err:    &wire.Error{Code: wire.CodeDenied, Message: path + ": never served (keys and logins)"},
+				notice: DeniedSecret,
+			}
 		}
 	}
 	roots := e.Roots()
@@ -868,8 +903,12 @@ func (e *Executor) allowedIn(path string, more []string) (string, error) {
 			return real, nil
 		}
 	}
-	e.deny(Denial{What: DeniedPath, Path: path})
-	return "", &wire.Error{Code: wire.CodeDenied, Message: fmt.Sprintf("%s: not under the folders this computer serves (%s); a person may allow more on the Iridium's page, confirmed at that computer", path, strings.Join(roots, ", "))}
+	msg := fmt.Sprintf("%s: not under the folders this computer serves (%s); a person may allow more on the Iridium's page, confirmed at that computer", path, strings.Join(roots, ", "))
+	return "", &fileDenial{
+		err:          &wire.Error{Code: wire.CodeDenied, Message: msg},
+		outsideRoots: true,
+		notice:       DeniedPath,
+	}
 }
 
 func typeOf(m fs.FileMode) string {
@@ -919,13 +958,52 @@ func (e *Executor) list(path string, read fileRead) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	entries, err := listEntries(p, read.browser)
+	if err != nil {
+		return nil, err
+	}
+	return wire.ListReply{Entries: entries}, nil
+}
+
+// browse serves fs.list.browser: it lists an open directory (Open true), or for an ancestor
+// outside the open roots returns only the next path components leading to readable roots
+// (Open false) without scanning the ancestor or reporting probe denials.
+func (e *Executor) browse(path string, scope []string) (wire.BrowseReply, error) {
+	read := fileRead{scope: scope, browser: true}
+	p, err := e.checkReadable(path, read)
+	if err == nil {
+		entries, err := listEntries(p, true)
+		if err != nil {
+			return wire.BrowseReply{}, err
+		}
+		return wire.BrowseReply{Entries: entries, Open: true}, nil
+	}
+	var d *fileDenial
+	if errors.As(err, &d) && d.outsideRoots {
+		// The narrower root can come from the login or this computer. Check each
+		// against both scopes without reporting denials for these internal probes.
+		children := pathsafe.BrowserChildren(path, slices.Concat(scope, e.Roots()), func(root string) (string, error) {
+			return e.checkReadable(root, read)
+		})
+		if len(children) > 0 {
+			out := wire.BrowseReply{Entries: make([]wire.Entry, 0, len(children))}
+			for _, name := range children {
+				out.Entries = append(out.Entries, wire.Entry{Name: name, Type: "dir"})
+			}
+			return out, nil
+		}
+	}
+	return wire.BrowseReply{}, e.reportFileDenial(path, err)
+}
+
+func listEntries(p string, browser bool) ([]wire.Entry, error) {
 	ents, err := os.ReadDir(p)
 	if err != nil {
 		return nil, notFound(err)
 	}
 	out := []wire.Entry{}
 	for _, d := range ents {
-		if read.browser && pathsafe.BrowserHidden(d.Name()) {
+		if browser && pathsafe.BrowserHidden(d.Name()) {
 			continue
 		}
 		info, err := d.Info()
@@ -934,7 +1012,7 @@ func (e *Executor) list(path string, read fileRead) (any, error) {
 		}
 		out = append(out, wire.Entry{Name: d.Name(), Size: info.Size(), Mtime: info.ModTime().UnixMilli(), Type: typeOf(info.Mode())})
 	}
-	return map[string]any{"entries": out}, nil
+	return out, nil
 }
 
 func (e *Executor) read(path string, off, n int64, read fileRead) (any, error) {
