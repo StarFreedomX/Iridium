@@ -239,6 +239,7 @@ export const en: Dict = {
   "effort.high": "High",
   "effort.xhigh": "Extra high",
   "effort.max": "Max",
+  "effort.ultra": "Ultra",
   "effort.off": "Off",
   "composer.cmdCommon": "Common",
   "composer.commands": "Commands",
