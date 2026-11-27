@@ -81,6 +81,9 @@ type DirEntry struct {
 type DirListing struct {
 	Path    string     `json:"path"`
 	Entries []DirEntry `json:"entries"`
+	// Open reports whether this directory itself is in the effective open scope. If not,
+	// the entries are only paths leading to open directories.
+	Open bool `json:"open"`
 }
 
 // Copy copies a file (local ir only): POST /v1/internal/files/copy streams CopyProgress lines.

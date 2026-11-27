@@ -3,6 +3,7 @@ package files
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"hash"
 	"io"
@@ -167,8 +168,9 @@ func (s *Service) List(path string, scope ...string) (api.DirListing, error) {
 	return s.list(path, false, scope...)
 }
 
-// Browse is List for the web file browser: it rejects dot-prefixed paths and omits dot entries
-// from the listing, leaving ordinary List untouched for ir and internal reads.
+// Browse is List for the web file browser: it rejects dot-prefixed paths, omits dot entries,
+// and for an ancestor outside scope lists only the next path components leading to readable
+// directories (with Open false), leaving ordinary List untouched for ir and internal reads.
 func (s *Service) Browse(path string, scope ...string) (api.DirListing, error) {
 	return s.list(path, true, scope...)
 }
@@ -180,6 +182,22 @@ func (s *Service) list(path string, browser bool, scope ...string) (api.DirListi
 	path = filepath.Clean(path)
 	real, err := s.Guarded(path, scope...)
 	if err != nil {
+		if browser && errors.Is(err, pathsafe.ErrOutside) {
+			children := pathsafe.BrowserChildren(path, scope, func(root string) (string, error) {
+				real, err := s.Guarded(root, scope...)
+				if err == nil {
+					err = pathsafe.CheckBrowser(root, real)
+				}
+				return real, err
+			})
+			if len(children) > 0 {
+				out := api.DirListing{Path: path, Entries: make([]api.DirEntry, 0, len(children))}
+				for _, name := range children {
+					out.Entries = append(out.Entries, api.DirEntry{Name: name, Type: "dir"})
+				}
+				return out, nil
+			}
+		}
 		return api.DirListing{}, err
 	}
 	if browser {
@@ -191,7 +209,7 @@ func (s *Service) list(path string, browser bool, scope ...string) (api.DirListi
 	if err != nil {
 		return api.DirListing{}, err
 	}
-	out := api.DirListing{Path: path, Entries: []api.DirEntry{}}
+	out := api.DirListing{Path: path, Entries: []api.DirEntry{}, Open: true}
 	for _, e := range ents {
 		if browser && pathsafe.BrowserHidden(e.Name()) {
 			continue

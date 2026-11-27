@@ -25,7 +25,7 @@ let host: HTMLDivElement;
 let root: Root;
 
 function draw(path: string, directories: Record<string, DirEntry[]>) {
-  const listing = (path: string): DirListing => ({ path, entries: directories[path] ?? [] });
+  const listing = (path: string): DirListing => ({ path, open: true, entries: directories[path] ?? [] });
   vi.spyOn(api, "browseFiles").mockImplementation(async (path) => listing(path));
   vi.spyOn(api, "browseFileURL").mockReturnValue("data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7");
   queryClient.setQueryData(["me"], LOCAL_ME);

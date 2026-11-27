@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/kumoSleeping/iridium/internal/agents"
@@ -197,6 +198,39 @@ func CheckBrowser(path, resolved string) error {
 		}
 	}
 	return nil
+}
+
+// BrowserChildren is the next path component of each readable directory root below path.
+// These names come from the configured paths, not from the contents of the ancestor.
+// readable must apply the normal browser checks, including scope and hidden-path rules.
+func BrowserChildren(path string, roots []string, readable func(string) (string, error)) []string {
+	path = filepath.Clean(path)
+	if real, err := Resolve(path); err != nil || CheckBrowser(path, real) != nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var children []string
+	for _, root := range roots {
+		rel, err := filepath.Rel(path, root)
+		if err != nil || rel == "." || !filepath.IsLocal(rel) {
+			continue
+		}
+		name, _, _ := strings.Cut(rel, string(filepath.Separator))
+		if seen[name] {
+			continue
+		}
+		real, err := readable(root)
+		if err != nil {
+			continue
+		}
+		if info, err := os.Stat(real); err != nil || !info.IsDir() {
+			continue
+		}
+		seen[name] = true
+		children = append(children, name)
+	}
+	slices.Sort(children)
+	return children
 }
 
 func (g *Guard) denied(p string) bool {

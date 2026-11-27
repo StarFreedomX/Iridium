@@ -76,6 +76,7 @@ export default function FileBrowser({ machine: initialMachine, path: initialPath
   const [typed, setTyped] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const folders = useQuery(filesQ(machine, path));
+  const canCreate = !!folders.data?.path && folders.data.open;
   // Derive the open file from the listing so a refresh picks up a new version or drops a deleted
   // file; if a refresh fails, the last listing stays cached so the open preview is kept.
   const file = useMemo(() => selected ? folders.data?.entries.find((entry) => entry.name === selected && entry.type === "file") : undefined, [folders.data, selected]);
@@ -101,6 +102,8 @@ export default function FileBrowser({ machine: initialMachine, path: initialPath
   // A folder being named (新建文件夹), its row at the list's head.
   const [naming, setNaming] = useState<string | null>(within ? "" : null);
   const [making, setMaking] = useState(false);
+  // Keep the row mounted while the first listing loads so within does not flash, then hide if not open.
+  const showNaming = naming !== null && folders.data?.open !== false;
   // Normalize Windows separators to '/' so parent() and join() work uniformly.
   const dir = computer?.sep === "\\" ? here.replaceAll("\\", "/") : here;
   const list = useRef<HTMLDivElement>(null);
@@ -118,7 +121,7 @@ export default function FileBrowser({ machine: initialMachine, path: initialPath
   }, [inside, machine, root]);
   const make = () => {
     const name = naming?.trim();
-    if (!name || name === "." || name === ".." || /[/\\\0]/.test(name) || making) return;
+    if (!canCreate || !name || name === "." || name === ".." || /[/\\\0]/.test(name) || making) return;
     setMaking(true);
     void api
       .mkdir({ path: dir, name, ...(machine ? { machine } : {}) })
@@ -175,7 +178,7 @@ export default function FileBrowser({ machine: initialMachine, path: initialPath
       <div className={cn("shrink-0 items-center gap-1 border-b border-edge px-2 py-1", file ? "hidden @min-[620px]:flex" : "flex")}>
         <IconKey label={t("browse.start")} onClick={() => visit(root ?? "")}><House size={15} /></IconKey>
         <PathBar dir={dir} machine={machine} typed={typed} onType={setTyped} onVisit={visit} inside={inside} />
-        <IconKey label={t("pick.newFolder")} disabled={!folders.data?.path} onClick={() => setNaming((n) => (n === null ? "" : null))}><FolderPlus size={15} /></IconKey>
+        <IconKey label={t("pick.newFolder")} disabled={!canCreate} onClick={() => setNaming((n) => (n === null ? "" : null))}><FolderPlus size={15} /></IconKey>
         <IconKey label={t("top.reload")} onClick={() => void folders.refetch()}><RefreshCw size={15} /></IconKey>
         <IconKey label={t("browse.copyChatLink")} disabled={!folders.data?.path} onClick={() => copyChatLink(dir)}><Link2 size={15} /></IconKey>
       </div>
@@ -183,7 +186,7 @@ export default function FileBrowser({ machine: initialMachine, path: initialPath
         {/* Pull the focus ring inside the pane so the dialog's overflow-hidden rounded edge does not clip it. */}
         <div ref={list} tabIndex={-1} className={cn("min-w-0 flex-1 flex-col focus-visible:-outline-offset-6 @min-[620px]:flex @min-[620px]:w-72 @min-[620px]:flex-none @min-[620px]:border-r @min-[620px]:border-edge", file ? "hidden" : "flex")}>
           <FolderContents machine={machine} dir={dir} top={dir === root} folders={folders} selected={file?.name} onFolder={openFolder} onFile={openFile} copyActions={copyActions}>
-            {naming !== null && (
+            {showNaming && (
               <form className={cn(folderRowClass, "bg-fill")} onSubmit={(e) => (e.preventDefault(), make())}>
                 {making ? <LoaderCircle size={17} className="shrink-0 animate-spin text-ink-3" /> : <FolderPlus size={17} className="shrink-0 text-ink-2" />}
                 <input
@@ -215,7 +218,7 @@ export default function FileBrowser({ machine: initialMachine, path: initialPath
             channel in the folder shown, at the computer shown; the folder is its group. */}
         {!file && (
           <Dialog.Close
-            disabled={!folders.data?.path || (!!machine && !computer?.online)}
+            disabled={!canCreate || (!!machine && !computer?.online)}
             onClick={() => void newChannelAt(nativeAt(computer, dir), machine || undefined, workspace).then((id) => id && openChat(id))}
             className="g-press absolute right-3 bottom-3 flex h-9 items-center gap-1.5 rounded-full bg-ink pr-3.5 pl-2.5 text-sm font-medium text-on-ink shadow-lg disabled:opacity-40 pointer-coarse:h-11"
           >

@@ -1890,6 +1890,11 @@ export interface DirEntry {
 export interface DirListing {
   path: string;
   entries: DirEntry[];
+  /**
+   * Open reports whether this directory itself is in the effective open scope. If not,
+   * the entries are only paths leading to open directories.
+   */
+  open: boolean;
 }
 /**
  * Copy copies a file (local ir only): POST /v1/internal/files/copy streams CopyProgress lines.

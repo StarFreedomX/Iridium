@@ -137,6 +137,7 @@ func (s *Server) makeFolder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Machine != "" {
+		// TODO: Check the new directory against the login's scope. A traversable parent is not a write grant.
 		if err := s.remoteScope(callerOf(r), req.Machine, req.Path); err != nil {
 			s.error(w, err)
 			return
