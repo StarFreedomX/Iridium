@@ -124,7 +124,8 @@ func (s *Server) browseFiles(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), browseTimeout)
 	defer cancel()
-	var out wire.BrowseReply
+	// Older executors omit Open and return a listing only for open directories.
+	out := wire.BrowseReply{Open: true}
 	if err := at.machine.Call(ctx, "fs.list.browser", wire.PathParams{Path: at.path, Scope: at.scope}, &out); err != nil {
 		s.browserRemoteError(w, err)
 		return

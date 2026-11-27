@@ -13,11 +13,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
+
 	"github.com/kumoSleeping/iridium/internal/api"
 	"github.com/kumoSleeping/iridium/internal/config"
 	"github.com/kumoSleeping/iridium/internal/gate"
 	"github.com/kumoSleeping/iridium/internal/remote"
 	"github.com/kumoSleeping/iridium/internal/remote/executor"
+	"github.com/kumoSleeping/iridium/internal/remote/wire"
 )
 
 // Web file browsing: list a folder, read a Range slice, honor the host guard, refuse app tokens.
@@ -54,6 +57,51 @@ func TestFileBrowserAccess(t *testing.T) {
 	app := l.newApp("browse")
 	l.want(http.StatusForbidden, app.Token, "GET", list, nil, nil)
 	l.want(http.StatusForbidden, app.Token, "GET", content, nil, nil)
+}
+
+// Older executors omit open from fs.list.browser replies; treat a successful listing as open.
+func TestFileBrowserLegacyReply(t *testing.T) {
+	t.Parallel()
+	hub := &remote.Hub{Logf: t.Logf}
+	l := startWith(t, func(s *Server, _ config.Config, _ string) { s.Remote = hub })
+	const machine, home = "legacy", "/shared"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hub.Serve(w, r, machine, machine)
+	}))
+	t.Cleanup(srv.Close)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	ws, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(srv.URL, "http"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn := wire.NewConn(ws)
+	t.Cleanup(func() { conn.Close() })
+	conn.OnRequest = func(_ context.Context, method string, _ json.RawMessage) (any, error) {
+		if method != "fs.list.browser" {
+			return nil, &wire.Error{Code: wire.CodeUnsupported, Message: method}
+		}
+		return wire.ListReply{Entries: []wire.Entry{{Name: "project", Type: "dir"}}}, nil
+	}
+	go conn.Run(t.Context())
+	if err := conn.Call(ctx, "hello", wire.Hello{Protocol: wire.Protocol, Home: home, Sep: "/"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	for {
+		if _, ok := hub.Machine(machine).Hello(); ok {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatal("the executor did not connect")
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	var listing api.DirListing
+	l.want(http.StatusOK, "web", http.MethodGet, "/v1/internal/web/files?machine="+machine, nil, &listing)
+	if !listing.Open || listing.Path != home || len(listing.Entries) != 1 || listing.Entries[0].Name != "project" {
+		t.Fatalf("legacy listing: %+v", listing)
+	}
 }
 
 // A login can browse folders within both its scope and the computer's shared roots.
