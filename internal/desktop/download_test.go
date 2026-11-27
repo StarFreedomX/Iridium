@@ -35,8 +35,8 @@ func TestFetch(t *testing.T) {
 	if last != int64(len(body)) || whole != int64(len(body)) {
 		t.Fatalf("progress ended at %d of %d", last, whole)
 	}
-	if _, err := os.Stat(path + ".part"); !os.IsNotExist(err) {
-		t.Fatal("part file left")
+	if entries, err := os.ReadDir(dir); err != nil || len(entries) != 1 {
+		t.Fatalf("download directory contains %v, err = %v", entries, err)
 	}
 
 	// No login: an error, nothing saved.

@@ -396,6 +396,9 @@ func (u *ui) message(p *mygo.Page, msg, origin string, logf func(string, ...any)
 		return
 	}
 	switch verb {
+	case "cancel-download":
+		// Stop an active download started from this page (bridge.go cancelDownload).
+		cancelDownload(p, arg)
 	case "win":
 		u.winKey(p, arg)
 	case "title":

@@ -265,6 +265,21 @@ body {
 .float.rest {
   box-shadow: var(--shadow-rest);
 }
+/* Download toast progress ring (toast.tsx DownloadRing): conic arc masked to a 2px stroke,
+   driven by --download-progress; high-contrast modes swap in system colors. */
+.download-ring {
+  --track: var(--fill-2);
+  --arc: var(--ink-2);
+  background: conic-gradient(var(--arc) var(--download-progress), var(--track) 0);
+  mask-image: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 2px));
+}
+@media (forced-colors: active) {
+  .download-ring {
+    forced-color-adjust: none;
+    --track: GrayText;
+    --arc: CanvasText;
+  }
+}
 /* Solid, the blur would be worked out each frame under a ground it cannot be seen through: none,
    and the layer it made (a stacking context) kept, so nothing in it moves in front or behind. */
 @media (prefers-reduced-transparency: reduce) {

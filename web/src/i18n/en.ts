@@ -952,6 +952,7 @@ export const en: Dict = {
   "app.title": "Iridium app",
   "app.downloading": "Downloading",
   "app.downloaded": "Downloaded",
+  "app.downloadCanceled": "Canceled",
   "app.downloadFailed": "Download failed",
   "app.inBrowser": "Opened in the browser",
   "app.min": "Minimise",

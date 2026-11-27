@@ -952,6 +952,7 @@ export const zh = {
   "app.title": "Iridium 应用",
   "app.downloading": "下载中",
   "app.downloaded": "已下载",
+  "app.downloadCanceled": "已取消",
   "app.downloadFailed": "下载失败",
   "app.inBrowser": "已在浏览器中打开",
   "app.min": "最小化",

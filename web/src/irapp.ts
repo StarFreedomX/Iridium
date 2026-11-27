@@ -57,63 +57,46 @@ export function ask(verb: string, arg = "") {
 }
 
 /** A download the app tells of (bridge.go guard): its toast, by the download's id, as it goes. The
- *  web view shows none of its own (QGI, 2026-11-23: a download went on unseen). */
+ *  web view shows none of its own (QGI, 2026-11-23: a download went on unseen). App-fetched ones
+ *  report bytes and percentage and can be canceled from the toast. */
 type Download = {
   id: string;
   name: string;
-  state: "start" | "progress" | "done" | "failed" | "gone";
+  state: "start" | "progress" | "done" | "failed" | "canceled" | "gone";
   pct?: number;
+  got?: number;
+  total?: number;
+  cancellable?: boolean;
 };
-const downloads = new Map<string, string>();
+const downloads = new Map<string, { toastId: string; cancel?: () => void }>();
 function showDownload(d: Download) {
   const was = downloads.get(d.id);
   if (d.state === "start") {
-    if (was) toasts.close(was);
-    downloads.set(
-      d.id,
-      toast(t("app.downloading"), {
-        description: d.name,
-        mark: "busy",
-        file: true,
-        timeout: 0,
-      }),
-    );
+    if (was) toasts.close(was.toastId);
+    const cancel = d.cancellable ? () => ask("cancel-download", d.id) : undefined;
+    const toastId = toast(d.name, {
+      progress: { got: d.cancellable ? 0 : undefined, cancel },
+      timeout: 0,
+    });
+    downloads.set(d.id, { toastId, cancel });
     return;
   }
   if (d.state === "progress") {
-    // How far, in its title (下载中 37%): the app fetches it, the web view says nothing of it.
+    // Ring percentage and byte counts come from fetch (download.go); web-view downloads do not report progress.
     if (was)
-      toasts.update(was, { title: `${t("app.downloading")} ${d.pct ?? 0}%` });
+      toasts.update(was.toastId, {
+        data: { progress: { pct: d.pct, got: d.got, total: d.total, cancel: was.cancel } },
+      });
     return;
   }
   downloads.delete(d.id);
-  if (d.state === "gone") return void (was && toasts.close(was));
-  const next: {
-    title: string;
-    description: string;
-    timeout: number;
-    data: { mark?: "download"; error?: boolean; file?: boolean };
-  } =
-    d.state === "done"
-      ? {
-          title: t("app.downloaded"),
-          description: d.name,
-          timeout: 2500,
-          data: { mark: "download" as const, file: true },
-        }
-      : {
-          title: t("app.downloadFailed"),
-          description: t("app.inBrowser"),
-          timeout: 8000,
-          data: { error: true },
-        };
-  if (was) toasts.update(was, next);
-  else
-    toast(next.title, {
-      description: next.description,
-      timeout: next.timeout,
-      ...next.data,
-    });
+  if (d.state === "gone") return void (was && toasts.close(was.toastId));
+  const title = t(d.state === "done" ? "app.downloaded" : d.state === "canceled" ? "app.downloadCanceled" : "app.downloadFailed");
+  const description = d.state === "failed" ? t("app.inBrowser") : d.name;
+  const timeout = d.state === "failed" ? 8000 : 2500;
+  const data = { mark: d.state === "done" ? "download" as const : undefined, error: d.state === "failed", file: d.state !== "failed" };
+  if (was) toasts.update(was.toastId, { title, description, timeout, data });
+  else toast(title, { description, timeout, ...data });
 }
 
 window.addEventListener("ir-app", (e) => {
