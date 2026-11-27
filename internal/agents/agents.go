@@ -178,7 +178,7 @@ var all = []Info{
 	{
 		Agent: api.AgentCodex, Name: "Codex",
 		Modes: codex.Modes, DefaultMode: codex.DefaultMode, ModeSwitch: "next turn", Quota: true, OwnID: true,
-		Efforts: []string{"minimal", "low", "medium", "high", "xhigh"},
+		Efforts: []string{"minimal", "low", "medium", "high", "xhigh", "max", "ultra"},
 		New: func(emit func(agent.Event), logf func(string, ...any)) agent.Driver {
 			return codex.New(codex.Options{Emit: emit, Logf: logf})
 		},
