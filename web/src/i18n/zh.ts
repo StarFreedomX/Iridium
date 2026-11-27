@@ -238,6 +238,7 @@ export const zh = {
   "effort.high": "高",
   "effort.xhigh": "超高",
   "effort.max": "最高",
+  "effort.ultra": "Ultra",
   "effort.off": "关",
   "composer.cmdCommon": "通用",
   "composer.commands": "命令",
