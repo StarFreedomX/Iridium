@@ -11,7 +11,7 @@
 import { Menu } from "@base-ui/react/menu";
 import { Archive, ArchiveRestore, Bookmark, BookmarkMinus, BookmarkX, Bot, Check, ChevronRight, Copy, Ellipsis, Ungroup, Folder, FolderOpen, ListCollapse, Moon, Pencil, Pin, PinOff, Plus, RefreshCw, Square, FolderPlus } from "lucide-react";
 import { ConfirmIcon, confirmName, confirmTitle } from "./confirmname";
-import { Fragment, lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactElement, type ReactNode, type RefObject } from "react";
+import { Fragment, lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactElement, type ReactNode, type RefObject } from "react";
 import { api } from "./api/client";
 import type { Agent, Color, Guilds, Need, Session } from "./api/types.gen";
 import { NO_GUILDS, placesOf, withGroupOrder, withMark, type Places } from "./guilds";
@@ -36,7 +36,7 @@ import { PLACE_DRAG, SESSION_DRAG } from "./chat/refs";
 import { atOf, badge, isQuiet, onUnread, setQuiet, unreadOf, useAt, useQuiet, useUnread } from "./unread";
 import { Face, FaceStack } from "./chat/channel/face";
 import { CloudBadge, MachineFace, shownPath, useLate, useMachine, type Machine } from "./machines";
-import { getCarried, setCarried, useCarried, useLink, useList } from "./store";
+import { getCarried, setCarried, useCarried, useLink, useList, useListed } from "./store";
 import { channelLamp, isMulti } from "./chat/channel/lib";
 import { useVoiceItem, VoiceDock, VoiceMark } from "./voice/dock";
 import { ANY, dropMark, dropTarget, endDrag, listDrop, pinFolder, placeFolder, placeGroup as placeGroupKey, placeSession, startDrag, touchDrag, useDragged, useOver, type Dragged, type Edge, type Over } from "./reorder";
@@ -505,7 +505,7 @@ export function Sidebar(p: Props) {
   );
 
   const aside = (
-    <aside className={cn("relative flex h-full flex-col select-none [-webkit-touch-callout:none]", p.phone ? "w-full" : "shrink-0")} style={p.phone ? undefined : { width }}>
+    <aside className={cn("relative flex h-full flex-col select-none [-webkit-touch-callout:none]", p.phone ? "w-full" : "shrink-0 bg-rail [--row-bg:var(--rail)]")} style={p.phone ? undefined : { width }}>
       {!p.phone && <Divider width={width} setWidth={setWidth} />}
       {head}
       {/* While searching, the jump box in the tree's place; the tree stays mounted, hidden, and
@@ -781,8 +781,9 @@ function Row({ depth, flip, chevron, expanded, icon, label, end, selected, onCli
       }}
       className={cn(
         "group relative flex cursor-default rounded-md pr-2 transition-opacity duration-(--dur-2) select-none",
-        // The row open: a fill of its own, a step darker than a hover's, its words as any row's (kumo, 2026-11-26: no bold).
-        selected ? "bg-fill-2 [--row-bg:var(--fill-2)]" : "hover:bg-fill hover:[--row-bg:var(--fill)]",
+        // The row open: white paper lifted off the rail; under the pointer a faint wash of ink (kumo,
+        // 2026-11-27, 设计's 方案一; styles.css --picked); its words as any row's (2026-11-26: no bold).
+        selected ? "g-picked [--row-bg:var(--picked)]" : "hover:g-picked",
         face ? "items-center py-1.5 pointer-coarse:py-2" : two ? "items-start py-[5px] pointer-coarse:py-2" : "h-[30px] items-center pointer-coarse:h-10",
         faded && "opacity-60",
         dim && "opacity-40",
@@ -1092,7 +1093,7 @@ let saidNow: ReturnType<typeof useSaidLine> = () => undefined;
 function RowFace({ s, group, solo, unread, quiet }: { s: Session; group?: { id: string; agent: Agent }[]; solo?: { id: string; agent: Agent }; unread: number; quiet: boolean }) {
   const logo = group ? <FaceStack members={group} size={36} /> : solo ? <Face id={solo.id} agent={solo.agent} size={36} logo={20} low /> : <Logo agent={s.agent} size={20} />;
   return (
-    <span className={cn("relative grid size-9 place-items-center rounded-full", !group && "bg-fill")}>
+    <span className={cn("relative grid size-9 place-items-center rounded-full", !group && "g-disc")}>
       <Face id={s.id} agent={solo?.agent ?? s.agent} size={36} none={logo} className="place-items-center" low channel />
       {unread > 0 && (
         <span
@@ -1233,7 +1234,7 @@ function CrossRow({ k, item, srv, place }: { k: string; item: FavItem; srv: FavS
         onClick={() => crossAsk("open", server, id)}
         aria={`${item.title}, ${srv.title}${item.unread ? `, ${t("status.unreadCount", { n: badge(item.unread) })}` : ""}`}
         icon={
-          <span className="relative grid size-9 place-items-center rounded-full bg-fill">
+          <span className="relative grid size-9 place-items-center rounded-full g-disc">
             {item.face ? <img src={item.face} alt="" draggable={false} className="size-9 rounded-full object-cover" /> : <Logo agent={item.agent as Agent} size={20} />}
             {item.unread > 0 && (
               <span
@@ -1297,10 +1298,11 @@ const SessionRow = memo(function SessionRow({ s, where, depth, flip, selected, o
   const title = titleOf(s);
   // A confirmation its agent asked for waits on you too, while it is not at work.
   // A channel's agents (one or several): its lamp is theirs, lit while any of them works.
-  const all = useCarried<Session[]>(s.agents?.length ? "list" : null);
   const ags = s.agents;
   const multi = isMulti(s) ? ags! : undefined;
-  const allMembers = ags?.map((a) => all?.find((x) => x.id === a.session));
+  // Those of the list alone: the row is drawn again as one of them changes, not as any row does.
+  const agIds = useMemo(() => ags?.map((a) => a.session), [ags]);
+  const allMembers = useListed(agIds);
   const members = multi ? allMembers : undefined;
   const soloRow = s.bare && ags?.length === 1 ? ags[0] : undefined;
   const soloAgent = soloRow ? (allMembers?.[0]?.agent ?? soloRow.agent ?? s.agent) : undefined;
@@ -1646,7 +1648,7 @@ export function MenuItems({ lead = [], items, tags, children, foot, label, final
     };
     const label = (
       <>
-        <span className={red ? "text-err" : "text-ink-2"}>{it.icon}</span>
+        {it.icon != null && <span className={red ? "text-err" : "text-ink-2"}>{it.icon}</span>}
         <span className="min-w-0 truncate">{red ? it.sure : it.label}</span>
       </>
     );
